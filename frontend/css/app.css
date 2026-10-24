@@ -128,3 +128,13 @@ body.login-view header, body.login-view .composer { display: none; }
 .login-manual summary { cursor: pointer; margin-bottom: 8px; }
 .login-manual a { color: var(--accent); }
 .login-big { width: 100%; height: 56px; font-size: 16px; }
+
+/* Claude terminal */
+.term-box { background: #121316; border-radius: 18px; padding: 10px; height: min(56vh, 460px); overflow: hidden; border: 1px solid rgba(255,255,255,.06); }
+.term-box .xterm { height: 100%; }
+.term-cmds button { display: flex; align-items: center; justify-content: center; gap: 4px; }
+.term-cmds .ms { font-size: 18px; }
+.term-status { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 14px; margin: -6px 4px 12px; }
+.term-keys { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.term-keys button { height: 40px; padding: 0 14px; border-radius: 12px; border: 0; background: var(--surface-high); color: var(--on-surface); font: inherit; font-size: 14px; display: flex; align-items: center; gap: 6px; cursor: pointer; }
+.term-keys button:first-child { background: var(--container); color: var(--on-container); }

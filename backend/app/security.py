@@ -118,7 +118,8 @@ def _check_access(token: str) -> bool:
         return False
 
 
-async def valid_access(request: Request) -> bool:
+async def valid_access(request) -> bool:
+    """request: an HTTP Request or a WebSocket (both have headers and cookies)."""
     if not access_enabled():
         return False
     token = request.headers.get("cf-access-jwt-assertion") or request.cookies.get("CF_Authorization")
@@ -138,3 +139,11 @@ class AuthMiddleware(BaseHTTPMiddleware):
             return JSONResponse({"detail": "Nicht angemeldet"}, status_code=401)
         nxt = path + (("?" + request.url.query) if request.url.query else "")
         return RedirectResponse("/login" + ("" if path == "/" else f"?next={nxt}"), status_code=303)
+
+
+async def websocket_allowed(ws) -> bool:
+    """WebSockets bypass the middleware: same login check, plus the page must come from this host (no CSRF)."""
+    origin, host = ws.headers.get("origin", ""), ws.headers.get("host", "")
+    if origin and origin.split("://", 1)[-1] != host:
+        return False
+    return valid_cookie(ws.cookies.get(COOKIE)) or await valid_access(ws)

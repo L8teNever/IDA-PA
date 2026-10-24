@@ -1,6 +1,8 @@
 import json
+import sys
 
 import httpx
+import pytest
 
 from .conftest import chat, wait
 
@@ -161,17 +163,42 @@ def test_trigger_end_to_end_with_mock_mcp(client):
         srv.shutdown()
 
 
-def test_browser_login(client):
-    a = client.post(f"{API}/accounts", json={"name": "Browser"}).json()
-    url = client.post(f"{API}/accounts/{a['id']}/login/start").json()["url"]
-    assert url.startswith("https://claude.com/cai/oauth/authorize")
-    r = client.post(f"{API}/accounts/{a['id']}/login/code", json={"code": "falsch#abc"})
-    assert r.status_code == 400 and "fehlgeschlagen" in r.json()["detail"]
-    client.post(f"{API}/accounts/{a['id']}/login/start")
-    r = client.post(f"{API}/accounts/{a['id']}/login/code", json={"code": "goodcode1234#abc"})
-    assert r.status_code == 200 and r.json()["logged_in"] is True
+def _ws(server, client, path):
+    from websockets.sync.client import connect
+    cookie = "; ".join(f"{k}={v}" for k, v in client.cookies.items())
+    return connect(server.replace("http", "ws") + path, additional_headers={"Cookie": cookie} if cookie else {}, open_timeout=10)
+
+
+def test_terminal_requires_login(server):
+    import websockets
+    from websockets.sync.client import connect
+    try:  # rejected already in the handshake (HTTP 403) – never reaches the CLI
+        with connect(server.replace("http", "ws") + f"{API}/accounts/a1/terminal", open_timeout=10):
+            raise AssertionError("connection must be refused")
+    except websockets.exceptions.InvalidStatus as e:
+        assert e.response.status_code == 403
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="PTY only on Linux (Docker/CI)")
+def test_terminal_login_like_t3code(server, client):
+    """`claude auth login` in a real PTY: the browser sends the code, the CLI stores the login; reconnect replays output."""
+    a = client.post(f"{API}/accounts", json={"name": "Terminal"}).json()
+    path = f"{API}/accounts/{a['id']}/terminal?cmd=login&cols=100&rows=30"
+    with _ws(server, client, path) as ws:
+        out = ""
+        while "Paste code" not in out:
+            out += json.loads(ws.recv(timeout=10)).get("d", "")
+        assert "oauth/authorize" in out
+    # socket closed (e.g. phone switched to Claude) – the CLI keeps waiting; reconnect gets the buffer
+    with _ws(server, client, path) as ws:
+        assert "oauth/authorize" in json.loads(ws.recv(timeout=10))["d"]
+        ws.send(json.dumps({"t": "in", "d": "goodcode1234#abc\r"}))
+        while True:
+            m = json.loads(ws.recv(timeout=15))
+            if m["t"] == "exit":
+                break
+        assert m["code"] == 0 and m["logged_in"] is True
     assert next(x for x in client.get(f"{API}/accounts").json() if x["id"] == a["id"])["logged_in"]
-    assert client.post(f"{API}/accounts/{a['id']}/login/code", json={"code": "goodcode1234#abc"}).status_code == 400  # no pending login
 
 
 def test_cloudflare_access_login(server):

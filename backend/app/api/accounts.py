@@ -1,14 +1,19 @@
-"""Claude accounts. Logging in through a browser does not work inside the container, so an account gets
-its login either as an uploaded .credentials.json (from a machine where `claude` is logged in) or as a
-token from `claude setup-token`."""
+"""Claude accounts. Login like in T3 Code: a terminal in the browser runs `claude auth login` for the account
+(WebSocket below); the CLI stores the login itself in the account's config dir on the /data volume.
+Alternatives: upload a .credentials.json or paste a token from `claude setup-token`."""
 import json
 
-from fastapi import APIRouter, UploadFile
+import asyncio
+import contextlib
+
+from fastapi import APIRouter, UploadFile, WebSocket, WebSocketDisconnect
 from sqlalchemy import func, select
 
 from ..models import Account
-from ..schemas import AccountCreate, AccountUpdate, LoginCode
-from ..services.claude import login as login_svc
+from ..schemas import AccountCreate, AccountUpdate
+from ..db import session_scope
+from ..security import websocket_allowed
+from ..services.claude import terminal as term
 from ..services.claude import usage as usage_svc
 from ..services.claude.runner import account_dir
 from ..services.errors import Invalid, NotFound
@@ -77,26 +82,6 @@ async def _account(db, account_id: str) -> Account:
     return a
 
 
-@router.post("/accounts/{account_id}/login/start")
-async def login_start(account_id: str, db: DB):
-    """Browser login, step 1: returns the claude.ai sign-in URL (the CLI waits for the code)."""
-    return {"url": await login_svc.start(await _account(db, account_id))}
-
-
-@router.post("/accounts/{account_id}/login/code")
-async def login_code(account_id: str, body: LoginCode, db: DB):
-    """Browser login, step 2: the code shown by claude.ai after signing in."""
-    a = await _account(db, account_id)
-    await login_svc.finish(a, body.code)
-    return ser.account(a, True)
-
-
-@router.post("/accounts/{account_id}/login/cancel")
-async def login_cancel(account_id: str, db: DB):
-    await login_svc.cancel(await _account(db, account_id))
-    return {"ok": True}
-
-
 @router.delete("/accounts/{account_id}/login")
 async def logout(account_id: str, db: DB):
     a = await db.get(Account, account_id)
@@ -128,3 +113,61 @@ async def usage(db: DB, force: bool = False):
             u = {"error": f"Abfrage fehlgeschlagen: {e}"}
         out.append({"id": a.id, "name": a.name, **u})
     return out
+
+
+@router.get("/terminal")
+async def terminal_info():
+    return {"available": term.available(), "commands": list(term.COMMANDS)}
+
+
+@router.websocket("/accounts/{account_id}/terminal")
+async def terminal(ws: WebSocket, account_id: str, cmd: str = "login", cols: int = 100, rows: int = 30):
+    """Live terminal with the Claude CLI of this account (login like in T3 Code: `claude auth login`).
+    Messages: browser -> {"t":"in","d":text} | {"t":"resize","cols","rows"};  server -> {"t":"out","d":text} | {"t":"exit",...}"""
+    if not await websocket_allowed(ws):
+        await ws.close(code=4401)
+        return
+    await ws.accept()
+    async with session_scope() as db:
+        a = await db.get(Account, account_id)
+    if not a:
+        await ws.send_json({"t": "error", "d": "Account nicht gefunden"})
+        await ws.close()
+        return
+    try:
+        s = await term.open_session(a, cmd, cols, rows)
+    except Invalid as e:
+        await ws.send_json({"t": "error", "d": str(e)})
+        await ws.close()
+        return
+    queue: asyncio.Queue = asyncio.Queue()
+    listener = queue.put_nowait
+    s.listeners.add(listener)
+    if s.buffer:  # reconnect: show what happened meanwhile
+        await ws.send_json({"t": "out", "d": bytes(s.buffer).decode(errors="replace")})
+    if not s.running:
+        queue.put_nowait(None)
+
+    async def pump_out():
+        while True:
+            data = await queue.get()
+            if data is None:
+                await ws.send_json({"t": "exit", "code": s.exit_code, "logged_in": usage_svc.logged_in(a)})
+                return
+            await ws.send_json({"t": "out", "d": data.decode(errors="replace")})
+
+    out_task = asyncio.create_task(pump_out())
+    try:
+        while True:
+            msg = await ws.receive_json()
+            if msg.get("t") == "in":
+                s.write(str(msg.get("d", "")).encode())
+            elif msg.get("t") == "resize":
+                s.resize(int(msg.get("cols", 100)), int(msg.get("rows", 30)))
+    except (WebSocketDisconnect, RuntimeError, ValueError):
+        pass  # the process keeps running – opening the terminal again reconnects
+    finally:
+        s.listeners.discard(listener)
+        out_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError, Exception):
+            await out_task
