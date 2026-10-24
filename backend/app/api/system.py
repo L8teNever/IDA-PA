@@ -7,7 +7,7 @@ from sqlalchemy import func, select
 from ..config import get_settings
 from ..db import utcnow
 from ..models import USER, Account, Agent, Message, Routine, RoutineRun, Skill
-from ..services import jobs
+from ..services import activity, jobs
 from ..services.agents import PALETTES
 from ..services.claude.usage import logged_in
 from . import serializers as ser
@@ -19,6 +19,12 @@ router = APIRouter(tags=["system"])
 @router.get("/api/v1/health")
 async def health():
     return {"ok": True}
+
+
+@router.get("/api/v1/activity")
+async def current_activity():
+    """What the agents are doing right now (polled by the browser for the mascot)."""
+    return {**activity.snapshot(), "jobs": jobs.status()}
 
 
 @router.get("/api/v1/bootstrap")

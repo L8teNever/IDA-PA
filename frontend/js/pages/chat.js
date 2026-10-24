@@ -3,7 +3,7 @@ import { api, streamChat } from "../api.js";
 import { setUrl } from "../router.js";
 import { agentById, agentOf, state } from "../store.js";
 import { $, esc, fmtDateTime, md, toast } from "../ui/dom.js";
-import { moodForTool, setMood, baseMood } from "../ui/mascot.js";
+import { flashMood, moodForTool, setLive } from "../ui/mascot.js";
 import { setAgent, setView } from "../ui/shell.js";
 
 // current conversation: { id|null, agentId, model, accountId }
@@ -95,7 +95,7 @@ export async function send(text, { skill = null, model, accountId } = {}) {
   const parts = [];
   const tools = {};
   renderBot(el, parts);
-  setMood("thinking");
+  setLive("thinking");
   let ok = false, meta = {};
   try {
     await streamChat({ chat_id: ctx.id, agent_id: agent.id, text, skill, model, account_id: accountId }, (ev) => {
@@ -107,11 +107,10 @@ export async function send(text, { skill = null, model, accountId } = {}) {
       } else if (ev.tool) {
         const p = { t: "tool", ...ev.tool };
         tools[p.id] = p; parts.push(p);
-        setMood(moodForTool(p.name));
+        setLive(moodForTool(p.name));
       } else if (ev.tool_result) {
         const p = tools[ev.tool_result.id];
         if (p) { p.out = ev.tool_result.content; p.error = ev.tool_result.error; }
-        setMood("thinking");
       } else if (ev.sys) {
         addSys(ev.sys);
       } else if (ev.done) {
@@ -126,8 +125,8 @@ export async function send(text, { skill = null, model, accountId } = {}) {
     renderBot(el, parts, "", meta);
   } finally {
     ctx.busy = false;
-    setMood(ok ? "happy" : "sad", 2000);
-    setTimeout(() => setMood(baseMood()), 2100);
+    setLive(null);
+    flashMood(ok ? "happy" : "sad");
     document.dispatchEvent(new CustomEvent("chat:done"));
   }
 }

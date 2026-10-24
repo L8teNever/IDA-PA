@@ -43,6 +43,20 @@ def test_chat_stream_persist_resume_and_skill(client):
     assert [m["role"] for m in c["messages"]] == ["user", "assistant", "user", "assistant"]
     assert c["messages"][2]["meta"]["skill"] == "zusammenfassen"
     assert client.get(f"{API}/chats?q=weiter").json()[0]["id"] == cid
+    act = client.get(f"{API}/activity").json()  # runs are over: nobody working, Ida's last run went well
+    assert act["agents"] == {} and act["done"]["ida"]["ok"] is True
+
+
+def test_activity_steps():
+    from app.services import activity
+    rid = activity.start("stella", "run")
+    activity.step(rid, "tool", "stella_call", "telefon")
+    activity.step(rid, "writing")  # the last tool stays visible while the answer is written
+    a = activity.snapshot()["agents"]["stella"]
+    assert (a["state"], a["tool"], a["kind"]) == ("tool", "stella_call", "run")
+    activity.end(rid, False)
+    snap = activity.snapshot()
+    assert "stella" not in snap["agents"] and snap["done"]["stella"]["ok"] is False
 
 
 def test_hub_tools_rights_and_memory(client):

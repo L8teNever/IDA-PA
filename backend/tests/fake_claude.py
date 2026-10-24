@@ -3,11 +3,13 @@
 Behaviour (decided by the prompt text):
   LIMIT     -> account a1 answers with a usage-limit error (fallback tests)
   TOOL x y  -> calls tool x of the internal MCP with JSON args y, answers with the tool result
+  SLOW      -> pauses a few seconds per step (to watch the mascot in the browser)
   otherwise -> echoes the prompt; the system prompt is appended after "SYSTEM:" when the prompt contains SHOWSYS
 """
 import json
 import os
 import sys
+import time
 import urllib.request
 
 args = sys.argv[1:]
@@ -58,12 +60,16 @@ if "TOOL " in prompt:
     line = prompt[prompt.index("TOOL "):].splitlines()[0]
     _, name, raw = line.split(" ", 2)
     out({"type": "assistant", "message": {"content": [{"type": "tool_use", "id": "t1", "name": f"mcp__ida__{name}", "input": json.loads(raw)}]}})
+    if "SLOW" in prompt:
+        time.sleep(5)
     res = hub(name, json.loads(raw))
     out({"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "t1", "content": [{"type": "text", "text": res}]}]}})
     text = f"[{account}] {res}"
 else:
     text = f"[{account}|{arg('--model')}] {prompt}" + (f"\nSYSTEM:{system}" if "SHOWSYS" in prompt else "")
 
+if "SLOW" in prompt:
+    time.sleep(4)
 for i in range(0, len(text), 40):
     out({"type": "stream_event", "event": {"delta": {"type": "text_delta", "text": text[i:i + 40]}}})
 out({"type": "result", "is_error": False, "result": text, "session_id": session})

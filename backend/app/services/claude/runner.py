@@ -10,6 +10,7 @@ import os
 import re
 import shutil
 import sys
+from contextlib import aclosing
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -17,6 +18,7 @@ from pathlib import Path
 from ...config import get_settings
 from ...models import Account
 from ...models._types import new_id
+from .. import activity
 
 log = logging.getLogger("ida.claude")
 
@@ -60,6 +62,8 @@ class RunSpec:
     deny: list[str] = field(default_factory=list)
     session_id: str | None = None  # resume this Claude session
     persist: bool = False  # keep the session for later resumes (chats)
+    agent_id: str | None = None  # whose run this is (shown as the mascot's mood)
+    kind: str = "run"  # chat | run
 
 
 @dataclass
@@ -88,6 +92,25 @@ async def stream(spec: RunSpec) -> AsyncIterator[dict]:
     {"type":"text","text"}, {"type":"tool","id","server","name","input"},
     {"type":"tool_result","id","error","content"}, {"type":"done","ok","result","session_id"}.
     """
+    rid = activity.start(spec.agent_id, spec.kind) if spec.agent_id else None
+    ok = False
+    try:
+        async with aclosing(_stream(spec)) as events:  # closing it stops the CLI if our consumer goes away
+            async for ev in events:
+                if rid:
+                    if ev["type"] == "text":
+                        activity.step(rid, "writing")
+                    elif ev["type"] == "tool":
+                        activity.step(rid, "tool", ev["name"], ev["server"])
+                    elif ev["type"] == "done":
+                        ok = ev["ok"]
+                yield ev
+    finally:
+        if rid:
+            activity.end(rid, ok)
+
+
+async def _stream(spec: RunSpec) -> AsyncIterator[dict]:
     s = get_settings()
     run_dir = s.sandbox_dir / "runs" / new_id()
     run_dir.mkdir(parents=True, exist_ok=True)

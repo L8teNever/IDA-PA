@@ -84,7 +84,8 @@ async def prepare(db: AsyncSession, agent: Agent, prompt: str, *, model: str | N
     allow.append(f"mcp__{HUB}")
     acc = account or await account_or_first(db, agent.account_id)
     spec = RunSpec(model=model or agent.model or s.default_model, account=acc, prompt=prompt, system=system,
-                   mcp_servers=servers, allow=allow, deny=deny, session_id=session_id, persist=persist)
+                   mcp_servers=servers, allow=allow, deny=deny, session_id=session_id, persist=persist,
+                   agent_id=agent.id, kind="chat" if interactive else "run")
     return Prepared(spec=spec, token=token)
 
 
