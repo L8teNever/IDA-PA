@@ -138,3 +138,36 @@ body.login-view header, body.login-view .composer { display: none; }
 .term-keys { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
 .term-keys button { height: 40px; padding: 0 14px; border-radius: 12px; border: 0; background: var(--surface-high); color: var(--on-surface); font: inherit; font-size: 14px; display: flex; align-items: center; gap: 6px; cursor: pointer; }
 .term-keys button:first-child { background: var(--container); color: var(--on-container); }
+
+/* custom dropdowns (js/ui/select.js) – native <select> stays hidden underneath */
+.dd { display: block; position: relative; }
+.dd-native { display: none !important; }
+.dd-btn { width: 100%; display: flex; align-items: center; gap: 8px; border: 0; background: transparent; color: var(--on-surface);
+  font: inherit; font-size: 16px; padding: 2px 0; cursor: pointer; text-align: left; }
+.dd-btn:disabled { opacity: .5; cursor: default; }
+.dd-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dd-chev { font-size: 22px; color: var(--muted); transition: transform .3s var(--emph); }
+.dd.dd-open .dd-chev { transform: rotate(180deg); color: var(--accent); }
+.fld:has(.dd.dd-open) { box-shadow: 0 0 0 2px rgba(var(--accent-rgb), .6); }
+.fld .dd-btn:focus-visible { outline: none; }
+.fld:has(.dd-btn:focus-visible) { box-shadow: 0 0 0 2px rgba(var(--accent-rgb), .6); }
+.dd-menu { position: fixed; z-index: 200; padding: 6px; overflow-y: auto; background: var(--surface-highest); border-radius: 20px;
+  box-shadow: 0 8px 28px rgba(0,0,0,.55); transform-origin: top left; transform: scale(.88) translateY(-6px); opacity: 0;
+  transition: transform .3s var(--spring), opacity .16s; overscroll-behavior: contain; }
+.dd-menu.up { transform-origin: bottom left; transform: scale(.88) translateY(6px); }
+.dd-menu.show { transform: none; opacity: 1; }
+.dd-menu.closing { opacity: 0; transform: scale(.95); transition: opacity .14s, transform .14s; }
+.dd-item { width: 100%; display: flex; align-items: center; gap: 12px; border: 0; background: transparent; color: var(--on-surface);
+  font: inherit; font-size: 15px; text-align: left; padding: 11px 12px; border-radius: 14px; cursor: pointer;
+  transition: background .15s, border-radius .25s var(--spring); }
+.dd-item:hover, .dd-item.act { background: rgba(255,255,255,.07); }
+.dd-item.sel { background: rgba(var(--accent-rgb), .16); border-radius: 18px; }
+.dd-item:disabled { opacity: .4; cursor: default; }
+.dd-text { flex: 1; min-width: 0; }
+.dd-check { font-size: 20px; color: var(--accent); visibility: hidden; }
+.dd-item.sel .dd-check { visibility: visible; }
+/* the design's ".fld span" (field caption) must not hit the dropdown's own parts */
+.fld .dd { display: block; margin: 0; font-size: inherit; color: inherit; }
+.fld .dd .dd-label { display: block; margin: 0; font-size: 16px; color: var(--on-surface); }
+.fld .dd .dd-chev { display: inline-block; margin: 0; font-size: 22px; color: var(--muted); }
+.fld .dd.dd-open .dd-chev { color: var(--accent); }

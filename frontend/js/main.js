@@ -4,6 +4,7 @@ import { loadBoot } from "./store.js";
 import { initComposer } from "./ui/composer.js";
 import { $, toast } from "./ui/dom.js";
 import { initMascot } from "./ui/mascot.js";
+import { initSelects } from "./ui/select.js";
 import { initShell, setView } from "./ui/shell.js";
 import { openChat } from "./pages/chat.js";
 import { chatsPage } from "./pages/chats.js";
@@ -38,6 +39,7 @@ async function start() {
     return;
   }
   await loadBoot();
+  initSelects();
   initShell();
   initMascot();
   initComposer();

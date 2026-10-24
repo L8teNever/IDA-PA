@@ -22,6 +22,15 @@ log = logging.getLogger("ida")
 BACKEND = Path(__file__).resolve().parents[1]
 
 
+class Static(StaticFiles):
+    """Static files that the browser re-validates on every load (ETag -> cheap 304), so an update is visible at once."""
+
+    async def get_response(self, path, scope):
+        resp = await super().get_response(path, scope)
+        resp.headers["cache-control"] = "no-cache"
+        return resp
+
+
 def migrate() -> None:
     cfg = Config(str(BACKEND / "alembic.ini"))
     cfg.set_main_option("script_location", str(BACKEND / "alembic"))
@@ -61,7 +70,7 @@ def create_app() -> FastAPI:
         app.include_router(r.router)
 
     front = s.frontend_dir
-    app.mount("/static", StaticFiles(directory=front), name="static")
+    app.mount("/static", Static(directory=front), name="static")
     index = front / "index.html"
 
     @app.get("/{path:path}", include_in_schema=False)
