@@ -13,6 +13,9 @@ docker compose up -d          # zieht ghcr.io/l8tenever/ida-pa:latest
 
 Dann `http://<server>:8080` öffnen und anmelden.
 
+**Hinter Cloudflare Zero Trust:** `CF_ACCESS_TEAM_DOMAIN` und `CF_ACCESS_AUD` (AUD-Tag der Access-App) in der `.env` setzen –
+dann prüft IDA das signierte Cloudflare-Token jeder Anfrage und du musst dich nicht zusätzlich mit dem Passwort anmelden.
+
 * **Updates:** `docker compose pull && docker compose up -d` – oder automatisch mit `docker compose --profile autoupdate up -d` (Watchtower prüft alle 10 Minuten).
 * **Privates Repo:** einmal `docker login ghcr.io` (GitHub-Token mit `read:packages`), sonst kann das Image nicht geladen werden.
 * **Selbst bauen:** `docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build`

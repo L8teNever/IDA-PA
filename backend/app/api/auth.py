@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException, Request, Response
 
 from ..config import get_settings
 from ..schemas import Login
-from ..security import COOKIE, make_cookie, valid_cookie, verify_password
+from ..security import COOKIE, make_cookie, valid_access, valid_cookie, verify_password
 
 router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
 
@@ -24,4 +24,5 @@ async def logout(response: Response):
 
 @router.get("/me")
 async def me(request: Request):
-    return {"logged_in": valid_cookie(request.cookies.get(COOKIE))}
+    via_access = await valid_access(request)
+    return {"logged_in": via_access or valid_cookie(request.cookies.get(COOKIE)), "via": "cloudflare" if via_access else "password"}

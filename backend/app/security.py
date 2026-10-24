@@ -1,8 +1,13 @@
-"""Login for the web UI: one password, a signed session cookie.
+"""Login for the web UI.
 
-The password comes from APP_PASSWORD; without it one is generated at the first start and printed to the
-log once. Only a scrypt hash is stored. Internal routes (/mcp/{token}) authenticate with their own token.
+1. Behind Cloudflare Zero Trust (CF_ACCESS_TEAM_DOMAIN + CF_ACCESS_AUD set): every request through the tunnel
+   carries a signed Access token (header Cf-Access-Jwt-Assertion / cookie CF_Authorization). If its signature,
+   audience, issuer and expiry are valid, the request is let in – no second login.
+2. Otherwise (e.g. direct access to the port): one password, a signed session cookie. The password comes from
+   APP_PASSWORD; without it one is generated at the first start and printed to the log once (scrypt hash stored).
+Internal routes (/mcp/{token}) authenticate with their own token.
 """
+import asyncio
 import hashlib
 import hmac
 import logging
@@ -10,6 +15,7 @@ import secrets
 
 from fastapi import Request
 from fastapi.responses import JSONResponse, RedirectResponse
+import jwt
 from itsdangerous import BadSignature, SignatureExpired, TimestampSigner
 from starlette.middleware.base import BaseHTTPMiddleware
 
@@ -84,10 +90,49 @@ def valid_cookie(value: str | None) -> bool:
         return False
 
 
+# ---------------- Cloudflare Access ----------------
+_jwks: jwt.PyJWKClient | None = None
+
+
+def access_enabled() -> bool:
+    s = get_settings()
+    return bool(s.cf_access_team_domain and s.cf_access_aud)
+
+
+def verify_access_token(token: str, signing_key) -> dict:
+    """Checks a Cloudflare Access JWT (RS256, audience, issuer, expiry). Raises jwt.PyJWTError if invalid."""
+    s = get_settings()
+    return jwt.decode(token, signing_key, algorithms=["RS256"], audience=s.cf_access_aud,
+                      issuer=f"https://{s.cf_access_team_domain}", options={"require": ["exp", "iat", "aud", "iss"]})
+
+
+def _check_access(token: str) -> bool:
+    global _jwks
+    if _jwks is None:
+        _jwks = jwt.PyJWKClient(f"https://{get_settings().cf_access_team_domain}/cdn-cgi/access/certs", cache_keys=True, lifespan=3600)
+    try:
+        verify_access_token(token, _jwks.get_signing_key_from_jwt(token).key)
+        return True
+    except (jwt.PyJWTError, OSError) as e:
+        log.info("Cloudflare-Access-Token abgelehnt: %s", e)
+        return False
+
+
+async def valid_access(request: Request) -> bool:
+    if not access_enabled():
+        return False
+    token = request.headers.get("cf-access-jwt-assertion") or request.cookies.get("CF_Authorization")
+    if not token:
+        return False
+    return await asyncio.to_thread(_check_access, token)  # key download is blocking (cached afterwards)
+
+
 class AuthMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         path = request.url.path
-        if path.startswith(PUBLIC_PREFIXES) or valid_cookie(request.cookies.get(COOKIE)):
+        if path == "/login" and await valid_access(request):  # already signed in via Cloudflare
+            return RedirectResponse(request.query_params.get("next", "/") if request.query_params.get("next", "/").startswith("/") and not request.query_params.get("next", "").startswith("//") else "/", status_code=303)
+        if path.startswith(PUBLIC_PREFIXES) or valid_cookie(request.cookies.get(COOKIE)) or await valid_access(request):
             return await call_next(request)
         if path.startswith("/api/"):
             return JSONResponse({"detail": "Nicht angemeldet"}, status_code=401)

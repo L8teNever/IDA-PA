@@ -172,3 +172,45 @@ def test_browser_login(client):
     assert r.status_code == 200 and r.json()["logged_in"] is True
     assert next(x for x in client.get(f"{API}/accounts").json() if x["id"] == a["id"])["logged_in"]
     assert client.post(f"{API}/accounts/{a['id']}/login/code", json={"code": "good#abc"}).status_code == 400  # no pending login
+
+
+def test_cloudflare_access_login(server):
+    """A valid Cloudflare Access token lets requests in without the app password; wrong AUD/signature does not."""
+    import time
+
+    import jwt
+    from cryptography.hazmat.primitives.asymmetric import rsa
+
+    from app import security
+    from app.config import get_settings
+
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    other = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    s = get_settings()
+    s.cf_access_team_domain, s.cf_access_aud = "team.cloudflareaccess.com", "aud-ida"
+
+    class FakeJwks:
+        def get_signing_key_from_jwt(self, token):
+            return type("K", (), {"key": key.public_key()})()
+
+    security._jwks = FakeJwks()
+
+    def token(signer=key, aud="aud-ida", exp=3600):
+        now = int(time.time())
+        return jwt.encode({"aud": [aud], "iss": "https://team.cloudflareaccess.com", "iat": now, "exp": now + exp,
+                           "email": "me@example.com"}, signer, algorithm="RS256")
+
+    try:
+        with httpx.Client(base_url=server) as c:
+            assert c.get(f"{API}/bootstrap").status_code == 401
+            assert c.get(f"{API}/bootstrap", headers={"cf-access-jwt-assertion": token()}).status_code == 200
+            assert c.get(f"{API}/bootstrap", cookies={"CF_Authorization": token()}).status_code == 200
+            assert c.get(f"{API}/bootstrap", headers={"cf-access-jwt-assertion": token(aud="other")}).status_code == 401
+            assert c.get(f"{API}/bootstrap", headers={"cf-access-jwt-assertion": token(signer=other)}).status_code == 401
+            assert c.get(f"{API}/bootstrap", headers={"cf-access-jwt-assertion": token(exp=-10)}).status_code == 401
+            r = c.get("/login", headers={"cf-access-jwt-assertion": token()}, follow_redirects=False)
+            assert r.status_code == 303 and r.headers["location"] == "/"
+            assert c.get(f"{API}/auth/me", headers={"cf-access-jwt-assertion": token()}).json()["via"] == "cloudflare"
+    finally:
+        s.cf_access_team_domain = s.cf_access_aud = ""
+        security._jwks = None

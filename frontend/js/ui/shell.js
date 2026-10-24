@@ -75,7 +75,12 @@ export function initShell() {
   document.addEventListener("click", (e) => { if (!$("agentWrap").contains(e.target)) $("agentWrap").classList.remove("open"); });
   addEventListener("keydown", (e) => { if (e.key === "Escape") { closeDrawers(); closeSheet(); $("agentWrap").classList.remove("open"); } });
   $("evScrim").onclick = closeSheet;
-  $("btnLogout").onclick = async () => { await api.post("/auth/logout"); location.href = "/login"; };
+  $("btnLogout").onclick = async () => {
+    const me = await api.get("/auth/me").catch(() => ({}));
+    await api.post("/auth/logout");
+    // signed in through Cloudflare Zero Trust: end that session too
+    location.href = me.via === "cloudflare" ? "/cdn-cgi/access/logout" : "/login";
+  };
   onChange(() => {
     renderMenu();
     const n = state.boot?.unread || 0;
