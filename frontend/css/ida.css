@@ -1069,8 +1069,6 @@
     .icon-btn:hover, .agent-btn:hover, .ah-chips button:hover { filter: brightness(1.25); }
     .note:hover, .item:hover { filter: brightness(1.15); }
     .send:not(:disabled):hover { filter: brightness(1.1); }
-    .messages::-webkit-scrollbar, .stage::-webkit-scrollbar { width: 8px; }
-    .messages::-webkit-scrollbar-thumb, .stage::-webkit-scrollbar-thumb { background: #282a2f; border-radius: 4px; }
   }
   /* Kein seitliches Verschieben mehr */
   html, body, main, .stage, .messages { overflow-x: hidden; max-width: 100vw; }

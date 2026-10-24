@@ -90,3 +90,11 @@ export function md(src) {
     .replace(/^\s*(\d+)\. (.+)$/gm, "<span class=\"md-li num\" data-n=\"$1\">$2</span>");
   return s.replace(/\u0000(\d+)\u0000/g, (_, i) => `<pre class="md-pre">${blocks[+i]}</pre>`);
 }
+
+// Textarea grows with its text (up to max-height in CSS), so long prompts are readable without an inner scrollbar.
+export function autogrow(ta) {
+  if (!ta) return;
+  const fit = () => { ta.style.height = "auto"; ta.style.height = `${ta.scrollHeight + 2}px`; };
+  ta.addEventListener("input", fit);
+  requestAnimationFrame(fit);
+}

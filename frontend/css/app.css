@@ -191,11 +191,62 @@ body.slash-open .slash-menu { display: block; }
 .time-chip button { width: 30px; height: 30px; border: 0; border-radius: 10px; background: transparent; color: inherit; cursor: pointer; display: grid; place-items: center; }
 .time-chip button .ms { font-size: 18px; }
 .time-chip button:hover { background: rgba(255,255,255,.08); }
-.time-add { display: inline-flex; align-items: center; gap: 6px; background: var(--surface-high); border-radius: 14px; padding: 4px 4px 4px 12px; }
-.time-add input[type=time] { background: transparent; border: 0; color: var(--on-surface); font: inherit; font-size: 15px; color-scheme: dark; }
-.time-add button { height: 32px; border: 0; border-radius: 10px; background: var(--accent); color: var(--on-accent); font: inherit; font-size: 13px;
-  display: flex; align-items: center; gap: 4px; padding: 0 10px; cursor: pointer; }
-.time-add button .ms { font-size: 18px; }
+.time-chip > .ms { font-size: 17px; opacity: .8; margin-right: 2px; }
+.time-add-btn { height: 40px; border: 1px dashed rgba(var(--accent-rgb), .55); border-radius: 14px; background: transparent; color: var(--accent);
+  font: inherit; font-size: 14px; font-weight: 500; display: inline-flex; align-items: center; gap: 4px; padding: 0 14px 0 10px; cursor: pointer; }
+.time-add-btn .ms { font-size: 20px; }
+.time-add-btn:hover { background: rgba(var(--accent-rgb), .1); }
+
+/* time picker (js/ui/timepicker.js), shares the dropdown look (.dd-menu) */
+.tp { padding: 14px; }
+.tp.sheet { border-radius: 28px; padding: 18px 16px calc(16px + env(safe-area-inset-bottom)); transform-origin: bottom center; transform: translateY(24px); box-shadow: 0 -10px 40px rgba(0,0,0,.5); }
+.tp.sheet.show { transform: none; }
+.tp.sheet .tp-grid button, .tp.sheet .tp-quick button { height: 42px; }
+.tp-head { display: flex; align-items: baseline; gap: 8px; padding: 2px 4px 8px; }
+.tp-big { font-size: 34px; font-weight: 500; color: var(--accent); font-variant-numeric: tabular-nums; }
+.tp-hint { color: var(--muted); font-size: 13px; }
+.tp-label { font-size: 12px; color: var(--muted); margin: 8px 4px 6px; }
+.tp-grid { display: grid; gap: 4px; }
+.tp-h { grid-template-columns: repeat(6, 1fr); }
+.tp-m { grid-template-columns: repeat(6, 1fr); }
+.tp-grid button, .tp-quick button { height: 36px; border: 0; border-radius: 10px; background: rgba(255,255,255,.05); color: var(--on-surface);
+  font: inherit; font-size: 14px; font-variant-numeric: tabular-nums; cursor: pointer; transition: background .15s, border-radius .25s var(--spring); }
+.tp-grid button:hover, .tp-quick button:hover { background: rgba(255,255,255,.1); }
+.tp-grid button.on { background: var(--accent); color: var(--on-accent); border-radius: 18px; font-weight: 500; }
+.tp-quick { display: flex; flex-wrap: wrap; gap: 4px; }
+.tp-quick button { padding: 0 10px; }
+.tp-quick button:disabled { opacity: .35; cursor: default; }
+.tp-actions { display: flex; gap: 8px; margin-top: 14px; }
+.tp-actions .es-btn { flex: 1; height: 42px; }
+.tp-actions .es-btn:disabled { opacity: .45; }
+
+/* routine form: sections */
+.rf-sec { background: var(--surface); border: 1px solid rgba(255,255,255,.06); border-radius: 24px; padding: 16px 16px 10px; margin-bottom: 12px; }
+.rf-h { display: flex; align-items: center; gap: 10px; font-size: 16px; font-weight: 500; margin: 0 2px 12px; color: var(--on-surface); }
+.rf-h > .ms { font-size: 22px; color: var(--accent); }
+.rf-h small { color: var(--muted); font-size: 13px; font-weight: 400; margin-left: auto; }
+.rf-note { color: var(--muted); font-size: 13px; margin: -6px 2px 10px; }
+.rf-sec .seg { margin-bottom: 10px; }
+.rf-sec .chipset + .flabel, .rf-sec .fld + .flabel { margin-top: 14px; }
+.rf-sum { display: flex; gap: 10px; align-items: flex-start; background: rgba(var(--accent-rgb), .1); color: var(--on-surface); border-radius: 16px;
+  padding: 10px 14px; margin: 14px 0 6px; font-size: 14px; line-height: 1.4; }
+.rf-sum .ms { color: var(--accent); font-size: 20px; }
+.rf-adv > summary { list-style: none; cursor: pointer; margin-bottom: 6px; }
+.rf-adv > summary::-webkit-details-marker { display: none; }
+.rf-adv .rf-chev { margin-left: 6px; color: var(--muted); transition: transform .25s; }
+.rf-adv[open] .rf-chev { transform: rotate(180deg); }
+.rf-adv[open] > summary { margin-bottom: 12px; }
+textarea.autogrow { resize: none; overflow-y: auto; min-height: 84px; max-height: 50vh; line-height: 1.5; }
+
+/* scrollbars in the IDA design everywhere (no grey Windows bars with arrows) */
+* { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,.18) transparent; }
+*:hover { scrollbar-color: rgba(255,255,255,.28) transparent; }
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(255,255,255,.18); border-radius: 8px; border: 2px solid transparent; background-clip: padding-box; }
+::-webkit-scrollbar-thumb:hover { background-color: rgba(255,255,255,.32); }
+::-webkit-scrollbar-button { display: none; height: 0; width: 0; }
+::-webkit-scrollbar-corner { background: transparent; }
 .chipset .day-preset { opacity: .75; font-size: 13px; }
 
 /* routine detail: active / paused state */

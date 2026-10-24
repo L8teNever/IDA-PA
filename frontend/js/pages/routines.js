@@ -2,7 +2,8 @@
 import { api } from "../api.js";
 import { navigate } from "../router.js";
 import { agentOf, agents, colors, mainAgent, modelInfo, state } from "../store.js";
-import { $, attempt, esc, every, everySec, fmtDateTime, md, sw, toast } from "../ui/dom.js";
+import { $, attempt, autogrow, esc, every, everySec, fmtDateTime, md, sw, toast } from "../ui/dom.js";
+import { openTimePicker } from "../ui/timepicker.js";
 import { setAgent, setView } from "../ui/shell.js";
 
 const ICONS = ["schedule", "inbox", "mail", "event", "alarm", "notifications", "savings", "menu_book", "school", "home_iot_device", "cloud", "search"];
@@ -112,22 +113,30 @@ export async function routineForm({ id } = {}) {
     const conn = connectors.find((c) => c.id === t.connector);
     $("page").innerHTML = `
       <div class="sub-head"><a class="icon-btn back" href="${id ? "/routinen/" + id : "/routinen"}" aria-label="Zurück"><span class="ms">arrow_back</span></a><h1>${id ? "Routine bearbeiten" : "Neue Routine"}</h1></div>
-      <label class="fld"><span>Name</span><input id="fName" maxlength="60" value="${esc(f.name)}" placeholder="z. B. Mail-Check"></label>
-      <div class="flabel">Icon</div>
-      <div class="chipset icons" id="fIcons">${ICONS.map((ic) => `<button type="button" data-ic="${ic}" class="${f.icon === ic ? "on" : ""}"><span class="ms">${ic}</span></button>`).join("")}</div>
-      <div class="flabel">Welcher Agent führt sie aus?</div>
-      <div class="chipset" id="fAgents">${agents().map((a) => `<button type="button" data-a="${a.id}" class="${f.agent_id === a.id ? "on" : ""}">${esc(a.name)}</button>`).join("")}</div>
-      <label class="fld" style="margin-top:12px"><span>Aufgabe (wird bei jedem Lauf ausgeführt, muss allein verständlich sein)</span><textarea id="fPrompt" rows="4">${esc(f.prompt)}</textarea></label>
-      <div class="flabel">Wann starten?</div>
+      <section class="rf-sec">
+        <h2 class="rf-h"><span class="ms">badge</span>Allgemein</h2>
+        <label class="fld"><span>Name</span><input id="fName" maxlength="60" value="${esc(f.name)}" placeholder="z. B. Mail-Check"></label>
+        <div class="flabel">Icon</div>
+        <div class="chipset icons" id="fIcons">${ICONS.map((ic) => `<button type="button" data-ic="${ic}" class="${f.icon === ic ? "on" : ""}"><span class="ms">${ic}</span></button>`).join("")}</div>
+        <div class="flabel">Welcher Agent führt sie aus?</div>
+        <div class="chipset" id="fAgents">${agents().map((a) => `<button type="button" data-a="${a.id}" class="${f.agent_id === a.id ? "on" : ""}">${esc(a.name)}</button>`).join("")}</div>
+      </section>
+      <section class="rf-sec">
+        <h2 class="rf-h"><span class="ms">task_alt</span>Aufgabe</h2>
+        <p class="rf-note">Wird bei jedem Lauf so ausgeführt – muss ohne Chat verständlich sein.</p>
+        <label class="fld"><textarea id="fPrompt" class="autogrow" rows="3" placeholder="Was soll der Agent jedes Mal tun?">${esc(f.prompt)}</textarea></label>
+      </section>
+      <section class="rf-sec">
+        <h2 class="rf-h"><span class="ms">event_repeat</span>Wann starten?</h2>
       <div class="seg" id="fMode"><button type="button" data-m="interval" class="${mode === "interval" ? "on" : ""}">⏱ Intervall</button><button type="button" data-m="times" class="${mode === "times" ? "on" : ""}">🕐 Uhrzeiten</button><button type="button" data-m="mcp" class="${mode === "mcp" ? "on" : ""}">🔔 Bei Neuem</button></div>
       ${mode === "times" ? `
         <div class="flabel" style="margin-top:4px">Uhrzeiten</div>
-        <div class="chipset time-chips" id="fTimes">${times.map((x) => `<span class="time-chip">${esc(x)}<button type="button" data-rm="${esc(x)}" aria-label="${esc(x)} entfernen"><span class="ms">close</span></button></span>`).join("")}
-          <span class="time-add"><input type="time" id="fTimeNew" value="12:00" aria-label="Uhrzeit"><button type="button" id="fTimeAdd"><span class="ms">add</span>Hinzufügen</button></span></div>
+        <div class="chipset time-chips" id="fTimes">${times.map((x) => `<span class="time-chip"><span class="ms">schedule</span>${esc(x)}<button type="button" data-rm="${esc(x)}" aria-label="${esc(x)} entfernen"><span class="ms">close</span></button></span>`).join("")}
+          <button type="button" class="time-add-btn" id="fTimeAdd"><span class="ms">add</span>Uhrzeit</button></div>
         <div class="flabel">An welchen Tagen?</div>
         <div class="chipset" id="fDays">${DAYS.map((d, i) => `<button type="button" data-d="${i}" class="${days.includes(i) ? "on" : ""}">${d}</button>`).join("")}
           <button type="button" class="day-preset" data-preset="all">täglich</button><button type="button" class="day-preset" data-preset="week">Mo–Fr</button><button type="button" class="day-preset" data-preset="weekend">Wochenende</button></div>
-        <p class="sub-intro" style="margin:10px 4px 0">Läuft ${esc(daysText(days))} um ${esc(times.join(", ") || "–")} Uhr (deutsche Zeit, Sommer-/Winterzeit wird beachtet).</p>`
+        <div class="rf-sum"><span class="ms">info</span><span>Läuft <b>${esc(daysText(days))}</b> um <b>${esc(times.join(", ") || "–")} Uhr</b> · deutsche Zeit, Sommer-/Winterzeit wird beachtet</span></div>`
       : mode === "interval" ? `
         <div class="fld-row"><label class="fld"><span>alle</span><input id="fEvery" type="number" min="1" value="${f.interval_min / unit}"></label>
         <label class="fld"><span>Einheit</span><select id="fUnit"><option value="1" ${unit === 1 ? "selected" : ""}>Minuten</option><option value="60" ${unit === 60 ? "selected" : ""}>Stunden</option><option value="1440" ${unit === 1440 ? "selected" : ""}>Tage</option></select></label></div>`
@@ -143,7 +152,9 @@ export async function routineForm({ id } = {}) {
         <button type="button" class="es-btn" id="tTest"><span class="ms">science</span>Tool testen</button>
         <pre class="test-out" id="tOut" hidden></pre>`
         : `<div class="soon-box"><span class="ms">extension</span>Erst einen MCP-Server mit Tools verbinden (Einstellungen → MCP-Server).</div>`}`}
-      <div class="flabel">Ausführung</div>
+      </section>
+      <details class="rf-sec rf-adv" ${f.model || f.account_id || f.fallback !== null || f.memory_enabled !== null ? "open" : ""}>
+        <summary class="rf-h"><span class="ms">tune</span>Ausführung <small>${f.model || f.account_id || f.fallback !== null || f.memory_enabled !== null ? "angepasst" : "alles wie der Agent"}</small><span class="ms rf-chev">expand_more</span></summary>
       <div class="fld-row">
         <label class="fld"><span>Modell</span><select id="fModel"><option value="">wie der Agent</option>${state.boot.models.map((m) => `<option value="${m}" ${f.model === m ? "selected" : ""}>${esc(modelInfo(m).name)}</option>`).join("")}</select></label>
         <label class="fld"><span>Account</span><select id="fAcc"><option value="">wie der Agent</option>${state.boot.accounts.map((a) => `<option value="${a.id}" ${f.account_id === a.id ? "selected" : ""}>${esc(a.name)}</option>`).join("")}</select></label>
@@ -152,6 +163,7 @@ export async function routineForm({ id } = {}) {
         <label class="fld"><span>Bei Limit anderen Account nehmen</span><select id="fFallback">${tri(f.fallback)}</select></label>
         <label class="fld"><span>Gedächtnis</span><select id="fMemory">${tri(f.memory_enabled)}</select></label>
       </div>
+      </details>
       <div id="fErr" class="ferr"></div>
       <div class="wiz-nav"><a class="es-btn" href="${id ? "/routinen/" + id : "/routinen"}">Abbrechen</a><button class="es-btn primary" id="fSave"><span class="ms">check</span>${id ? "Speichern" : "Anlegen"}</button></div>`;
     bind();
@@ -170,20 +182,17 @@ export async function routineForm({ id } = {}) {
   };
 
   const bind = () => {
+    autogrow($("fPrompt"));
     if ($("fTimes")) {
       $("fTimes").onclick = (e) => {
         const rm = e.target.closest("[data-rm]");
         if (rm) { keep(); times = times.filter((x) => x !== rm.dataset.rm); draw(); }
       };
-      const addTime = () => {
-        const v = $("fTimeNew").value;
-        if (!/^\d{2}:\d{2}$/.test(v)) return;
-        keep();
-        if (!times.includes(v)) times = [...times, v].sort();
-        draw();
-      };
-      $("fTimeAdd").onclick = addTime;
-      $("fTimeNew").onkeydown = (e) => { if (e.key === "Enter") { e.preventDefault(); addTime(); } };
+      $("fTimeAdd").onclick = () => openTimePicker($("fTimeAdd"), {
+        value: times.length ? times[times.length - 1] : "07:00",
+        taken: times,
+        onPick: (v) => { keep(); if (!times.includes(v)) times = [...times, v].sort(); draw(); },
+      });
       $("fDays").onclick = (e) => {
         const b = e.target.closest("[data-d],[data-preset]");
         if (!b) return;
