@@ -15,6 +15,11 @@ def test_login_required(server):
         r = c.get("/einstellungen/agents", follow_redirects=False)
         assert r.status_code == 303 and r.headers["location"].startswith("/login")
         assert c.post(f"{API}/auth/login", json={"password": "falsch"}).status_code == 401
+        # the login page needs its CSS/JS without a login (versioned asset path)
+        import re
+        page = c.get("/login")
+        ver = re.search(r'"/s/(\w+)/css/app\.css"', page.text).group(1)
+        assert c.get(f"/s/{ver}/css/app.css", follow_redirects=False).status_code == 200
 
 
 def test_pages_get_the_app(client):

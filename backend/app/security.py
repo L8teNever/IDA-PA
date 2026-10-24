@@ -26,7 +26,7 @@ from .services import settings_store
 log = logging.getLogger("ida.auth")
 COOKIE = "ida_session"
 # reachable without a session
-PUBLIC_PREFIXES = ("/login", "/api/v1/auth/", "/api/v1/health", "/static/", "/mcp/", "/favicon")
+PUBLIC_PREFIXES = ("/login", "/api/v1/auth/", "/api/v1/health", "/static/", "/s/", "/mcp/", "/favicon")
 
 _signer: TimestampSigner | None = None
 _password_hash: str | None = None
