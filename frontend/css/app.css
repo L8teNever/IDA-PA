@@ -218,3 +218,8 @@ body.login-view header, body.login-view .composer { display: none; }
 .state-note { display: flex; align-items: center; gap: 10px; margin: 0 0 12px; padding: 12px 16px; border-radius: 16px;
   background: var(--surface-high); color: var(--muted); font-size: 14px; }
 .state-note .ms { font-size: 22px; color: #e3b341; }
+
+/* composer: there is no attach button, so the text needs its own inner spacing */
+.field { padding-left: 18px; padding-right: 8px; }
+.field-tools { margin-left: -8px; }
+#input { padding: 15px 0 13px; line-height: 1.45; overflow-y: auto; scrollbar-width: thin; }
