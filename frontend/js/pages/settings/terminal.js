@@ -15,11 +15,11 @@ function loadXterm() {
     document.head.appendChild(e);
   });
   loaded ||= Promise.all([
-    add("link", { rel: "stylesheet", href: "/static/vendor/xterm/xterm.css" }),
-    add("script", { src: "/static/vendor/xterm/xterm.js" }),
+    add("link", { rel: "stylesheet", href: new URL("../../../vendor/xterm/xterm.css", import.meta.url).href }),
+    add("script", { src: new URL("../../../vendor/xterm/xterm.js", import.meta.url).href }),
   ]).then(() => Promise.all([
-    add("script", { src: "/static/vendor/xterm/addon-fit.js" }),
-    add("script", { src: "/static/vendor/xterm/addon-web-links.js" }),
+    add("script", { src: new URL("../../../vendor/xterm/addon-fit.js", import.meta.url).href }),
+    add("script", { src: new URL("../../../vendor/xterm/addon-web-links.js", import.meta.url).href }),
   ]));
   return loaded;
 }

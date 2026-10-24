@@ -20,7 +20,13 @@ def test_login_required(server):
 def test_pages_get_the_app(client):
     for url in ("/", "/chats", "/einstellungen/agents/lea", "/routinen/neu"):
         r = client.get(url)
-        assert r.status_code == 200 and "/static/js/main.js" in r.text
+        assert r.status_code == 200 and r.headers["cache-control"] == "no-store"
+    # files are linked under a version path (new with every update) and may be cached for good
+    import re
+    ver = re.search(r'"/s/(\w+)/js/main\.js"', r.text).group(1)
+    a = client.get(f"/s/{ver}/css/app.css")
+    assert a.status_code == 200 and "immutable" in a.headers["cache-control"]
+    assert client.get("/static/css/app.css").headers["cache-control"] == "no-cache"
     assert client.get("/api/v1/gibtsnicht").status_code == 404
 
 
