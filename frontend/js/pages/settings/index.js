@@ -31,6 +31,7 @@ export function subHead(title, back) {
 export async function settingsPage({ section, id } = {}) {
   setAgent(mainAgent());
   setView("page");
+  $("page").classList.add("page-wide");
   if (!section && isWide()) section = "agents";
   $("page").innerHTML = `<div class="set-wrap ${section ? "insub" : ""}" id="setWrap">
       <div class="set-list"><div class="page-head"><h1>Einstellungen</h1></div><div id="setList"></div></div>

@@ -16,6 +16,7 @@ export function setView(mode, { agentStage } = {}) {
   $("home").hidden = stage !== "home";
   $("agentHome").hidden = stage !== "agent";
   $("page").hidden = mode !== "page" && mode !== "login";
+  $("page").classList.remove("page-wide");
   if (stage === "home") b.classList.add("view-timeline");
   if (mode === "page") b.classList.add("on-page");
   if (mode === "login") b.classList.add("on-page", "login-view");

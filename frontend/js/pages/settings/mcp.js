@@ -57,18 +57,22 @@ async function detail(el, id) {
   const m = await api.get(`/connectors/${id}`);
   const [col, txt] = statusOf(m);
   el.innerHTML = subHead(m.name, BASE) + `
-    <div class="pcard">
+    <div class="detail-top"><div class="pcard">
       <div class="kv"><span>Status</span><b><span class="sdot inline" style="background:${col}"></span>${esc(txt)}${m.status === "error" ? " – " + esc(m.status_text) : ""}</b></div>
       <div class="kv"><span>URL</span><b class="mono">${esc(m.url)}${m.auth ? " 🔒" : ""}</b></div>
       <div class="kv"><span>Geprüft</span><b>${m.checked_at ? fmtDateTime(m.checked_at) : "–"}</b></div>
-    </div>
+    </div><div>
     <div class="slist toggles"><div class="srow"><span class="smain"><b>Aktiv</b><small>Aus = kein Agent kann ihn benutzen</small></span>${sw(m.enabled, 'id="mEnabled"')}</div></div>
-    <div class="btn-row"><button class="es-btn" id="mRefresh"><span class="ms">refresh</span>Tools neu laden</button><button class="es-btn danger" id="mDel"><span class="ms">delete</span>Entfernen</button></div>
+    <div class="btn-row"><button class="es-btn" id="mRefresh"><span class="ms">refresh</span>Tools neu laden</button><button class="es-btn danger" id="mDel"><span class="ms">delete</span>Entfernen</button></div></div></div>
     <div class="grp">Agents mit Zugriff</div>
     <div class="chipset" id="mAgents">${state.boot.agents.map((a) => `<button data-a="${a.id}" class="${m.agents.includes(a.id) ? "on" : ""}">${esc(a.name)}</button>`).join("")}</div>
     <p class="sub-intro" style="margin-top:8px">Welche Tools ein Agent davon nutzen darf, stellst du beim Agent ein.</p>
-    <div class="grp">Tools (${m.tools.length}) – ausgeschaltete kann niemand nutzen</div>
-    <div class="slist">${m.tools.map((t) => `<div class="srow"><span class="smain"><b class="mono">${esc(t)}</b></span>${sw(!m.disabled_tools.includes(t), `data-tool="${esc(t)}"`)}</div>`).join("") || `<div class="empty">Keine Tool-Liste – „Tools neu laden“.</div>`}</div>`;
+    <div class="grp">Tools (<span id="mOn">${m.tools.length - m.disabled_tools.length}</span> von ${m.tools.length} an) – ausgeschaltete kann niemand nutzen</div>
+    ${m.tools.length ? `<div class="tool-bar">
+      <div class="search"><span class="ms">search</span><input id="mFind" placeholder="Tool suchen"></div>
+      <button class="es-btn" id="mAllOn"><span class="ms">toggle_on</span>Alle an</button>
+      <button class="es-btn" id="mAllOff"><span class="ms">toggle_off</span>Alle aus</button></div>` : ""}
+    <div class="slist tool-grid" id="mTools">${m.tools.map((t) => `<div class="srow" data-name="${esc(t.toLowerCase())}"><span class="smain"><b class="mono" title="${esc(t)}">${esc(t)}</b></span>${sw(!m.disabled_tools.includes(t), `data-tool="${esc(t)}"`)}</div>`).join("") || `<div class="empty">Keine Tool-Liste – „Tools neu laden“.</div>`}</div>`;
   $("mEnabled").onclick = async () => { await attempt(() => api.patch(`/connectors/${id}`, { enabled: !m.enabled })); detail(el, id); };
   $("mRefresh").onclick = async () => { const r = await attempt(() => api.post(`/connectors/${id}/refresh`)); if (r) toast(r.status === "ok" ? r.status_text : "Fehler: " + r.status_text); detail(el, id); };
   $("mDel").onclick = async () => { if (confirm(`${m.name} entfernen?`) && (await attempt(() => api.del(`/connectors/${id}`), "Entfernt"))) navigate(BASE); };
@@ -78,6 +82,23 @@ async function detail(el, id) {
     const on = !m.agents.includes(b.dataset.a);
     if (await attempt(() => api.put(`/agents/${b.dataset.a}/connectors/${id}`, { allowed: on, tools: null }))) detail(el, id);
   };
+  const setDisabled = async (disabled) => {
+    if (await attempt(() => api.patch(`/connectors/${id}`, { disabled_tools: disabled }))) {
+      m.disabled_tools = disabled;
+      el.querySelectorAll("[data-tool]").forEach((x) => x.classList.toggle("on", !disabled.includes(x.dataset.tool)));
+      $("mOn").textContent = m.tools.length - disabled.length;
+    }
+  };
+  if ($("mFind")) {
+    $("mFind").oninput = () => {
+      const q = $("mFind").value.trim().toLowerCase();
+      $("mTools").querySelectorAll("[data-name]").forEach((r) => (r.hidden = !!q && !r.dataset.name.includes(q)));
+    };
+    // "Alle an/aus" act on the tools currently shown (respects the search)
+    const shown = () => [...$("mTools").querySelectorAll("[data-name]:not([hidden]) [data-tool]")].map((x) => x.dataset.tool);
+    $("mAllOn").onclick = () => setDisabled(m.disabled_tools.filter((t) => !shown().includes(t)));
+    $("mAllOff").onclick = () => setDisabled([...new Set([...m.disabled_tools, ...shown()])]);
+  }
   el.querySelectorAll("[data-tool]").forEach((b) => (b.onclick = async () => {
     const t = b.dataset.tool;
     const disabled = m.disabled_tools.includes(t) ? m.disabled_tools.filter((x) => x !== t) : [...m.disabled_tools, t];
