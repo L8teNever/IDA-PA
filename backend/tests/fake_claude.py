@@ -11,6 +11,19 @@ import sys
 import urllib.request
 
 args = sys.argv[1:]
+if args[:2] == ["auth", "login"]:  # browser login: print URL, wait for the code, store credentials
+    print("Opening browser to sign in…", flush=True)
+    print("If the browser didn't open, visit: https://claude.com/cai/oauth/authorize?code=true&state=abc", flush=True)
+    print("Paste code here if prompted > ", end="", flush=True)
+    code = sys.stdin.readline().strip()
+    if code != "good#abc":
+        print("OAuth error: invalid code", flush=True)
+        sys.exit(1)
+    path = os.path.join(os.environ["CLAUDE_CONFIG_DIR"], ".credentials.json")
+    with open(path, "w", encoding="utf8") as f:
+        json.dump({"claudeAiOauth": {"accessToken": "sk-ant-oat-test", "refreshToken": "r", "expiresAt": 0}}, f)
+    print("Login successful.", flush=True)
+    sys.exit(0)
 if args[:1] == ["auth"]:
     print("{}")
     sys.exit(0)

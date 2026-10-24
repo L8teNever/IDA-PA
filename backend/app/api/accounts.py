@@ -7,7 +7,8 @@ from fastapi import APIRouter, UploadFile
 from sqlalchemy import func, select
 
 from ..models import Account
-from ..schemas import AccountCreate, AccountUpdate
+from ..schemas import AccountCreate, AccountUpdate, LoginCode
+from ..services.claude import login as login_svc
 from ..services.claude import usage as usage_svc
 from ..services.claude.runner import account_dir
 from ..services.errors import Invalid, NotFound
@@ -67,6 +68,33 @@ async def upload_credentials(account_id: str, file: UploadFile, db: DB):
     except OSError:
         pass
     return ser.account(a, True)
+
+
+async def _account(db, account_id: str) -> Account:
+    a = await db.get(Account, account_id)
+    if not a:
+        raise NotFound("Account nicht gefunden")
+    return a
+
+
+@router.post("/accounts/{account_id}/login/start")
+async def login_start(account_id: str, db: DB):
+    """Browser login, step 1: returns the claude.ai sign-in URL (the CLI waits for the code)."""
+    return {"url": await login_svc.start(await _account(db, account_id))}
+
+
+@router.post("/accounts/{account_id}/login/code")
+async def login_code(account_id: str, body: LoginCode, db: DB):
+    """Browser login, step 2: the code shown by claude.ai after signing in."""
+    a = await _account(db, account_id)
+    await login_svc.finish(a, body.code)
+    return ser.account(a, True)
+
+
+@router.post("/accounts/{account_id}/login/cancel")
+async def login_cancel(account_id: str, db: DB):
+    await login_svc.cancel(await _account(db, account_id))
+    return {"ok": True}
 
 
 @router.delete("/accounts/{account_id}/login")

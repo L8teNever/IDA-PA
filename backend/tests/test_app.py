@@ -159,3 +159,16 @@ def test_trigger_end_to_end_with_mock_mcp(client):
         assert run[0]["via"] == "trigger" and '"m2"' in run[0]["text"] and '"m1"' not in run[0]["text"]
     finally:
         srv.shutdown()
+
+
+def test_browser_login(client):
+    a = client.post(f"{API}/accounts", json={"name": "Browser"}).json()
+    url = client.post(f"{API}/accounts/{a['id']}/login/start").json()["url"]
+    assert url.startswith("https://claude.com/cai/oauth/authorize")
+    r = client.post(f"{API}/accounts/{a['id']}/login/code", json={"code": "falsch#abc"})
+    assert r.status_code == 400 and "fehlgeschlagen" in r.json()["detail"]
+    client.post(f"{API}/accounts/{a['id']}/login/start")
+    r = client.post(f"{API}/accounts/{a['id']}/login/code", json={"code": "good#abc"})
+    assert r.status_code == 200 and r.json()["logged_in"] is True
+    assert next(x for x in client.get(f"{API}/accounts").json() if x["id"] == a["id"])["logged_in"]
+    assert client.post(f"{API}/accounts/{a['id']}/login/code", json={"code": "good#abc"}).status_code == 400  # no pending login

@@ -169,6 +169,10 @@ class AccountUpdate(BaseModel):
     oauth_token: str | None = None
 
 
+class LoginCode(BaseModel):
+    code: str
+
+
 class UserMessage(BaseModel):
     to: str
     text: str
