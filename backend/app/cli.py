@@ -3,7 +3,6 @@
   python -m app.cli import-legacy <ordner>   übernimmt Daten des alten Node-Prototyps (legacy/node-app):
       connectors.json + tools.json, agents.json + main-profile.json, skills.json, routines.json, messages.json,
       memory.db (SQLite) oder memory.json. Bereits vorhandene Einträge (gleiche ID) werden übersprungen.
-  python -m app.cli set-password <passwort>
 """
 import asyncio
 import json
@@ -135,20 +134,9 @@ async def import_legacy(folder: Path) -> None:
     print("Claude-Logins werden nicht übernommen: unter Einstellungen -> Claude-Accounts .credentials.json hochladen.")
 
 
-async def set_password(pw: str) -> None:
-    from .security import _hash
-    from .services import settings_store
-    await asyncio.to_thread(migrate)
-    async with session_scope() as db:
-        await settings_store.put(db, "password_hash", _hash(pw))
-    print("Passwort gesetzt (APP_PASSWORD in der .env hat Vorrang, falls gesetzt).")
-
-
 def main() -> None:
     if len(sys.argv) >= 3 and sys.argv[1] == "import-legacy":
         asyncio.run(import_legacy(Path(sys.argv[2])))
-    elif len(sys.argv) >= 3 and sys.argv[1] == "set-password":
-        asyncio.run(set_password(sys.argv[2]))
     else:
         print(__doc__)
 

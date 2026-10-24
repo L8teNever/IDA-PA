@@ -8,10 +8,6 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 
-class Login(BaseModel):
-    password: str
-
-
 class AgentCreate(BaseModel):
     name: str
     description: str = ""

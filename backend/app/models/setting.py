@@ -6,7 +6,7 @@ from ._types import Json
 
 
 class Setting(Base):
-    """Key/value settings (default model, password hash, secret key, …)."""
+    """Key/value settings (default model, …)."""
 
     __tablename__ = "settings"
 

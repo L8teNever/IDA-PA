@@ -37,7 +37,7 @@ def server():
     tmp = Path(tempfile.mkdtemp(prefix="ida-test-"))
     port = _free_port()
     os.environ.update({
-        "DATA_DIR": str(tmp / "data"), "APP_PASSWORD": "pw", "CLAUDE_BIN": _fake_bin(tmp), "SCHEDULER_ENABLED": "false",
+        "DATA_DIR": str(tmp / "data"), "CLAUDE_BIN": _fake_bin(tmp), "SCHEDULER_ENABLED": "false",
         "INTERNAL_URL": f"http://127.0.0.1:{port}", "OLLAMA_URL": "http://127.0.0.1:9",
         # CI also runs the suite against PostgreSQL (TEST_DATABASE_URL); locally SQLite in the temp dir
         "DATABASE_URL": os.environ.get("TEST_DATABASE_URL", ""),
@@ -61,7 +61,6 @@ def server():
 @pytest.fixture(scope="session")
 def client(server):
     c = httpx.Client(base_url=server, timeout=60)
-    assert c.post("/api/v1/auth/login", json={"password": "pw"}).status_code == 200
     yield c
     c.close()
 

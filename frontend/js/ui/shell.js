@@ -4,10 +4,10 @@ import { navigate } from "../router.js";
 import { agents, colors, mainAgent, onChange, state } from "../store.js";
 import { $, closeSheet, esc } from "./dom.js";
 
-// "home" (main agent: infos + today) | "agent" (start page of another agent) | "page" | "chat" | "login"
+// "home" (main agent: infos + today) | "agent" (start page of another agent) | "page" | "chat"
 export function setView(mode, { agentStage } = {}) {
   const b = document.body;
-  b.classList.remove("chatting", "on-page", "view-timeline", "show-mini", "show-bell", "login-view");
+  b.classList.remove("chatting", "on-page", "view-timeline", "show-mini", "show-bell");
   closeDrawers();
   closeSheet();
   $("agentWrap").classList.remove("open");
@@ -15,14 +15,13 @@ export function setView(mode, { agentStage } = {}) {
   const stage = mode === "chat" ? agentStage : mode;
   $("home").hidden = stage !== "home";
   $("agentHome").hidden = stage !== "agent";
-  $("page").hidden = mode !== "page" && mode !== "login";
+  $("page").hidden = mode !== "page";
   $("page").classList.remove("page-wide");
   if (stage === "home") b.classList.add("view-timeline");
   if (mode === "page") b.classList.add("on-page");
-  if (mode === "login") b.classList.add("on-page", "login-view");
   if (mode === "chat") b.classList.add("chatting");
   else $("messages").innerHTML = "";
-  if (mode === "page" || mode === "login") $("page").scrollTop = 0;
+  if (mode === "page") $("page").scrollTop = 0;
 }
 
 export function setAgent(a) {
@@ -76,12 +75,6 @@ export function initShell() {
   document.addEventListener("click", (e) => { if (!$("agentWrap").contains(e.target)) $("agentWrap").classList.remove("open"); });
   addEventListener("keydown", (e) => { if (e.key === "Escape") { closeDrawers(); closeSheet(); $("agentWrap").classList.remove("open"); } });
   $("evScrim").onclick = closeSheet;
-  $("btnLogout").onclick = async () => {
-    const me = await api.get("/auth/me").catch(() => ({}));
-    await api.post("/auth/logout");
-    // signed in through Cloudflare Zero Trust: end that session too
-    location.href = me.via === "cloudflare" ? "/cdn-cgi/access/logout" : "/login";
-  };
   onChange(() => {
     renderMenu();
     const n = state.boot?.unread || 0;

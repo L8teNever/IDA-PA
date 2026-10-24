@@ -9,17 +9,12 @@ from .conftest import chat, wait
 API = "/api/v1"
 
 
-def test_login_required(server):
+def test_no_web_login(server):
+    """The web UI has no login of its own: API, pages and files work without a session."""
     with httpx.Client(base_url=server) as c:
-        assert c.get(f"{API}/bootstrap").status_code == 401
-        r = c.get("/einstellungen/agents", follow_redirects=False)
-        assert r.status_code == 303 and r.headers["location"].startswith("/login")
-        assert c.post(f"{API}/auth/login", json={"password": "falsch"}).status_code == 401
-        # the login page needs its CSS/JS without a login (versioned asset path)
-        import re
-        page = c.get("/login")
-        ver = re.search(r'"/s/(\w+)/css/app\.css"', page.text).group(1)
-        assert c.get(f"/s/{ver}/css/app.css", follow_redirects=False).status_code == 200
+        assert c.get(f"{API}/bootstrap").status_code == 200
+        assert c.get("/einstellungen/agents", follow_redirects=False).status_code == 200
+        assert c.post(f"{API}/auth/login", json={"password": "x"}).status_code in (404, 405)  # endpoint is gone
 
 
 def test_pages_get_the_app(client):
@@ -194,11 +189,11 @@ def _ws(server, client, path):
     return connect(server.replace("http", "ws") + path, additional_headers={"Cookie": cookie} if cookie else {}, open_timeout=10)
 
 
-def test_terminal_requires_login(server):
+def test_terminal_refuses_other_sites(server):
     import websockets
     from websockets.sync.client import connect
-    try:  # rejected already in the handshake (HTTP 403) – never reaches the CLI
-        with connect(server.replace("http", "ws") + f"{API}/accounts/a1/terminal", open_timeout=10):
+    try:  # a page from another site may not open the terminal (rejected in the handshake, HTTP 403)
+        with connect(server.replace("http", "ws") + f"{API}/accounts/a1/terminal", origin="https://evil.example", open_timeout=10):
             raise AssertionError("connection must be refused")
     except websockets.exceptions.InvalidStatus as e:
         assert e.response.status_code == 403
@@ -224,48 +219,6 @@ def test_terminal_login_like_t3code(server, client):
                 break
         assert m["code"] == 0 and m["logged_in"] is True
     assert next(x for x in client.get(f"{API}/accounts").json() if x["id"] == a["id"])["logged_in"]
-
-
-def test_cloudflare_access_login(server):
-    """A valid Cloudflare Access token lets requests in without the app password; wrong AUD/signature does not."""
-    import time
-
-    import jwt
-    from cryptography.hazmat.primitives.asymmetric import rsa
-
-    from app import security
-    from app.config import get_settings
-
-    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-    other = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-    s = get_settings()
-    s.cf_access_team_domain, s.cf_access_aud = "team.cloudflareaccess.com", "aud-ida"
-
-    class FakeJwks:
-        def get_signing_key_from_jwt(self, token):
-            return type("K", (), {"key": key.public_key()})()
-
-    security._jwks = FakeJwks()
-
-    def token(signer=key, aud="aud-ida", exp=3600):
-        now = int(time.time())
-        return jwt.encode({"aud": [aud], "iss": "https://team.cloudflareaccess.com", "iat": now, "exp": now + exp,
-                           "email": "me@example.com"}, signer, algorithm="RS256")
-
-    try:
-        with httpx.Client(base_url=server) as c:
-            assert c.get(f"{API}/bootstrap").status_code == 401
-            assert c.get(f"{API}/bootstrap", headers={"cf-access-jwt-assertion": token()}).status_code == 200
-            assert c.get(f"{API}/bootstrap", cookies={"CF_Authorization": token()}).status_code == 200
-            assert c.get(f"{API}/bootstrap", headers={"cf-access-jwt-assertion": token(aud="other")}).status_code == 401
-            assert c.get(f"{API}/bootstrap", headers={"cf-access-jwt-assertion": token(signer=other)}).status_code == 401
-            assert c.get(f"{API}/bootstrap", headers={"cf-access-jwt-assertion": token(exp=-10)}).status_code == 401
-            r = c.get("/login", headers={"cf-access-jwt-assertion": token()}, follow_redirects=False)
-            assert r.status_code == 303 and r.headers["location"] == "/"
-            assert c.get(f"{API}/auth/me", headers={"cf-access-jwt-assertion": token()}).json()["via"] == "cloudflare"
-    finally:
-        s.cf_access_team_domain = s.cf_access_aud = ""
-        security._jwks = None
 
 
 def test_schedule_fixed_times():

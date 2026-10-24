@@ -7,14 +7,15 @@ Läuft als Docker-Compose-Stack: Python-Backend (FastAPI) mit Weboberfläche, Po
 
 ```bash
 git clone https://github.com/L8teNever/IDA-PA.git && cd IDA-PA     # oder nur docker-compose.yml + .env.example kopieren
-cp .env.example .env          # APP_PASSWORD und POSTGRES_PASSWORD eintragen
+cp .env.example .env          # POSTGRES_PASSWORD eintragen
 docker compose up -d          # zieht ghcr.io/l8tenever/ida-pa:latest
 ```
 
-Dann `http://<server>:8080` öffnen und anmelden.
+Dann `http://<server>:8080` öffnen.
 
-**Hinter Cloudflare Zero Trust:** `CF_ACCESS_TEAM_DOMAIN` und `CF_ACCESS_AUD` (AUD-Tag der Access-App) in der `.env` setzen –
-dann prüft IDA das signierte Cloudflare-Token jeder Anfrage und du musst dich nicht zusätzlich mit dem Passwort anmelden.
+**Keine eigene Anmeldung:** IDA hat kein Passwort und kein Login. Wer die Adresse erreicht, kann alles bedienen –
+auch die verbundenen MCPs (Mails senden, SSH …). Den Zugang deshalb davor absichern, z. B. mit Cloudflare Zero Trust
+oder einem VPN, und den Port nicht offen ins Internet stellen.
 
 * **Updates:** `docker compose pull && docker compose up -d` – oder automatisch mit `docker compose --profile autoupdate up -d` (Watchtower prüft alle 10 Minuten).
 * **Privates Repo:** einmal `docker login ghcr.io` (GitHub-Token mit `read:packages`), sonst kann das Image nicht geladen werden.

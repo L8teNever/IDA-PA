@@ -59,7 +59,7 @@ backend/
     main.py            App-Fabrik, Lifespan (Migrationen, Seed, Scheduler), SPA-Auslieferung
     config.py          Einstellungen aus Umgebungsvariablen
     db.py              Engine, Sessions, Basisklasse
-    security.py        Login, Session-Cookie
+    security.py        WebSocket-Herkunftsprüfung (keine eigene Anmeldung)
     models/            SQLAlchemy-Tabellen, eine Datei je Bereich
     schemas/           Pydantic-Ein-/Ausgaben je Bereich
     api/               Router je Bereich (+ deps.py)
@@ -82,7 +82,7 @@ frontend/
   css/app.css          Ergänzungen (Formulare, Listen)
   js/main.js, router.js, api.js, store.js
   js/ui/               dom, sheet, toast, mascot, drawer, composer, model-menu
-  js/pages/            home, agent-home, chat, chats, routines, routine-edit, inbox, usage, login
+  js/pages/            home, agent-home, chat, chats, routines, routine-edit, inbox, usage
   js/pages/settings/   index, agents, agent-edit, mcp, mcp-edit, skills, skill-edit, memory, accounts
 legacy/node-app/       alter Prototyp (nur noch Referenz / Import)
 ```
@@ -101,7 +101,7 @@ legacy/node-app/       alter Prototyp (nur noch Referenz / Import)
 | `messages` | Agent ↔ Agent und Benachrichtigungen an dich (`to = user`) |
 | `routines`, `routine_runs` | Routinen (Zeitplan oder Auslöser) und ihr Verlauf |
 | `memory_entries`, `memory_backups` | Gedächtnis (Bereich, Art, fest, Wichtigkeit, Ablauf, Nutzung, Embedding) |
-| `settings` | Schlüssel/Wert (Standard-Modell, Passwort-Hash, …) |
+| `settings` | Schlüssel/Wert (Standard-Modell, …) |
 
 ### URLs
 
@@ -120,7 +120,6 @@ legacy/node-app/       alter Prototyp (nur noch Referenz / Import)
 | `/einstellungen/skills`, `/einstellungen/skills/neu`, `/einstellungen/skills/{slug}` | Skills |
 | `/einstellungen/gedaechtnis` | Gedächtnis |
 | `/einstellungen/accounts` | Claude-Accounts |
-| `/login` | Anmeldung |
 
 API: `/api/v1/...` (REST), Chat-Antwort als NDJSON-Stream.
 
@@ -131,7 +130,7 @@ API: `/api/v1/...` (REST), Chat-Antwort als NDJSON-Stream.
 * **Skills** wie bei Anthropic: Agenten sehen Name + Beschreibung der für sie freigegebenen Skills und laden die Anleitung bei Bedarf (`skill_get`); `/skill` im Chat erzwingt einen Skill.
 * **Haupt-Agent und Sub-Agenten** liegen in derselben Tabelle; jeder Agent hat seine eigenen Chats (Agent-Auswahl oben rechts wie im Design).
 * **Auslöser** (MCP-Abfrage ohne KI) und Tool-Rechte stellt nur der Nutzer ein, nie ein Agent.
-* **Anmeldung**: `APP_PASSWORD` aus `.env`; fehlt es, wird beim ersten Start eins erzeugt und im Log ausgegeben.
+* **Anmeldung**: keine eigene – der Zugang wird davor abgesichert (Cloudflare Zero Trust).
 
 ## 5. Reihenfolge
 

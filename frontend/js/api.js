@@ -5,15 +5,11 @@ export class ApiError extends Error {
   constructor(message, status) { super(message); this.status = status; }
 }
 
-async function request(method, path, body, opts = {}) {
+async function request(method, path, body) {
   const init = { method, headers: {} };
   if (body instanceof FormData) init.body = body;
   else if (body !== undefined) { init.body = JSON.stringify(body); init.headers["content-type"] = "application/json"; }
   const r = await fetch(BASE + path, init);
-  if (r.status === 401 && !opts.allow401) {
-    location.href = "/login?next=" + encodeURIComponent(location.pathname + location.search);
-    throw new ApiError("Nicht angemeldet", 401);
-  }
   const data = r.headers.get("content-type")?.includes("application/json") ? await r.json() : null;
   if (!r.ok) {
     const d = data?.detail;
@@ -24,8 +20,8 @@ async function request(method, path, body, opts = {}) {
 }
 
 export const api = {
-  get: (p, o) => request("GET", p, undefined, o),
-  post: (p, b, o) => request("POST", p, b ?? {}, o),
+  get: (p) => request("GET", p),
+  post: (p, b) => request("POST", p, b ?? {}),
   patch: (p, b) => request("PATCH", p, b),
   put: (p, b) => request("PUT", p, b),
   del: (p) => request("DELETE", p),

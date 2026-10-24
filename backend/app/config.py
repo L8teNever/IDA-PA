@@ -13,16 +13,6 @@ class Settings(BaseSettings):
     # postgresql+asyncpg://user:pass@db:5432/ida in Docker, SQLite for local development/tests.
     database_url: str = ""
 
-    # Login for the web UI. Empty = generated at first start and printed to the log.
-    app_password: str = ""
-    secret_key: str = ""  # signs the session cookie; generated and stored if empty
-    session_days: int = 30
-    cookie_secure: bool = False  # set true behind HTTPS
-    # Cloudflare Zero Trust in front of the app: requests with a valid Access token need no extra password.
-    # Team domain like "myteam.cloudflareaccess.com", AUD = "Application Audience (AUD) Tag" of the Access app.
-    cf_access_team_domain: str = ""
-    cf_access_aud: str = ""
-
     # Claude Code CLI
     claude_bin: str = "claude"
     models: str = "claude-sonnet-5-5,claude-opus-5-5,claude-haiku-5-5,claude-fable-5-1"

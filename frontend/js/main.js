@@ -10,7 +10,6 @@ import { openChat } from "./pages/chat.js";
 import { chatsPage } from "./pages/chats.js";
 import { agentPage, homePage, initHomeScroll } from "./pages/home.js";
 import { inboxPage } from "./pages/inbox.js";
-import { loginPage } from "./pages/login.js";
 import { routineDetail, routineForm, routinesPage } from "./pages/routines.js";
 import { settingsPage } from "./pages/settings/index.js";
 import { usagePage } from "./pages/usage.js";
@@ -34,10 +33,6 @@ router.fallback(() => {
 });
 
 async function start() {
-  if (location.pathname === "/login") {
-    loginPage(null, Object.fromEntries(new URLSearchParams(location.search)));
-    return;
-  }
   await loadBoot();
   initSelects();
   initShell();

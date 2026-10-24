@@ -1,4 +1,4 @@
-"""App factory: API routers, login, background services and the single-page frontend."""
+"""App factory: API routers, background services and the single-page frontend."""
 import asyncio
 import hashlib
 import logging
@@ -12,9 +12,8 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import db, seed
-from .api import accounts, agents, auth, chats, connectors, internal_mcp, memory, messages, routines, skills, system
+from .api import accounts, agents, chats, connectors, internal_mcp, memory, messages, routines, skills, system
 from .config import get_settings
-from .security import AuthMiddleware, init_auth
 from .services import jobs, scheduler
 from .services.errors import Invalid, NotFound
 
@@ -55,7 +54,6 @@ def migrate() -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await asyncio.to_thread(migrate)  # alembic runs its own event loop
-    await init_auth()
     await seed.seed()
     jobs.start()
     if get_settings().scheduler_enabled:
@@ -70,7 +68,6 @@ async def lifespan(app: FastAPI):
 def create_app() -> FastAPI:
     s = get_settings()
     app = FastAPI(title="IDA", version="2.0", lifespan=lifespan, docs_url="/api/docs", openapi_url="/api/openapi.json")
-    app.add_middleware(AuthMiddleware)
 
     @app.exception_handler(Invalid)
     async def invalid(_: Request, e: Invalid):
@@ -80,7 +77,7 @@ def create_app() -> FastAPI:
     async def not_found(_: Request, e: NotFound):
         return JSONResponse({"detail": str(e)}, status_code=404)
 
-    for r in (auth, system, agents, chats, messages, routines, connectors, skills, memory, accounts, internal_mcp):
+    for r in (system, agents, chats, messages, routines, connectors, skills, memory, accounts, internal_mcp):
         app.include_router(r.router)
 
     front = s.frontend_dir
