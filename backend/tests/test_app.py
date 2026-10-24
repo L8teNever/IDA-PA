@@ -82,6 +82,20 @@ def test_hub_tools_rights_and_memory(client):
     assert "Kaffee ohne Zucker" in "".join(e.get("text", "") for e in ev)
 
 
+def test_agents_search_and_read_other_chats(client):
+    # a chat with the main agent mentions something; another agent finds it and reads the context
+    chat(client, text="Merk dir den Zahnarzttermin Zebrafink am Dienstag")
+    ev = chat(client, agent_id="lea", text='TOOL chat_search {"query": "zahnarzttermin zebrafink"}')
+    out = "".join(e.get("text", "") for e in ev)
+    assert "Zebrafink" in out and '"chat_id"' in out
+    cid = out.split('"chat_id": "', 1)[1].split('"', 1)[0]
+    ev = chat(client, agent_id="lea", text=f'TOOL chat_read {{"chat_id": "{cid}"}}')
+    read = "".join(e.get("text", "") for e in ev)
+    assert "Zahnarzttermin Zebrafink" in read and '"von": "Nutzer"' in read
+    ev = chat(client, agent_id="lea", text='TOOL chat_read {"chat_id": "gibtsnicht"}')
+    assert "nicht gefunden" in "".join(e.get("text", "") for e in ev)
+
+
 def test_notify_and_inbox(client):
     chat(client, agent_id="lea", text='TOOL notify_user {"text": "Neue Mail vom Chef", "title": "Mail", "priority": "high"}')
     home = client.get(f"{API}/home").json()

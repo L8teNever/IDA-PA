@@ -3,17 +3,18 @@
 Rights depend on the caller (see identity.Identity):
   main agent:  everything; managing agents/skills only in a live chat.
   sub-agents:  messages, notifications, own notes, see all routines, edit/create only their own routines.
+  chat_*:      every agent may search and read all chats (also those of other agents) for context.
   memory_*:    only when memory is switched on for the run.
 Triggers and connector access are never settable here – only by the user in the UI.
 """
 import json
 
-from sqlalchemy import select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...config import get_settings
 from ...db import session_scope
-from ...models import USER, Agent, Routine, RoutineRun, Skill
+from ...models import USER, Agent, Chat, ChatMessage, Routine, RoutineRun, Skill
 from .. import agents as agent_svc
 from .. import routines as routine_svc
 from .. import skills as skill_svc
@@ -54,6 +55,8 @@ def _spec(ids: list[str]) -> list[tuple[str, str, str, dict]]:
         (ALL, "routine_update", "Ändert eine Routine (Sub-Agenten nur eigene; Zuteilen nur der Haupt-Agent).", obj({"id": E, **routine_fields, "enabled": {"type": "boolean"}, "agent_id": agent_enum}, ("id",))),
         (MAIN, "routine_delete", "Löscht eine Routine.", obj({"id": E}, ("id",))),
         (ALL, "routine_run_now", "Führt eine Routine sofort aus (Sub-Agenten nur eigene).", obj({"id": E}, ("id",))),
+        (ALL, "chat_search", "Durchsucht alle Chats (auch die der anderen Agenten) nach Wörtern – um Zusammenhang aus früheren Gesprächen zu finden. Ohne query: die neuesten Chats.", obj({"query": {**E, "description": "Suchwörter; alle müssen vorkommen"}, "agent_id": {**E, "description": "nur Chats dieses Agenten (optional): " + ", ".join(ids)}, "limit": {"type": "integer", "minimum": 1, "maximum": 30}})),
+        (ALL, "chat_read", "Liest die Nachrichten eines Chats (id aus chat_search), neueste zuletzt. Mit offset ältere Teile nachladen.", obj({"chat_id": E, "limit": {"type": "integer", "minimum": 1, "maximum": 100}, "offset": {"type": "integer", "minimum": 0, "description": "so viele der neuesten Nachrichten überspringen"}}, ("chat_id",))),
         (ALL, "skill_list", "Listet alle Skills.", obj({})),
         (ALL, "skill_get", "Lädt die Anleitung eines Skills.", obj({"id": E}, ("id",))),
         (MAIN_LIVE, "skill_create", "Legt einen Skill an (Anleitung, die Agenten bei passenden Aufgaben befolgen; der Nutzer aktiviert ihn mit /id).", obj({"name": E, "description": E, "body": E, "agents": {"type": "array", "items": E}}, ("name", "body"))),
@@ -89,6 +92,57 @@ def _routine_view(r: Routine, last: RoutineRun | None) -> dict:
             "zeitplan": routine_svc.when_text(r), "naechsterLauf": r.next_run.isoformat() if r.next_run else None,
             "model": r.model, "letzterLauf": r.last_run.isoformat() if r.last_run else None,
             "letztesErgebnis": (last.text[:300] if last else None)}
+
+
+def _snippet(text: str, words: list[str], width: int = 220) -> str:
+    low = text.lower()
+    pos = min((low.find(w) for w in words if low.find(w) >= 0), default=0)
+    start = max(0, pos - width // 3)
+    return ("…" if start else "") + text[start:start + width].replace("\n", " ") + ("…" if start + width < len(text) else "")
+
+
+async def _chat_search(db: AsyncSession, query: str, agent_id: str | None, limit: int, labels: dict) -> dict:
+    limit = max(1, min(limit, 30))
+    words = [w.lower() for w in query.split() if w.strip()][:8]
+    if not words:  # newest chats
+        q = select(Chat).order_by(Chat.updated_at.desc()).limit(limit)
+        if agent_id:
+            q = q.where(Chat.agent_id == agent_id)
+        rows = (await db.scalars(q)).all()
+        return {"chats": [{"chat_id": c.id, "titel": c.title, "agent": labels.get(c.agent_id, c.agent_id), "zuletzt": c.updated_at.isoformat()} for c in rows]}
+    q = (select(ChatMessage, Chat).join(Chat, Chat.id == ChatMessage.chat_id)
+         .where(*[or_(func.lower(ChatMessage.text).contains(w), func.lower(Chat.title).contains(w)) for w in words])
+         .where(ChatMessage.role.in_(("user", "assistant")))
+         .order_by(ChatMessage.at.desc()).limit(limit * 3))
+    if agent_id:
+        q = q.where(Chat.agent_id == agent_id)
+    hits, per_chat = [], {}
+    for m, c in (await db.execute(q)).all():
+        if per_chat.get(c.id, 0) >= 3 or len(hits) >= limit:
+            continue
+        per_chat[c.id] = per_chat.get(c.id, 0) + 1
+        hits.append({"chat_id": c.id, "titel": c.title, "agent": labels.get(c.agent_id, c.agent_id), "zeit": m.at.isoformat(),
+                     "von": "Nutzer" if m.role == "user" else labels.get(c.agent_id, c.agent_id), "ausschnitt": _snippet(m.text, words)})
+    return {"treffer": hits, "hinweis": "Mit chat_read(chat_id) den ganzen Zusammenhang lesen." if hits else "Nichts gefunden."}
+
+
+async def _chat_read(db: AsyncSession, chat_id: str, limit: int, offset: int, labels: dict) -> dict:
+    c = await db.get(Chat, chat_id)
+    if not c:
+        raise NotFound("Chat nicht gefunden")
+    limit, offset = max(1, min(limit, 100)), max(0, offset)
+    total = await db.scalar(select(func.count()).select_from(ChatMessage).where(ChatMessage.chat_id == chat_id))
+    rows = (await db.scalars(select(ChatMessage).where(ChatMessage.chat_id == chat_id)
+                             .order_by(ChatMessage.at.desc()).offset(offset).limit(limit))).all()
+    who = labels.get(c.agent_id, c.agent_id)
+    msgs = []
+    for m in reversed(rows):
+        tools = [p.get("name") for p in (m.parts or []) if p.get("t") == "tool"]
+        msgs.append({"zeit": m.at.isoformat(), "von": "Nutzer" if m.role == "user" else who if m.role == "assistant" else m.role,
+                     "text": m.text[:3000] + ("…" if len(m.text) > 3000 else ""), **({"tools": tools} if tools else {})})
+    return {"chat_id": c.id, "titel": c.title, "agent": who, "nachrichten_gesamt": total,
+            "gezeigt": f"{offset + 1}–{offset + len(rows)} von den neuesten", "nachrichten": msgs,
+            **({"aelter": f"offset={offset + limit} für ältere"} if offset + limit < (total or 0) else {})}
 
 
 async def _call(db: AsyncSession, me: Identity, name: str, a: dict) -> dict:
@@ -157,6 +211,10 @@ async def _call(db: AsyncSession, me: Identity, name: str, a: dict) -> dict:
         r = await own_routine(str(a.get("id")))
         routine_svc.enqueue(r.id, "manual")
         return {"ok": True, "hinweis": "In die Warteschlange gestellt."}
+    if name == "chat_search":
+        return await _chat_search(db, str(a.get("query") or ""), a.get("agent_id"), int(a.get("limit") or 10), labels)
+    if name == "chat_read":
+        return await _chat_read(db, str(a.get("chat_id")), int(a.get("limit") or 30), int(a.get("offset") or 0), labels)
     if name == "skill_list":
         rows = (await db.scalars(select(Skill).order_by(Skill.name))).all()
         return {"skills": [{"id": s.id, "name": s.name, "beschreibung": s.description, "aktiv": s.enabled} for s in rows]}

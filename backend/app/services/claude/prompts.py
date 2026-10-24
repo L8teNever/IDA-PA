@@ -45,6 +45,7 @@ def team_section(a: Agent, main_id: str, unread: int, interactive: bool) -> str:
             "Du bist der Haupt-Agent und sprichst direkt mit dem Nutzer. Ueber die Tools des Servers ida verwaltest du ein Team: "
             "Agenten anlegen/aendern (agent_create, agent_update, agent_delete), ihnen Nachrichten oder Aufgaben schicken (agent_send, agent_delegate), "
             "dein Postfach lesen (inbox_read), Routinen anlegen/aendern/loeschen und Agenten zuteilen (routine_*), Skills verwalten (skill_*). "
+            "Mit chat_search und chat_read findest und liest du fruehere Chats (auch die der anderen Agenten), wenn dir Zusammenhang fehlt. "
             "Tool-Zugriff auf Connectoren und automatische Ausloeser vergibt nur der Nutzer in der Oberflaeche; sage ihm das, wenn noetig. "
             "\"Mach X alle 3 Minuten\" legst du mit routine_create an. Der prompt einer Routine und die Rolle eines Agenten muessen ohne diesen Chat verstaendlich sein. "
             f"Mit notify_user hinterlaesst du dem Nutzer eine Benachrichtigung. Ungelesene Nachrichten in deinem Postfach: {unread}"
@@ -57,6 +58,7 @@ def team_section(a: Agent, main_id: str, unread: int, interactive: bool) -> str:
         "priority=high nur wenn es wirklich dringend ist. Mit notify_user schickst du dem Nutzer direkt eine Benachrichtigung – tu das, wenn du etwas "
         "fuer wichtig haeltst, das er wissen sollte; kein Spam. agent_list zeigt alle Agenten, agent_send/agent_delegate schicken anderen etwas (nur wenn noetig). "
         "notes_set merkt dir Arbeitsstaende zwischen Laeufen. Routinen: alle sehen, eigene bearbeiten und neue fuer dich anlegen. "
+        "Fehlt dir Zusammenhang aus frueheren Gespraechen, suche mit chat_search in allen Chats (auch denen der anderen Agenten) und lies sie mit chat_read. "
         + ("Du chattest gerade direkt mit dem Nutzer." if interactive else "Niemand antwortet live: erledige die Aufgabe selbststaendig und gib am Ende ein kurzes Ergebnis aus.")
         + "\n"
     )
