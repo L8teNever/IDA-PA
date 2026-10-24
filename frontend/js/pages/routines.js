@@ -8,8 +8,17 @@ import { setAgent, setView } from "../ui/shell.js";
 const ICONS = ["schedule", "inbox", "mail", "event", "alarm", "notifications", "savings", "menu_book", "school", "home_iot_device", "cloud", "search"];
 const MODES = { new: "bei neuen Einträgen", change: "bei jeder Änderung", contains: "wenn Text vorkommt" };
 
+const DAYS = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"];
+function daysText(days) {
+  const d = [...(days?.length ? days : [0, 1, 2, 3, 4, 5, 6])].sort();
+  if (d.length === 7) return "täglich";
+  if (d.join() === "0,1,2,3,4") return "Mo–Fr";
+  if (d.join() === "5,6") return "Sa+So";
+  return d.map((i) => DAYS[i]).join(", ");
+}
+const timesText = (r) => `🕐 ${daysText(r.days)} ${r.times.join(", ")}`;
 function whenText(r) {
-  return r.trigger ? `🔔 ${MODES[r.trigger.mode]}` : every(r.interval_min);
+  return r.trigger ? `🔔 ${MODES[r.trigger.mode]}` : r.times?.length ? timesText(r) : every(r.interval_min);
 }
 
 export async function routinesPage() {
@@ -51,7 +60,7 @@ export async function routineDetail({ id }) {
       ${sw(r.enabled, `id="rEnabled" style="--sw:${c["--accent"]}"`)}</div>
     <div class="pcard">
       <div class="kv"><span>Agent</span><b style="color:${c["--accent"]}">${esc(a.name)}</b></div>
-      <div class="kv"><span>Start</span><b>${t ? `${esc(t.connector)} › ${esc(t.tool)} · ${MODES[t.mode]}${t.contains ? ` „${esc(t.contains)}“` : ""} · ${everySec(t.every_sec)}` : every(r.interval_min)}</b></div>
+      <div class="kv"><span>Start</span><b>${t ? `${esc(t.connector)} › ${esc(t.tool)} · ${MODES[t.mode]}${t.contains ? ` „${esc(t.contains)}“` : ""} · ${everySec(t.every_sec)}` : r.times?.length ? esc(timesText(r)) : every(r.interval_min)}</b></div>
       <div class="kv"><span>Modell</span><b>${esc(r.model ? modelInfo(r.model).name : "wie der Agent")}</b></div>
       <div class="kv"><span>Account</span><b>${esc(r.account_id ? (state.boot.accounts.find((x) => x.id === r.account_id)?.name || r.account_id) : "wie der Agent")}</b></div>
       <div class="kv"><span>Limit-Fallback</span><b>${r.fallback === null ? "wie der Agent" : r.fallback ? "an" : "aus"}</b></div>
@@ -89,8 +98,10 @@ export async function routineForm({ id } = {}) {
   setAgent(mainAgent());
   setView("page");
   const [r, connectors] = await Promise.all([id ? api.get(`/routines/${id}`) : null, api.get("/connectors")]);
-  const f = r ? { ...r } : { name: "", icon: "schedule", prompt: "", agent_id: mainAgent().id, model: null, account_id: null, interval_min: 60, trigger: null, fallback: null, memory_enabled: null };
-  let mode = f.trigger ? "mcp" : "interval";
+  const f = r ? { ...r } : { name: "", icon: "schedule", prompt: "", agent_id: mainAgent().id, model: null, account_id: null, interval_min: 60, trigger: null, fallback: null, memory_enabled: null, times: null, days: null };
+  let mode = f.trigger ? "mcp" : f.times?.length ? "times" : "interval";
+  let times = f.times?.length ? [...f.times] : ["07:00"];
+  let days = f.days?.length ? [...f.days] : [0, 1, 2, 3, 4, 5, 6];
   const t = f.trigger || { connector: connectors.find((c) => c.tools.length)?.id || "", tool: "", args: {}, every_sec: 60, mode: "new", contains: "" };
   const unit = f.interval_min % 1440 === 0 ? 1440 : f.interval_min % 60 === 0 ? 60 : 1;
   const tri = (v) => `<option value="" ${v === null ? "selected" : ""}>wie der Agent</option><option value="1" ${v === true ? "selected" : ""}>an</option><option value="0" ${v === false ? "selected" : ""}>aus</option>`;
@@ -106,8 +117,16 @@ export async function routineForm({ id } = {}) {
       <div class="chipset" id="fAgents">${agents().map((a) => `<button type="button" data-a="${a.id}" class="${f.agent_id === a.id ? "on" : ""}">${esc(a.name)}</button>`).join("")}</div>
       <label class="fld" style="margin-top:12px"><span>Aufgabe (wird bei jedem Lauf ausgeführt, muss allein verständlich sein)</span><textarea id="fPrompt" rows="4">${esc(f.prompt)}</textarea></label>
       <div class="flabel">Wann starten?</div>
-      <div class="seg" id="fMode"><button type="button" data-m="interval" class="${mode === "interval" ? "on" : ""}">⏱ Nach Zeitplan</button><button type="button" data-m="mcp" class="${mode === "mcp" ? "on" : ""}">🔔 Bei Neuem (MCP)</button></div>
-      ${mode === "interval" ? `
+      <div class="seg" id="fMode"><button type="button" data-m="interval" class="${mode === "interval" ? "on" : ""}">⏱ Intervall</button><button type="button" data-m="times" class="${mode === "times" ? "on" : ""}">🕐 Uhrzeiten</button><button type="button" data-m="mcp" class="${mode === "mcp" ? "on" : ""}">🔔 Bei Neuem</button></div>
+      ${mode === "times" ? `
+        <div class="flabel" style="margin-top:4px">Uhrzeiten</div>
+        <div class="chipset time-chips" id="fTimes">${times.map((x) => `<span class="time-chip">${esc(x)}<button type="button" data-rm="${esc(x)}" aria-label="${esc(x)} entfernen"><span class="ms">close</span></button></span>`).join("")}
+          <span class="time-add"><input type="time" id="fTimeNew" value="12:00" aria-label="Uhrzeit"><button type="button" id="fTimeAdd"><span class="ms">add</span>Hinzufügen</button></span></div>
+        <div class="flabel">An welchen Tagen?</div>
+        <div class="chipset" id="fDays">${DAYS.map((d, i) => `<button type="button" data-d="${i}" class="${days.includes(i) ? "on" : ""}">${d}</button>`).join("")}
+          <button type="button" class="day-preset" data-preset="all">täglich</button><button type="button" class="day-preset" data-preset="week">Mo–Fr</button><button type="button" class="day-preset" data-preset="weekend">Wochenende</button></div>
+        <p class="sub-intro" style="margin:10px 4px 0">Läuft ${esc(daysText(days))} um ${esc(times.join(", ") || "–")} Uhr (deutsche Zeit, Sommer-/Winterzeit wird beachtet).</p>`
+      : mode === "interval" ? `
         <div class="fld-row"><label class="fld"><span>alle</span><input id="fEvery" type="number" min="1" value="${f.interval_min / unit}"></label>
         <label class="fld"><span>Einheit</span><select id="fUnit"><option value="1" ${unit === 1 ? "selected" : ""}>Minuten</option><option value="60" ${unit === 60 ? "selected" : ""}>Stunden</option><option value="1440" ${unit === 1440 ? "selected" : ""}>Tage</option></select></label></div>`
       : `
@@ -149,6 +168,32 @@ export async function routineForm({ id } = {}) {
   };
 
   const bind = () => {
+    if ($("fTimes")) {
+      $("fTimes").onclick = (e) => {
+        const rm = e.target.closest("[data-rm]");
+        if (rm) { keep(); times = times.filter((x) => x !== rm.dataset.rm); draw(); }
+      };
+      const addTime = () => {
+        const v = $("fTimeNew").value;
+        if (!/^\d{2}:\d{2}$/.test(v)) return;
+        keep();
+        if (!times.includes(v)) times = [...times, v].sort();
+        draw();
+      };
+      $("fTimeAdd").onclick = addTime;
+      $("fTimeNew").onkeydown = (e) => { if (e.key === "Enter") { e.preventDefault(); addTime(); } };
+      $("fDays").onclick = (e) => {
+        const b = e.target.closest("[data-d],[data-preset]");
+        if (!b) return;
+        keep();
+        if (b.dataset.preset) days = { all: [0, 1, 2, 3, 4, 5, 6], week: [0, 1, 2, 3, 4], weekend: [5, 6] }[b.dataset.preset];
+        else {
+          const d = +b.dataset.d;
+          days = days.includes(d) ? days.filter((x) => x !== d) : [...days, d].sort();
+        }
+        draw();
+      };
+    }
     $("fIcons").onclick = (e) => { const b = e.target.closest("[data-ic]"); if (!b) return; keep(); f.icon = b.dataset.ic; draw(); };
     $("fAgents").onclick = (e) => { const b = e.target.closest("[data-a]"); if (!b) return; keep(); f.agent_id = b.dataset.a; draw(); };
     $("fMode").onclick = (e) => { const b = e.target.closest("[data-m]"); if (!b) return; keep(); mode = b.dataset.m; draw(); };
@@ -168,8 +213,13 @@ export async function routineForm({ id } = {}) {
       keep();
       const body = { name: f.name, icon: f.icon, prompt: f.prompt, agent_id: f.agent_id, model: f.model, account_id: f.account_id,
         fallback: f.fallback, memory_enabled: f.memory_enabled };
-      if (mode === "interval") { body.interval_min = f.interval_min; if (id) body.trigger = null; }
-      else body.trigger = { ...t, type: "mcp" };
+      if (mode === "interval") { body.interval_min = f.interval_min; if (id) { body.trigger = null; body.times = null; } }
+      else if (mode === "times") {
+        if (!times.length) { $("fErr").textContent = "Mindestens eine Uhrzeit hinzufügen."; return; }
+        if (!days.length) { $("fErr").textContent = "Mindestens einen Tag auswählen."; return; }
+        body.times = times; body.days = days;
+        if (id) body.trigger = null;
+      } else body.trigger = { ...t, type: "mcp" };
       try {
         const out = id ? await api.patch(`/routines/${id}`, body) : await api.post("/routines", body);
         toast(id ? "Gespeichert" : "Routine angelegt");

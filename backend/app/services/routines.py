@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..config import get_settings
 from ..db import session_scope, utcnow
 from ..models import Agent, Connector, Routine, RoutineRun
-from . import jobs, triggers
+from . import jobs, schedule, triggers
 from .agents import record_run
 from .errors import Invalid, NotFound
 from .mcp.client import McpError, call_tool
@@ -92,7 +92,17 @@ async def _clean(db: AsyncSession, f: dict, partial: bool, allow_trigger: bool) 
         v["enabled"] = bool(f["enabled"])
     if allow_trigger and "trigger" in f:
         v["trigger"] = await validate_trigger(db, f["trigger"])
-    if "interval_min" in f or (not partial and not v.get("trigger")):
+    # fixed times: "times": ["07:00", "18:30"], "days": [0..6] (empty = every day); times=null switches back
+    if "times" in f:
+        if f["times"]:
+            v["times"], v["days"] = schedule.clean_times(f["times"]), schedule.clean_days(f.get("days"))
+        else:
+            v["times"] = v["days"] = None
+    elif "days" in f and f["days"] is not None:
+        v["days"] = schedule.clean_days(f["days"])
+    if v.get("times") and v.get("trigger"):
+        raise Invalid("Entweder Uhrzeiten oder ein Auslöser – nicht beides")
+    if "interval_min" in f or (not partial and not v.get("trigger") and not v.get("times")):
         n = f.get("interval_min")
         if n is None and v.get("trigger"):
             n = max(1, v["trigger"]["every_sec"] // 60)
@@ -109,7 +119,7 @@ async def create(db: AsyncSession, f: dict, *, allow_trigger: bool = False) -> R
     r = Routine(**v)
     if not r.interval_min:
         r.interval_min = 60
-    r.next_run = None if r.trigger else utcnow() + timedelta(minutes=r.interval_min)
+    r.next_run = compute_next(r)
     db.add(r)
     await db.flush()
     return r
@@ -120,12 +130,37 @@ async def update(db: AsyncSession, routine_id: str, f: dict, *, allow_trigger: b
     if not r:
         raise NotFound("Routine nicht gefunden")
     v = await _clean(db, f, True, allow_trigger)
-    resched = ("interval_min" in v and v["interval_min"] != r.interval_min) or (v.get("enabled") and not r.enabled) or "trigger" in v
+    if v.get("times") and r.trigger and "trigger" not in v:
+        if not allow_trigger:
+            raise Invalid("Diese Routine startet per Auslöser – den kann nur der Nutzer ändern")
+        v["trigger"] = None
+    if v.get("trigger") and r.times and "times" not in v:
+        v["times"] = v["days"] = None
+    resched = (("interval_min" in v and v["interval_min"] != r.interval_min) or (v.get("enabled") and not r.enabled)
+               or "trigger" in v or "times" in v or "days" in v)
     for k, val in v.items():
         setattr(r, k, val)
     if resched:
-        r.next_run = None if r.trigger else utcnow() + timedelta(minutes=r.interval_min)
+        r.next_run = compute_next(r)
     return r
+
+
+def compute_next(r: Routine):
+    """When a routine runs next: never by itself (trigger), at its next fixed time, or after its interval."""
+    if r.trigger:
+        return None
+    if r.times:
+        return schedule.next_run(r.times, r.days)
+    return utcnow() + timedelta(minutes=r.interval_min)
+
+
+def when_text(r: Routine) -> str:
+    t = r.trigger
+    if t:
+        return f"bei {t['mode']} von {t['connector']}.{t['tool']}"
+    if r.times:
+        return schedule.describe(r.times, r.days)
+    return f"alle {r.interval_min} Min"
 
 
 async def remove(db: AsyncSession, routine_id: str) -> None:
@@ -176,7 +211,7 @@ async def _run(routine_id: str, via: str, context: str | None) -> None:
                 return
             r.last_run = utcnow()
             if r.enabled and not r.trigger:
-                r.next_run = utcnow() + timedelta(minutes=r.interval_min)
+                r.next_run = compute_next(r)
             db.add(RoutineRun(routine_id=routine_id, via=via, ok=out.ok, text=out.text[:4000], tools=out.tools, account=out.account, ms=ms))
             old = (await db.scalars(select(RoutineRun.id).where(RoutineRun.routine_id == routine_id).order_by(RoutineRun.at.desc()).offset(MAX_HISTORY))).all()
             if old:

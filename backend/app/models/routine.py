@@ -8,7 +8,7 @@ from ._types import Json, new_id
 
 
 class Routine(Timestamps, Base):
-    """A task that runs on a schedule (interval_min) or when a trigger fires (trigger is set)."""
+    """A task that runs every interval_min minutes, at fixed times (times + days) or when a trigger fires."""
 
     __tablename__ = "routines"
 
@@ -20,6 +20,9 @@ class Routine(Timestamps, Base):
     model: Mapped[str | None] = mapped_column(String(64), default=None)  # None = agent's model
     account_id: Mapped[str | None] = mapped_column(String(16), default=None)  # None = agent's account
     interval_min: Mapped[int] = mapped_column(default=60)
+    # fixed times of day ["07:00", "18:30"] on weekdays [0=Mon … 6=Sun]; None = interval or trigger
+    times: Mapped[list | None] = mapped_column(Json, default=None)
+    days: Mapped[list | None] = mapped_column(Json, default=None)
     # {"type":"mcp","connector","tool","args","every_sec","mode":"new|change|contains","contains",
     #  "state":{…},"last_check","last_error","last_note","last_fired","last_preview"}
     trigger: Mapped[dict | None] = mapped_column(Json, default=None)

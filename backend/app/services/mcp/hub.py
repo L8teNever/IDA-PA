@@ -32,7 +32,10 @@ def _spec(ids: list[str]) -> list[tuple[str, str, str, dict]]:
     model = {"type": "string", "enum": s.model_list}
     agent_enum = {"type": "string", "enum": ids, "description": "Besitzer-Agent der Routine"}
     routine_fields = {"name": E, "prompt": {**E, "description": "Vollständige Aufgabe, die bei jedem Lauf ausgeführt wird (muss allein verständlich sein)"},
-                      "interval_min": {"type": "integer", "minimum": 1, "description": "Intervall in Minuten"}, "model": model,
+                      "interval_min": {"type": "integer", "minimum": 1, "description": "Intervall in Minuten (statt times)"},
+                      "times": {"type": "array", "items": E, "description": f"Feste Uhrzeiten HH:MM ({get_settings().timezone}), z. B. [\"07:00\"] – statt interval_min"},
+                      "days": {"type": "array", "items": {"type": "integer", "minimum": 0, "maximum": 6}, "description": "Wochentage zu times: 0=Mo … 6=So, leer = täglich"},
+                      "model": model,
                       "memory_enabled": {"type": "boolean"}, "fallback": {"type": "boolean"}}
     mem_scope = {"type": "string", "description": "own = dein eigenes, shared = gemeinsames Gedächtnis; der Haupt-Agent zusätzlich eine Agent-ID (fremdes Gedächtnis!)"}
     mem_type = {"type": "string", "enum": ["fact", "preference", "rule", "event"]}
@@ -47,7 +50,7 @@ def _spec(ids: list[str]) -> list[tuple[str, str, str, dict]]:
         (ALL, "notes_get", "Liest deine Notizen (Arbeitszettel zwischen Läufen).", obj({})),
         (ALL, "notes_set", "Ersetzt deine Notizen (max. 4000 Zeichen).", obj({"text": E}, ("text",))),
         (ALL, "routine_list", "Listet alle Routinen mit Besitzer, Zeitplan/Auslöser und letztem Ergebnis.", obj({})),
-        (ALL, "routine_create", "Legt eine Routine an (Sub-Agenten nur für sich selbst).", obj({**routine_fields, "agent_id": agent_enum}, ("name", "prompt", "interval_min"))),
+        (ALL, "routine_create", "Legt eine Routine an (Sub-Agenten nur für sich selbst).", obj({**routine_fields, "agent_id": agent_enum}, ("name", "prompt"))),
         (ALL, "routine_update", "Ändert eine Routine (Sub-Agenten nur eigene; Zuteilen nur der Haupt-Agent).", obj({"id": E, **routine_fields, "enabled": {"type": "boolean"}, "agent_id": agent_enum}, ("id",))),
         (MAIN, "routine_delete", "Löscht eine Routine.", obj({"id": E}, ("id",))),
         (ALL, "routine_run_now", "Führt eine Routine sofort aus (Sub-Agenten nur eigene).", obj({"id": E}, ("id",))),
@@ -83,7 +86,7 @@ async def _ids(db: AsyncSession) -> list[str]:
 def _routine_view(r: Routine, last: RoutineRun | None) -> dict:
     t = r.trigger
     return {"id": r.id, "name": r.name, "besitzer": r.agent_id, "aufgabe": r.prompt[:300], "enabled": r.enabled,
-            "zeitplan": f"bei {t['mode']} von {t['connector']}.{t['tool']}" if t else f"alle {r.interval_min} Min",
+            "zeitplan": routine_svc.when_text(r), "naechsterLauf": r.next_run.isoformat() if r.next_run else None,
             "model": r.model, "letzterLauf": r.last_run.isoformat() if r.last_run else None,
             "letztesErgebnis": (last.text[:300] if last else None)}
 

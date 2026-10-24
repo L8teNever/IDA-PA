@@ -27,7 +27,8 @@ class Settings(BaseSettings):
     claude_bin: str = "claude"
     models: str = "claude-sonnet-5-5,claude-opus-5-5,claude-haiku-5-5,claude-fable-5-1"
     default_model: str = "claude-sonnet-5-5"
-    cheap_model: str = "claude-haiku-5-5"  # memory consolidation and other housekeeping
+    cheap_model: str = "claude-haiku-5-5"
+    timezone: str = "Europe/Berlin"  # routines with fixed times run in this zone  # memory consolidation and other housekeeping
     run_timeout_s: int = 600
 
     # Optional embeddings for the memory (Ollama on the host)

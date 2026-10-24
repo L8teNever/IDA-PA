@@ -84,6 +84,8 @@ class RoutineCreate(BaseModel):
     model: str | None = None
     account_id: str | None = None
     interval_min: int | None = None
+    times: list[str] | None = None  # fixed times "HH:MM"
+    days: list[int] | None = None  # 0 = Monday … 6 = Sunday, empty = every day
     trigger: Trigger | None = None
     fallback: bool | None = None
     memory_enabled: bool | None = None
@@ -97,6 +99,8 @@ class RoutineUpdate(BaseModel):
     model: str | None = None
     account_id: str | None = None
     interval_min: int | None = None
+    times: list[str] | None = None
+    days: list[int] | None = None
     trigger: Trigger | None = None
     fallback: bool | None = None
     memory_enabled: bool | None = None

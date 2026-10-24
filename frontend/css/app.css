@@ -193,3 +193,17 @@ body.login-view header, body.login-view .composer { display: none; }
 @media (min-width: 1400px) {
   #page.page-wide .set-wrap { grid-template-columns: 360px minmax(0, 1fr); }
 }
+
+/* routine: fixed times */
+.time-chips { align-items: center; }
+.time-chip { display: inline-flex; align-items: center; gap: 4px; height: 40px; padding: 0 4px 0 14px; border-radius: 14px;
+  background: var(--container); color: var(--on-container); font-size: 15px; font-weight: 500; font-variant-numeric: tabular-nums; }
+.time-chip button { width: 30px; height: 30px; border: 0; border-radius: 10px; background: transparent; color: inherit; cursor: pointer; display: grid; place-items: center; }
+.time-chip button .ms { font-size: 18px; }
+.time-chip button:hover { background: rgba(255,255,255,.08); }
+.time-add { display: inline-flex; align-items: center; gap: 6px; background: var(--surface-high); border-radius: 14px; padding: 4px 4px 4px 12px; }
+.time-add input[type=time] { background: transparent; border: 0; color: var(--on-surface); font: inherit; font-size: 15px; color-scheme: dark; }
+.time-add button { height: 32px; border: 0; border-radius: 10px; background: var(--accent); color: var(--on-accent); font: inherit; font-size: 13px;
+  display: flex; align-items: center; gap: 4px; padding: 0 10px; cursor: pointer; }
+.time-add button .ms { font-size: 18px; }
+.chipset .day-preset { opacity: .75; font-size: 13px; }

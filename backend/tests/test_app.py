@@ -241,3 +241,40 @@ def test_cloudflare_access_login(server):
     finally:
         s.cf_access_team_domain = s.cf_access_aud = ""
         security._jwks = None
+
+
+def test_schedule_fixed_times():
+    from datetime import datetime, timezone
+
+    from app.services import schedule
+    from app.services.errors import Invalid
+
+    assert schedule.clean_times(["7:05", "18:30", "07:05"]) == ["07:05", "18:30"]
+    assert schedule.clean_times("08:00, 12:00") == ["08:00", "12:00"]
+    for bad in (["25:00"], ["7"], []):
+        try:
+            schedule.clean_times(bad)
+            raise AssertionError(bad)
+        except Invalid:
+            pass
+    # Saturday 24.10.2026 10:00 Berlin (CEST, UTC+2) -> next 18:30 the same day
+    sat = datetime(2026, 10, 24, 8, 0, tzinfo=timezone.utc)
+    assert schedule.next_run(["07:00", "18:30"], None, sat) == datetime(2026, 10, 24, 16, 30, tzinfo=timezone.utc)
+    # weekdays only -> Monday 07:00; after the switch to winter time (CET, UTC+1) on 25.10.
+    assert schedule.next_run(["07:00"], [0, 1, 2, 3, 4], sat) == datetime(2026, 10, 26, 6, 0, tzinfo=timezone.utc)
+    assert schedule.describe(["07:00"], [0, 1, 2, 3, 4]) == "Mo–Fr 07:00"
+    assert schedule.describe(["07:00", "18:30"], None) == "täglich 07:00, 18:30"
+
+
+def test_routine_with_fixed_times(client):
+    r = client.post(f"{API}/routines", json={"name": "Morgens", "prompt": "Guten Morgen", "times": ["07:00"], "days": [0, 1, 2, 3, 4]}).json()
+    assert r["times"] == ["07:00"] and r["days"] == [0, 1, 2, 3, 4] and r["next_run"] and r["trigger"] is None
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    nxt = datetime.fromisoformat(r["next_run"]).astimezone(ZoneInfo("Europe/Berlin"))
+    assert (nxt.hour, nxt.minute) == (7, 0) and nxt.weekday() < 5
+    # back to an interval
+    r2 = client.patch(f"{API}/routines/{r['id']}", json={"times": None, "interval_min": 30}).json()
+    assert r2["times"] is None and r2["interval_min"] == 30
+    assert client.post(f"{API}/routines", json={"name": "X", "prompt": "p", "times": ["99:00"]}).status_code == 400
+    client.delete(f"{API}/routines/{r['id']}")
