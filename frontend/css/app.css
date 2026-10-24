@@ -229,3 +229,15 @@ body.login-view header, body.login-view .composer { display: none; }
 @media (min-width: 900px) {
   body:has(#page:not([hidden]) > .set-wrap) header { padding-inline: max(24px, calc((100% - 1440px) / 2)); }
 }
+
+/* big screens: use the width (header, start page and pages share one wide frame) */
+@media (min-width: 1200px) {
+  header { padding-inline: max(24px, calc((100% - 1440px) / 2)); }
+  #home { padding-inline: max(24px, calc((100% - 1440px) / 2)); grid-template-columns: minmax(300px, 420px) minmax(0, 1fr); }
+  #page { padding-inline: max(24px, calc((100% - 1200px) / 2)); }
+  .messages { padding-inline: max(24px, calc((100% - 960px) / 2)); }
+  .composer { padding-inline: max(24px, calc((100% - 960px) / 2)); }
+  #routinePageList { display: grid; grid-template-columns: repeat(auto-fill, minmax(460px, 1fr)); gap: 10px; align-items: start; }
+  #routinePageList .rcard { margin: 0; }
+  #routinePageList .empty { grid-column: 1 / -1; }
+}
