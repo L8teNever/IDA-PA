@@ -10,7 +10,7 @@ export async function render(el, id) {
   const list = await api.get("/accounts");
   el.innerHTML = subHead("Claude-Accounts", "/einstellungen") + `
     <p class="sub-intro">Jeder Account ist ein eigenes Claude-Abo mit eigenem Limit. Ist einer am Limit, nehmen Routinen und Agents automatisch den nächsten (wenn „Limit-Fallback“ an ist).</p>
-    <div class="slist">${list.map((a) => `<div class="srow col" data-id="${a.id}">
+    <div class="slist acc-list">${list.map((a) => `<div class="srow col" data-id="${a.id}">
       <div class="srow-top"><span class="sdot" style="background:${a.logged_in ? "#7ee2b8" : "#ff8f8f"}"></span>
         <span class="smain"><b>${esc(a.name)} <span class="mono dim">${a.id}</span></b><small>${a.logged_in ? (a.has_token ? "angemeldet (Token)" : "angemeldet") : "nicht angemeldet"}</small></span></div>
       <div class="acc-actions">

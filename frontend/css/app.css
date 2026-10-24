@@ -173,15 +173,15 @@ body.login-view header, body.login-view .composer { display: none; }
 .fld .dd.dd-open .dd-chev { color: var(--accent); }
 
 /* settings: own wide layout on PC (list left, details right) */
-#page.page-wide { padding-inline: max(16px, calc((100% - 1200px) / 2)); }
+#page.page-wide, #page:has(> .set-wrap) { padding-inline: max(24px, calc((100% - 1440px) / 2)); }
 .tool-bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 10px; }
 .tool-bar .search { flex: 1 1 220px; margin: 0; }
 .tool-bar .es-btn { height: 48px; }
 .tool-grid .srow[hidden] { display: none; }
 .tool-grid .smain b.mono { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 @media (min-width: 900px) {
-  #page.page-wide .set-wrap { grid-template-columns: 340px minmax(0, 1fr); gap: 44px; }
-  #page.page-wide .set-detail { padding-top: 14px; }
+  #page .set-wrap { grid-template-columns: 340px minmax(0, 1fr); gap: 44px; }
+  #page .set-detail { padding-top: 14px; }
   .detail-top { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 12px; align-items: start; }
   .detail-top .pcard { margin: 0; }
   .detail-top .slist.toggles { margin-top: 0; }
@@ -189,9 +189,12 @@ body.login-view header, body.login-view .composer { display: none; }
   .detail-top .btn-row .es-btn { flex: 1; }
   .tool-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 6px; }
   .tool-grid .srow, .tool-grid .srow:first-child, .tool-grid .srow:last-child { border-radius: 16px; padding: 10px 14px; }
+  .acc-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(420px, 1fr)); gap: 10px; }
+  .acc-list .srow, .acc-list .srow:first-child, .acc-list .srow:last-child { border-radius: 24px; margin: 0; }
+  .set-detail .pcard.help { max-width: 900px; }
 }
 @media (min-width: 1400px) {
-  #page.page-wide .set-wrap { grid-template-columns: 360px minmax(0, 1fr); }
+  #page .set-wrap { grid-template-columns: 360px minmax(0, 1fr); }
 }
 
 /* routine: fixed times */
@@ -223,3 +226,6 @@ body.login-view header, body.login-view .composer { display: none; }
 .field { padding-left: 18px; padding-right: 8px; }
 .field-tools { margin-left: -8px; }
 #input { padding: 15px 0 13px; line-height: 1.45; overflow-y: auto; scrollbar-width: thin; }
+@media (min-width: 900px) {
+  body:has(#page:not([hidden]) > .set-wrap) header { padding-inline: max(24px, calc((100% - 1440px) / 2)); }
+}
