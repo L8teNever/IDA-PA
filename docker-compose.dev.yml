@@ -1,0 +1,7 @@
+# Lokal selbst bauen statt von GitHub zu ziehen:
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build
+services:
+  app:
+    image: ida-pa:dev
+    pull_policy: build
+    build: .

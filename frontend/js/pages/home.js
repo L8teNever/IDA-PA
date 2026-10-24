@@ -1,0 +1,127 @@
+// "/" – start page of the main agent (infos = unread notifications, today = routine runs) and "/a/:id".
+import { api } from "../api.js";
+import { navigate } from "../router.js";
+import { agentById, agentOf, colors, mainAgent, setUnread } from "../store.js";
+import { $, enableSwipe, esc, fmtTime } from "../ui/dom.js";
+import { setAgent, setView } from "../ui/shell.js";
+import { newChat, send } from "./chat.js";
+
+let pastOpen = false;
+
+export async function homePage() {
+  const a = mainAgent();
+  setAgent(a);
+  newChat(a);
+  setView(a.home === "timeline" ? "home" : "agent");
+  if (a.home !== "timeline") return renderAgentHome(a);
+  $("dayName").textContent = new Date().toLocaleDateString("de-DE", { weekday: "long" });
+  $("daySub").innerHTML = `<span class="ms">calendar_today</span>${new Date().toLocaleDateString("de-DE", { day: "numeric", month: "long" })}`;
+  await refresh();
+}
+
+export function agentPage({ id }) {
+  const a = agentById(id);
+  if (!a) return navigate("/", { replace: true });
+  if (a.is_main) return navigate("/", { replace: true });
+  setAgent(a);
+  newChat(a);
+  setView(a.home === "timeline" ? "home" : "agent");
+  if (a.home === "timeline") return refresh();
+  renderAgentHome(a);
+}
+
+function renderAgentHome(a) {
+  $("ahName").textContent = a.name;
+  $("ahDesc").textContent = a.intro || a.description;
+  $("ahChips").innerHTML = (a.chips || []).map(([ic, t]) => `<button data-t="${esc(t)}"><span class="ms">${esc(ic)}</span>${esc(t)}</button>`).join("")
+    + `<button data-go="/einstellungen/agents/${a.id}"><span class="ms">tune</span>Einstellungen</button>`;
+  $("ahChips").onclick = (e) => {
+    const b = e.target.closest("button");
+    if (!b) return;
+    if (b.dataset.go) return navigate(b.dataset.go);
+    send(b.dataset.t);
+  };
+}
+
+async function refresh() {
+  const data = await api.get("/home");
+  renderNotes(data.notices);
+  renderTimeline(data.timeline);
+}
+
+function renderNotes(notes) {
+  const box = $("notes");
+  document.body.classList.toggle("alert", notes.length > 0);
+  $("bellCount").textContent = notes.length;
+  setUnread(notes.length);
+  if (!notes.length) { box.hidden = true; document.body.classList.remove("show-bell"); return; }
+  box.hidden = false;
+  const fa = colors(agentOf(notes[0].from));
+  const rs = document.documentElement.style;
+  rs.setProperty("--alert", fa["--accent"]);
+  rs.setProperty("--alert-rgb", fa["--accent-rgb"]);
+  rs.setProperty("--alert-container", fa["--container"]);
+  rs.setProperty("--on-alert-container", fa["--on-container"]);
+  rs.setProperty("--on-alert", fa["--on-accent"]);
+  const icon = (n) => (n.kind === "notice" ? (n.priority === "high" ? "priority_high" : "notifications") : n.kind === "result" ? "task_alt" : "chat");
+  const item = (n, i, cls) => {
+    const a = agentOf(n.from), c = colors(a);
+    const [title, ...rest] = n.title ? [n.title, n.text] : [n.text.split("\n")[0].slice(0, 60), n.text.slice(60)];
+    return `<button class="note ${cls}" data-i="${i}" style="--n-acc:${c["--accent"]};--n-rgb:${c["--accent-rgb"]}">
+      <span class="ic"><span class="ms">${icon(n)}</span></span>
+      <span class="ntxt"><b>${esc(title)}</b><small>${esc(rest.join(" ").slice(0, 90) || fmtTime(n.at))}</small></span>
+      <span class="who">${esc(a.name)}</span></button>`;
+  };
+  const [first, ...rest] = notes;
+  box.innerHTML = `<div class="note-row">${item(first, 0, "first" + (rest.length ? "" : " only"))}
+      ${rest.length ? `<button class="more-btn" id="moreBtn" aria-label="Weitere Infos"><span>+${rest.length}</span><span class="ms chev">expand_more</span></button>` : ""}</div>
+    ${rest.map((n, i) => item(n, i + 1, "extra" + (i === rest.length - 1 ? " last" : ""))).join("")}`;
+  if (rest.length) $("moreBtn").onclick = () => box.classList.toggle("expanded");
+  box.querySelectorAll(".note").forEach((el) => {
+    const n = notes[+el.dataset.i];
+    enableSwipe(el, {
+      onSwipe: async () => { await api.post(`/messages/${n.id}/read`); refresh(); },
+      onTap: async () => {
+        await api.post(`/messages/${n.id}/read`);
+        const a = agentOf(n.from);
+        navigate(a.is_main ? "/nachrichten" : `/a/${a.id}`);
+      },
+    });
+  });
+}
+
+function renderTimeline(items) {
+  const now = Date.now();
+  let nowIdx = items.findIndex((x) => new Date(x.at).getTime() >= now - 15 * 60000);
+  if (nowIdx < 0) nowIdx = items.length;
+  const html = (x, i) => {
+    const a = agentOf(x.agent_id);
+    const sub = x.kind === "next" ? `geplant · ${a.name}` : `${x.ok ? "erledigt" : "fehlgeschlagen"} · ${a.name}`;
+    return `<button class="ev ${i < nowIdx ? "past" : i === nowIdx ? "now" : ""}" data-href="/routinen/${x.routine_id}">
+      <span class="time">${fmtTime(x.at)}</span>
+      <span class="evtxt"><b>${esc(x.title)}</b><small>${esc(sub)}</small></span>
+      <span class="ms evchev">chevron_right</span></button>`;
+  };
+  const pastN = Math.min(nowIdx, items.length);
+  $("pastSlot").innerHTML = pastN ? `<button class="past-toggle ${pastOpen ? "open" : ""}" id="pastToggle"><span class="ms">history</span>${pastN}<span class="ms pchev">expand_more</span></button>` : "";
+  $("timeline").innerHTML = (items.length ? "" : `<div class="empty-day"><span class="ms">wb_sunny</span>Heute steht nichts an. Leg Routinen an, dann erscheinen sie hier.</div>`)
+    + (pastN ? `<div class="past-wrap ${pastOpen ? "open" : ""}"><div>${items.slice(0, pastN).map(html).join("")}</div></div>` : "")
+    + items.slice(pastN).map((x, k) => html(x, k + pastN)).join("");
+  $("pastSlot").onclick = (e) => { if (e.target.closest("#pastToggle")) { pastOpen = !pastOpen; renderTimeline(items); } };
+}
+
+// Scroll: mascot and bell move into the header
+export function initHomeScroll() {
+  const home = $("home");
+  const onScroll = () => {
+    const y = home.scrollTop;
+    const hero = home.querySelector(".hero");
+    const notes = $("notes");
+    document.body.classList.toggle("show-mini", y > hero.offsetTop + hero.offsetHeight * 0.6);
+    document.body.classList.toggle("show-bell", !notes.hidden && y > notes.offsetTop + notes.offsetHeight - 16);
+  };
+  home.addEventListener("scroll", onScroll, { passive: true });
+  $("hdrMini").onclick = () => home.scrollTo({ top: 0, behavior: "smooth" });
+  $("hdrBell").onclick = () => { $("notes").classList.add("expanded"); home.scrollTo({ top: 0, behavior: "smooth" }); };
+  setInterval(() => { if (!document.hidden && !$("home").hidden && !document.body.classList.contains("chatting")) refresh().catch(() => {}); }, 60000);
+}

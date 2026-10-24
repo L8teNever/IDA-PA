@@ -1,0 +1,20 @@
+# secrets / local config
+.env
+# runtime data (database, Claude logins, sandbox)
+data/
+backend/data/
+*.db
+*.db-wal
+*.db-shm
+# python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+# old prototype: its data files contain tokens and personal data
+legacy/node-app/*.json
+legacy/node-app/*.migrated
+legacy/node-app/.gitignore.old
+
+# old prototype (stays local, not part of the repo)
+legacy/

@@ -1,0 +1,83 @@
+"""Starts the real app (SQLite, fake Claude CLI) on a free port; tests talk HTTP to it."""
+import os
+import socket
+import stat
+import sys
+import tempfile
+import threading
+import time
+from pathlib import Path
+
+import httpx
+import pytest
+
+HERE = Path(__file__).parent
+
+
+def _free_port() -> int:
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
+def _fake_bin(tmp: Path) -> str:
+    script = HERE / "fake_claude.py"
+    if sys.platform == "win32":
+        p = tmp / "claude.cmd"
+        p.write_text(f'@"{sys.executable}" "{script}" %*\r\n')
+    else:
+        p = tmp / "claude"
+        p.write_text(f'#!/bin/sh\nexec "{sys.executable}" "{script}" "$@"\n')
+        p.chmod(p.stat().st_mode | stat.S_IEXEC)
+    return str(p)
+
+
+@pytest.fixture(scope="session")
+def server():
+    tmp = Path(tempfile.mkdtemp(prefix="ida-test-"))
+    port = _free_port()
+    os.environ.update({
+        "DATA_DIR": str(tmp / "data"), "APP_PASSWORD": "pw", "CLAUDE_BIN": _fake_bin(tmp), "SCHEDULER_ENABLED": "false",
+        "INTERNAL_URL": f"http://127.0.0.1:{port}", "OLLAMA_URL": "http://127.0.0.1:9",
+        # CI also runs the suite against PostgreSQL (TEST_DATABASE_URL); locally SQLite in the temp dir
+        "DATABASE_URL": os.environ.get("TEST_DATABASE_URL", ""),
+    })
+    import uvicorn
+
+    from app.main import create_app
+
+    srv = uvicorn.Server(uvicorn.Config(create_app(), host="127.0.0.1", port=port, log_level="warning"))
+    th = threading.Thread(target=srv.run, daemon=True)
+    th.start()
+    for _ in range(100):
+        if srv.started:
+            break
+        time.sleep(0.1)
+    yield f"http://127.0.0.1:{port}"
+    srv.should_exit = True
+    th.join(5)
+
+
+@pytest.fixture(scope="session")
+def client(server):
+    c = httpx.Client(base_url=server, timeout=60)
+    assert c.post("/api/v1/auth/login", json={"password": "pw"}).status_code == 200
+    yield c
+    c.close()
+
+
+def chat(client, **body) -> list[dict]:
+    import json
+    with client.stream("POST", "/api/v1/chat", json=body) as r:
+        assert r.status_code == 200, r.read()
+        return [json.loads(line) for line in r.iter_lines() if line]
+
+
+def wait(fn, timeout=20):
+    end = time.time() + timeout
+    while time.time() < end:
+        v = fn()
+        if v:
+            return v
+        time.sleep(0.3)
+    raise AssertionError("timeout")

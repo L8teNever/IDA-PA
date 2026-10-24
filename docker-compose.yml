@@ -1,0 +1,55 @@
+# IDA – Betrieb. Das Image kommt immer frisch von GitHub (GHCR), gebaut von .github/workflows/docker-publish.yml.
+#   cp .env.example .env   (Passwörter eintragen)
+#   docker compose up -d
+# Update: docker compose pull && docker compose up -d   (oder automatisch: docker compose --profile autoupdate up -d)
+name: ida
+
+services:
+  app:
+    image: ${IDA_IMAGE:-ghcr.io/l8tenever/ida-pa:latest}
+    pull_policy: always
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://ida:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD in .env setzen}@db:5432/ida
+      OLLAMA_URL: ${OLLAMA_URL:-http://host.docker.internal:11434}
+    ports:
+      - "${IDA_PORT:-8080}:8000"
+    volumes:
+      - ida-data:/data            # Claude-Logins, Sandbox
+    extra_hosts:
+      - "host.docker.internal:host-gateway"   # Ollama auf dem Host (optional, fürs Gedächtnis)
+    depends_on:
+      db:
+        condition: service_healthy
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"
+
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ida
+      POSTGRES_USER: ida
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD in .env setzen}
+    volumes:
+      - ida-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ida -d ida"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  # optional: holt neue Images von GitHub automatisch (alle 10 Minuten) und startet die App neu
+  watchtower:
+    image: containrrr/watchtower
+    profiles: ["autoupdate"]
+    restart: unless-stopped
+    command: --label-enable --cleanup --interval 600
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${DOCKER_CONFIG_DIR:-~/.docker}/config.json:/config.json:ro   # Login für private GHCR-Images
+
+volumes:
+  ida-data:
+  ida-db:
