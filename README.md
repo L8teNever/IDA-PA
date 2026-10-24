@@ -22,10 +22,9 @@ dann prüft IDA das signierte Cloudflare-Token jeder Anfrage und du musst dich n
 
 ### Claude-Account anmelden
 
-Im Container gibt es keinen Browser-Login. Unter **Einstellungen → Claude-Accounts** entweder
-
-1. die Datei `~/.claude/.credentials.json` eines Rechners hochladen, auf dem `claude` eingeloggt ist, oder
-2. mit `claude setup-token` einen Token erzeugen und unter „Token“ einfügen.
+Unter **Einstellungen → Claude-Accounts → „Im Browser anmelden“**: Link öffnen, bei Claude einloggen, den angezeigten Code
+in IDA einfügen. Die Claude-CLI speichert den Login selbst im Daten-Volume (inkl. automatischer Erneuerung).
+Alternativ: `~/.claude/.credentials.json` hochladen oder einen Token aus `claude setup-token` einfügen.
 
 Mehrere Accounts sind möglich; ist einer am Limit, nehmen Chats, Routinen und Agents automatisch den nächsten.
 
