@@ -57,7 +57,9 @@ export async function routineDetail({ id }) {
   const t = r.trigger;
   $("page").innerHTML = `
     <div class="sub-head"><a class="icon-btn back" href="/routinen" aria-label="Zurück"><span class="ms">arrow_back</span></a><h1>${esc(r.name)}</h1>
-      ${sw(r.enabled, `id="rEnabled" style="--sw:${c["--accent"]}"`)}</div>
+      <button type="button" id="rEnabled" class="state-toggle ${r.enabled ? "on" : ""}" style="--sw:${c["--accent"]}" aria-pressed="${r.enabled}"
+        title="${r.enabled ? "Routine pausieren" : "Routine aktivieren"}"><span class="state-text">${r.enabled ? "Aktiv" : "Pausiert"}</span><span class="sw ${r.enabled ? "on" : ""}" aria-hidden="true"></span></button></div>
+    ${r.enabled ? "" : `<div class="state-note"><span class="ms">pause_circle</span><span>Diese Routine ist pausiert und startet nicht von selbst. „Jetzt ausführen“ geht trotzdem.</span></div>`}
     <div class="pcard">
       <div class="kv"><span>Agent</span><b style="color:${c["--accent"]}">${esc(a.name)}</b></div>
       <div class="kv"><span>Start</span><b>${t ? `${esc(t.connector)} › ${esc(t.tool)} · ${MODES[t.mode]}${t.contains ? ` „${esc(t.contains)}“` : ""} · ${everySec(t.every_sec)}` : r.times?.length ? esc(timesText(r)) : every(r.interval_min)}</b></div>
