@@ -16,7 +16,7 @@ if args[:2] == ["auth", "login"]:  # browser login: print URL, wait for the code
     print("If the browser didn't open, visit: https://claude.com/cai/oauth/authorize?code=true&state=abc", flush=True)
     print("Paste code here if prompted > ", end="", flush=True)
     code = sys.stdin.readline().strip()
-    if code != "good#abc":
+    if code != "goodcode1234#abc":
         print("OAuth error: invalid code", flush=True)
         sys.exit(1)
     path = os.path.join(os.environ["CLAUDE_CONFIG_DIR"], ".credentials.json")

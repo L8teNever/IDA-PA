@@ -168,10 +168,10 @@ def test_browser_login(client):
     r = client.post(f"{API}/accounts/{a['id']}/login/code", json={"code": "falsch#abc"})
     assert r.status_code == 400 and "fehlgeschlagen" in r.json()["detail"]
     client.post(f"{API}/accounts/{a['id']}/login/start")
-    r = client.post(f"{API}/accounts/{a['id']}/login/code", json={"code": "good#abc"})
+    r = client.post(f"{API}/accounts/{a['id']}/login/code", json={"code": "goodcode1234#abc"})
     assert r.status_code == 200 and r.json()["logged_in"] is True
     assert next(x for x in client.get(f"{API}/accounts").json() if x["id"] == a["id"])["logged_in"]
-    assert client.post(f"{API}/accounts/{a['id']}/login/code", json={"code": "good#abc"}).status_code == 400  # no pending login
+    assert client.post(f"{API}/accounts/{a['id']}/login/code", json={"code": "goodcode1234#abc"}).status_code == 400  # no pending login
 
 
 def test_cloudflare_access_login(server):

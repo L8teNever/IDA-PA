@@ -55,7 +55,9 @@ export async function render(el) {
   };
 }
 
-// Browser login: the server starts `claude auth login`, we open the link, the user pastes the code shown by Claude.
+// Browser login: the server starts `claude auth login`, a new tab opens Claude. After "Autorisieren" Claude shows a
+// code ("<code>#<state>"). As soon as the user copies it and comes back, we read it from the clipboard, recognise it
+// by the state of exactly this login and finish automatically – no typing, no extra button.
 async function browserLogin(id, name, done) {
   const win = window.open("about:blank", "_blank"); // opened right away, so pop-up blockers allow it
   let url;
@@ -66,30 +68,63 @@ async function browserLogin(id, name, done) {
     return toast(e.message);
   }
   if (win) win.location.href = url;
-  const draw = (busy = false, err = "", code = "") => {
+  const state = new URL(url).searchParams.get("state") || "";
+  // Claude's code looks like "<code>#<state>"; the state belongs to exactly this login
+  const isCode = (t) => {
+    const [code, st, ...rest] = String(t || "").trim().split("#");
+    return !!state && !rest.length && st === state && /^[\w-]{10,}$/.test(code);
+  };
+  let busy = false, finished = false;
+
+  const cleanup = () => {
+    finished = true;
+    removeEventListener("focus", onBack);
+    document.removeEventListener("visibilitychange", onBack);
+  };
+  const submit = async (code) => {
+    if (busy || finished) return;
+    busy = true;
+    draw("checking");
+    try {
+      await api.post(`/accounts/${id}/login/code`, { code: code.trim() });
+      cleanup(); closeSheet(); toast(`${name} ist angemeldet`); await loadBoot(); done();
+    } catch (e) {
+      cleanup(); draw("error", e.message);
+    } finally { busy = false; }
+  };
+  // back from the Claude tab: look into the clipboard (the browser may ask once for permission)
+  async function onBack() {
+    if (finished || busy || document.hidden || !navigator.clipboard?.readText) return;
+    try {
+      const t = await navigator.clipboard.readText();
+      if (isCode(t)) submit(t);
+    } catch { /* no permission – the paste field still works */ }
+  }
+  addEventListener("focus", onBack);
+  document.addEventListener("visibilitychange", onBack);
+
+  function draw(mode = "wait", err = "") {
     openSheet(`<div class="sub-head" style="padding-top:0"><h1 style="font-size:22px">${esc(name)} anmelden</h1>
         <button class="icon-btn es-x" id="lgClose" aria-label="Schließen"><span class="ms">close</span></button></div>
+      ${mode === "checking" ? `<div class="login-wait"><span class="ms spin">progress_activity</span>Anmeldung wird gespeichert …</div>` : mode === "error" ? `
+      <div class="ferr" style="margin-bottom:12px">${esc(err)}</div>
+      <div class="wiz-nav"><button class="es-btn" id="lgCancel">Schließen</button><button class="es-btn primary" id="lgRetry"><span class="ms">refresh</span>Nochmal versuchen</button></div>` : `
       <ol class="login-steps">
-        <li>Im neuen Tab bei Claude anmelden und „Autorisieren“ tippen. <a href="${esc(url)}" target="_blank" rel="noopener">Link erneut öffnen</a></li>
-        <li>Claude zeigt danach einen <b>Code</b> – kopieren.</li>
-        <li>Hier einfügen und auf „Anmelden“ tippen.</li>
+        <li>Im Claude-Tab einloggen und <b>„Autorisieren“</b> tippen.</li>
+        <li>Auf der Code-Seite auf <b>„Kopieren“</b> tippen.</li>
+        <li>Zurück zu IDA – der Rest passiert automatisch.</li>
       </ol>
-      <label class="fld"><span>Code von Claude</span><input id="lgCode" autocomplete="off" spellcheck="false" value="${esc(code)}"></label>
-      <div class="ferr">${esc(err)}</div>
-      <div class="wiz-nav"><button class="es-btn" id="lgCancel">Abbrechen</button>
-        <button class="es-btn primary" id="lgOk" ${busy ? "disabled" : ""}><span class="ms">${busy ? "hourglass_top" : "check"}</span>${busy ? "Prüfe …" : "Anmelden"}</button></div>`);
-    const cancel = () => { closeSheet(); api.post(`/accounts/${id}/login/cancel`).catch(() => {}); };
-    $("lgClose").onclick = $("lgCancel").onclick = cancel;
-    if (!busy) $("lgCode").focus();
-    $("lgOk").onclick = async () => {
-      const c = $("lgCode").value.trim();
-      if (!c) return;
-      draw(true, "", c);
-      try {
-        await api.post(`/accounts/${id}/login/code`, { code: c });
-        closeSheet(); toast(`${name} ist angemeldet`); await loadBoot(); done();
-      } catch (e) { draw(false, e.message, ""); }
-    };
-  };
+      <div class="login-wait"><span class="ms spin">progress_activity</span>Warte auf die Bestätigung bei Claude …</div>
+      <details class="login-manual"><summary>Klappt nicht automatisch?</summary>
+        <label class="fld"><span>Code hier einfügen</span><input id="lgCode" autocomplete="off" spellcheck="false"></label>
+        <a href="${esc(url)}" target="_blank" rel="noopener">Claude-Seite erneut öffnen</a></details>
+      <div class="wiz-nav"><button class="es-btn" id="lgCancel">Abbrechen</button></div>`}`);
+    const cancel = () => { cleanup(); closeSheet(); api.post(`/accounts/${id}/login/cancel`).catch(() => {}); };
+    if ($("lgClose")) $("lgClose").onclick = cancel;
+    if ($("lgCancel")) $("lgCancel").onclick = cancel;
+    if ($("lgRetry")) $("lgRetry").onclick = () => { closeSheet(); browserLogin(id, name, done); };
+    // pasting (or typing) the code submits it immediately
+    if ($("lgCode")) $("lgCode").addEventListener("input", (e) => { if (isCode(e.target.value)) submit(e.target.value); });
+  }
   draw();
 }
