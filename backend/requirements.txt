@@ -9,3 +9,5 @@ pydantic-settings>=2.16,<3
 python-multipart>=0.0.20,<1
 tzdata>=2025.2
 faster-whisper>=1.2.1
+# PyAV 19 removed open(metadata_errors=...), which faster-whisper still passes
+av>=11,<19
