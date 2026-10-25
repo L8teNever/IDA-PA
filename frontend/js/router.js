@@ -1,4 +1,5 @@
 // Small history-API router: every page has a real URL (/chats, /einstellungen/agents/lea …).
+import { closeAll, settled } from "./ui/back.js";
 const routes = [];
 let notFound = null;
 let current = null;
@@ -26,14 +27,20 @@ export async function resolve() {
   if (notFound) await notFound();
 }
 
-export function navigate(url, { replace = false } = {}) {
+export async function navigate(url, { replace = false } = {}) {
+  await closeAll(); // open menus/sheets close first and take their history entries back out
   if (url === location.pathname + location.search && !replace) return resolve();
   history[replace ? "replaceState" : "pushState"](null, "", url);
   return resolve();
 }
 
 // Only changes the URL (e.g. a new chat got its id) without rendering again.
-export function setUrl(url) { history.replaceState(null, "", url); current = url; }
+// push: a new history entry, so "back" returns to the page before (start page -> new chat).
+export async function setUrl(url, { push = false } = {}) {
+  await (push ? closeAll() : settled());
+  history[push ? "pushState" : "replaceState"](null, "", url);
+  current = url;
+}
 export const path = () => current;
 
 export function start() {

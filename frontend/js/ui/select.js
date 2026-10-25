@@ -13,6 +13,9 @@ function closeOpen() {
   if (openMenu) openMenu.close();
 }
 
+// Closes the open dropdown (back button).
+export const closeDropdown = closeOpen;
+
 function place(menu, btn) {
   // align with the whole field box (design ".fld") when there is one
   const r = (btn.closest(".fld") || btn).getBoundingClientRect();

@@ -6,6 +6,7 @@ import { $, toast } from "./ui/dom.js";
 import { initMascot } from "./ui/mascot.js";
 import { initPwa } from "./ui/pwa.js";
 import { initVoice } from "./ui/voice.js";
+import { initBack } from "./ui/back.js";
 import { initSelects } from "./ui/select.js";
 import { initShell, setView } from "./ui/shell.js";
 import { openChat } from "./pages/chat.js";
@@ -42,6 +43,7 @@ async function start() {
   initPwa();
   initComposer();
   initVoice();
+  initBack();
   initHomeScroll();
   await router.start();
 }

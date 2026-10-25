@@ -100,7 +100,7 @@ export async function send(text, { skill = null, model, accountId } = {}) {
   try {
     await streamChat({ chat_id: ctx.id, agent_id: agent.id, text, skill, model, account_id: accountId }, (ev) => {
       if (ev.chat) {
-        if (!ctx.id) { ctx.id = ev.chat.id; setUrl(`/chat/${ev.chat.id}`); }
+        if (!ctx.id) { ctx.id = ev.chat.id; setUrl(`/chat/${ev.chat.id}`, { push: !location.pathname.startsWith("/chat/") }); }
       } else if (ev.text !== undefined) {
         const last = parts[parts.length - 1];
         if (last?.t === "text") last.text += ev.text; else parts.push({ t: "text", text: ev.text });
