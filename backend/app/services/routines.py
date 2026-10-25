@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..config import get_settings
 from ..db import session_scope, utcnow
 from ..models import Agent, Connector, Routine, RoutineRun
-from . import jobs, schedule, trigger_script, triggers
+from . import jobs, providers, schedule, trigger_script, triggers
 from .agents import record_run
 from .errors import Invalid, NotFound
 from .mcp.client import McpError, call_tool
@@ -90,8 +90,8 @@ async def _clean(db: AsyncSession, f: dict, partial: bool, allow_trigger: bool) 
             raise Invalid("Agent nicht gefunden")
         v["agent_id"] = agent.id
     if "model" in f:
-        if f["model"] and f["model"] not in s.model_list:
-            raise Invalid(f"model muss eines von {', '.join(s.model_list)} sein")
+        if f["model"]:
+            providers.check_model(f["model"])
         v["model"] = f["model"] or None
     if "account_id" in f:
         v["account_id"] = f["account_id"] or None

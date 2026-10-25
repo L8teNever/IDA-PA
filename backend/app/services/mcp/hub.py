@@ -16,6 +16,7 @@ from ...config import get_settings
 from ...db import session_scope
 from ...models import USER, Agent, Chat, ChatMessage, Routine, RoutineRun, Skill
 from .. import agents as agent_svc
+from .. import antigravity
 from .. import routines as routine_svc
 from .. import skills as skill_svc
 from ..claude import prompts
@@ -30,7 +31,8 @@ ALL, MAIN, MAIN_LIVE = "all", "main", "main_live"
 def _spec(ids: list[str]) -> list[tuple[str, str, str, dict]]:
     s = get_settings()
     to = {"type": "string", "description": "Empfänger: user (der Nutzer) oder eine Agent-ID: " + ", ".join(ids)}
-    model = {"type": "string", "enum": s.model_list}
+    model = {"type": "string", "enum": s.model_list + antigravity.cached_models(),
+             "description": "Claude-Modelle laufen auf Claude-Accounts, agy:… auf Antigravity-Accounts"}
     agent_enum = {"type": "string", "enum": ids, "description": "Besitzer-Agent der Routine"}
     routine_fields = {"name": E, "prompt": {**E, "description": "Vollständige Aufgabe, die bei jedem Lauf ausgeführt wird (muss allein verständlich sein)"},
                       "interval_min": {"type": "integer", "minimum": 1, "description": "Intervall in Minuten (statt times)"},

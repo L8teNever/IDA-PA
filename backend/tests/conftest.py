@@ -38,6 +38,7 @@ def server():
     port = _free_port()
     os.environ.update({
         "DATA_DIR": str(tmp / "data"), "CLAUDE_BIN": _fake_bin(tmp), "SCHEDULER_ENABLED": "false",
+        "AGY_BIN": f"{Path(sys.executable).as_posix()} {(HERE / 'fake_agy.py').as_posix()}",
         "INTERNAL_URL": f"http://127.0.0.1:{port}", "OLLAMA_URL": "http://127.0.0.1:9",
         # CI also runs the suite against PostgreSQL (TEST_DATABASE_URL); locally SQLite in the temp dir
         "DATABASE_URL": os.environ.get("TEST_DATABASE_URL", ""),

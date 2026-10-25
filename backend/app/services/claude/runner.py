@@ -91,11 +91,14 @@ async def stream(spec: RunSpec) -> AsyncIterator[dict]:
     """Yields normalised events:
     {"type":"text","text"}, {"type":"tool","id","server","name","input"},
     {"type":"tool_result","id","error","content"}, {"type":"done","ok","result","session_id"}.
+    Antigravity accounts run through the agy CLI (services/antigravity.py) with the same events.
     """
+    from .. import antigravity
     rid = activity.start(spec.agent_id, spec.kind) if spec.agent_id else None
     ok = False
+    source = antigravity.stream(spec) if getattr(spec.account, "provider", "claude") == "antigravity" else _stream(spec)
     try:
-        async with aclosing(_stream(spec)) as events:  # closing it stops the CLI if our consumer goes away
+        async with aclosing(source) as events:  # closing it stops the CLI if our consumer goes away
             async for ev in events:
                 if rid:
                     if ev["type"] == "text":

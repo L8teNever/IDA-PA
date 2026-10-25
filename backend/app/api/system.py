@@ -7,7 +7,7 @@ from sqlalchemy import func, select
 from ..config import get_settings
 from ..db import utcnow
 from ..models import USER, Account, Agent, Message, Routine, RoutineRun, Skill
-from ..services import activity, jobs
+from ..services import activity, jobs, providers
 from ..services.agents import PALETTES
 from ..services.claude.usage import logged_in
 from . import serializers as ser
@@ -35,9 +35,9 @@ async def bootstrap(db: DB):
     skills = (await db.scalars(select(Skill).where(Skill.enabled.is_(True)).order_by(Skill.name))).all()
     unread_user = await db.scalar(select(func.count()).select_from(Message).where(Message.to_id == USER, Message.read_at.is_(None)))
     return {
-        "models": s.model_list, "default_model": s.default_model, "palettes": list(PALETTES),
+        "models": await providers.model_list(db), "default_model": s.default_model, "palettes": list(PALETTES),
         "agents": [ser.agent(a) for a in agents],
-        "accounts": [ser.account(a, logged_in(a)) for a in accounts],
+        "accounts": [ser.account(a, providers.logged_in(a)) for a in accounts],
         "skills": [{"id": k.id, "name": k.name, "icon": k.icon, "description": k.description} for k in skills],
         "unread": unread_user or 0, "jobs": jobs.status(),
     }

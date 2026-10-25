@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..config import get_settings
 from ..db import session_scope
 from ..models import Account, Agent, AgentConnector, Connector, Message, Skill
+from . import providers
 from .claude import prompts, runner, usage
 from .claude.runner import RunResult, RunSpec, norm
 from .errors import Invalid
@@ -36,11 +37,9 @@ async def accounts(db: AsyncSession) -> list[Account]:
     return list((await db.scalars(select(Account).order_by(Account.position, Account.id))).all())
 
 
-async def account_or_first(db: AsyncSession, account_id: str | None) -> Account:
-    accs = await accounts(db)
-    if not accs:
-        raise Invalid("Noch kein Claude-Account eingerichtet (Einstellungen → Accounts)")
-    return next((a for a in accs if a.id == account_id), accs[0])
+async def account_or_first(db: AsyncSession, account_id: str | None, model: str | None = None) -> Account:
+    """The wanted account if it can run the model (Claude / Antigravity), else the first one that can."""
+    return await providers.pick(db, account_id, model or get_settings().default_model)
 
 
 async def _connectors(db: AsyncSession, agent: Agent) -> tuple[dict, list[str], list[str]]:
@@ -83,8 +82,9 @@ async def prepare(db: AsyncSession, agent: Agent, prompt: str, *, model: str | N
     token = identity.issue(identity.Identity(agent_id=agent.id, is_main=agent.is_main, depth=depth, memory=memory_on, interactive=interactive))
     servers[HUB] = {"type": "http", "url": f"{s.internal_url}/mcp/{token}"}
     allow.append(f"mcp__{HUB}")
-    acc = account or await account_or_first(db, agent.account_id)
-    spec = RunSpec(model=model or agent.model or s.default_model, account=acc, prompt=prompt, system=system,
+    model = model or agent.model or s.default_model
+    acc = account or await account_or_first(db, agent.account_id, model)
+    spec = RunSpec(model=model, account=acc, prompt=prompt, system=system,
                    mcp_servers=servers, allow=allow, deny=deny, session_id=session_id, persist=persist,
                    agent_id=agent.id, kind="chat" if interactive else "run")
     return Prepared(spec=spec, token=token)
@@ -106,9 +106,10 @@ async def run_agent(agent_id: str, prompt: str, *, model: str | None = None, acc
         agent = await db.get(Agent, agent_id)
         if not agent:
             return RunResult(ok=False, text="Agent nicht gefunden", tools=[])
-        accs = await accounts(db)
+        model = model or agent.model or get_settings().default_model
+        accs = await providers.accounts_for(db, model)  # only accounts that can run this model
         if not accs:
-            return RunResult(ok=False, text="Kein Claude-Account eingerichtet", tools=[])
+            return RunResult(ok=False, text=f"Kein {providers.PROVIDERS[providers.of_model(model)]}-Account eingerichtet", tools=[])
         preferred = next((a for a in accs if a.id == (account_id or agent.account_id)), accs[0])
         use_fallback = agent.fallback if fallback is None else fallback
         order = [preferred] + ([a for a in accs if a.id != preferred.id] if use_fallback else [])
@@ -116,7 +117,7 @@ async def run_agent(agent_id: str, prompt: str, *, model: str | None = None, acc
     result: RunResult | None = None
     for i, acc in enumerate(order):
         last = i == len(order) - 1
-        if not last and await usage.exhausted(acc):
+        if not last and acc.provider == "claude" and await usage.exhausted(acc):
             notes.append(f"{acc.name} ist am Limit")
             continue
         async with session_scope() as db:

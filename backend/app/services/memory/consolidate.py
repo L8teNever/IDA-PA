@@ -28,7 +28,7 @@ async def consolidate(scope: str) -> dict:
             raise Invalid("Zu wenige Einträge zum Aufräumen (mindestens 4)")
         rows = "\n".join(json.dumps({"id": e.id, "art": e.type, "fest": e.pinned, "wichtigkeit": e.importance,
                                      "geaendert": e.updated_at.date().isoformat(), "text": e.text}, ensure_ascii=False) for e in items)
-        acc = await runs.account_or_first(db, None)
+        acc = await runs.account_or_first(db, None, get_settings().cheap_model)
     spec = RunSpec(model=get_settings().cheap_model, account=acc, prompt=PROMPT + rows)
     out = await jobs.submit(f"memory consolidate {scope}", lambda: runner.run(spec))
     if not out.ok:

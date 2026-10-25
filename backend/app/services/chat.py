@@ -15,7 +15,7 @@ from sqlalchemy import select
 from ..config import get_settings
 from ..db import session_scope, utcnow
 from ..models import Account, Agent, Chat, ChatMessage, Skill
-from . import runs
+from . import providers, runs
 from .claude import runner
 from .errors import Invalid, NotFound
 from .mcp import identity
@@ -53,10 +53,9 @@ async def stream_chat(*, chat_id: str | None, agent_id: str | None, text: str, m
             chat = Chat(agent_id=agent.id, title=(text or "Neuer Chat")[:60], model=model or agent.model or s.default_model)
             db.add(chat)
         if model:
-            if model not in s.model_list:
-                raise Invalid("Unbekanntes Modell")
+            providers.check_model(model)
             chat.model = model
-        acc = await runs.account_or_first(db, account_id or chat.account_id or agent.account_id)
+        acc = await runs.account_or_first(db, account_id or chat.account_id or agent.account_id, chat.model)
         chat.account_id = acc.id
         skill = await db.get(Skill, skill_id) if skill_id else None
         if skill_id and not (skill and skill.enabled):
@@ -68,7 +67,7 @@ async def stream_chat(*, chat_id: str | None, agent_id: str | None, text: str, m
         info = chat_dict(chat)
         state = {"chat_id": chat.id, "agent_id": agent.id, "model": chat.model, "session": chat.session_id if chat.session_account == acc.id else None,
                  "history": _transcript(history)}
-        order = [acc] + ([a for a in await runs.accounts(db) if a.id != acc.id] if agent.fallback else [])
+        order = [acc] + ([a for a in await providers.accounts_for(db, chat.model) if a.id != acc.id] if agent.fallback else [])
     yield {"chat": info}
 
     prompt_text = text or "(Wende den Skill auf das bisherige Gespräch bzw. deine letzte Antwort an.)"

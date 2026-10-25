@@ -167,6 +167,7 @@ class Scope(BaseModel):
 
 class AccountCreate(BaseModel):
     name: str = ""
+    provider: str = "claude"  # claude | antigravity
 
 
 class AccountUpdate(BaseModel):

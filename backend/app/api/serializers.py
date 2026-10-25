@@ -23,7 +23,7 @@ def agent_run(r: AgentRun) -> dict:
 
 
 def account(a: Account, logged_in: bool) -> dict:
-    return {"id": a.id, "name": a.name, "logged_in": logged_in, "has_token": bool(a.oauth_token)}
+    return {"id": a.id, "name": a.name, "provider": a.provider, "logged_in": logged_in, "has_token": bool(a.oauth_token)}
 
 
 def connector(c: Connector, agents: list[str] | None = None) -> dict:

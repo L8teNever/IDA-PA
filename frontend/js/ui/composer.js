@@ -17,7 +17,10 @@ function current() {
   const models = state.boot?.models || [];
   const accs = accounts();
   const model = models.includes(sel?.model) ? sel.model : state.agent?.model || state.boot?.default_model;
-  const account = accs.find((a) => a.id === sel?.account) || accs.find((a) => a.id === state.agent?.account_id) || accs[0];
+  // the account must be able to run the model: agy:… only on Antigravity accounts, Claude models only on Claude accounts
+  const fits = (a) => a && (a.provider === "antigravity") === String(model || "").startsWith("agy:");
+  const wanted = accs.find((a) => a.id === sel?.account) || accs.find((a) => a.id === state.agent?.account_id);
+  const account = fits(wanted) ? wanted : accs.find(fits) || wanted || accs[0];
   return { model, account };
 }
 
@@ -39,14 +42,17 @@ function renderMenu() {
   const { model, account } = current();
   if (!menuTab || !accs.some((a) => a.id === menuTab)) menuTab = account?.id || accs[0]?.id;
   const rail = accs.map((a) => `<button type="button" data-tab="${a.id}" class="${a.id === menuTab ? "on" : ""}">
-      <span class="rail-ic acc">${ring(state.usage[a.id], "rail")}<span class="ms">account_circle</span><em>${esc(a.id.replace(/^a/, ""))}</em></span>
+      <span class="rail-ic acc">${ring(state.usage[a.id], "rail")}<span class="ms">${a.provider === "antigravity" ? "rocket_launch" : "account_circle"}</span><em>${esc(a.id.replace(/^a/, ""))}</em></span>
       <span class="rail-name">${esc(a.name)}${a.logged_in ? "" : " ⚠"}</span></button>`).join("");
-  const list = (state.boot?.models || []).map((id) => {
+  const tabAcc = accs.find((a) => a.id === menuTab);
+  const agyTab = tabAcc?.provider === "antigravity";
+  const models = (state.boot?.models || []).filter((id) => id.startsWith("agy:") === agyTab);
+  const list = models.length ? models.map((id) => {
     const m = modelInfo(id);
     const on = id === model && menuTab === account?.id;
     return `<div role="menuitem" tabindex="0" data-m="${id}" class="mm-item ${on ? "sel" : ""}" title="${esc(m.desc)}">
       <span class="mtxt"><b>${esc(m.name)}</b><small>${esc(m.desc)}</small></span><span class="ms mcheck">check</span></div>`;
-  }).join("");
+  }).join("") : `<div class="mm-empty">${agyTab ? "Noch keine Modelle – den Antigravity-Account erst anmelden (Einstellungen → Accounts)." : "Keine Modelle."}</div>`;
   $("modelMenu").innerHTML = `<div class="mm-body"><div class="mm-rail">${rail}</div><div class="mm-list">${list}</div></div>`;
 }
 

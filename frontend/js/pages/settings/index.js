@@ -18,7 +18,7 @@ const SECTIONS = [
     ["gedaechtnis", "psychology", "Gedächtnis", () => "Was die Agents sich merken", "lila", memory],
   ]],
   ["App", [
-    ["accounts", "person", "Claude-Accounts", () => `${state.boot.accounts.length} verbunden`, "orange", accounts],
+    ["accounts", "person", "Accounts", () => `${state.boot.accounts.length} verbunden · Claude & Antigravity`, "orange", accounts],
   ]],
 ];
 const flat = SECTIONS.flatMap((g) => g[1]);

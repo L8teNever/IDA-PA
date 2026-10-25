@@ -18,7 +18,15 @@ const MODEL_INFO = {
   opus:   { short: "Opus",   icon: "psychology", desc: "Am stärksten, braucht mehr Limit" },
   fable:  { short: "Fable",  icon: "auto_stories", desc: "Kreativ" },
 };
+// Antigravity models come as "agy:<model>" (e.g. agy:gemini-3-pro) and run on Antigravity accounts
+const pretty = (s) => s.replace(/[-_]/g, " ").replace(/\b([a-z])/g, (c) => c.toUpperCase()).replace(/(\d) (\d)/g, "$1.$2");
+export const isAgy = (id) => String(id || "").startsWith("agy:");
 export function modelInfo(id) {
+  if (isAgy(id)) {
+    const rest = id.slice(4);
+    const short = /gemini/i.test(rest) ? "Gemini" : /claude/i.test(rest) ? "Claude" : /gpt/i.test(rest) ? "GPT" : pretty(rest.split("-")[0]);
+    return { id, short, icon: /gemini/i.test(rest) ? "diamond" : "rocket_launch", desc: "über Google Antigravity", name: pretty(rest) };
+  }
   const key = Object.keys(MODEL_INFO).find((k) => id.includes(k));
   const ver = (id.match(/(\d+)-(\d+)$/) || []).slice(1).join(".");
   const base = key ? MODEL_INFO[key] : { short: id, icon: "smart_toy", desc: "" };

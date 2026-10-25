@@ -13,6 +13,7 @@ from ..models import Account
 from ..schemas import AccountCreate, AccountUpdate
 from ..db import session_scope
 from ..security import websocket_allowed
+from ..services import antigravity, providers
 from ..services.claude import terminal as term
 from ..services.claude import usage as usage_svc
 from ..services.claude.runner import account_dir
@@ -26,7 +27,20 @@ MAX_ACCOUNTS = 5
 
 @router.get("/accounts")
 async def list_accounts(db: DB):
-    return [ser.account(a, usage_svc.logged_in(a)) for a in (await db.scalars(select(Account).order_by(Account.position, Account.id))).all()]
+    accs = (await db.scalars(select(Account).order_by(Account.position, Account.id))).all()
+    agy = [a for a in accs if a.provider == "antigravity"]
+    if agy:  # login state + models of Antigravity come from `agy models` (cached a few minutes)
+        await asyncio.gather(*(antigravity.refresh_status(a) for a in agy), return_exceptions=True)
+    return [ser.account(a, providers.logged_in(a)) for a in accs]
+
+
+@router.post("/accounts/{account_id}/refresh")
+async def refresh(account_id: str, db: DB):
+    """Checks the login again (Antigravity: runs `agy models`)."""
+    a = await _account(db, account_id)
+    if a.provider == "antigravity":
+        await antigravity.refresh_status(a, force=True)
+    return ser.account(a, providers.logged_in(a))
 
 
 @router.post("/accounts", status_code=201)
@@ -36,7 +50,10 @@ async def create(body: AccountCreate, db: DB):
     if not aid:
         raise Invalid(f"Maximal {MAX_ACCOUNTS} Accounts")
     pos = (await db.scalar(select(func.max(Account.position)))) or 0
-    a = Account(id=aid, name=body.name.strip()[:40] or f"Account {aid[1:]}", position=pos + 1)
+    if body.provider not in providers.PROVIDERS:
+        raise Invalid("Anbieter: claude oder antigravity")
+    label = providers.PROVIDERS[body.provider]
+    a = Account(id=aid, name=body.name.strip()[:40] or f"{label} {aid[1:]}", position=pos + 1, provider=body.provider)
     db.add(a)
     return ser.account(a, False)
 
@@ -51,7 +68,7 @@ async def update(account_id: str, body: AccountUpdate, db: DB):
         a.name = data["name"].strip()[:40]
     if "oauth_token" in data:
         a.oauth_token = (data["oauth_token"] or "").strip() or None
-    return ser.account(a, usage_svc.logged_in(a))
+    return ser.account(a, providers.logged_in(a))
 
 
 @router.post("/accounts/{account_id}/credentials")
@@ -87,6 +104,9 @@ async def logout(account_id: str, db: DB):
     a = await db.get(Account, account_id)
     if not a:
         raise NotFound("Account nicht gefunden")
+    if a.provider == "antigravity":
+        antigravity.logout(a)
+        return ser.account(a, False)
     (account_dir(a.id) / ".credentials.json").unlink(missing_ok=True)
     a.oauth_token = None
     return ser.account(a, False)
@@ -107,6 +127,10 @@ async def delete(account_id: str, db: DB):
 async def usage(db: DB, force: bool = False):
     out = []
     for a in (await db.scalars(select(Account).order_by(Account.position, Account.id))).all():
+        if a.provider == "antigravity":
+            out.append({"id": a.id, "name": a.name, "provider": a.provider,
+                        "error": "Antigravity zeigt keine Limits an – bei „Limit erreicht“ springt IDA auf den nächsten Antigravity-Account."})
+            continue
         try:
             u = await usage_svc.usage(a, force)
         except Exception as e:  # noqa: BLE001
@@ -152,7 +176,10 @@ async def terminal(ws: WebSocket, account_id: str, cmd: str = "login", cols: int
         while True:
             data = await queue.get()
             if data is None:
-                await ws.send_json({"t": "exit", "code": s.exit_code, "logged_in": usage_svc.logged_in(a)})
+                if a.provider == "antigravity":
+                    with contextlib.suppress(Exception):
+                        await antigravity.refresh_status(a, force=True)
+                await ws.send_json({"t": "exit", "code": s.exit_code, "logged_in": providers.logged_in(a)})
                 return
             await ws.send_json({"t": "out", "d": data.decode(errors="replace")})
 

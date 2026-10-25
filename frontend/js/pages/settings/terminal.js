@@ -43,16 +43,17 @@ export async function terminalView(el, id) {
   closeTerminal();
   const a = (await api.get("/accounts")).find((x) => x.id === id);
   if (!a) {
-    el.innerHTML = subHead("Claude-Accounts", "/einstellungen/accounts") + `<div class="empty">Account nicht gefunden.</div>`;
+    el.innerHTML = subHead("Accounts", "/einstellungen/accounts") + `<div class="empty">Account nicht gefunden.</div>`;
     return;
   }
   const info = await api.get("/terminal");
+  const agy = a.provider === "antigravity";
   el.innerHTML = subHead(`${a.name} – Terminal`, "/einstellungen/accounts") + `
     <div class="term-status" id="tStatus">${dot(a.logged_in, a.logged_in ? "angemeldet" : "nicht angemeldet")}</div>
     <div class="seg term-cmds" id="tCmds">
       <button data-cmd="login" class="on"><span class="ms">login</span>anmelden</button>
-      <button data-cmd="status"><span class="ms">info</span>Status</button>
-      <button data-cmd="logout"><span class="ms">logout</span>abmelden</button>
+      <button data-cmd="status"><span class="ms">info</span>${agy ? "Modelle" : "Status"}</button>
+      ${agy ? "" : `<button data-cmd="logout"><span class="ms">logout</span>abmelden</button>`}
     </div>
     <div class="term-box" id="tBox"></div>
     <div class="term-keys" id="tKeys">
@@ -61,8 +62,9 @@ export async function terminalView(el, id) {
       <button data-key="up">↑</button><button data-key="down">↓</button>
       <button data-key="esc">Esc</button><button data-key="ctrlc">Strg+C</button>
     </div>
-    <p class="sub-intro" style="margin-top:12px">Wie in T3 Code läuft hier <span class="mono">claude auth login</span>.
-      Link im Terminal antippen → bei Claude einloggen und „Autorisieren“ → Code kopieren → „Einfügen“ → Enter.
+    <p class="sub-intro" style="margin-top:12px">${agy ? `Hier läuft Googles <span class="mono">agy</span>.
+      Link im Terminal antippen → mit Google anmelden → Code kopieren → „Einfügen“ → Enter. Danach zeigt agy seinen eigenen Chat – mit „Strg+C“ beenden, dann erscheinen die Modelle in IDA.` : `Wie in T3 Code läuft hier <span class="mono">claude auth login</span>.
+      Link im Terminal antippen → bei Claude einloggen und „Autorisieren“ → Code kopieren → „Einfügen“ → Enter.`}
       Du kannst zwischendurch wechseln: der Login läuft auf dem Server weiter. Danach bleibt der Account dauerhaft angemeldet.</p>`;
   if (!info.available) { $("tBox").innerHTML = `<div class="empty">Das Terminal gibt es nur im Docker-Container.</div>`; return; }
   try { await loadXterm(); } catch { $("tBox").textContent = "Terminal konnte nicht geladen werden."; return; }

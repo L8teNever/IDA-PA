@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..config import get_settings
 from ..db import session_scope, utcnow
 from ..models import USER, Agent, AgentConnector, AgentRun, Chat, Connector, Message, Routine
-from . import jobs
+from . import jobs, providers
 from .claude import prompts
 from .errors import Invalid, NotFound
 from .memory import store as memory
@@ -47,8 +47,7 @@ def _clean(f: dict, partial: bool) -> dict:
     text("instructions", 4000)
     if f.get("model") is not None or not partial:
         m = f.get("model") or s.default_model
-        if m not in s.model_list:
-            raise Invalid(f"model muss eines von {', '.join(s.model_list)} sein")
+        providers.check_model(m)
         v["model"] = m
     if "account_id" in f:
         v["account_id"] = f["account_id"] or None
