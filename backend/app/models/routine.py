@@ -25,6 +25,8 @@ class Routine(Timestamps, Base):
     days: Mapped[list | None] = mapped_column(Json, default=None)
     # one-time routine: runs once at this moment and is deleted after a successful run
     run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+    # no schedule at all: only started on demand (agents via MCP routine_run_now, "Jetzt ausführen")
+    on_demand: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
     # {"type":"mcp","connector","tool","args","every_sec","mode":"new|change|contains","contains",
     #  "state":{…},"last_check","last_error","last_note","last_fired","last_preview"}
     trigger: Mapped[dict | None] = mapped_column(Json, default=None)

@@ -309,6 +309,22 @@ def test_routine_with_fixed_times(client):
     client.delete(f"{API}/routines/{r['id']}")
 
 
+def test_on_demand_routine_runs_only_when_called(client):
+    import json
+    r = client.post(f"{API}/routines", json={"name": "Abruf", "prompt": "Mach den Ablauf", "on_demand": True}).json()
+    assert r["on_demand"] and r["next_run"] is None and r["trigger"] is None and not r["times"]
+    # an agent starts it via MCP, with a note for this run
+    ev = chat(client, text="TOOL routine_run_now " + json.dumps({"id": r["id"], "info": "Paket ist da"}))
+    assert '"ok": true' in "".join(e.get("text", "") for e in ev)
+    run = wait(lambda: client.get(f"{API}/routines/{r['id']}").json()["runs"])
+    assert run[0]["via"] == "manual" and "Paket ist da" in run[0]["text"] and "Auslöser" not in run[0]["text"]
+    assert client.get(f"{API}/routines/{r['id']}").json()["next_run"] is None  # still no schedule after the run
+    # back to an interval
+    r2 = client.patch(f"{API}/routines/{r['id']}", json={"interval_min": 30}).json()
+    assert not r2["on_demand"] and r2["next_run"]
+    assert client.post(f"{API}/routines", json={"name": "X", "prompt": "p", "on_demand": True, "times": ["07:00"]}).status_code == 400
+
+
 def test_one_time_routine_deletes_itself(client):
     from datetime import datetime, timedelta
     from zoneinfo import ZoneInfo

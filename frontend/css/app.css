@@ -302,3 +302,9 @@ textarea.autogrow { resize: none; overflow-y: auto; min-height: 84px; max-height
 .code-srv { margin: 6px 0; font-size: 14px; }
 .code-tools { margin-bottom: 12px; }
 .code-tools button { font: 12.5px ui-monospace, Consolas, monospace; height: 30px; }
+
+/* routine form: start modes as a grid (5 choices) */
+#fMode { display: grid; grid-template-columns: repeat(auto-fit, minmax(118px, 1fr)); gap: 6px; }
+#fMode button, #fMode button:first-child, #fMode button:last-child { border-radius: 14px; }
+#fMode button.on { border-radius: 21px; }
+.rf-sum code { font: 12.5px ui-monospace, Consolas, monospace; background: rgba(255,255,255,.08); padding: 1px 5px; border-radius: 6px; }

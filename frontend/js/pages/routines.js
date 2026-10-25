@@ -28,6 +28,7 @@ function dayLabel(iso) {
 }
 const onceText = (r) => `📅 einmalig ${fmtDateTime(r.run_at)}`;
 function whenText(r) {
+  if (r.on_demand) return "🔗 nur auf Abruf";
   return r.trigger ? (r.trigger.type === "script" ? "🔔 eigener Code" : `🔔 ${MODES[r.trigger.mode]}`) : r.run_at ? onceText(r) : r.times?.length ? timesText(r) : every(r.interval_min);
 }
 
@@ -72,14 +73,14 @@ export async function routineDetail({ id }) {
     ${r.enabled ? "" : `<div class="state-note"><span class="ms">pause_circle</span><span>Diese Routine ist pausiert und startet nicht von selbst. „Jetzt ausführen“ geht trotzdem.</span></div>`}
     <div class="pcard">
       <div class="kv"><span>Agent</span><b style="color:${c["--accent"]}">${esc(a.name)}</b></div>
-      <div class="kv"><span>Start</span><b>${t?.type === "script" ? `eigener Code · prüft ${everySec(t.every_sec)}` : t ? `${esc(t.connector)} › ${esc(t.tool)} · ${MODES[t.mode]}${t.contains ? ` „${esc(t.contains)}“` : ""} · ${everySec(t.every_sec)}` : r.run_at ? esc(onceText(r)) + " · wird danach gelöscht" : r.times?.length ? esc(timesText(r)) : every(r.interval_min)}</b></div>
+      <div class="kv"><span>Start</span><b>${r.on_demand ? "nur auf Abruf – startet nur, wenn ein Agent sie per MCP aufruft (routine_run_now) oder du „Jetzt ausführen“ drückst" : t?.type === "script" ? `eigener Code · prüft ${everySec(t.every_sec)}` : t ? `${esc(t.connector)} › ${esc(t.tool)} · ${MODES[t.mode]}${t.contains ? ` „${esc(t.contains)}“` : ""} · ${everySec(t.every_sec)}` : r.run_at ? esc(onceText(r)) + " · wird danach gelöscht" : r.times?.length ? esc(timesText(r)) : every(r.interval_min)}</b></div>
       <div class="kv"><span>Modell</span><b>${esc(r.model ? modelInfo(r.model).name : "wie der Agent")}</b></div>
       <div class="kv"><span>Account</span><b>${esc(r.account_id ? (state.boot.accounts.find((x) => x.id === r.account_id)?.name || r.account_id) : "wie der Agent")}</b></div>
       <div class="kv"><span>Limit-Fallback</span><b>${r.fallback === null ? "wie der Agent" : r.fallback ? "an" : "aus"}</b></div>
       <div class="kv"><span>Gedächtnis</span><b>${r.memory_enabled === null ? "wie der Agent" : r.memory_enabled ? "an" : "aus"}</b></div>
       ${t ? `<div class="kv"><span>Letzte Prüfung</span><b>${t.last_check ? fmtDateTime(t.last_check) : "noch nicht"}${t.last_error ? ` · ⚠ ${esc(t.last_error)}` : t.last_note ? ` · ${esc(t.last_note)}` : ""}</b></div>
              ${t.last_fired ? `<div class="kv"><span>Zuletzt ausgelöst</span><b>${fmtDateTime(t.last_fired)}</b></div>` : ""}`
-           : `<div class="kv"><span>Nächster Lauf</span><b>${r.enabled && r.next_run ? fmtDateTime(r.next_run) : "pausiert"}</b></div>`}
+           : `<div class="kv"><span>Nächster Lauf</span><b>${!r.enabled ? "pausiert" : r.on_demand ? "wenn aufgerufen" : r.next_run ? fmtDateTime(r.next_run) : "–"}</b></div>`}
     </div>
     <div class="pcard"><div class="pc-head"><b>Aufgabe</b></div><div class="md">${md(r.prompt)}</div></div>
     <div class="btn-row">
@@ -111,7 +112,7 @@ export async function routineForm({ id } = {}) {
   setView("page");
   const [r, connectors] = await Promise.all([id ? api.get(`/routines/${id}`) : null, api.get("/connectors")]);
   const f = r ? { ...r } : { name: "", icon: "schedule", prompt: "", agent_id: mainAgent().id, model: null, account_id: null, interval_min: 60, trigger: null, fallback: null, memory_enabled: null, times: null, days: null, run_at: null };
-  let mode = f.trigger ? "mcp" : f.run_at ? "once" : f.times?.length ? "times" : "interval";
+  let mode = f.on_demand ? "demand" : f.trigger ? "mcp" : f.run_at ? "once" : f.times?.length ? "times" : "interval";
   // one-time: date (YYYY-MM-DD) + time, default tomorrow 09:00
   const start = f.run_at ? new Date(f.run_at) : (() => { const d = new Date(); d.setDate(d.getDate() + 1); d.setHours(9, 0, 0, 0); return d; })();
   let onceDay = isoDay(start), onceTime = `${pad(start.getHours())}:${pad(start.getMinutes())}`;
@@ -142,7 +143,7 @@ export async function routineForm({ id } = {}) {
       </section>
       <section class="rf-sec">
         <h2 class="rf-h"><span class="ms">event_repeat</span>Wann starten?</h2>
-      <div class="seg" id="fMode"><button type="button" data-m="interval" class="${mode === "interval" ? "on" : ""}">⏱ Intervall</button><button type="button" data-m="times" class="${mode === "times" ? "on" : ""}">🕐 Uhrzeiten</button><button type="button" data-m="once" class="${mode === "once" ? "on" : ""}">📅 Einmalig</button><button type="button" data-m="mcp" class="${mode === "mcp" ? "on" : ""}">🔔 Bei Neuem</button></div>
+      <div class="seg" id="fMode"><button type="button" data-m="interval" class="${mode === "interval" ? "on" : ""}">⏱ Intervall</button><button type="button" data-m="times" class="${mode === "times" ? "on" : ""}">🕐 Uhrzeiten</button><button type="button" data-m="once" class="${mode === "once" ? "on" : ""}">📅 Einmalig</button><button type="button" data-m="mcp" class="${mode === "mcp" ? "on" : ""}">🔔 Bei Neuem</button><button type="button" data-m="demand" class="${mode === "demand" ? "on" : ""}">🔗 Auf Abruf</button></div>
       ${mode === "times" ? `
         <div class="flabel" style="margin-top:4px">Uhrzeiten</div>
         <div class="chipset time-chips" id="fTimes">${times.map((x) => `<span class="time-chip"><span class="ms">schedule</span>${esc(x)}<button type="button" data-rm="${esc(x)}" aria-label="${esc(x)} entfernen"><span class="ms">close</span></button></span>`).join("")}
@@ -151,6 +152,8 @@ export async function routineForm({ id } = {}) {
         <div class="chipset" id="fDays">${DAYS.map((d, i) => `<button type="button" data-d="${i}" class="${days.includes(i) ? "on" : ""}">${d}</button>`).join("")}
           <button type="button" class="day-preset" data-preset="all">täglich</button><button type="button" class="day-preset" data-preset="week">Mo–Fr</button><button type="button" class="day-preset" data-preset="weekend">Wochenende</button></div>
         <div class="rf-sum"><span class="ms">info</span><span>Läuft <b>${esc(daysText(days))}</b> um <b>${esc(times.join(", ") || "–")} Uhr</b> · deutsche Zeit, Sommer-/Winterzeit wird beachtet</span></div>`
+      : mode === "demand" ? `
+        <div class="rf-sum"><span class="ms">info</span><span><b>Kein Zeitplan.</b> Die Routine startet nur, wenn ein Agent sie per MCP aufruft (<code>routine_run_now</code>, gern mit einem Hinweis für den Lauf) oder du auf „Jetzt ausführen“ drückst. So kann z. B. Ida einen festen Ablauf anstoßen, wenn sie ihn braucht.</span></div>`
       : mode === "once" ? `
         <div class="flabel" style="margin-top:4px">Welcher Tag?</div>
         <div class="chipset" id="fOnceDays">${Array.from({ length: 7 }, (_, i) => { const d = new Date(); d.setDate(d.getDate() + i); return isoDay(d); })
@@ -260,7 +263,10 @@ export async function routineForm({ id } = {}) {
       keep();
       const body = { name: f.name, icon: f.icon, prompt: f.prompt, agent_id: f.agent_id, model: f.model, account_id: f.account_id,
         fallback: f.fallback, memory_enabled: f.memory_enabled };
-      if (mode === "interval") { body.interval_min = f.interval_min; if (id) { body.trigger = null; body.times = null; body.run_at = null; } }
+      if (mode === "demand") { body.on_demand = true; if (id) { body.trigger = null; body.times = null; body.run_at = null; } }
+      else if (id) body.on_demand = false;
+      if (mode === "demand") { /* nothing more */ }
+      else if (mode === "interval") { body.interval_min = f.interval_min; if (id) { body.trigger = null; body.times = null; body.run_at = null; } }
       else if (mode === "once") {
         body.run_at = `${onceDay}T${onceTime}`;
         if (id) { body.trigger = null; body.times = null; }

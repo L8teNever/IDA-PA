@@ -36,6 +36,7 @@ def _spec(ids: list[str]) -> list[tuple[str, str, str, dict]]:
                       "interval_min": {"type": "integer", "minimum": 1, "description": "Intervall in Minuten (statt times)"},
                       "times": {"type": "array", "items": E, "description": f"Feste Uhrzeiten HH:MM ({get_settings().timezone}), z. B. [\"07:00\"] – statt interval_min"},
                       "days": {"type": "array", "items": {"type": "integer", "minimum": 0, "maximum": 6}, "description": "Wochentage zu times: 0=Mo … 6=So, leer = täglich"},
+                      "on_demand": {"type": "boolean", "description": "true = ohne Zeitplan: läuft nur, wenn sie per routine_run_now (oder vom Nutzer) gestartet wird – z. B. als fester Ablauf, den du bei Bedarf auslöst"},
                       "run_at": {**E, "description": f"EINMALIG zu diesem Zeitpunkt (JJJJ-MM-TTTHH:MM, {get_settings().timezone}), z. B. für „mach das morgen um 9“ – läuft genau einmal und wird nach erfolgreichem Lauf automatisch gelöscht. Statt interval_min/times."},
                       "model": model,
                       "memory_enabled": {"type": "boolean"}, "fallback": {"type": "boolean"}}
@@ -55,7 +56,7 @@ def _spec(ids: list[str]) -> list[tuple[str, str, str, dict]]:
         (ALL, "routine_create", "Legt eine Routine an (Sub-Agenten nur für sich selbst).", obj({**routine_fields, "agent_id": agent_enum}, ("name", "prompt"))),
         (ALL, "routine_update", "Ändert eine Routine (Sub-Agenten nur eigene; Zuteilen nur der Haupt-Agent).", obj({"id": E, **routine_fields, "enabled": {"type": "boolean"}, "agent_id": agent_enum}, ("id",))),
         (MAIN, "routine_delete", "Löscht eine Routine.", obj({"id": E}, ("id",))),
-        (ALL, "routine_run_now", "Führt eine Routine sofort aus (Sub-Agenten nur eigene).", obj({"id": E}, ("id",))),
+        (ALL, "routine_run_now", "Führt eine Routine sofort aus (Sub-Agenten nur eigene). So startest du auch Routinen „nur auf Abruf“. Optional info: zusätzlicher Hinweis für diesen Lauf.", obj({"id": E, "info": E}, ("id",))),
         (ALL, "chat_search", "Durchsucht alle Chats (auch die der anderen Agenten) nach Wörtern – um Zusammenhang aus früheren Gesprächen zu finden. Ohne query: die neuesten Chats.", obj({"query": {**E, "description": "Suchwörter; alle müssen vorkommen"}, "agent_id": {**E, "description": "nur Chats dieses Agenten (optional): " + ", ".join(ids)}, "limit": {"type": "integer", "minimum": 1, "maximum": 30}})),
         (ALL, "chat_read", "Liest die Nachrichten eines Chats (id aus chat_search), neueste zuletzt. Mit offset ältere Teile nachladen.", obj({"chat_id": E, "limit": {"type": "integer", "minimum": 1, "maximum": 100}, "offset": {"type": "integer", "minimum": 0, "description": "so viele der neuesten Nachrichten überspringen"}}, ("chat_id",))),
         (ALL, "skill_list", "Listet alle Skills.", obj({})),
@@ -211,7 +212,8 @@ async def _call(db: AsyncSession, me: Identity, name: str, a: dict) -> dict:
         return {"ok": True}
     if name == "routine_run_now":
         r = await own_routine(str(a.get("id")))
-        routine_svc.enqueue(r.id, "manual")
+        info = str(a.get("info") or "").strip()
+        routine_svc.enqueue(r.id, "manual", f"Gestartet von {me.agent_id}." + (f" Hinweis dazu: {info}" if info else ""))
         return {"ok": True, "hinweis": "In die Warteschlange gestellt."}
     if name == "chat_search":
         return await _chat_search(db, str(a.get("query") or ""), a.get("agent_id"), int(a.get("limit") or 10), labels)

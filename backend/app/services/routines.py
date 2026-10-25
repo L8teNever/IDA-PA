@@ -125,7 +125,12 @@ async def _clean(db: AsyncSession, f: dict, partial: bool, allow_trigger: bool) 
             v["run_at"] = when
         else:
             v["run_at"] = None
-    if "interval_min" in f or (not partial and not v.get("trigger") and not v.get("times") and not v.get("run_at")):
+    # on demand: no schedule at all – started only via MCP (routine_run_now) or "Jetzt ausführen"
+    if f.get("on_demand") is not None:
+        v["on_demand"] = bool(f["on_demand"])
+        if v["on_demand"] and (v.get("times") or v.get("trigger") or v.get("run_at")):
+            raise Invalid("„Nur auf Abruf“ geht nicht zusammen mit Uhrzeiten, Zeitpunkt oder Auslöser")
+    if "interval_min" in f or (not partial and not v.get("trigger") and not v.get("times") and not v.get("run_at") and not v.get("on_demand")):
         n = f.get("interval_min")
         if n is None and v.get("trigger"):
             n = max(1, v["trigger"]["every_sec"] // 60)
@@ -153,6 +158,12 @@ async def update(db: AsyncSession, routine_id: str, f: dict, *, allow_trigger: b
     if not r:
         raise NotFound("Routine nicht gefunden")
     v = await _clean(db, f, True, allow_trigger)
+    if v.get("on_demand"):  # on demand now: no schedule, no trigger
+        if r.trigger and "trigger" not in v and not allow_trigger:
+            raise Invalid("Diese Routine startet per Auslöser – den kann nur der Nutzer ändern")
+        v.update({"times": None, "days": None, "run_at": None, **({"trigger": None} if r.trigger else {})})
+    elif r.on_demand and "on_demand" not in v and (v.get("times") or v.get("trigger") or v.get("run_at") or "interval_min" in v):
+        v["on_demand"] = False  # switched to another kind of start
     if v.get("run_at"):  # one-time now: no fixed times, no trigger
         if r.trigger and "trigger" not in v and not allow_trigger:
             raise Invalid("Diese Routine startet per Auslöser – den kann nur der Nutzer ändern")
@@ -166,7 +177,7 @@ async def update(db: AsyncSession, routine_id: str, f: dict, *, allow_trigger: b
     if v.get("trigger") and r.times and "times" not in v:
         v["times"] = v["days"] = None
     resched = (("interval_min" in v and v["interval_min"] != r.interval_min) or (v.get("enabled") and not r.enabled)
-               or "trigger" in v or "times" in v or "days" in v or "run_at" in v)
+               or "trigger" in v or "times" in v or "days" in v or "run_at" in v or "on_demand" in v)
     for k, val in v.items():
         setattr(r, k, val)
     if resched:
@@ -176,7 +187,7 @@ async def update(db: AsyncSession, routine_id: str, f: dict, *, allow_trigger: b
 
 def compute_next(r: Routine):
     """When a routine runs next: never by itself (trigger), at its next fixed time, or after its interval."""
-    if r.trigger:
+    if r.trigger or r.on_demand:
         return None
     if r.run_at:
         return r.run_at
@@ -189,6 +200,8 @@ def when_text(r: Routine) -> str:
     t = r.trigger
     if t:
         return f"per eigenem Skript alle {t['every_sec']} s" if t.get("type") == "script" else f"bei {t['mode']} von {t['connector']}.{t['tool']}"
+    if r.on_demand:
+        return "nur auf Abruf (routine_run_now oder „Jetzt ausführen“)"
     if r.run_at:
         return schedule.describe_once(r.run_at)
     if r.times:
@@ -233,7 +246,7 @@ async def _run(routine_id: str, via: str, context: str | None) -> None:
         else:
             prompt = f"Routine „{snap['name']}“: {snap['prompt']}"
             if context:
-                prompt += f"\n\nDiese Routine wurde durch einen Auslöser gestartet. {context}"
+                prompt += (f"\n\nDiese Routine wurde durch einen Auslöser gestartet. {context}" if via == "trigger" else f"\n\n{context}")
             out = await run_agent(snap["agent_id"], prompt, model=snap["model"], account_id=snap["account_id"],
                                   fallback=snap["fallback"], memory_on=snap["memory"])
         ms = int((time.monotonic() - t0) * 1000)

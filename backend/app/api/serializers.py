@@ -60,7 +60,7 @@ def routine(r: Routine, last: RoutineRun | None = None, running: bool = False) -
     if t:
         t["seen"] = len((t.pop("state", None) or {}).get("keys") or [])
     return {"id": r.id, "name": r.name, "icon": r.icon, "prompt": r.prompt, "agent_id": r.agent_id, "model": r.model,
-            "account_id": r.account_id, "interval_min": r.interval_min, "times": r.times, "days": r.days, "run_at": iso(r.run_at), "trigger": t, "fallback": r.fallback,
+            "account_id": r.account_id, "interval_min": r.interval_min, "times": r.times, "days": r.days, "run_at": iso(r.run_at), "on_demand": r.on_demand, "trigger": t, "fallback": r.fallback,
             "memory_enabled": r.memory_enabled, "enabled": r.enabled, "next_run": iso(r.next_run), "last_run": iso(r.last_run),
             "running": running, "last": routine_run(last) if last else None}
 
