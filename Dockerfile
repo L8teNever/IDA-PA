@@ -18,9 +18,8 @@ RUN apt-get update \
  && npm cache clean --force \
  && apt-get purge -y gnupg && apt-get autoremove -y && rm -rf /var/lib/apt/lists/*
 
-# Google Antigravity CLI `agy` (optional second provider: Gemini & Co. with an Antigravity login, models "agy:…")
-RUN curl -fsSL https://antigravity.google/cli/install.sh | bash -s -- --dir /usr/local/bin \
- && /usr/local/bin/agy --version
+# Google Antigravity (optional second provider): the official ACP agent is downloaded on demand into /data
+# (Einstellungen → Accounts → Antigravity → Anmelden), like T3 Code's managed runtime.
 
 WORKDIR /app/backend
 COPY backend/requirements.txt .

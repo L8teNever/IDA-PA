@@ -117,7 +117,7 @@ async def run_agent(agent_id: str, prompt: str, *, model: str | None = None, acc
     result: RunResult | None = None
     for i, acc in enumerate(order):
         last = i == len(order) - 1
-        if not last and acc.provider == "claude" and await usage.exhausted(acc):
+        if not last and await providers.exhausted(acc):
             notes.append(f"{acc.name} ist am Limit")
             continue
         async with session_scope() as db:

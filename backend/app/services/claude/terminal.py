@@ -27,9 +27,7 @@ COMMANDS = {
     "status": ["auth", "status"],
     "logout": ["auth", "logout"],
 }
-# Antigravity accounts: plain `agy` asks for the Google sign-in (link + code), then opens its own chat –
-# leave it with Ctrl+C. `agy models` shows whether the login works.
-AGY_COMMANDS = {"login": [], "status": ["models"]}
+
 BUFFER = 64 * 1024
 IDLE_LIMIT = 15 * 60
 
@@ -85,8 +83,9 @@ async def open_session(account: Account, command: str, cols: int = 100, rows: in
     """Returns the running session of the account (same command) or starts a new one."""
     if not available():
         raise Invalid("Das Terminal gibt es nur im Docker-Container (Linux)")
-    agy = account.provider == "antigravity"
-    if command not in (AGY_COMMANDS if agy else COMMANDS):
+    if account.provider != "claude":
+        raise Invalid("Das Terminal gibt es nur für Claude-Accounts (Antigravity meldet sich über den Google-Link an)")
+    if command not in COMMANDS:
         raise Invalid("Unbekannter Befehl")
     old = _sessions.get(account.id)
     if old and old.running and old.command == command:
@@ -97,15 +96,9 @@ async def open_session(account: Account, command: str, cols: int = 100, rows: in
     import pty
 
     master, slave = pty.openpty()
-    if agy:
-        from .. import antigravity
-        antigravity.lock_down(account.id)
-        env = {**antigravity.env(account), "TERM": "xterm-256color", "COLORTERM": "truecolor", "BROWSER": "/bin/true"}
-        argv, work = antigravity.command(*AGY_COMMANDS[command]), antigravity.home(account.id)
-    else:
-        env = {**account_env(account), "TERM": "xterm-256color", "COLORTERM": "truecolor", "BROWSER": "/bin/true", "FORCE_COLOR": "1"}
-        env.pop("CLAUDE_CODE_OAUTH_TOKEN", None)  # a pasted setup-token must not shadow the real login
-        argv, work = _command(COMMANDS[command]), get_settings().sandbox_dir / "work"
+    env = {**account_env(account), "TERM": "xterm-256color", "COLORTERM": "truecolor", "BROWSER": "/bin/true", "FORCE_COLOR": "1"}
+    env.pop("CLAUDE_CODE_OAUTH_TOKEN", None)  # a pasted setup-token must not shadow the real login
+    argv, work = _command(COMMANDS[command]), get_settings().sandbox_dir / "work"
     work.mkdir(parents=True, exist_ok=True)
     proc = await asyncio.create_subprocess_exec(
         *argv, stdin=slave, stdout=slave, stderr=slave, env=env, cwd=work, start_new_session=True)

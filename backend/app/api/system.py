@@ -43,7 +43,7 @@ async def bootstrap(db: DB):
     skills = (await db.scalars(select(Skill).where(Skill.enabled.is_(True)).order_by(Skill.name))).all()
     unread_user = await db.scalar(select(func.count()).select_from(Message).where(Message.to_id == USER, Message.read_at.is_(None)))
     return {
-        "models": await providers.model_list(db), "default_model": s.default_model, "palettes": list(PALETTES),
+        "models": await providers.model_list(db), "model_names": await providers.model_names(db), "default_model": s.default_model, "palettes": list(PALETTES),
         "agents": [ser.agent(a) for a in agents],
         "accounts": [ser.account(a, providers.logged_in(a)) for a in accounts],
         "skills": [{"id": k.id, "name": k.name, "icon": k.icon, "description": k.description} for k in skills],

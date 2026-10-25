@@ -22,25 +22,56 @@ from . import serializers as ser
 from .deps import DB
 
 router = APIRouter(prefix="/api/v1", tags=["accounts"])
-MAX_ACCOUNTS = 5
+MAX_ACCOUNTS = 10
 
 
 @router.get("/accounts")
 async def list_accounts(db: DB):
     accs = (await db.scalars(select(Account).order_by(Account.position, Account.id))).all()
-    agy = [a for a in accs if a.provider == "antigravity"]
-    if agy:  # login state + models of Antigravity come from `agy models` (cached a few minutes)
-        await asyncio.gather(*(antigravity.refresh_status(a) for a in agy), return_exceptions=True)
     return [ser.account(a, providers.logged_in(a)) for a in accs]
 
 
 @router.post("/accounts/{account_id}/refresh")
 async def refresh(account_id: str, db: DB):
-    """Checks the login again (Antigravity: runs `agy models`)."""
+    """Reloads the models of the account (Antigravity: from the account, Claude: Anthropic's model list)."""
     a = await _account(db, account_id)
     if a.provider == "antigravity":
-        await antigravity.refresh_status(a, force=True)
+        await antigravity.load_models(a)
+    else:
+        from ..services.claude import models as claude_models
+        await claude_models.refresh([a])
     return ser.account(a, providers.logged_in(a))
+
+
+# ---- Antigravity: managed runtime + Google sign-in (like T3 Code) ----
+@router.get("/antigravity/runtime")
+async def agy_runtime():
+    return antigravity.install_state()
+
+
+@router.post("/antigravity/runtime")
+async def agy_install():
+    return antigravity.start_install()
+
+
+@router.post("/accounts/{account_id}/antigravity/login")
+async def agy_login(account_id: str, db: DB):
+    """Starts the sign-in: returns the Google link (or "installing" while the runtime downloads)."""
+    a = await _account(db, account_id)
+    if a.provider != "antigravity":
+        raise Invalid("Kein Antigravity-Account")
+    return await antigravity.start_login(a)
+
+
+@router.get("/accounts/{account_id}/antigravity/login")
+async def agy_login_state(account_id: str, db: DB):
+    return antigravity.login_state(await _account(db, account_id))
+
+
+@router.post("/accounts/{account_id}/antigravity/callback")
+async def agy_callback(account_id: str, body: dict, db: DB):
+    """The address Google returned to (http://127.0.0.1:…/?code=…) – delivered to the agent on the server."""
+    return await antigravity.finish_login(await _account(db, account_id), str(body.get("url") or ""))
 
 
 @router.post("/accounts", status_code=201)
@@ -105,7 +136,7 @@ async def logout(account_id: str, db: DB):
     if not a:
         raise NotFound("Account nicht gefunden")
     if a.provider == "antigravity":
-        antigravity.logout(a)
+        await antigravity.logout(a)
         return ser.account(a, False)
     (account_dir(a.id) / ".credentials.json").unlink(missing_ok=True)
     a.oauth_token = None
@@ -128,8 +159,7 @@ async def usage(db: DB, force: bool = False):
     out = []
     for a in (await db.scalars(select(Account).order_by(Account.position, Account.id))).all():
         if a.provider == "antigravity":
-            out.append({"id": a.id, "name": a.name, "provider": a.provider,
-                        "error": "Antigravity zeigt keine Limits an – bei „Limit erreicht“ springt IDA auf den nächsten Antigravity-Account."})
+            out.append({"id": a.id, "name": a.name, "provider": a.provider, **await antigravity.usage(a, force)})
             continue
         try:
             u = await usage_svc.usage(a, force)
@@ -176,9 +206,6 @@ async def terminal(ws: WebSocket, account_id: str, cmd: str = "login", cols: int
         while True:
             data = await queue.get()
             if data is None:
-                if a.provider == "antigravity":
-                    with contextlib.suppress(Exception):
-                        await antigravity.refresh_status(a, force=True)
                 await ws.send_json({"t": "exit", "code": s.exit_code, "logged_in": providers.logged_in(a)})
                 return
             await ws.send_json({"t": "out", "d": data.decode(errors="replace")})

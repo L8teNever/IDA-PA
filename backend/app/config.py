@@ -15,7 +15,7 @@ class Settings(BaseSettings):
 
     # Claude Code CLI
     claude_bin: str = "claude"
-    agy_bin: str = "agy"  # Google Antigravity CLI (second provider, models "agy:…")
+    agy_runtime_dir: str = ""  # Antigravity ACP runtime; empty = downloaded into data/agy-runtime/<version>
     models: str = "claude-sonnet-5-5,claude-opus-5-5,claude-haiku-5-5,claude-fable-5-1"
     default_model: str = "claude-sonnet-5-5"
     cheap_model: str = "claude-haiku-5-5"

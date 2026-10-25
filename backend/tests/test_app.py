@@ -354,45 +354,49 @@ def test_one_time_routine_deletes_itself(client):
     assert now_line().startswith("Jetzt ist ")
 
 
-def test_antigravity_account_models_and_chat(client):
-    import json
-    from pathlib import Path
-    from app.config import get_settings
+def test_antigravity_sign_in_models_chat_and_limits(client):
+    """Like T3 Code: the ACP agent shows a Google link, the return address (127.0.0.1) is handed back to it."""
+    from urllib.parse import parse_qs, urlparse
     a = client.post(f"{API}/accounts", json={"provider": "antigravity"}).json()
-    assert a["provider"] == "antigravity" and a["name"].startswith("Antigravity") and not a["logged_in"]
-    # not signed in yet: no agy models, chats with agy:… fail clearly
-    assert not any(m.startswith("agy:") for m in client.get(f"{API}/bootstrap").json()["models"])
-    # "sign in" (the fake CLI looks for this file), then the status check finds the models
-    tok = Path(get_settings().data_dir) / "agy" / a["id"] / ".config" / "antigravity" / "token"
-    tok.parent.mkdir(parents=True, exist_ok=True)
-    tok.write_text("x")
-    a = client.post(f"{API}/accounts/{a['id']}/refresh").json()
-    assert a["logged_in"]
-    models = client.get(f"{API}/bootstrap").json()["models"]
-    assert "agy:gemini-3-pro" in models and "claude-sonnet-5-5" in models
-    # a chat with an agy model runs on the Antigravity account (instructions in front of the first message)
-    ev = chat(client, text="Hallo Gemini", model="agy:gemini-3-pro")
+    assert a["provider"] == "antigravity" and not a["logged_in"]
+    # a run without sign-in fails clearly
+    ev = chat(client, text="Hallo", model="agy:gemini-3-flash", account_id=a["id"])
+    assert not ev[-1]["done"]["ok"]
+    # sign-in: Google link -> (Google) -> return address pasted into IDA
+    st = client.post(f"{API}/accounts/{a['id']}/antigravity/login").json()
+    assert st["phase"] == "waiting" and st["url"].startswith("https://accounts.google.com/")
+    q = parse_qs(urlparse(st["url"]).query)
+    redirect, state = q["redirect_uri"][0], q["state"][0]
+    bad = client.post(f"{API}/accounts/{a['id']}/antigravity/callback", json={"url": f"{redirect}?code=x&state=falsch"})
+    assert bad.status_code == 400
+    done = client.post(f"{API}/accounts/{a['id']}/antigravity/callback", json={"url": f"{redirect}?code=abc&state={state}&scope=x"}).json()
+    assert done["phase"] == "done" and [m["id"] for m in done["models"]][0] == "gemini-3.1-pro-high"
+    assert client.get(f"{API}/accounts").json()[-1]["logged_in"]
+    boot = client.get(f"{API}/bootstrap").json()
+    assert "agy:gemini-3.1-pro-high" in boot["models"] and boot["model_names"]["agy:claude-sonnet-4-6"] == "Claude Sonnet 4.6 (Thinking)"
+    # chat on the Antigravity account with the chosen model; instructions go in front of the message
+    ev = chat(client, text="Hallo Gemini", model="agy:gemini-3.1-pro-high")
     text = "".join(e.get("text", "") for e in ev)
-    assert text.startswith("[agy|gemini-3-pro] Hallo Gemini (mit Anweisungen)") and ev[-1]["done"]["ok"]
+    assert text == "[acp|gemini-3.1-pro-high] Hallo Gemini (mit Anweisungen)" and ev[-1]["done"]["ok"]
     cid = ev[0]["chat"]["id"]
-    c = client.get(f"{API}/chats/{cid}").json()
-    assert c["messages"][-1]["meta"]["account"] == a["name"]
-    # follow-up resumes the conversation (no instructions again) and IDA's MCP tools work
+    # follow-up: fresh ACP session, the history is sent along; IDA's MCP tools work
     ev = chat(client, chat_id=cid, text='TOOL memory_save {"text": "Antigravity kann Tools", "type": "fact"}')
-    out = "".join(e.get("text", "") for e in ev)
-    assert '"ok": true' in out and any(e.get("tool", {}).get("name") == "memory_save" for e in ev)
+    assert '"ok": true' in "".join(e.get("text", "") for e in ev)
+    assert any(e.get("tool", {}).get("name") == "memory_save" for e in ev) and any("tool_result" in e for e in ev)
     # Claude models still run on Claude accounts
-    ev = chat(client, text="Hallo Claude")
-    assert "".join(e.get("text", "") for e in ev).startswith("[a1|claude-sonnet-5-5]")
-    # agents and routines accept agy models; usage shows a note instead of limits
+    assert "".join(e.get("text", "") for e in chat(client, text="Hallo Claude")).startswith("[a1|claude-sonnet-5-5]")
+    # agents accept agy models; limits are shown per account (the fake login cannot reach Google)
     assert client.patch(f"{API}/agents/lea", json={"model": "agy:gemini-3-flash"}).json()["model"] == "agy:gemini-3-flash"
     client.patch(f"{API}/agents/lea", json={"model": "claude-sonnet-5-5"})
     u = next(x for x in client.get(f"{API}/usage").json() if x["id"] == a["id"])
-    assert "keine Limits" in u["error"]
-    # the raw stream of the last run is kept to check the format
-    assert (Path(get_settings().data_dir) / "agy" / a["id"] / "last_run.jsonl").read_text(encoding="utf8").count('"event"') > 2
+    assert u["provider"] == "antigravity" and ("windows" in u or "error" in u)
+    # several accounts of the same provider are possible
+    b = client.post(f"{API}/accounts", json={"provider": "antigravity"}).json()
+    assert b["id"] != a["id"]
+    client.delete(f"{API}/accounts/{b['id']}")
+    # sign out
     client.delete(f"{API}/accounts/{a['id']}/login")
-    assert not client.get(f"{API}/accounts").json()[-1]["logged_in"]
+    assert not next(x for x in client.get(f"{API}/accounts").json() if x["id"] == a["id"])["logged_in"]
     client.delete(f"{API}/accounts/{a['id']}")
 
 

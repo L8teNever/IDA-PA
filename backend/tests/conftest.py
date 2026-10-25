@@ -32,13 +32,25 @@ def _fake_bin(tmp: Path) -> str:
     return str(p)
 
 
+def _fake_acp(tmp: Path) -> str:
+    """Antigravity runtime dir with the fake ACP agent in place of agy_acp_server.par."""
+    d = tmp / "agy-runtime"
+    d.mkdir(parents=True, exist_ok=True)
+    exe = d / "agy_acp_server.par"
+    exe.write_text(f"#!{sys.executable}" + chr(10) + (HERE / "fake_acp.py").read_text(encoding="utf8"), encoding="utf8")
+    exe.chmod(exe.stat().st_mode | stat.S_IEXEC)
+    (d / "localharness_external").write_text("")
+    (d / ".ok").write_text("test")
+    return str(d)
+
+
 @pytest.fixture(scope="session")
 def server():
     tmp = Path(tempfile.mkdtemp(prefix="ida-test-"))
     port = _free_port()
     os.environ.update({
         "DATA_DIR": str(tmp / "data"), "CLAUDE_BIN": _fake_bin(tmp), "SCHEDULER_ENABLED": "false", "WHISPER_PRELOAD": "false",
-        "AGY_BIN": f"{Path(sys.executable).as_posix()} {(HERE / 'fake_agy.py').as_posix()}",
+        "AGY_RUNTIME_DIR": _fake_acp(tmp),
         "INTERNAL_URL": f"http://127.0.0.1:{port}", "OLLAMA_URL": "http://127.0.0.1:9",
         # CI also runs the suite against PostgreSQL (TEST_DATABASE_URL); locally SQLite in the temp dir
         "DATABASE_URL": os.environ.get("TEST_DATABASE_URL", ""),

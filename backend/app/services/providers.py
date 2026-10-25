@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..config import get_settings
 from ..models import Account
 from . import antigravity
+from .claude import models as claude_catalog
 from .claude import usage
 from .errors import Invalid
 
@@ -15,13 +16,17 @@ def of_model(model: str | None) -> str:
     return "antigravity" if antigravity.is_model(model) else "claude"
 
 
+def claude_models() -> list[str]:
+    return claude_catalog.ids()
+
+
 def known_model(model: str) -> bool:
-    return model in get_settings().model_list or antigravity.is_model(model)
+    return model in get_settings().model_list or model in claude_catalog.ids() or antigravity.is_model(model)
 
 
 def check_model(model: str) -> None:
     if not known_model(model):
-        raise Invalid(f"Unbekanntes Modell „{model}“ – erlaubt: {', '.join(get_settings().model_list)} oder agy:<modell>")
+        raise Invalid(f"Unbekanntes Modell „{model}“ – erlaubt: {', '.join(claude_catalog.ids())} oder agy:<modell>")
 
 
 def logged_in(account: Account) -> bool:
@@ -33,7 +38,23 @@ async def all_accounts(db: AsyncSession) -> list[Account]:
 
 
 async def model_list(db: AsyncSession) -> list[str]:
-    return get_settings().model_list + antigravity.models(await all_accounts(db))
+    """Every model the accounts can use: all Claude models (Anthropic's list) + the models of the Antigravity accounts."""
+    accs = await all_accounts(db)
+    claude_catalog.refresh_in_background(accs)
+    return claude_catalog.ids() + antigravity.models(accs)
+
+
+async def model_names(db: AsyncSession) -> dict[str, str]:
+    accs = await all_accounts(db)
+    return {**claude_catalog.names(), **antigravity.model_names(accs)}
+
+
+async def exhausted(account: Account) -> bool:
+    """At the limit (cached numbers) – then the next account of the same provider takes over."""
+    try:
+        return await (antigravity.exhausted(account) if account.provider == "antigravity" else usage.exhausted(account))
+    except Exception:  # noqa: BLE001
+        return False
 
 
 async def accounts_for(db: AsyncSession, model: str | None) -> list[Account]:

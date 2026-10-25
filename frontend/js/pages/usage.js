@@ -1,4 +1,4 @@
-// "/limits" – subscription limits of every Claude account.
+// "/limits" – subscription limits of every account (Claude: session/week, Antigravity: per model family).
 import { api } from "../api.js";
 import { mainAgent } from "../store.js";
 import { $, esc } from "../ui/dom.js";
@@ -20,12 +20,13 @@ export async function usagePage(_, query) {
   $("uRefresh").onclick = () => usagePage(_, { force: "1" });
   const list = await api.get(`/usage${query.force ? "?force=true" : ""}`);
   $("uList").innerHTML = list.map((a) => {
-    if (a.error) return `<div class="pcard"><div class="pc-head"><b>${esc(a.name)}</b></div><div class="pc-foot">⚠ ${esc(a.error)}</div></div>`;
+    const tag = `<span class="prov-tag ${a.provider || "claude"}">${a.provider === "antigravity" ? "Antigravity" : "Claude"}</span>`;
+    if (a.error) return `<div class="pcard"><div class="pc-head"><b>${esc(a.name)} ${tag}</b></div><div class="pc-foot">⚠ ${esc(a.error)}</div></div>`;
     const week = a.windows.find((w) => w.id === "seven_day");
     const sess = a.windows.find((w) => w.id === "five_hour");
     const others = a.windows.filter((w) => w !== week && w !== sess);
     const p = Math.round(week?.percent ?? 0);
-    return `<div class="acc-block"><div class="grp">${esc(a.name)}${a.stale ? " · " + esc(a.note || "alte Werte") : ""}</div>
+    return `<div class="acc-block"><div class="grp">${esc(a.name)} ${tag}${a.stale ? " · " + esc(a.note || "alte Werte") : ""}</div>
       ${week ? `<div class="pcard ring-card"><div class="big-ring" style="--p:${p}"><span><b>${p} %</b><small>diese Woche</small></span></div>
         <div class="ring-info"><div class="ri-row"><span class="ms">restart_alt</span>${esc(resetText(week.resets_at))}</div>
         <div class="ri-row ${p < 80 ? "ok" : ""}"><span class="ms">${p < 80 ? "check_circle" : "warning"}</span>${p < 80 ? "Noch genug übrig" : "Wird knapp"}</div></div></div>` : ""}

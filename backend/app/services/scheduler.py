@@ -5,6 +5,7 @@ import time
 
 from ..db import session_scope
 from . import routines
+from . import antigravity
 from .claude import terminal
 from .memory import embeddings
 from .memory import store as memory
@@ -20,6 +21,7 @@ async def _loop() -> None:
         try:
             await routines.schedule_tick()
             await terminal.reap()
+            antigravity.reap()
             if time.monotonic() - last_upkeep > 300:
                 last_upkeep = time.monotonic()
                 async with session_scope() as db:
