@@ -22,6 +22,12 @@ class Settings(BaseSettings):
     timezone: str = "Europe/Berlin"  # routines with fixed times run in this zone  # memory consolidation and other housekeeping
     run_timeout_s: int = 600
 
+    # Speech input (microphone button): local Whisper via faster-whisper, model downloaded into data/whisper
+    whisper_model: str = "small"  # tiny | base | small | medium | large-v3 (bigger = better, slower)
+    whisper_compute_type: str = "int8"
+    whisper_language: str = "de"  # empty = detect
+    whisper_preload: bool = True  # load the model right after start
+
     # Optional embeddings for the memory (Ollama on the host)
     ollama_url: str = "http://host.docker.internal:11434"
     embed_model: str = ""  # empty = auto-detect

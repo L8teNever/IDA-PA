@@ -394,3 +394,19 @@ def test_antigravity_account_models_and_chat(client):
     client.delete(f"{API}/accounts/{a['id']}/login")
     assert not client.get(f"{API}/accounts").json()[-1]["logged_in"]
     client.delete(f"{API}/accounts/{a['id']}")
+
+
+def test_transcribe_microphone_input(client, monkeypatch):
+    """The recording goes to the (local) Whisper model; here the model is replaced, the real one needs a download."""
+    from app.services import speech
+    seen = {}
+
+    def fake(path):
+        seen["size"] = __import__("os").path.getsize(path)
+        seen["suffix"] = path[-5:]
+        return {"text": "Erinnere mich morgen an den Müll", "seconds": 2.4, "language": "de"}
+    monkeypatch.setattr(speech, "transcribe_file", fake)
+    r = client.post(f"{API}/transcribe", files={"audio": ("aufnahme.webm", b"\x1aE\xdf\xa3" + b"0" * 2000, "audio/webm")}).json()
+    assert r["text"] == "Erinnere mich morgen an den Müll" and seen == {"size": 2004, "suffix": ".webm"}
+    bad = client.post(f"{API}/transcribe", files={"audio": ("leer.webm", b"", "audio/webm")})
+    assert bad.status_code == 400

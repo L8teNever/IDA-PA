@@ -1,13 +1,13 @@
 """Health check and the data every page needs at start (agents, models, accounts, counters)."""
 from datetime import timedelta
 
-from fastapi import APIRouter
+from fastapi import APIRouter, UploadFile
 from sqlalchemy import func, select
 
 from ..config import get_settings
 from ..db import utcnow
 from ..models import USER, Account, Agent, Message, Routine, RoutineRun, Skill
-from ..services import activity, jobs, providers
+from ..services import activity, jobs, providers, speech
 from ..services.agents import PALETTES
 from ..services.claude.usage import logged_in
 from . import serializers as ser
@@ -19,6 +19,14 @@ router = APIRouter(tags=["system"])
 @router.get("/api/v1/health")
 async def health():
     return {"ok": True}
+
+
+@router.post("/api/v1/transcribe")
+async def transcribe(audio: UploadFile):
+    """Microphone input: recording -> text (local Whisper). The text goes into the input field, not straight to a chat."""
+    name = (audio.filename or "").lower()
+    suffix = next((x for x in (".webm", ".ogg", ".mp4", ".m4a", ".wav", ".mp3") if name.endswith(x)), ".webm")
+    return await speech.transcribe(await audio.read(), suffix)
 
 
 @router.get("/api/v1/activity")

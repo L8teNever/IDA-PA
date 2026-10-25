@@ -58,6 +58,9 @@ async def lifespan(app: FastAPI):
     jobs.start()
     if get_settings().scheduler_enabled:
         scheduler.start()
+    if get_settings().whisper_preload:
+        from .services import speech
+        speech.warm_up()
     log.info("IDA bereit")
     yield
     await scheduler.stop()

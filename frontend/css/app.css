@@ -316,3 +316,17 @@ textarea.autogrow { resize: none; overflow-y: auto; min-height: 84px; max-height
 .acc-add { display: flex; gap: 8px; flex-wrap: wrap; }
 .acc-add .add-btn { flex: 1 1 220px; margin: 0; }
 .mm-empty { padding: 14px; color: var(--muted); font-size: 13px; line-height: 1.5; }
+
+/* microphone button (speech -> text, local Whisper) */
+.field-row { align-items: flex-end; gap: 4px; }
+.mic-btn { flex: none; width: 40px; height: 40px; margin: 0 0 4px; border: 0; border-radius: 20px; display: grid; place-items: center;
+  background: transparent; color: var(--muted); cursor: pointer; transition: background .2s, color .2s, transform .2s var(--spring); }
+.mic-btn:hover { background: rgba(255,255,255,.07); color: var(--on-surface); }
+.mic-btn .ms { font-size: 22px; }
+.mic-btn[data-state="rec"] { background: #e5484d; color: #fff; animation: mic-pulse 1.4s ease-in-out infinite; }
+.mic-btn[data-state="busy"] { color: var(--accent); }
+.mic-btn[data-state="busy"] .ms { animation: mic-spin 1s linear infinite; }
+@keyframes mic-pulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(229,72,77,.55); } 50% { box-shadow: 0 0 0 8px rgba(229,72,77,0); } }
+@keyframes mic-spin { to { transform: rotate(360deg); } }
+.mic-info { font-size: 12px; color: var(--muted); padding: 0 4px 6px 2px; }
+body.mic-on .mic-info { color: #ff8f8f; }
