@@ -398,3 +398,10 @@ body.mic-on .mic-info { color: #ff8f8f; }
   .mm-lvl.claude { flex-basis: 100%; }
   .mm-lvl.claude button { flex: 1; padding: 0 4px; }
 }
+
+/* stop button while an answer runs */
+body.answering .send { background: var(--accent); color: var(--on-accent); opacity: 1; cursor: pointer; }
+body.answering .send .ms { font-variation-settings: "FILL" 1; }
+.msg-stopped { display: inline-flex; align-items: center; gap: 6px; margin-top: 8px; padding: 3px 10px; border-radius: 10px;
+  font-size: 12px; color: var(--muted); background: var(--surface-highest); }
+.msg-stopped .ms { font-size: 16px; }

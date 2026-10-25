@@ -80,6 +80,17 @@ class RunResult:
         return not self.ok and bool(LIMIT_RE.search(self.text))
 
 
+def _kill(proc: asyncio.subprocess.Process) -> None:
+    """Stops the CLI. On Windows it runs behind cmd /c – end the whole process tree, not just cmd."""
+    if proc.returncode is not None:
+        return
+    if sys.platform == "win32":
+        import subprocess
+        subprocess.run(["taskkill", "/T", "/F", "/PID", str(proc.pid)], capture_output=True)
+    else:
+        proc.kill()
+
+
 def _command(args: list[str]) -> list[str]:
     exe = get_settings().claude_bin
     found = shutil.which(exe) or exe
@@ -183,17 +194,17 @@ async def _stream(spec: RunSpec) -> AsyncIterator[dict]:
                     done = True
                     yield {"type": "done", "ok": not ev.get("is_error"), "result": str(ev.get("result") or ""), "session_id": ev.get("session_id")}
     except TimeoutError:
-        proc.kill()
+        _kill(proc)
         yield {"type": "done", "ok": False, "result": f"Abgebrochen: länger als {s.run_timeout_s} s", "session_id": None}
         done = True
     finally:
         if proc.returncode is None:
             if not done:  # consumer went away (e.g. browser closed) – stop the run
-                proc.kill()
+                _kill(proc)
             try:
                 await asyncio.wait_for(proc.wait(), 5)
             except TimeoutError:
-                proc.kill()
+                _kill(proc)
         await err_task
         shutil.rmtree(run_dir, ignore_errors=True)
     if not done:

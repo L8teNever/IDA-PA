@@ -7,8 +7,10 @@ Events (NDJSON lines to the browser):
   {"sys": "…"}     info line (e.g. switched account because of the limit)
   {"done": {"ok", "error"?, "message_id"}}
 """
+import asyncio
 import logging
 from collections.abc import AsyncIterator
+from contextlib import aclosing
 
 from sqlalchemy import select
 
@@ -34,6 +36,40 @@ def _transcript(msgs: list[ChatMessage]) -> str:
         if m.role in ("user", "assistant") and m.text:
             lines.append(f"{'Nutzer' if m.role == 'user' else 'Assistent'}: {m.text}")
     return "\n".join(lines)[-12000:]
+
+
+# chat id -> set when the user presses stop; the running answer ends and what was written so far is kept
+_stops: dict[str, asyncio.Event] = {}
+
+
+def stop(chat_id: str) -> bool:
+    ev = _stops.get(chat_id)
+    if ev:
+        ev.set()
+    return bool(ev)
+
+
+async def _until(source: AsyncIterator[dict], stopped: asyncio.Event) -> AsyncIterator[dict]:
+    """Passes the run's events on until the stop button is pressed; then the run is closed (stops the CLI)."""
+    async with aclosing(source) as events:
+        halt = asyncio.ensure_future(stopped.wait())
+        try:
+            while True:
+                nxt = asyncio.ensure_future(events.__anext__())
+                await asyncio.wait({nxt, halt}, return_when=asyncio.FIRST_COMPLETED)
+                if not nxt.done():
+                    nxt.cancel()
+                    try:
+                        await nxt
+                    except (asyncio.CancelledError, StopAsyncIteration):
+                        pass
+                    return
+                try:
+                    yield nxt.result()
+                except StopAsyncIteration:
+                    return
+        finally:
+            halt.cancel()
 
 
 async def stream_chat(*, chat_id: str | None, agent_id: str | None, text: str, model: str | None,
@@ -69,7 +105,17 @@ async def stream_chat(*, chat_id: str | None, agent_id: str | None, text: str, m
                  "history": _transcript(history)}
         order = [acc] + ([a for a in await providers.accounts_for(db, chat.model) if a.id != acc.id] if agent.fallback else [])
     yield {"chat": info}
+    stopped = _stops[state["chat_id"]] = asyncio.Event()
+    try:
+        async for ev in _answer(state, order, text, skill_id, effort, stopped):
+            yield ev
+    finally:
+        if _stops.get(state["chat_id"]) is stopped:
+            del _stops[state["chat_id"]]
 
+
+async def _answer(state: dict, order: list[Account], text: str, skill_id: str | None, effort: str | None,
+                  stopped: asyncio.Event) -> AsyncIterator[dict]:
     prompt_text = text or "(Wende den Skill auf das bisherige Gespräch bzw. deine letzte Antwort an.)"
     parts: list[dict] = []
     tools: dict[str, dict] = {}
@@ -87,7 +133,7 @@ async def stream_chat(*, chat_id: str | None, agent_id: str | None, text: str, m
                                    session_id=resume, persist=True, effort=effort)
         used, streamed = acc, False
         try:
-            async for ev in runner.stream(p.spec):
+            async for ev in _until(runner.stream(p.spec), stopped):
                 t = ev["type"]
                 if t == "text":
                     streamed = True
@@ -110,6 +156,9 @@ async def stream_chat(*, chat_id: str | None, agent_id: str | None, text: str, m
                     result = ev
         finally:
             identity.revoke(p.token)
+        if stopped.is_set():
+            result = {"ok": False, "result": "Von dir gestoppt", "stopped": True}
+            break
         limit = not result["ok"] and bool(runner.LIMIT_RE.search(result["result"]))
         if result["ok"] or streamed or not limit or i == len(order) - 1:
             break
@@ -119,7 +168,10 @@ async def stream_chat(*, chat_id: str | None, agent_id: str | None, text: str, m
     async with session_scope() as db:
         chat = await db.get(Chat, state["chat_id"])
         meta = {"model": state["model"], "account": used.name if used else None}
-        if not result["ok"]:
+        if result.get("stopped"):
+            meta["stopped"] = True
+            chat.session_id = None  # the cut-off turn is not in Claude's session – the next message carries the history
+        elif not result["ok"]:
             meta["error"] = result["result"][:800]
         msg = ChatMessage(chat_id=chat.id, role="assistant", text=answer or ("" if not result["ok"] else result["result"]), parts=parts, meta=meta)
         db.add(msg)
@@ -130,4 +182,4 @@ async def stream_chat(*, chat_id: str | None, agent_id: str | None, text: str, m
         chat.updated_at = utcnow()
         await db.flush()
         mid = msg.id
-    yield {"done": {"ok": result["ok"], "message_id": mid, **({} if result["ok"] else {"error": result["result"][:800]})}}
+    yield {"done": {"ok": result["ok"], "message_id": mid, **({"stopped": True} if result.get("stopped") else {} if result["ok"] else {"error": result["result"][:800]})}}

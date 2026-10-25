@@ -73,6 +73,7 @@ function toolHtml(p) {
 function renderBot(el, parts, text, meta) {
   const html = (parts || []).map((p) => (p.t === "text" ? `<div class="md-text">${md(p.text)}</div>` : toolHtml(p))).join("");
   el.innerHTML = html || (text ? `<div class="md-text">${md(text)}</div>` : "");
+  if (meta?.stopped) el.insertAdjacentHTML("beforeend", `<div class="msg-stopped"><span class="ms">stop_circle</span>Gestoppt</div>`);
   if (meta?.error) el.insertAdjacentHTML("beforeend", `<div class="msg-err"><span class="ms">error</span>${esc(meta.error)}</div>`);
   if (!el.innerHTML) el.innerHTML = `<div class="typing"><i></i><i></i><i></i></div>`;
 }
@@ -82,10 +83,17 @@ function scroll() {
   if (b.scrollHeight - b.scrollTop - b.clientHeight < 160) b.scrollTop = b.scrollHeight;
 }
 
+// stop button: ends the answer that is running (the text so far stays)
+export async function stopAnswer() {
+  if (!ctx.busy || !ctx.id) return;
+  try { await api.post(`/chats/${ctx.id}/stop`); } catch (e) { toast(e.message); }
+}
+
 export async function send(text, { skill = null, model, accountId, effort } = {}) {
   if (ctx.busy) return toast("Die Antwort läuft noch …");
   const agent = agentById(ctx.agentId) || state.agent;
   ctx.busy = true;
+  document.dispatchEvent(new CustomEvent("chat:busy"));
   if (!document.body.classList.contains("chatting")) {
     setView("chat", { agentStage: stageOf(agent) });
     $("messages").innerHTML = `<div class="chat-day">${new Date().toLocaleString("de-DE", { weekday: "long", hour: "2-digit", minute: "2-digit" })}</div>`;
@@ -115,7 +123,8 @@ export async function send(text, { skill = null, model, accountId, effort } = {}
         addSys(ev.sys);
       } else if (ev.done) {
         ok = ev.done.ok;
-        if (!ok) meta.error = ev.done.error;
+        if (ev.done.stopped) meta.stopped = true;
+        else if (!ok) meta.error = ev.done.error;
       }
       renderBot(el, parts, "", meta);
       scroll();
@@ -126,7 +135,7 @@ export async function send(text, { skill = null, model, accountId, effort } = {}
   } finally {
     ctx.busy = false;
     setLive(null);
-    flashMood(ok ? "happy" : "sad");
+    if (!meta.stopped) flashMood(ok ? "happy" : "sad");
     document.dispatchEvent(new CustomEvent("chat:done"));
   }
 }

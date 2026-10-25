@@ -1,7 +1,7 @@
 // Input at the bottom: auto-growing text field, model/account menu with limits, "/" skill menu, send.
-import { ctx, send, addSys } from "../pages/chat.js";
+import { ctx, send, addSys, stopAnswer } from "../pages/chat.js";
 import { loadUsage, modelInfo, onChange, state } from "../store.js";
-import { $, esc } from "./dom.js";
+import { $, esc, toast } from "./dom.js";
 
 const ACC_COLORS = [["#282a2f", "#c4c6cf"], ["#3a2c0c", "#ffc85a"], ["#1b2a4a", "#8ab4ff"], ["#0f2e22", "#7ee2b8"], ["#3a1029", "#ff8fc8"]];
 let sel = JSON.parse(localStorage.getItem("modelSel") || "null"); // { model, account }
@@ -117,7 +117,7 @@ function pickSlash(id) {
 
 function updateSend() {
   const v = $("input").value;
-  $("send").disabled = !v.trim();
+  $("send").disabled = !v.trim() && !ctx.busy;
   document.body.classList.toggle("has-text", !!v);
 }
 
@@ -142,6 +142,7 @@ export function initComposer() {
 
   $("composer").onsubmit = (e) => {
     e.preventDefault();
+    if (ctx.busy) return e.submitter ? stopAnswer() : toast("Die Antwort läuft noch – zum Abbrechen rechts auf Stopp");  // Enter keeps the text
     const text = input.value.trim();
     if (!text) return;
     let skill = null, body = text;
@@ -173,6 +174,16 @@ export function initComposer() {
     if (!p.includes($("modelMenu")) && !p.includes($("modelBtn"))) document.body.classList.remove("model-open");
     if (!p.includes($("slashMenu")) && !p.includes(input)) document.body.classList.remove("slash-open");
   });
+  // while an answer runs, the send button turns into a stop button
+  const busy = (on) => {
+    document.body.classList.toggle("answering", on);
+    $("send").querySelector(".ms").textContent = on ? "stop" : "arrow_upward";
+    $("send").setAttribute("aria-label", on ? "Antwort stoppen" : "Senden");
+    $("send").title = on ? "Antwort stoppen" : "";
+    updateSend();
+  };
+  document.addEventListener("chat:busy", () => busy(true));
+  document.addEventListener("chat:done", () => busy(false));
   // the chat that was opened brings its own model/account
   document.addEventListener("chat:model", (e) => { sel = { model: e.detail.model, account: e.detail.account }; renderChip(); });
   onChange(() => { renderChip(); if (document.body.classList.contains("model-open")) renderMenu(); });

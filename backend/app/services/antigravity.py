@@ -706,6 +706,7 @@ async def stream(spec) -> AsyncIterator[dict]:
                for k, v in spec.mcp_servers.items()]
     raw_log = home(acc.id) / "last_run.jsonl"
     sid = None
+    prompt: asyncio.Task | None = None
     try:
         res = await c.request("session/new", {"cwd": str(run_dir), "mcpServers": servers}, 120)
         sid = res["sessionId"]
@@ -759,6 +760,13 @@ async def stream(spec) -> AsyncIterator[dict]:
     except (Invalid, KeyError, TimeoutError) as e:
         yield {"type": "done", "ok": False, "result": f"Antigravity: {e}"[:800], "session_id": None}
     finally:
+        if prompt and not prompt.done():  # stop button / browser gone: tell the agent to stop working on it
+            prompt.cancel()
+            if sid and c.alive:
+                try:
+                    await c._send({"jsonrpc": "2.0", "method": "session/cancel", "params": {"sessionId": sid}})
+                except (OSError, AssertionError):
+                    pass
         if sid:
             c.sessions.pop(sid, None)
             c.allowed_servers.pop(sid, None)

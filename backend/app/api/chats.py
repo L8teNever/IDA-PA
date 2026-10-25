@@ -6,6 +6,7 @@ from sqlalchemy import or_, select
 
 from ..models import Chat, ChatMessage
 from ..schemas import ChatSend, ChatUpdate
+from ..services import chat as chat_service
 from ..services.chat import stream_chat
 from ..services.errors import Invalid, NotFound
 from . import serializers as ser
@@ -59,6 +60,12 @@ async def delete(chat_id: str, db: DB):
         raise NotFound("Chat nicht gefunden")
     await db.delete(c)
     return {"ok": True}
+
+
+@router.post("/chats/{chat_id}/stop")
+async def stop_answer(chat_id: str):
+    """Stop button: ends the answer that is running in this chat (what was written so far is kept)."""
+    return {"ok": chat_service.stop(chat_id)}
 
 
 @router.post("/chat")

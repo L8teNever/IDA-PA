@@ -449,3 +449,28 @@ def test_chat_effort_reaches_claude(client):
     assert r.status_code == 422
     for c in client.get(f"{API}/chats").json():
         client.delete(f"{API}/chats/{c['id']}")
+
+
+def test_stop_button_ends_running_answer(client):
+    """While the agent is thinking, the stop button ends the run right away; the chat stays usable."""
+    import threading
+    import time as _t
+    box = {}
+
+    def run():
+        box["ev"] = chat(client, text="SLOW denk lange nach")
+    th = threading.Thread(target=run)
+    t0 = _t.time()
+    th.start()
+    cid = wait(lambda: next((c["id"] for c in client.get(f"{API}/chats").json()), None))
+    wait(lambda: client.post(f"{API}/chats/{cid}/stop").json()["ok"])
+    th.join(10)
+    assert not th.is_alive() and _t.time() - t0 < 4
+    done = next(e["done"] for e in box["ev"] if "done" in e)
+    assert done["stopped"] and not done["ok"]
+    msgs = client.get(f"{API}/chats/{cid}").json()["messages"]
+    assert msgs[-1]["meta"].get("stopped")
+    ev = chat(client, chat_id=cid, text="weiter")
+    assert next(e["done"] for e in ev if "done" in e)["ok"]
+    assert client.post(f"{API}/chats/{cid}/stop").json()["ok"] is False
+    client.delete(f"{API}/chats/{cid}")
