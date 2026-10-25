@@ -37,23 +37,43 @@ function renderChip() {
 }
 
 let menuTab = null;
+// "Gemini 3.8 Flash (High)" -> base "Gemini 3.8 Flash" + thinking level; variants of one model become one row
+const LEVELS = { low: "Niedrig", medium: "Mittel", high: "Hoch" };
+const levelOf = (name) => { const m = /^(.*) \((low|medium|high)\)$/i.exec(name); return m ? [m[1], m[2].toLowerCase()] : [name, null]; };
+const shortName = (n) => String(n || "").split("@")[0];
 function renderMenu() {
   const accs = accounts();
   const { model, account } = current();
   if (!menuTab || !accs.some((a) => a.id === menuTab)) menuTab = account?.id || accs[0]?.id;
-  const rail = accs.map((a) => `<button type="button" data-tab="${a.id}" class="${a.id === menuTab ? "on" : ""}">
-      <span class="rail-ic acc">${ring(state.usage[a.id], "rail")}<span class="ms">${a.provider === "antigravity" ? "rocket_launch" : "account_circle"}</span><em>${esc(a.id.replace(/^a/, ""))}</em></span>
-      <span class="rail-name">${esc(a.name)}${a.logged_in ? "" : " ⚠"}</span></button>`).join("");
+  const tabs = accs.map((a) => {
+    const p = state.usage[a.id], agy = a.provider === "antigravity";
+    return `<button type="button" data-tab="${a.id}" class="mm-acc ${a.id === menuTab ? "on" : ""}" title="${esc(a.name)}">
+      <span class="ms">${agy ? "rocket_launch" : "account_circle"}</span>
+      <span class="acc-txt"><b>${esc(shortName(a.name))}${a.logged_in ? "" : " ⚠"}</b><small>${agy ? "Antigravity" : "Claude"}${p == null ? "" : ` · ${p} %`}</small></span>
+      ${p == null ? "" : `<span class="acc-bar"><i style="width:${Math.min(100, p)}%;background:${limColor(p)}"></i></span>`}</button>`;
+  }).join("");
   const tabAcc = accs.find((a) => a.id === menuTab);
   const agyTab = tabAcc?.provider === "antigravity";
-  const models = (state.boot?.models || []).filter((id) => id.startsWith("agy:") === agyTab);
-  const list = models.length ? models.map((id) => {
-    const m = modelInfo(id);
-    const on = id === model && menuTab === account?.id;
-    return `<div role="menuitem" tabindex="0" data-m="${id}" class="mm-item ${on ? "sel" : ""}" title="${esc(m.desc)}">
-      <span class="mtxt"><b>${esc(m.name)}</b><small>${esc(m.desc)}</small></span><span class="ms mcheck">check</span></div>`;
+  const groups = [];
+  for (const id of (state.boot?.models || []).filter((x) => x.startsWith("agy:") === agyTab)) {
+    const m = modelInfo(id), [base, lvl] = levelOf(m.name);
+    let g = groups.find((x) => x.base === base);
+    if (!g) groups.push(g = { base, m, ids: {} });
+    g.ids[lvl || "-"] = id;
+  }
+  const list = groups.length ? groups.map((g) => {
+    const ids = Object.values(g.ids);
+    const on = menuTab === account?.id && ids.includes(model);
+    const pick = on ? model : g.ids.medium || ids[0];
+    const lv = Object.keys(LEVELS).filter((k) => g.ids[k]);
+    return `<div role="menuitem" tabindex="0" data-m="${pick}" class="mm-item ${on ? "sel" : ""}" title="${esc(g.m.desc)}">
+      <span class="mic"><span class="ms">${g.m.icon}</span></span>
+      <span class="mtxt"><b>${esc(g.base)}</b><small>${esc(g.m.desc)}</small></span>
+      ${lv.length ? `<span class="mm-lvl" aria-label="Nachdenken">${lv.map((k) => `<button type="button" data-m="${g.ids[k]}" class="${on && model === g.ids[k] ? "on" : ""}">${LEVELS[k]}</button>`).join("")}</span>` : `<span class="ms mcheck">check</span>`}</div>`;
   }).join("") : `<div class="mm-empty">${agyTab ? "Noch keine Modelle – den Antigravity-Account erst anmelden (Einstellungen → Accounts)." : "Keine Modelle."}</div>`;
-  $("modelMenu").innerHTML = `<div class="mm-body"><div class="mm-rail">${rail}</div><div class="mm-list">${list}</div></div>`;
+  $("modelMenu").innerHTML = `${accs.length > 1 ? `<div class="mm-head">Account</div><div class="mm-accs">${tabs}</div>` : ""}
+    <div class="mm-head">Modell${groups.some((g) => Object.keys(g.ids).length > 1) ? " <span>· rechts wählst du, wie gründlich es nachdenkt</span>" : ""}</div><div class="mm-list">${list}</div>`;
+  $("modelMenu").querySelector(".mm-acc.on")?.scrollIntoView({ block: "nearest", inline: "nearest" });
 }
 
 function choose(model, accountId) {
