@@ -25,6 +25,7 @@ import sys
 import time
 import zipfile
 from collections.abc import AsyncIterator
+from datetime import datetime
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
@@ -581,7 +582,26 @@ async def _fetch_usage(account: Account) -> dict:
         return {"error": f"Limits konnten nicht gelesen werden: {e.__class__.__name__}"}
     if not windows:
         return {"error": "Antigravity hat keine Limit-Angaben geliefert"}
-    return {"windows": windows}
+    return {"windows": _present(windows, status(account).get("models", []))}
+
+
+def _present(windows: list[dict], models: list[dict]) -> list[dict]:
+    """Gemini (usable in IDA) first, with the models it covers; Claude & GPT last and marked as not usable."""
+    names = list(dict.fromkeys(re.sub(r"\s*\((low|medium|high)\)$", "", m.get("name") or m["id"], flags=re.I) for m in models))
+    now = time.time()
+    for w in windows:
+        with contextlib.suppress(ValueError, TypeError):  # Google keeps sending the last reset when nothing is used up
+            if datetime.fromisoformat(str(w["resets_at"]).replace("Z", "+00:00")).timestamp() < now:
+                w["resets_at"] = None
+        if w["id"].startswith("gemini"):
+            w["label"] = "Gemini · alle Modelle" + (" · Woche" if w["id"].endswith("weekly") else "")
+            w["models"] = names
+            w["note"] = "Google rechnet alle Gemini-Modelle über ein gemeinsames Kontingent ab."
+        elif w["id"].startswith(("3p", "claude", "gpt")):
+            w["label"] = w["label"].replace(" (in IDA nicht nutzbar)", "")
+            w["muted"] = True
+            w["note"] = "In IDA nicht nutzbar – Google gibt Claude & GPT beim offiziellen Login nicht frei."
+    return sorted(windows, key=lambda w: bool(w.get("muted")))
 
 
 def _window(wid: str, label: str, q: dict) -> dict | None:
@@ -608,7 +628,7 @@ def _summary_windows(responses: list[dict]) -> list[dict]:
                 if b.get("disabled") or not b.get("bucketId"):
                     continue
                 bid = b["bucketId"]
-                fam = "Gemini" if bid.startswith("gemini-") else "Claude & GPT (in IDA nicht nutzbar)" if bid.startswith("3p-") else (g.get("displayName") or bid)
+                fam = "Gemini" if bid.startswith("gemini-") else "Claude & GPT" if bid.startswith("3p-") else (g.get("displayName") or bid)
                 win = b.get("window")
                 label = f"{fam} · " + ("Woche" if win == "weekly" else "5 Std" if win == "5h" else (b.get("displayName") or "Kontingent"))
                 w = _window(bid, label, b)
@@ -637,7 +657,8 @@ def _model_windows(responses: list[dict]) -> list[dict]:
 
 async def exhausted(account: Account) -> bool:
     u = await usage(account)
-    return any((w.get("percent") or 0) >= 99.5 for w in u.get("windows") or [])
+    # only quotas of models IDA can actually run (Claude & GPT via Antigravity are not usable anyway)
+    return any((w.get("percent") or 0) >= 99.5 for w in u.get("windows") or [] if not w.get("muted"))
 
 
 # ---------------- runs ----------------

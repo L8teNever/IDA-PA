@@ -347,3 +347,9 @@ body.mic-on .mic-info { color: #ff8f8f; }
 .rem-form { margin: 12px 0 16px; }
 .rf-once-hint { display: flex; gap: 8px; align-items: center; margin: 2px 4px 10px; font-size: 13px; }
 .rf-once-hint .ms { font-size: 18px; color: var(--accent); }
+
+/* limits page: models sharing one quota, quotas IDA cannot use */
+.model-chips { margin: 10px 0 0; gap: 6px; }
+.model-chips span { font-size: 12px; padding: 3px 9px; border-radius: 10px; background: var(--surface-highest); color: var(--on-surface-variant, #c4c6d0); }
+.pcard.muted { opacity: .55; }
+.pcard.muted .ubar div { background: var(--outline, #8e9099); }

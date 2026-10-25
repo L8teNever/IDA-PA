@@ -13,6 +13,9 @@ function resetText(iso) {
   return `setzt sich in ${h ? h + " Std " : ""}${m} Min zurück`;
 }
 
+// small values with one decimal (0.6 % instead of "1 %")
+const pct = (v) => { const n = v ?? 0; return `${n > 0 && n < 10 ? n.toLocaleString("de-DE", { maximumFractionDigits: 1 }) : Math.round(n)} %`; };
+
 export async function usagePage(_, query) {
   setAgent(mainAgent());
   setView("page");
@@ -32,8 +35,10 @@ export async function usagePage(_, query) {
         <div class="ri-row ${p < 80 ? "ok" : ""}"><span class="ms">${p < 80 ? "check_circle" : "warning"}</span>${p < 80 ? "Noch genug übrig" : "Wird knapp"}</div></div></div>` : ""}
       ${sess ? `<div class="pcard"><div class="pc-head"><b>Aktuelle Sitzung</b><span>${Math.round(sess.percent ?? 0)} %</span></div>
         <div class="ubar big"><div style="width:${Math.min(100, sess.percent ?? 0)}%"></div></div><div class="pc-foot">${esc(resetText(sess.resets_at))}</div></div>` : ""}
-      ${others.map((w) => `<div class="pcard"><div class="pc-head"><b>${esc(w.label)}</b><span>${Math.round(w.percent ?? 0)} %</span></div>
-        <div class="ubar"><div style="width:${Math.min(100, w.percent ?? 0)}%"></div></div><div class="pc-foot">${esc(resetText(w.resets_at))}</div></div>`).join("")}
+      ${others.map((w) => `<div class="pcard ${w.muted ? "muted" : ""}"><div class="pc-head"><b>${esc(w.label)}</b><span>${pct(w.percent)}</span></div>
+        <div class="ubar"><div style="width:${Math.min(100, w.percent ?? 0)}%"></div></div>
+        ${w.models?.length ? `<div class="chipset model-chips">${w.models.map((m) => `<span>${esc(m)}</span>`).join("")}</div>` : ""}
+        <div class="pc-foot">${esc([resetText(w.resets_at), w.note].filter(Boolean).join(" · "))}</div></div>`).join("")}
     </div>`;
   }).join("") || `<div class="empty">Kein Account.</div>`;
 }
