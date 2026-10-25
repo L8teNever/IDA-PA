@@ -30,6 +30,18 @@ def test_pages_get_the_app(client):
     assert client.get("/api/v1/gibtsnicht").status_code == 404
 
 
+def test_installable_as_app(client):
+    m = client.get("/manifest.webmanifest")
+    assert m.status_code == 200 and m.headers["content-type"].startswith("application/manifest+json")
+    data = m.json()
+    assert data["display"] == "standalone" and {"192x192", "512x512"} <= {i["sizes"] for i in data["icons"]}
+    for i in data["icons"]:
+        assert client.get(i["src"]).headers["content-type"] == "image/png"
+    sw = client.get("/sw.js")
+    assert sw.status_code == 200 and "javascript" in sw.headers["content-type"]
+    assert 'rel="manifest"' in client.get("/").text
+
+
 def test_seed(client):
     b = client.get(f"{API}/bootstrap").json()
     assert [a["id"] for a in b["agents"]] == ["ida", "stella", "lea"]

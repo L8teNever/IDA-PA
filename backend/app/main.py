@@ -8,7 +8,7 @@ from pathlib import Path
 from alembic import command
 from alembic.config import Config
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import db, seed
@@ -87,6 +87,31 @@ def create_app() -> FastAPI:
     app.mount(f"/s/{version}", Static(directory=front, cache="public, max-age=31536000, immutable"), name="assets")
     app.mount("/static", Static(directory=front), name="static")  # unversioned (old links)
     index_html = (front / "index.html").read_text(encoding="utf8").replace('"/static/', f'"/s/{version}/')
+
+    @app.get("/manifest.webmanifest", include_in_schema=False)
+    async def manifest():
+        """Makes IDA installable as an app (PWA) with the mascot as icon."""
+        icon = f"/s/{version}/icons"
+        return JSONResponse({
+            "id": "/", "name": "IDA", "short_name": "IDA", "description": "Deine persönliche Assistentin",
+            "lang": "de", "start_url": "/", "scope": "/", "display": "standalone",
+            "background_color": "#000000", "theme_color": "#000000",
+            "icons": [
+                {"src": f"{icon}/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any"},
+                {"src": f"{icon}/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any"},
+                {"src": f"{icon}/maskable-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable"},
+                {"src": f"{icon}/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable"},
+            ],
+            "shortcuts": [
+                {"name": "Chats", "url": "/chats", "icons": [{"src": f"{icon}/icon-192.png", "sizes": "192x192"}]},
+                {"name": "Routinen", "url": "/routinen", "icons": [{"src": f"{icon}/icon-192.png", "sizes": "192x192"}]},
+            ],
+        }, media_type="application/manifest+json", headers={"cache-control": "no-cache"})
+
+    @app.get("/sw.js", include_in_schema=False)
+    async def service_worker():
+        """Served from the root so it may control every page."""
+        return FileResponse(front / "sw.js", media_type="text/javascript", headers={"cache-control": "no-cache"})
 
     @app.get("/{path:path}", include_in_schema=False)
     async def spa(path: str):

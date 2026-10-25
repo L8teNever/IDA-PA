@@ -5,9 +5,10 @@ a.icon-btn { color: var(--on-surface); }
 [data-href] { cursor: pointer; }
 
 /* side menu: links like the design's buttons */
-.side-nav a { display: flex; align-items: center; gap: 14px; height: 52px; padding: 0 16px; border-radius: 26px;
+.side-nav a, .side-nav button { display: flex; width: 100%; border: 0; background: none; cursor: pointer; font-family: inherit; align-items: center; gap: 14px; height: 52px; padding: 0 16px; border-radius: 26px;
   color: var(--on-surface); text-decoration: none; font-size: 15px; font-weight: 500; position: relative; transition: background .2s, border-radius .25s var(--spring); }
-.side-nav a .ms { color: var(--muted); }
+.side-nav a .ms, .side-nav button .ms { color: var(--muted); }
+.side-nav button[hidden] { display: none; }
 .side-nav a:active { background: rgba(255,255,255,.08); border-radius: 16px; }
 .side-nav a.on { background: var(--container); color: var(--on-container); }
 .side-nav a.on .ms { color: var(--on-container); }
