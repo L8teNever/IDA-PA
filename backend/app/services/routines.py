@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..config import get_settings
 from ..db import session_scope, utcnow
 from ..models import Agent, Connector, Routine, RoutineRun
-from . import jobs, schedule, triggers
+from . import jobs, schedule, trigger_script, triggers
 from .agents import record_run
 from .errors import Invalid, NotFound
 from .mcp.client import McpError, call_tool
@@ -26,13 +26,25 @@ _checking: set[str] = set()
 
 async def validate_trigger(db: AsyncSession, t: dict | None) -> dict | None:
     """Only the user sets triggers (they call connector tools automatically)."""
-    if not t or t.get("type") in ("interval", "schedule") or (t.get("type") is None and not t.get("connector")):
+    if not t or t.get("type") in ("interval", "schedule") or (t.get("type") is None and not t.get("connector") and not t.get("code")):
         return None
-    if t.get("type", "mcp") != "mcp":
-        raise Invalid("trigger.type: mcp")
+    kind = t.get("type") or ("script" if t.get("code") else "mcp")
+    if kind not in ("mcp", "script"):
+        raise Invalid("trigger.type: mcp oder script")
     every = int(t.get("every_sec") or 300)
     if not 10 <= every <= 86400:
         raise Invalid("Prüf-Intervall: 10 Sekunden bis 24 Stunden")
+    if kind == "script":  # own code: checks MCP tools without AI and calls fire() to start the routine
+        code = str(t.get("code") or "")
+        if not code.strip():
+            raise Invalid("Das Skript ist leer")
+        if len(code) > trigger_script.MAX_CODE:
+            raise Invalid(f"Skript: höchstens {trigger_script.MAX_CODE} Zeichen")
+        try:
+            compile(code, "<skript>", "exec")
+        except SyntaxError as e:
+            raise Invalid(f"Fehler im Skript, Zeile {e.lineno}: {e.msg}") from e
+        return {"type": "script", "code": code, "every_sec": every, "state": {}}
     mode = t.get("mode") or "new"
     if mode not in ("new", "change", "contains"):
         raise Invalid("Bedingung: new, change oder contains")
@@ -68,8 +80,8 @@ async def _clean(db: AsyncSession, f: dict, partial: bool, allow_trigger: bool) 
         v["name"] = n
     if not partial or "prompt" in f:
         p = str(f.get("prompt") or "").strip()
-        if not p or len(p) > 4000:
-            raise Invalid("Aufgabe: 1–4000 Zeichen")
+        if not p:
+            raise Invalid("Die Aufgabe darf nicht leer sein")
         v["prompt"] = p
     if "agent_id" in f or not partial:
         aid = f.get("agent_id")
@@ -176,7 +188,7 @@ def compute_next(r: Routine):
 def when_text(r: Routine) -> str:
     t = r.trigger
     if t:
-        return f"bei {t['mode']} von {t['connector']}.{t['tool']}"
+        return f"per eigenem Skript alle {t['every_sec']} s" if t.get("type") == "script" else f"bei {t['mode']} von {t['connector']}.{t['tool']}"
     if r.run_at:
         return schedule.describe_once(r.run_at)
     if r.times:
@@ -266,6 +278,8 @@ async def check(routine_id: str) -> dict:
             if not r or not r.trigger:
                 raise Invalid("Diese Routine hat keinen Auslöser")
             t = dict(r.trigger)
+            if t.get("type") == "script":
+                return await _check_script(r, t)
             try:
                 text, err = await run_trigger_tool(db, t), None
             except (McpError, Exception) as e:  # noqa: BLE001 – network errors of all kinds end up here
@@ -293,6 +307,30 @@ async def check(routine_id: str) -> dict:
             return {"ok": True, "started": started, "note": t["last_note"], "preview": t["last_preview"]}
     finally:
         _checking.discard(routine_id)
+
+
+async def _check_script(r: Routine, t: dict) -> dict:
+    """Runs the routine's own script; it decides itself (fire) whether the routine starts."""
+    res = await trigger_script.run(t["code"], t.get("state"))
+    t["last_check"] = utcnow().isoformat()
+    t["last_preview"] = res["log"][:300]
+    if res["error"]:
+        t["last_error"] = res["error"]
+        r.trigger = t
+        return {"ok": False, "error": res["error"], "log": res["log"]}
+    t["last_error"], t["state"] = None, res["state"]
+    started = False
+    if res["fire"]:
+        try:
+            enqueue(r.id, "trigger", "Das Prüf-Skript meldet: " + (res["info"] or "Bedingung erfüllt"))
+            started = True
+            t["last_fired"], t["last_note"] = t["last_check"], "ausgelöst" + (f": {res['info'][:200]}" if res["info"] else "")
+        except Invalid:
+            t["last_note"] = "ausgelöst, aber die Routine läuft noch"
+    else:
+        t["last_note"] = "nichts Neues"
+    r.trigger = t
+    return {"ok": True, "started": started, "note": t["last_note"], "preview": t["last_preview"]}
 
 
 async def due_routines() -> tuple[list[str], list[str]]:

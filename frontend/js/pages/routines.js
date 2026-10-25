@@ -28,7 +28,7 @@ function dayLabel(iso) {
 }
 const onceText = (r) => `📅 einmalig ${fmtDateTime(r.run_at)}`;
 function whenText(r) {
-  return r.trigger ? `🔔 ${MODES[r.trigger.mode]}` : r.run_at ? onceText(r) : r.times?.length ? timesText(r) : every(r.interval_min);
+  return r.trigger ? (r.trigger.type === "script" ? "🔔 eigener Code" : `🔔 ${MODES[r.trigger.mode]}`) : r.run_at ? onceText(r) : r.times?.length ? timesText(r) : every(r.interval_min);
 }
 
 export async function routinesPage() {
@@ -72,7 +72,7 @@ export async function routineDetail({ id }) {
     ${r.enabled ? "" : `<div class="state-note"><span class="ms">pause_circle</span><span>Diese Routine ist pausiert und startet nicht von selbst. „Jetzt ausführen“ geht trotzdem.</span></div>`}
     <div class="pcard">
       <div class="kv"><span>Agent</span><b style="color:${c["--accent"]}">${esc(a.name)}</b></div>
-      <div class="kv"><span>Start</span><b>${t ? `${esc(t.connector)} › ${esc(t.tool)} · ${MODES[t.mode]}${t.contains ? ` „${esc(t.contains)}“` : ""} · ${everySec(t.every_sec)}` : r.run_at ? esc(onceText(r)) + " · wird danach gelöscht" : r.times?.length ? esc(timesText(r)) : every(r.interval_min)}</b></div>
+      <div class="kv"><span>Start</span><b>${t?.type === "script" ? `eigener Code · prüft ${everySec(t.every_sec)}` : t ? `${esc(t.connector)} › ${esc(t.tool)} · ${MODES[t.mode]}${t.contains ? ` „${esc(t.contains)}“` : ""} · ${everySec(t.every_sec)}` : r.run_at ? esc(onceText(r)) + " · wird danach gelöscht" : r.times?.length ? esc(timesText(r)) : every(r.interval_min)}</b></div>
       <div class="kv"><span>Modell</span><b>${esc(r.model ? modelInfo(r.model).name : "wie der Agent")}</b></div>
       <div class="kv"><span>Account</span><b>${esc(r.account_id ? (state.boot.accounts.find((x) => x.id === r.account_id)?.name || r.account_id) : "wie der Agent")}</b></div>
       <div class="kv"><span>Limit-Fallback</span><b>${r.fallback === null ? "wie der Agent" : r.fallback ? "an" : "aus"}</b></div>
@@ -117,7 +117,9 @@ export async function routineForm({ id } = {}) {
   let onceDay = isoDay(start), onceTime = `${pad(start.getHours())}:${pad(start.getMinutes())}`;
   let times = f.times?.length ? [...f.times] : ["07:00"];
   let days = f.days?.length ? [...f.days] : [0, 1, 2, 3, 4, 5, 6];
-  const t = f.trigger || { connector: connectors.find((c) => c.tools.length)?.id || "", tool: "", args: {}, every_sec: 60, mode: "new", contains: "" };
+  const t = f.trigger ? { ...f.trigger } : { connector: connectors.find((c) => c.tools.length)?.id || "", tool: "", args: {}, every_sec: 60, mode: "new", contains: "" };
+  let kind = t.type === "script" ? "script" : "mcp";
+  if (!t.code) t.code = exampleScript(connectors);
   const unit = f.interval_min % 1440 === 0 ? 1440 : f.interval_min % 60 === 0 ? 60 : 1;
   const tri = (v) => `<option value="" ${v === null ? "selected" : ""}>wie der Agent</option><option value="1" ${v === true ? "selected" : ""}>an</option><option value="0" ${v === false ? "selected" : ""}>aus</option>`;
 
@@ -161,6 +163,8 @@ export async function routineForm({ id } = {}) {
         <div class="fld-row"><label class="fld"><span>alle</span><input id="fEvery" type="number" min="1" value="${f.interval_min / unit}"></label>
         <label class="fld"><span>Einheit</span><select id="fUnit"><option value="1" ${unit === 1 ? "selected" : ""}>Minuten</option><option value="60" ${unit === 60 ? "selected" : ""}>Stunden</option><option value="1440" ${unit === 1440 ? "selected" : ""}>Tage</option></select></label></div>`
       : `
+        <div class="seg seg-sub" id="tKind"><button type="button" data-k="mcp" class="${kind === "mcp" ? "on" : ""}">Einfach</button><button type="button" data-k="script" class="${kind === "script" ? "on" : ""}"><span class="ms">code</span>Eigener Code</button></div>
+        ${kind === "script" ? scriptEditor(t, connectors) : `
         <p class="sub-intro" style="margin:0 4px 10px">Der Server ruft das Tool selbst in festen Abständen auf – <b>ohne KI, kostet kein Limit</b> – und startet die Routine nur, wenn die Bedingung erfüllt ist. Nimm ein <b>lesendes</b> Tool (z. B. Mails suchen).</p>
         ${connectors.some((c) => c.tools.length) ? `
         <div class="fld-row"><label class="fld"><span>MCP-Server</span><select id="tConn">${connectors.filter((c) => c.tools.length).map((c) => `<option value="${c.id}" ${c.id === t.connector ? "selected" : ""}>${esc(c.name)}</option>`).join("")}</select></label>
@@ -171,7 +175,7 @@ export async function routineForm({ id } = {}) {
         ${t.mode === "contains" ? `<label class="fld"><span>Text</span><input id="tContains" maxlength="200" value="${esc(t.contains)}"></label>` : ""}
         <button type="button" class="es-btn" id="tTest"><span class="ms">science</span>Tool testen</button>
         <pre class="test-out" id="tOut" hidden></pre>`
-        : `<div class="soon-box"><span class="ms">extension</span>Erst einen MCP-Server mit Tools verbinden (Einstellungen → MCP-Server).</div>`}`}
+        : `<div class="soon-box"><span class="ms">extension</span>Erst einen MCP-Server mit Tools verbinden (Einstellungen → MCP-Server).</div>`}`}`}
       </section>
       <details class="rf-sec rf-adv" ${f.model || f.account_id || f.fallback !== null || f.memory_enabled !== null ? "open" : ""}>
         <summary class="rf-h"><span class="ms">tune</span>Ausführung <small>${f.model || f.account_id || f.fallback !== null || f.memory_enabled !== null ? "angepasst" : "alles wie der Agent"}</small><span class="ms rf-chev">expand_more</span></summary>
@@ -195,6 +199,7 @@ export async function routineForm({ id } = {}) {
     const tri3 = (v) => (v === "" ? null : v === "1");
     f.fallback = tri3($("fFallback").value); f.memory_enabled = tri3($("fMemory").value);
     if ($("fEvery")) f.interval_min = Math.max(1, Math.round(+$("fEvery").value * +$("fUnit").value));
+    if ($("tCode")) { t.code = $("tCode").value; t.every_sec = +$("tEverySc").value; }
     if ($("tConn")) {
       t.connector = $("tConn").value; t.tool = $("tTool").value; t.args = $("tArgs").value;
       t.every_sec = +$("tEvery").value; t.mode = $("tMode").value; if ($("tContains")) t.contains = $("tContains").value;
@@ -237,6 +242,8 @@ export async function routineForm({ id } = {}) {
     $("fIcons").onclick = (e) => { const b = e.target.closest("[data-ic]"); if (!b) return; keep(); f.icon = b.dataset.ic; draw(); };
     $("fAgents").onclick = (e) => { const b = e.target.closest("[data-a]"); if (!b) return; keep(); f.agent_id = b.dataset.a; draw(); };
     $("fMode").onclick = (e) => { const b = e.target.closest("[data-m]"); if (!b) return; keep(); mode = b.dataset.m; draw(); };
+    if ($("tKind")) $("tKind").onclick = (e) => { const b = e.target.closest("[data-k]"); if (!b) return; keep(); kind = b.dataset.k; draw(); };
+    if ($("tCode")) bindScriptEditor(connectors, keep, t);
     if ($("tConn")) {
       $("tConn").onchange = () => { keep(); t.tool = ""; draw(); };
       $("tMode").onchange = () => { keep(); draw(); };
@@ -263,7 +270,7 @@ export async function routineForm({ id } = {}) {
         if (!days.length) { $("fErr").textContent = "Mindestens einen Tag auswählen."; return; }
         body.times = times; body.days = days;
         if (id) { body.trigger = null; body.run_at = null; }
-      } else body.trigger = { ...t, type: "mcp" };
+      } else body.trigger = kind === "script" ? { type: "script", code: t.code, every_sec: t.every_sec } : { ...t, type: "mcp", code: "" };
       try {
         const out = id ? await api.patch(`/routines/${id}`, body) : await api.post("/routines", body);
         toast(id ? "Gespeichert" : "Routine angelegt");
@@ -272,4 +279,75 @@ export async function routineForm({ id } = {}) {
     };
   };
   draw();
+}
+
+
+// ---------- trigger with own code (runs on the server without AI, see backend services/trigger_script.py) ----------
+function exampleScript(connectors) {
+  const c = connectors.find((x) => x.tools.some((n) => /mail/i.test(n))) || connectors.find((x) => x.tools.length);
+  const tool = c?.tools.find((n) => /mail.*(such|search|list)|(such|search|list).*mail/i.test(n)) || c?.tools[0] || "tool_name";
+  return `# Läuft auf dem Server OHNE KI – kostet kein Limit.
+# Die Routine startet nur, wenn fire("…") aufgerufen wird; der Text geht an den Agenten.
+ergebnis = tool_json("${c?.id || "server"}", "${tool}", query="is:unread newer_than:2d")
+liste = ergebnis if isinstance(ergebnis, list) else []
+neu = new(liste)  # nur Einträge, die beim letzten Mal noch nicht da waren
+if neu:
+    fire(f"{len(neu)} neue Mail(s): " + ", ".join(str(m.get("subject", m)) if isinstance(m, dict) else str(m) for m in neu[:5]))
+print("geprüft:", len(liste), "Einträge")
+`;
+}
+
+function scriptEditor(t, connectors) {
+  const usable = connectors.filter((c) => c.tools.length);
+  return `
+    <p class="sub-intro" style="margin:0 4px 10px">Ein kleines <b>Python-Skript</b>, das der Server in festen Abständen selbst ausführt – <b>ohne KI, kostet kein Limit</b>. Es fragt MCP-Tools ab und entscheidet selbst, ob die Routine startet.</p>
+    <div class="code-wrap"><textarea id="tCode" class="code-ed" spellcheck="false" autocapitalize="off" autocomplete="off" rows="12">${esc(t.code)}</textarea></div>
+    <details class="code-help"><summary><span class="ms">help</span>Was kann ich im Skript benutzen?</summary>
+      <ul>
+        <li><code>tool("server", "tool", arg=wert)</code> – ruft ein MCP-Tool auf, gibt den Text zurück</li>
+        <li><code>tool_json(…)</code> – genauso, aber als JSON (Liste/Objekt), wenn möglich</li>
+        <li><code>new(liste)</code> – nur Einträge, die bei der letzten Prüfung noch nicht da waren (die erste Prüfung merkt sich nur alles). Optional <code>key=lambda m: m["id"]</code></li>
+        <li><code>fire("Info")</code> – startet die Routine, die Info bekommt der Agent mit</li>
+        <li><code>state</code> – ein Dict, das zwischen den Prüfungen erhalten bleibt</li>
+        <li><code>print(…)</code> – erscheint beim Testen und unter „Letzte Prüfung“</li>
+        <li>Normales Python (<code>import re, datetime</code> …), höchstens 60 s pro Lauf</li>
+      </ul></details>
+    <details class="code-help" ${usable.length ? "" : "open"}><summary><span class="ms">extension</span>Server und Tools (antippen fügt ein)</summary>
+      ${usable.length ? usable.map((c) => `<div class="code-srv"><b>${esc(c.name)}</b> <code>${esc(c.id)}</code></div>
+        <div class="chipset code-tools">${c.tools.map((n) => `<button type="button" data-ins="${esc(`tool_json("${c.id}", "${n}")`)}">${esc(n)}</button>`).join("")}</div>`).join("")
+        : `<p class="sub-intro">Noch kein MCP-Server mit Tools verbunden (Einstellungen → MCP-Server).</p>`}</details>
+    <div class="fld-row"><label class="fld"><span>prüfen alle … Sekunden (ab 10)</span><input id="tEverySc" type="number" min="10" value="${t.every_sec}"></label></div>
+    <div class="btn-row"><button type="button" class="es-btn" id="tRunCode"><span class="ms">play_arrow</span>Skript testen</button>
+      <button type="button" class="es-btn" id="tExample"><span class="ms">restart_alt</span>Beispiel einsetzen</button></div>
+    <pre class="test-out" id="tCodeOut" hidden></pre>`;
+}
+
+function bindScriptEditor(connectors, keep, t) {
+  const ed = $("tCode");
+  ed.onkeydown = (e) => { // Tab indents instead of leaving the field
+    if (e.key !== "Tab") return;
+    e.preventDefault();
+    ed.setRangeText("    ", ed.selectionStart, ed.selectionEnd, "end");
+  };
+  document.querySelectorAll(".code-tools [data-ins]").forEach((b) => (b.onclick = () => {
+    ed.focus();
+    ed.setRangeText(b.dataset.ins, ed.selectionStart, ed.selectionEnd, "end");
+  }));
+  $("tExample").onclick = () => {
+    if (!ed.value.trim() || confirm("Aktuellen Code durch das Beispiel ersetzen?")) ed.value = exampleScript(connectors);
+  };
+  $("tRunCode").onclick = async () => {
+    keep();
+    const out = $("tCodeOut");
+    out.hidden = false;
+    out.textContent = "läuft …";
+    try {
+      const j = await api.post("/routines/test-trigger", { trigger: { type: "script", code: t.code, every_sec: t.every_sec } });
+      out.textContent = (j.error ? `⚠ Fehler: ${j.error}`
+        : j.fire ? `✓ Würde die Routine starten.${j.info ? "\nInfo an den Agenten: " + j.info : ""}`
+        : "✓ Läuft – würde die Routine jetzt nicht starten (kein fire).")
+        + (j.log ? `\n\nAusgabe:\n${j.log}` : "")
+        + "\n\n(Beim Testen zählt alles als neu – im echten Betrieb merkt sich die erste Prüfung nur den Stand.)";
+    } catch (err) { out.textContent = "⚠ " + err.message; }
+  };
 }

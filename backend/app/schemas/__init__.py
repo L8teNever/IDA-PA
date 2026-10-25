@@ -63,9 +63,10 @@ class ChatUpdate(BaseModel):
 
 
 class Trigger(BaseModel):
-    type: str = "mcp"
-    connector: str
-    tool: str
+    type: str | None = None  # mcp (fixed check) | script (own code)
+    connector: str = ""
+    tool: str = ""
+    code: str = ""  # type script: Python code, see services/trigger_script.py
     args: dict[str, Any] | str = Field(default_factory=dict)
     every_sec: int = 300
     mode: str = "new"

@@ -4,7 +4,7 @@ from sqlalchemy import select
 from ..models import Routine, RoutineRun
 from ..schemas import RoutineCreate, RoutineUpdate, TriggerTest
 from ..services import routines as svc
-from ..services import triggers
+from ..services import trigger_script, triggers
 from ..services.errors import Invalid, NotFound
 from ..services.mcp.client import McpError
 from . import serializers as ser
@@ -70,6 +70,9 @@ async def test_trigger(body: TriggerTest, db: DB):
     t = await svc.validate_trigger(db, body.trigger.model_dump())
     if not t:
         raise Invalid("Kein Auslöser angegeben")
+    if t["type"] == "script":  # run once: shows the log and whether it would start the routine (it does not)
+        res = await trigger_script.run(t["code"], {"_seen": []})  # test: everything counts as new
+        return {"script": True, "fire": res["fire"], "info": res["info"], "log": res["log"], "error": res["error"]}
     try:
         text = await svc.run_trigger_tool(db, t)
     except McpError as e:

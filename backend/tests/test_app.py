@@ -205,6 +205,31 @@ def test_trigger_end_to_end_with_mock_mcp(client):
         assert client.post(f"{API}/routines/{r['id']}/check").json()["started"]
         run = wait(lambda: client.get(f"{API}/routines/{r['id']}").json()["runs"])
         assert run[0]["via"] == "trigger" and '"m2"' in run[0]["text"] and '"m1"' not in run[0]["text"]
+
+        # own code instead of the fixed check: calls the MCP tool itself (no AI) and decides with fire()
+        code = ('mails = tool_json("Mailbox", "mails_suchen")\n'
+                'neu = new(mails)\n'
+                'if neu:\n    fire("neu: " + ", ".join(m["subject"] for m in neu))\n'
+                'print("anzahl", len(mails))')
+        t = client.post(f"{API}/routines/test-trigger", json={"trigger": {"type": "script", "code": code}}).json()
+        assert t["script"] and t["fire"] and "neu: Hallo, Chef" in t["info"] and "anzahl 2" in t["log"] and not t["error"]
+        bad = client.post(f"{API}/routines", json={"name": "S", "prompt": "p", "trigger": {"type": "script", "code": "if x\n"}})
+        assert bad.status_code == 400 and "Zeile 1" in bad.json()["detail"]
+        r = client.post(f"{API}/routines", json={"name": "Skript", "prompt": "Mail bearbeiten", "agent_id": "lea",
+                                                 "trigger": {"type": "script", "code": code, "every_sec": 60}}).json()
+        assert r["trigger"]["type"] == "script"
+        assert not client.post(f"{API}/routines/{r['id']}/check").json()["started"]  # first check only remembers
+        mails.append({"id": "m3", "subject": "Dritte"})
+        assert client.post(f"{API}/routines/{r['id']}/check").json()["started"]
+        run = wait(lambda: client.get(f"{API}/routines/{r['id']}").json()["runs"])
+        assert "neu: Dritte" in run[0]["text"] and "Chef" not in run[0]["text"]
+        # errors in the code are reported with the line
+        client.patch(f"{API}/routines/{r['id']}", json={"trigger": {"type": "script", "code": "x = 1\ntool('gibtsnicht', 'a')"}})
+        res = client.post(f"{API}/routines/{r['id']}/check").json()
+        assert not res["ok"] and "gibtsnicht" in res["error"] and "Zeile 2" in res["error"]
+        # tasks have no length limit any more
+        long = client.post(f"{API}/routines", json={"name": "Lang", "prompt": "x" * 20000, "interval_min": 60}).json()
+        assert len(long["prompt"]) == 20000
     finally:
         srv.shutdown()
 

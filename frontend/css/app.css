@@ -285,3 +285,20 @@ textarea.autogrow { resize: none; overflow-y: auto; min-height: 84px; max-height
 .once-date { position: relative; display: inline-flex; align-items: center; gap: 6px; padding: 0 12px; cursor: pointer; overflow: hidden; }
 .once-date input { position: absolute; inset: 0; opacity: 0; pointer-events: none; color-scheme: dark; }
 .once-time { cursor: pointer; border: 0; font: inherit; padding-right: 8px; }
+
+/* routine trigger: own code */
+.seg-sub { margin: 0 0 12px; }
+.seg-sub button .ms { font-size: 18px; vertical-align: -4px; margin-right: 4px; }
+.code-wrap { background: #0b0d14; border-radius: 16px; border: 1px solid rgba(255,255,255,.08); overflow: hidden; }
+.code-ed { display: block; width: 100%; min-height: 240px; resize: vertical; border: 0; outline: 0; background: transparent; color: #d7e3f4;
+  font: 13.5px/1.55 ui-monospace, "SF Mono", Consolas, "Cascadia Code", monospace; padding: 14px 16px; tab-size: 4; white-space: pre; overflow: auto; }
+.code-wrap:focus-within { border-color: rgba(var(--accent-rgb), .6); }
+.code-help { margin: 10px 0 0; background: var(--surface-high); border-radius: 16px; padding: 0 14px; }
+.code-help summary { cursor: pointer; display: flex; align-items: center; gap: 8px; height: 46px; color: var(--on-surface); font-size: 14px; font-weight: 500; list-style: none; }
+.code-help summary::-webkit-details-marker { display: none; }
+.code-help summary .ms { color: var(--accent); font-size: 20px; }
+.code-help ul { margin: 0 0 12px; padding-left: 18px; color: var(--muted); font-size: 13.5px; line-height: 1.6; }
+.code-help code { font: 12.5px ui-monospace, Consolas, monospace; background: rgba(255,255,255,.07); padding: 1px 5px; border-radius: 6px; color: var(--on-surface); }
+.code-srv { margin: 6px 0; font-size: 14px; }
+.code-tools { margin-bottom: 12px; }
+.code-tools button { font: 12.5px ui-monospace, Consolas, monospace; height: 30px; }
