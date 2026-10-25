@@ -11,10 +11,12 @@ Helpers inside the script:
   fire(info="")                    -> start the routine; info is handed to the agent
 """
 import json
+import string
 import sys
 import urllib.request
 
 MARK = "@@IDA@@"
+WS = string.whitespace + ","  # separators between JSON objects
 _in = json.loads(sys.stdin.read())
 _fired: list[str] = []
 
@@ -30,11 +32,24 @@ def tool(server: str, name: str, **args) -> str:
 
 
 def tool_json(server: str, name: str, **args):
+    """JSON result; several JSON objects one after another (some tools answer like that) become a list."""
     text = tool(server, name, **args)
     try:
         return json.loads(text)
     except ValueError:
+        pass
+    dec, pos, items = json.JSONDecoder(), 0, []
+    try:
+        while pos < len(text):
+            while pos < len(text) and text[pos] in WS:
+                pos += 1
+            if pos >= len(text):
+                break
+            obj, pos = dec.raw_decode(text, pos)
+            items.append(obj)
+    except ValueError:
         return text
+    return items if items else text
 
 
 def new(items, key=None):

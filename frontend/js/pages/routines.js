@@ -292,7 +292,8 @@ ergebnis = tool_json("${c?.id || "server"}", "${tool}", query="is:unread newer_t
 liste = ergebnis if isinstance(ergebnis, list) else []
 neu = new(liste)  # nur Einträge, die beim letzten Mal noch nicht da waren
 if neu:
-    fire(f"{len(neu)} neue Mail(s): " + ", ".join(str(m.get("subject", m)) if isinstance(m, dict) else str(m) for m in neu[:5]))
+    titel = [str(m.get("betreff") or m.get("subject") or m) if isinstance(m, dict) else str(m) for m in neu[:5]]
+    fire(f"{len(neu)} neue Mail(s): " + " | ".join(titel))
 print("geprüft:", len(liste), "Einträge")
 `;
 }
