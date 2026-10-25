@@ -1,7 +1,7 @@
 """Model -> JSON for the browser. Secrets (tokens, URLs with tokens) never leave the server unmasked."""
 from datetime import datetime, timezone
 
-from ..models import Account, Agent, AgentRun, Chat, ChatMessage, Connector, MemoryEntry, Message, Routine, RoutineRun, Skill
+from ..models import Account, Agent, AgentRun, Chat, ChatMessage, Connector, MemoryEntry, Message, Reminder, Routine, RoutineRun, Skill
 from ..services.mcp.client import mask_url
 
 
@@ -60,9 +60,14 @@ def routine(r: Routine, last: RoutineRun | None = None, running: bool = False) -
     if t:
         t["seen"] = len((t.pop("state", None) or {}).get("keys") or [])
     return {"id": r.id, "name": r.name, "icon": r.icon, "prompt": r.prompt, "agent_id": r.agent_id, "model": r.model,
-            "account_id": r.account_id, "interval_min": r.interval_min, "times": r.times, "days": r.days, "run_at": iso(r.run_at), "on_demand": r.on_demand, "trigger": t, "fallback": r.fallback,
+            "account_id": r.account_id, "interval_min": r.interval_min, "times": r.times, "days": r.days, "on_demand": r.on_demand, "trigger": t, "fallback": r.fallback,
             "memory_enabled": r.memory_enabled, "enabled": r.enabled, "next_run": iso(r.next_run), "last_run": iso(r.last_run),
             "running": running, "last": routine_run(last) if last else None}
+
+
+def reminder(r: Reminder) -> dict:
+    return {"id": r.id, "text": r.text, "kind": r.kind, "agent_id": r.agent_id, "due_at": iso(r.due_at), "status": r.status,
+            "result": r.result, "created_by": r.created_by, "done_at": iso(r.done_at), "created_at": iso(r.created_at)}
 
 
 def routine_run(r: RoutineRun) -> dict:

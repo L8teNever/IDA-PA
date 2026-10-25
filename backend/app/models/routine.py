@@ -8,7 +8,8 @@ from ._types import Json, new_id
 
 
 class Routine(Timestamps, Base):
-    """A task that runs every interval_min minutes, at fixed times (times + days), once (run_at) or when a trigger fires."""
+    """A task that REPEATS: every interval_min minutes, at fixed times (times + days), when a trigger fires or on demand.
+    Things that happen only once are reminders (models/reminder.py)."""
 
     __tablename__ = "routines"
 
@@ -23,8 +24,6 @@ class Routine(Timestamps, Base):
     # fixed times of day ["07:00", "18:30"] on weekdays [0=Mon … 6=Sun]; None = interval or trigger
     times: Mapped[list | None] = mapped_column(Json, default=None)
     days: Mapped[list | None] = mapped_column(Json, default=None)
-    # one-time routine: runs once at this moment and is deleted after a successful run
-    run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
     # no schedule at all: only started on demand (agents via MCP routine_run_now, "Jetzt ausführen")
     on_demand: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
     # {"type":"mcp","connector","tool","args","every_sec","mode":"new|change|contains","contains",

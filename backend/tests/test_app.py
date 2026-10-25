@@ -325,33 +325,43 @@ def test_on_demand_routine_runs_only_when_called(client):
     assert client.post(f"{API}/routines", json={"name": "X", "prompt": "p", "on_demand": True, "times": ["07:00"]}).status_code == 400
 
 
-def test_one_time_routine_deletes_itself(client):
+def test_reminders_are_one_time_and_not_routines(client):
+    """„Erinnere mich morgen um 9“ is a reminder (once), not a routine (repeats)."""
+    import json
     from datetime import datetime, timedelta
     from zoneinfo import ZoneInfo
     when = (datetime.now(ZoneInfo("Europe/Berlin")) + timedelta(days=1)).replace(hour=9, minute=0, second=0, microsecond=0)
-    r = client.post(f"{API}/routines", json={"name": "Morgen", "prompt": "Erinner mich", "run_at": when.strftime("%Y-%m-%dT%H:%M")}).json()
-    assert r["run_at"] and r["next_run"] == r["run_at"]
-    assert datetime.fromisoformat(r["next_run"]).astimezone(ZoneInfo("Europe/Berlin")).hour == 9
-    assert client.post(f"{API}/routines", json={"name": "Alt", "prompt": "p", "run_at": "2020-01-01T09:00"}).status_code == 400
-    # after a successful run it is gone
-    client.post(f"{API}/routines/{r['id']}/run")
-    wait(lambda: client.get(f"{API}/routines/{r['id']}").status_code == 404)
-    # a failed one stays, paused, with its run in the history
-    client.patch(f"{API}/agents/lea", json={"enabled": False})
-    f = client.post(f"{API}/routines", json={"name": "Fail", "prompt": "p", "agent_id": "lea", "run_at": when.strftime("%Y-%m-%dT%H:%M")}).json()
-    client.post(f"{API}/routines/{f['id']}/run")
-    runs = wait(lambda: client.get(f"{API}/routines/{f['id']}").json()["runs"])
-    after = client.get(f"{API}/routines/{f['id']}").json()
-    assert not runs[0]["ok"] and after["enabled"] is False and after["next_run"] is None
-    client.patch(f"{API}/agents/lea", json={"enabled": True})
-    # Ida can set one up from the chat ("mach das morgen um 9")
-    import json
-    ev = chat(client, text="TOOL routine_create " + json.dumps({"name": "Morgen 9", "prompt": "Erinnern", "run_at": when.strftime("%Y-%m-%dT%H:%M")}))
+    w = when.strftime("%Y-%m-%dT%H:%M")
+    # routines refuse one-time things and point to reminders
+    bad = client.post(f"{API}/routines", json={"name": "Morgen", "prompt": "Erinner mich", "run_at": w})
+    assert bad.status_code == 400 and "Erinnerung" in bad.json()["detail"]
+    # plain reminder: no AI, just a notification
+    r = client.post(f"{API}/reminders", json={"text": "Müll rausbringen", "when": w}).json()
+    assert r["kind"] == "remind" and r["status"] == "pending"
+    assert datetime.fromisoformat(r["due_at"]).astimezone(ZoneInfo("Europe/Berlin")).hour == 9
+    assert client.post(f"{API}/reminders", json={"text": "x", "when": "2020-01-01T09:00"}).status_code == 400
+    before = len(client.get(f"{API}/messages").json())
+    client.post(f"{API}/reminders/{r['id']}/fire")
+    done = wait(lambda: next(x for x in client.get(f"{API}/reminders").json() if x["id"] == r["id"])["status"] == "done")
+    assert done
+    msgs = client.get(f"{API}/messages").json()
+    assert len(msgs) == before + 1 and any("Müll rausbringen" in m["text"] for m in msgs)
+    # task: the agent does it at that time, the result arrives as a notification
+    t = client.post(f"{API}/reminders", json={"text": "Fasse den Tag zusammen", "when": w, "kind": "task", "agent_id": "lea"}).json()
+    client.post(f"{API}/reminders/{t['id']}/fire")
+    wait(lambda: next(x for x in client.get(f"{API}/reminders").json() if x["id"] == t["id"])["status"] == "done")
+    t = next(x for x in client.get(f"{API}/reminders").json() if x["id"] == t["id"])
+    assert "Fasse den Tag zusammen" in t["result"]
+    # Ida sets one up from the chat; the prompt tells her the difference
+    ev = chat(client, text="TOOL reminder_create " + json.dumps({"text": "Zahnarzt anrufen", "when": w}))
     out = "".join(e.get("text", "") for e in ev)
-    assert "einmalig am" in out and "automatisch gelöscht" in out
-    # agents get the current time so "tomorrow" works
+    assert '"ok": true' in out and "nur Erinnerung" in out
+    assert any(x["text"] == "Zahnarzt anrufen" for x in client.get(f"{API}/reminders").json())
     from app.services.claude.prompts import now_line
     assert now_line().startswith("Jetzt ist ")
+    for x in client.get(f"{API}/reminders").json():
+        client.delete(f"{API}/reminders/{x['id']}")
+    assert client.get(f"{API}/reminders").json() == []
 
 
 def test_antigravity_sign_in_models_chat_and_limits(client):

@@ -18,6 +18,7 @@ from ...models import USER, Agent, Chat, ChatMessage, Routine, RoutineRun, Skill
 from .. import agents as agent_svc
 from .. import antigravity
 from ..claude import models as claude_models
+from .. import reminders as reminder_svc
 from .. import routines as routine_svc
 from .. import skills as skill_svc
 from ..claude import prompts
@@ -40,9 +41,13 @@ def _spec(ids: list[str]) -> list[tuple[str, str, str, dict]]:
                       "times": {"type": "array", "items": E, "description": f"Feste Uhrzeiten HH:MM ({get_settings().timezone}), z. B. [\"07:00\"] – statt interval_min"},
                       "days": {"type": "array", "items": {"type": "integer", "minimum": 0, "maximum": 6}, "description": "Wochentage zu times: 0=Mo … 6=So, leer = täglich"},
                       "on_demand": {"type": "boolean", "description": "true = ohne Zeitplan: läuft nur, wenn sie per routine_run_now (oder vom Nutzer) gestartet wird – z. B. als fester Ablauf, den du bei Bedarf auslöst"},
-                      "run_at": {**E, "description": f"EINMALIG zu diesem Zeitpunkt (JJJJ-MM-TTTHH:MM, {get_settings().timezone}), z. B. für „mach das morgen um 9“ – läuft genau einmal und wird nach erfolgreichem Lauf automatisch gelöscht. Statt interval_min/times."},
                       "model": model,
                       "memory_enabled": {"type": "boolean"}, "fallback": {"type": "boolean"}}
+    when = {**E, "description": f"Zeitpunkt JJJJ-MM-TTTHH:MM in Ortszeit ({s.timezone}), z. B. 2026-10-26T09:00 – rechne „morgen“, „Freitag“ usw. mit der aktuellen Uhrzeit um"}
+    reminder_fields = {"text": {**E, "description": "Worum es geht – bei kind=remind steht genau das in der Benachrichtigung, bei task ist es die Aufgabe (muss allein verständlich sein)"},
+                       "when": when,
+                       "kind": {"type": "string", "enum": ["remind", "task"], "description": "remind = nur erinnern (Benachrichtigung, keine KI); task = der Agent erledigt es zu dem Zeitpunkt"},
+                       "agent_id": {**agent_enum, "description": "wer es erledigt (nur bei task wichtig)"}}
     mem_scope = {"type": "string", "description": "own = dein eigenes, shared = gemeinsames Gedächtnis; der Haupt-Agent zusätzlich eine Agent-ID (fremdes Gedächtnis!)"}
     mem_type = {"type": "string", "enum": ["fact", "preference", "rule", "event"]}
     mem_exp = {"type": "integer", "minimum": 0, "maximum": 3650, "description": "nur so viele Tage gültig (0 = immer)"}
@@ -55,8 +60,12 @@ def _spec(ids: list[str]) -> list[tuple[str, str, str, dict]]:
         (ALL, "inbox_read", "Liest deine ungelesenen Nachrichten und markiert sie als gelesen.", obj({})),
         (ALL, "notes_get", "Liest deine Notizen (Arbeitszettel zwischen Läufen).", obj({})),
         (ALL, "notes_set", "Ersetzt deine Notizen (max. 4000 Zeichen).", obj({"text": E}, ("text",))),
+        (ALL, "reminder_create", "Für alles, was EINMAL passieren soll: „erinnere mich morgen um 9 an …“ (kind=remind) oder „mach das am Freitag um 8“ (kind=task). Feuert genau einmal, keine Routine.", obj(reminder_fields, ("text", "when"))),
+        (ALL, "reminder_list", "Listet offene und kürzlich erledigte Erinnerungen.", obj({})),
+        (ALL, "reminder_update", "Ändert eine Erinnerung (Text, Zeitpunkt, Art).", obj({"id": E, **reminder_fields}, ("id",))),
+        (ALL, "reminder_delete", "Löscht eine Erinnerung.", obj({"id": E}, ("id",))),
         (ALL, "routine_list", "Listet alle Routinen mit Besitzer, Zeitplan/Auslöser und letztem Ergebnis.", obj({})),
-        (ALL, "routine_create", "Legt eine Routine an (Sub-Agenten nur für sich selbst).", obj({**routine_fields, "agent_id": agent_enum}, ("name", "prompt"))),
+        (ALL, "routine_create", "Legt eine Routine an – nur für Dinge, die sich WIEDERHOLEN (Intervall, feste Uhrzeiten, Auslöser oder auf Abruf). Einmaliges -> reminder_create. Sub-Agenten nur für sich selbst.", obj({**routine_fields, "agent_id": agent_enum}, ("name", "prompt"))),
         (ALL, "routine_update", "Ändert eine Routine (Sub-Agenten nur eigene; Zuteilen nur der Haupt-Agent).", obj({"id": E, **routine_fields, "enabled": {"type": "boolean"}, "agent_id": agent_enum}, ("id",))),
         (MAIN, "routine_delete", "Löscht eine Routine.", obj({"id": E}, ("id",))),
         (ALL, "routine_run_now", "Führt eine Routine sofort aus (Sub-Agenten nur eigene). So startest du auch Routinen „nur auf Abruf“. Optional info: zusätzlicher Hinweis für diesen Lauf.", obj({"id": E, "info": E}, ("id",))),
@@ -201,8 +210,7 @@ async def _call(db: AsyncSession, me: Identity, name: str, a: dict) -> dict:
         else:
             fields.setdefault("agent_id", me.agent_id)
         r = await routine_svc.create(db, fields)
-        return {"ok": True, "id": r.id, "zeitplan": routine_svc.when_text(r),
-                **({"hinweis": "Einmalig: läuft genau einmal und wird nach erfolgreichem Lauf automatisch gelöscht."} if r.run_at else {})}
+        return {"ok": True, "id": r.id, "zeitplan": routine_svc.when_text(r)}
     if name == "routine_update":
         r = await own_routine(str(a.get("id")))
         fields = {k: v for k, v in a.items() if k not in ("id", "trigger")}
@@ -218,6 +226,26 @@ async def _call(db: AsyncSession, me: Identity, name: str, a: dict) -> dict:
         info = str(a.get("info") or "").strip()
         routine_svc.enqueue(r.id, "manual", f"Gestartet von {me.agent_id}." + (f" Hinweis dazu: {info}" if info else ""))
         return {"ok": True, "hinweis": "In die Warteschlange gestellt."}
+    if name == "reminder_create":
+        f = {k: a.get(k) for k in ("text", "when", "kind", "agent_id") if a.get(k) is not None}
+        if not me.is_main:
+            f["agent_id"] = me.agent_id
+        f.setdefault("agent_id", me.agent_id)
+        r = await reminder_svc.create(db, f, created_by=me.agent_id)
+        return {"ok": True, "id": r.id, "wann": reminder_svc.when_text(r),
+                "art": "nur Erinnerung (Benachrichtigung)" if r.kind == "remind" else "Aufgabe – wird dann ausgeführt"}
+    if name == "reminder_list":
+        return {"erinnerungen": [{"id": r.id, "text": r.text[:300], "art": r.kind, "wann": reminder_svc.when_text(r), "status": r.status,
+                                  "agent": r.agent_id, "ergebnis": r.result[:200] or None} for r in await reminder_svc.listing(db)][:50]}
+    if name == "reminder_update":
+        f = {k: a.get(k) for k in ("text", "when", "kind", "agent_id") if a.get(k) is not None}
+        if not me.is_main:
+            f.pop("agent_id", None)
+        r = await reminder_svc.update(db, str(a.get("id")), f)
+        return {"ok": True, "wann": reminder_svc.when_text(r)}
+    if name == "reminder_delete":
+        await reminder_svc.remove(db, str(a.get("id")))
+        return {"ok": True}
     if name == "chat_search":
         return await _chat_search(db, str(a.get("query") or ""), a.get("agent_id"), int(a.get("limit") or 10), labels)
     if name == "chat_read":

@@ -6,7 +6,7 @@ from sqlalchemy import func, select
 
 from ..config import get_settings
 from ..db import utcnow
-from ..models import USER, Account, Agent, Message, Routine, RoutineRun, Skill
+from ..models import USER, Account, Agent, Message, Reminder, Routine, RoutineRun, Skill
 from ..services import activity, jobs, providers, speech
 from ..services.agents import PALETTES
 from ..services.claude.usage import logged_in
@@ -68,5 +68,8 @@ async def home(db: DB):
         nxt = r.next_run.replace(tzinfo=now.tzinfo) if r.next_run and r.next_run.tzinfo is None else r.next_run
         if r.enabled and nxt and nxt < end:
             timeline.append({"kind": "next", "at": ser.iso(nxt), "title": r.name, "icon": r.icon, "agent_id": r.agent_id, "routine_id": r.id})
+    for r in (await db.scalars(select(Reminder).where(Reminder.due_at >= start, Reminder.due_at < end))).all():
+        timeline.append({"kind": "reminder", "at": ser.iso(r.due_at), "title": ("⏰ " if r.kind == "remind" else "") + r.text[:80],
+                         "agent_id": r.agent_id, "status": r.status, "task": r.kind == "task"})
     timeline.sort(key=lambda x: x["at"])
     return {"notices": [ser.message(m) for m in notices], "timeline": timeline}

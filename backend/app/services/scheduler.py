@@ -1,10 +1,10 @@
-"""Background loop: due routines, trigger checks and memory upkeep."""
+"""Background loop: due routines and reminders, trigger checks and memory upkeep."""
 import asyncio
 import logging
 import time
 
 from ..db import session_scope
-from . import routines
+from . import reminders, routines
 from . import antigravity
 from .claude import terminal
 from .memory import embeddings
@@ -20,6 +20,7 @@ async def _loop() -> None:
     while True:
         try:
             await routines.schedule_tick()
+            await reminders.schedule_tick()
             await terminal.reap()
             antigravity.reap()
             if time.monotonic() - last_upkeep > 300:

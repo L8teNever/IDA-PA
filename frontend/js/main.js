@@ -16,6 +16,7 @@ import { inboxPage } from "./pages/inbox.js";
 import { routineDetail, routineForm, routinesPage } from "./pages/routines.js";
 import { settingsPage } from "./pages/settings/index.js";
 import { usagePage } from "./pages/usage.js";
+import { remindersPage } from "./pages/reminders.js";
 
 router.add("/", homePage);
 router.add("/a/:id", agentPage);
@@ -23,6 +24,7 @@ router.add("/chat/:id", ({ id }) => openChat(id).catch(() => { toast("Chat nicht
 router.add("/chats", chatsPage);
 router.add("/nachrichten", inboxPage);
 router.add("/routinen", routinesPage);
+router.add("/erinnerungen", remindersPage);
 router.add("/routinen/neu", () => routineForm());
 router.add("/routinen/:id/bearbeiten", routineForm);
 router.add("/routinen/:id", routineDetail);

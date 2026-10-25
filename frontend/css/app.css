@@ -340,3 +340,10 @@ body.mic-on .mic-info { color: #ff8f8f; }
 .agy-paste { display: flex; gap: 6px; flex-wrap: wrap; }
 .agy-paste .mini-in { flex: 1 1 260px; font-family: ui-monospace, Consolas, monospace; font-size: 13px; }
 .chip-static { display: inline-flex; align-items: center; height: 32px; padding: 0 12px; border-radius: 12px; background: var(--surface-highest); font-size: 13px; }
+
+/* reminders */
+.rem .rem-act { display: flex; gap: 2px; flex: none; }
+.rem .rem-act .icon-btn { width: 40px; height: 40px; }
+.rem-form { margin: 12px 0 16px; }
+.rf-once-hint { display: flex; gap: 8px; align-items: center; margin: 2px 4px 10px; font-size: 13px; }
+.rf-once-hint .ms { font-size: 18px; color: var(--accent); }

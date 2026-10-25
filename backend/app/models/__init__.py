@@ -6,10 +6,11 @@ from .connector import Connector
 from .memory import MemoryBackup, MemoryEntry
 from .setting import Setting
 from .message import USER, Message
+from .reminder import Reminder
 from .routine import Routine, RoutineRun
 from .skill import AgentSkill, Skill
 
 __all__ = [
     "Account", "Agent", "AgentConnector", "AgentRun", "Chat", "ChatMessage", "Connector",
-    "MemoryBackup", "MemoryEntry", "Setting", "USER", "Message", "Routine", "RoutineRun", "AgentSkill", "Skill",
+    "MemoryBackup", "MemoryEntry", "Setting", "USER", "Message", "Reminder", "Routine", "RoutineRun", "AgentSkill", "Skill",
 ]

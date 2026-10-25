@@ -83,7 +83,7 @@ class RoutineCreate(BaseModel):
     interval_min: int | None = None
     times: list[str] | None = None  # fixed times "HH:MM"
     days: list[int] | None = None  # 0 = Monday … 6 = Sunday, empty = every day
-    run_at: str | None = None  # one-time: "2026-10-26T09:00" (local time), deleted after a successful run
+    run_at: str | None = None  # only to answer clearly: one-time things are reminders (see ReminderCreate)
     on_demand: bool | None = None  # no schedule: only started via MCP / "Jetzt ausführen"
     trigger: Trigger | None = None
     fallback: bool | None = None
@@ -100,12 +100,25 @@ class RoutineUpdate(BaseModel):
     interval_min: int | None = None
     times: list[str] | None = None
     days: list[int] | None = None
-    run_at: str | None = None
     on_demand: bool | None = None
     trigger: Trigger | None = None
     fallback: bool | None = None
     memory_enabled: bool | None = None
     enabled: bool | None = None
+
+
+class ReminderCreate(BaseModel):
+    text: str
+    when: str  # "2026-10-26T09:00" (local time)
+    kind: str = "remind"  # remind = only a notification | task = the agent does it
+    agent_id: str | None = None
+
+
+class ReminderUpdate(BaseModel):
+    text: str | None = None
+    when: str | None = None
+    kind: str | None = None
+    agent_id: str | None = None
 
 
 class TriggerTest(BaseModel):

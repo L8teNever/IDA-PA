@@ -96,15 +96,16 @@ function renderTimeline(items) {
   if (nowIdx < 0) nowIdx = items.length;
   const html = (x, i) => {
     const a = agentOf(x.agent_id);
-    const sub = x.kind === "next" ? `geplant · ${a.name}` : `${x.ok ? "erledigt" : "fehlgeschlagen"} · ${a.name}`;
-    return `<button class="ev ${i < nowIdx ? "past" : i === nowIdx ? "now" : ""}" data-href="/routinen/${x.routine_id}">
+    const sub = x.kind === "reminder" ? (x.status === "pending" ? (x.task ? `${a.name} erledigt es` : "Erinnerung") : x.status === "done" ? "erledigt" : "fehlgeschlagen")
+      : x.kind === "next" ? `geplant · ${a.name}` : `${x.ok ? "erledigt" : "fehlgeschlagen"} · ${a.name}`;
+    return `<button class="ev ${i < nowIdx ? "past" : i === nowIdx ? "now" : ""}" data-href="${x.kind === "reminder" ? "/erinnerungen" : "/routinen/" + x.routine_id}">
       <span class="time">${fmtTime(x.at)}</span>
       <span class="evtxt"><b>${esc(x.title)}</b><small>${esc(sub)}</small></span>
       <span class="ms evchev">chevron_right</span></button>`;
   };
   const pastN = Math.min(nowIdx, items.length);
   $("pastSlot").innerHTML = pastN ? `<button class="past-toggle ${pastOpen ? "open" : ""}" id="pastToggle"><span class="ms">history</span>${pastN}<span class="ms pchev">expand_more</span></button>` : "";
-  $("timeline").innerHTML = (items.length ? "" : `<div class="empty-day"><span class="ms">wb_sunny</span>Heute steht nichts an. Leg Routinen an, dann erscheinen sie hier.</div>`)
+  $("timeline").innerHTML = (items.length ? "" : `<div class="empty-day"><span class="ms">wb_sunny</span>Heute steht nichts an. Routinen und Erinnerungen erscheinen hier.</div>`)
     + (pastN ? `<div class="past-wrap ${pastOpen ? "open" : ""}"><div>${items.slice(0, pastN).map(html).join("")}</div></div>` : "")
     + items.slice(pastN).map((x, k) => html(x, k + pastN)).join("");
   $("pastSlot").onclick = (e) => { if (e.target.closest("#pastToggle")) { pastOpen = !pastOpen; renderTimeline(items); } };

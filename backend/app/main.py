@@ -12,7 +12,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import db, seed
-from .api import accounts, agents, chats, connectors, internal_mcp, memory, messages, routines, skills, system
+from .api import accounts, agents, chats, connectors, internal_mcp, memory, messages, reminders, routines, skills, system
 from .config import get_settings
 from .services import jobs, scheduler
 from .services.errors import Invalid, NotFound
@@ -80,7 +80,7 @@ def create_app() -> FastAPI:
     async def not_found(_: Request, e: NotFound):
         return JSONResponse({"detail": str(e)}, status_code=404)
 
-    for r in (system, agents, chats, messages, routines, connectors, skills, memory, accounts, internal_mcp):
+    for r in (system, agents, chats, messages, routines, reminders, connectors, skills, memory, accounts, internal_mcp):
         app.include_router(r.router)
 
     front = s.frontend_dir
