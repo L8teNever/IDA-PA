@@ -89,6 +89,7 @@ class RoutineCreate(BaseModel):
     trigger: Trigger | None = None
     fallback: bool | None = None
     memory_enabled: bool | None = None
+    show_on_home: bool | None = None
 
 
 class RoutineUpdate(BaseModel):
@@ -106,6 +107,7 @@ class RoutineUpdate(BaseModel):
     fallback: bool | None = None
     memory_enabled: bool | None = None
     enabled: bool | None = None
+    show_on_home: bool | None = None
 
 
 class ReminderCreate(BaseModel):
@@ -113,6 +115,7 @@ class ReminderCreate(BaseModel):
     when: str  # "2026-10-26T09:00" (local time)
     kind: str = "remind"  # remind = only a notification | task = the agent does it
     agent_id: str | None = None
+    show_on_home: bool = True
 
 
 class ReminderUpdate(BaseModel):
@@ -120,6 +123,14 @@ class ReminderUpdate(BaseModel):
     when: str | None = None
     kind: str | None = None
     agent_id: str | None = None
+    show_on_home: bool | None = None
+
+
+class HomeCalendar(BaseModel):
+    off: bool = False  # no calendar on the start page
+    connector: str | None = None  # empty = pick automatically
+    tool: str | None = None
+    args: dict[str, Any] | None = None  # None = fill the date arguments from the tool's schema
 
 
 class TriggerTest(BaseModel):

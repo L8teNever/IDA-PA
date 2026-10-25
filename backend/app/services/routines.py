@@ -97,6 +97,8 @@ async def _clean(db: AsyncSession, f: dict, partial: bool, allow_trigger: bool) 
         v["account_id"] = f["account_id"] or None
     if f.get("icon"):
         v["icon"] = str(f["icon"])[:40]
+    if f.get("show_on_home") is not None:
+        v["show_on_home"] = bool(f["show_on_home"])
     for b in ("fallback", "memory_enabled"):
         if b in f:
             v[b] = None if f[b] is None else bool(f[b])

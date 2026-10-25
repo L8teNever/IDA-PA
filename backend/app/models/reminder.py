@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, String, Text
+from sqlalchemy import Boolean, DateTime, ForeignKey, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ..db import Base, Timestamps
@@ -25,4 +25,5 @@ class Reminder(Timestamps, Base):
     status: Mapped[str] = mapped_column(String(8), default="pending")  # pending | running | done | failed
     result: Mapped[str] = mapped_column(Text, default="")
     created_by: Mapped[str] = mapped_column(String(32), default="user")  # "user" or the agent that set it up
+    show_on_home: Mapped[bool] = mapped_column(Boolean, default=True, server_default="1")  # in the start page's day plan
     done_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)

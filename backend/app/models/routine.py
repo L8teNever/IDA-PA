@@ -32,6 +32,7 @@ class Routine(Timestamps, Base):
     fallback: Mapped[bool | None] = mapped_column(Boolean, default=None)  # None = like the agent
     memory_enabled: Mapped[bool | None] = mapped_column(Boolean, default=None)  # None = like the agent
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    show_on_home: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")  # in the start page's day plan
     next_run: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
     last_run: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
 

@@ -36,18 +36,20 @@ def _spec(ids: list[str]) -> list[tuple[str, str, str, dict]]:
     model = {"type": "string", "enum": claude_models.ids() + antigravity.cached_models(),
              "description": "Claude-Modelle laufen auf Claude-Accounts, agy:… auf Antigravity-Accounts"}
     agent_enum = {"type": "string", "enum": ids, "description": "Besitzer-Agent der Routine"}
+    on_home = {"type": "boolean", "description": "Im Tagesplan auf der Startseite zeigen? Nur, was der Nutzer dort sehen will (Termine/Aufgaben für ihn) – "
+               "Hintergrund-Checks nicht. Standard: Routinen nein, Erinnerungen ja"}
     routine_fields = {"name": E, "prompt": {**E, "description": "Vollständige Aufgabe, die bei jedem Lauf ausgeführt wird (muss allein verständlich sein)"},
                       "interval_min": {"type": "integer", "minimum": 1, "description": "Intervall in Minuten (statt times)"},
                       "times": {"type": "array", "items": E, "description": f"Feste Uhrzeiten HH:MM ({get_settings().timezone}), z. B. [\"07:00\"] – statt interval_min"},
                       "days": {"type": "array", "items": {"type": "integer", "minimum": 0, "maximum": 6}, "description": "Wochentage zu times: 0=Mo … 6=So, leer = täglich"},
                       "on_demand": {"type": "boolean", "description": "true = ohne Zeitplan: läuft nur, wenn sie per routine_run_now (oder vom Nutzer) gestartet wird – z. B. als fester Ablauf, den du bei Bedarf auslöst"},
                       "model": model,
-                      "memory_enabled": {"type": "boolean"}, "fallback": {"type": "boolean"}}
+                      "memory_enabled": {"type": "boolean"}, "fallback": {"type": "boolean"}, "show_on_home": on_home}
     when = {**E, "description": f"Zeitpunkt JJJJ-MM-TTTHH:MM in Ortszeit ({s.timezone}), z. B. 2026-10-26T09:00 – rechne „morgen“, „Freitag“ usw. mit der aktuellen Uhrzeit um"}
     reminder_fields = {"text": {**E, "description": "Worum es geht – bei kind=remind steht genau das in der Benachrichtigung, bei task ist es die Aufgabe (muss allein verständlich sein)"},
                        "when": when,
                        "kind": {"type": "string", "enum": ["remind", "task"], "description": "remind = nur erinnern (Benachrichtigung, keine KI); task = der Agent erledigt es zu dem Zeitpunkt"},
-                       "agent_id": {**agent_enum, "description": "wer es erledigt (nur bei task wichtig)"}}
+                       "agent_id": {**agent_enum, "description": "wer es erledigt (nur bei task wichtig)"}, "show_on_home": on_home}
     mem_scope = {"type": "string", "description": "own = dein eigenes, shared = gemeinsames Gedächtnis; der Haupt-Agent zusätzlich eine Agent-ID (fremdes Gedächtnis!)"}
     mem_type = {"type": "string", "enum": ["fact", "preference", "rule", "event"]}
     mem_exp = {"type": "integer", "minimum": 0, "maximum": 3650, "description": "nur so viele Tage gültig (0 = immer)"}
@@ -102,7 +104,7 @@ async def _ids(db: AsyncSession) -> list[str]:
 
 def _routine_view(r: Routine, last: RoutineRun | None) -> dict:
     t = r.trigger
-    return {"id": r.id, "name": r.name, "besitzer": r.agent_id, "aufgabe": r.prompt[:300], "enabled": r.enabled,
+    return {"id": r.id, "name": r.name, "besitzer": r.agent_id, "aufgabe": r.prompt[:300], "enabled": r.enabled, "show_on_home": r.show_on_home,
             "zeitplan": routine_svc.when_text(r), "naechsterLauf": r.next_run.isoformat() if r.next_run else None,
             "model": r.model, "letzterLauf": r.last_run.isoformat() if r.last_run else None,
             "letztesErgebnis": (last.text[:300] if last else None)}
@@ -227,7 +229,7 @@ async def _call(db: AsyncSession, me: Identity, name: str, a: dict) -> dict:
         routine_svc.enqueue(r.id, "manual", f"Gestartet von {me.agent_id}." + (f" Hinweis dazu: {info}" if info else ""))
         return {"ok": True, "hinweis": "In die Warteschlange gestellt."}
     if name == "reminder_create":
-        f = {k: a.get(k) for k in ("text", "when", "kind", "agent_id") if a.get(k) is not None}
+        f = {k: a.get(k) for k in ("text", "when", "kind", "agent_id", "show_on_home") if a.get(k) is not None}
         if not me.is_main:
             f["agent_id"] = me.agent_id
         f.setdefault("agent_id", me.agent_id)
@@ -236,9 +238,9 @@ async def _call(db: AsyncSession, me: Identity, name: str, a: dict) -> dict:
                 "art": "nur Erinnerung (Benachrichtigung)" if r.kind == "remind" else "Aufgabe – wird dann ausgeführt"}
     if name == "reminder_list":
         return {"erinnerungen": [{"id": r.id, "text": r.text[:300], "art": r.kind, "wann": reminder_svc.when_text(r), "status": r.status,
-                                  "agent": r.agent_id, "ergebnis": r.result[:200] or None} for r in await reminder_svc.listing(db)][:50]}
+                                  "agent": r.agent_id, "show_on_home": r.show_on_home, "ergebnis": r.result[:200] or None} for r in await reminder_svc.listing(db)][:50]}
     if name == "reminder_update":
-        f = {k: a.get(k) for k in ("text", "when", "kind", "agent_id") if a.get(k) is not None}
+        f = {k: a.get(k) for k in ("text", "when", "kind", "agent_id", "show_on_home") if a.get(k) is not None}
         if not me.is_main:
             f.pop("agent_id", None)
         r = await reminder_svc.update(db, str(a.get("id")), f)

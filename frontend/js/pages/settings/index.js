@@ -5,6 +5,7 @@ import { $, esc } from "../../ui/dom.js";
 import { setAgent, setView } from "../../ui/shell.js";
 import * as accounts from "./accounts.js";
 import * as agentsSec from "./agents.js";
+import * as homeSec from "./home.js";
 import * as mcp from "./mcp.js";
 import * as memory from "./memory.js";
 import * as skills from "./skills.js";
@@ -18,6 +19,7 @@ const SECTIONS = [
     ["gedaechtnis", "psychology", "Gedächtnis", () => "Was die Agents sich merken", "lila", memory],
   ]],
   ["App", [
+    ["startseite", "today", "Startseite", () => "Kalender im Tagesplan", "pink", homeSec],
     ["accounts", "person", "Accounts", () => `${state.boot.accounts.length} verbunden · Claude & Antigravity`, "orange", accounts],
   ]],
 ];

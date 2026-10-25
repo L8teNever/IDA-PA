@@ -51,6 +51,8 @@ async def _clean(db: AsyncSession, f: dict, partial: bool) -> dict:
         if when < utcnow() - timedelta(minutes=5):
             raise Invalid("Der Zeitpunkt liegt in der Vergangenheit")
         v["due_at"] = when
+    if f.get("show_on_home") is not None:
+        v["show_on_home"] = bool(f["show_on_home"])
     if "agent_id" in f or not partial:
         aid = f.get("agent_id")
         agent = await db.get(Agent, aid) if aid else await db.scalar(select(Agent).where(Agent.is_main.is_(True)))

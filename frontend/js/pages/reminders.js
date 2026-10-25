@@ -2,7 +2,7 @@
 // Routines repeat; reminders fire once: "remind" only sends a notification (no AI), "task" lets the agent do it.
 import { api } from "../api.js";
 import { agentOf, agents, colors, mainAgent } from "../store.js";
-import { $, attempt, autogrow, esc, fmtDateTime, toast } from "../ui/dom.js";
+import { $, attempt, autogrow, esc, fmtDateTime, sw, toast } from "../ui/dom.js";
 import { openTimePicker } from "../ui/timepicker.js";
 import { setAgent, setView } from "../ui/shell.js";
 
@@ -30,7 +30,7 @@ export async function remindersPage() {
       <span class="ric" style="background:${c["--container"]};color:${c["--accent"]}"><span class="ms">${r.kind === "task" ? "task_alt" : "alarm"}</span></span>
       <div class="rmain"><b>${esc(r.text)}</b>
         <div class="rmeta"><span>${esc(whenLabel(r.due_at))}</span><span>${r.kind === "task" ? `${esc(a.name)} erledigt es` : "nur Erinnerung"}</span>
-        ${open.includes(r) ? "" : `<span>${STATUS[r.status] || r.status}</span>`}${r.created_by !== "user" ? `<span>von ${esc(agentOf(r.created_by).name)}</span>` : ""}</div>
+        ${open.includes(r) ? "" : `<span>${STATUS[r.status] || r.status}</span>`}${r.show_on_home ? "" : `<span>nicht im Tagesplan</span>`}${r.created_by !== "user" ? `<span>von ${esc(agentOf(r.created_by).name)}</span>` : ""}</div>
         ${r.result && r.kind === "task" && !open.includes(r) ? `<div class="rdesc">${esc(r.result.slice(0, 200))}</div>` : ""}</div>
       <div class="rem-act">
         ${open.includes(r) ? `<button class="icon-btn" data-act="edit" aria-label="Bearbeiten"><span class="ms">edit</span></button>
@@ -58,7 +58,8 @@ export async function remindersPage() {
 
 function form(r) {
   const start = r ? new Date(r.due_at) : (() => { const d = new Date(); d.setDate(d.getDate() + 1); d.setHours(9, 0, 0, 0); return d; })();
-  const f = { text: r?.text || "", kind: r?.kind || "remind", agent_id: r?.agent_id || mainAgent().id, day: isoDay(start), time: `${pad(start.getHours())}:${pad(start.getMinutes())}` };
+  const f = { text: r?.text || "", kind: r?.kind || "remind", agent_id: r?.agent_id || mainAgent().id, day: isoDay(start), time: `${pad(start.getHours())}:${pad(start.getMinutes())}`,
+    show_on_home: r ? r.show_on_home : true };
   const box = $("remForm");
   $("remNew").hidden = true;
   const keep = () => { f.text = $("rText").value; };
@@ -76,6 +77,7 @@ function form(r) {
       <div class="rf-sum"><span class="ms">info</span><span>${f.kind === "task"
         ? `<b>${esc(agentOf(f.agent_id).name)}</b> erledigt das <b>${esc(dayLabel(f.day))} um ${f.time} Uhr</b> – das Ergebnis kommt als Benachrichtigung.`
         : `Du bekommst <b>${esc(dayLabel(f.day))} um ${f.time} Uhr</b> eine Benachrichtigung – ohne KI, kostet kein Limit.`}</span></div>
+      <div class="slist toggles rf-toggle"><div class="srow"><span class="smain"><b>Im Tagesplan auf der Startseite</b><small>An dem Tag steht sie dort mit Uhrzeit</small></span>${sw(f.show_on_home, 'id="rHome" aria-label="Im Tagesplan zeigen"')}</div></div>
       <div class="err" id="rErr"></div>
       <div class="btn-row"><button class="es-btn" id="rCancel">Abbrechen</button><button class="es-btn primary" id="rSave"><span class="ms">check</span>${r ? "Speichern" : "Anlegen"}</button></div>
     </section>`;
@@ -86,11 +88,12 @@ function form(r) {
     $("rDate").parentElement.onclick = (e) => { e.preventDefault(); try { $("rDate").showPicker(); } catch { $("rDate").focus(); } };
     $("rDate").onchange = () => { if ($("rDate").value) { keep(); f.day = $("rDate").value; draw(); } };
     $("rTime").onclick = () => openTimePicker($("rTime"), { value: f.time, action: "übernehmen", icon: "check", onPick: (v) => { keep(); f.time = v; draw(); } });
+    $("rHome").onclick = () => { f.show_on_home = !f.show_on_home; $("rHome").classList.toggle("on", f.show_on_home); };
     $("rCancel").onclick = () => { box.innerHTML = ""; $("remNew").hidden = false; };
     $("rSave").onclick = async () => {
       keep();
       if (!f.text.trim()) { $("rErr").textContent = "Bitte eintragen, woran erinnert werden soll."; return; }
-      const body = { text: f.text, kind: f.kind, when: `${f.day}T${f.time}`, agent_id: f.agent_id };
+      const body = { text: f.text, kind: f.kind, when: `${f.day}T${f.time}`, agent_id: f.agent_id, show_on_home: f.show_on_home };
       try {
         await (r ? api.patch(`/reminders/${r.id}`, body) : api.post("/reminders", body));
         toast(r ? "Gespeichert" : "Erinnerung angelegt");

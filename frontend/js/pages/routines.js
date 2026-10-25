@@ -69,6 +69,7 @@ export async function routineDetail({ id }) {
       <div class="kv"><span>Account</span><b>${esc(r.account_id ? (state.boot.accounts.find((x) => x.id === r.account_id)?.name || r.account_id) : "wie der Agent")}</b></div>
       <div class="kv"><span>Limit-Fallback</span><b>${r.fallback === null ? "wie der Agent" : r.fallback ? "an" : "aus"}</b></div>
       <div class="kv"><span>Gedächtnis</span><b>${r.memory_enabled === null ? "wie der Agent" : r.memory_enabled ? "an" : "aus"}</b></div>
+      <div class="kv"><span>Startseite</span><b>${r.show_on_home ? "im Tagesplan" : "nicht im Tagesplan"}</b></div>
       ${t ? `<div class="kv"><span>Letzte Prüfung</span><b>${t.last_check ? fmtDateTime(t.last_check) : "noch nicht"}${t.last_error ? ` · ⚠ ${esc(t.last_error)}` : t.last_note ? ` · ${esc(t.last_note)}` : ""}</b></div>
              ${t.last_fired ? `<div class="kv"><span>Zuletzt ausgelöst</span><b>${fmtDateTime(t.last_fired)}</b></div>` : ""}`
            : `<div class="kv"><span>Nächster Lauf</span><b>${!r.enabled ? "pausiert" : r.on_demand ? "wenn aufgerufen" : r.next_run ? fmtDateTime(r.next_run) : "–"}</b></div>`}
@@ -102,7 +103,7 @@ export async function routineForm({ id } = {}) {
   setAgent(mainAgent());
   setView("page");
   const [r, connectors] = await Promise.all([id ? api.get(`/routines/${id}`) : null, api.get("/connectors")]);
-  const f = r ? { ...r } : { name: "", icon: "schedule", prompt: "", agent_id: mainAgent().id, model: null, account_id: null, interval_min: 60, trigger: null, fallback: null, memory_enabled: null, times: null, days: null };
+  const f = r ? { ...r } : { name: "", icon: "schedule", prompt: "", agent_id: mainAgent().id, model: null, account_id: null, interval_min: 60, trigger: null, fallback: null, memory_enabled: null, times: null, days: null, show_on_home: false };
   let mode = f.on_demand ? "demand" : f.trigger ? "mcp" : f.times?.length ? "times" : "interval";
   let times = f.times?.length ? [...f.times] : ["07:00"];
   let days = f.days?.length ? [...f.days] : [0, 1, 2, 3, 4, 5, 6];
@@ -123,6 +124,7 @@ export async function routineForm({ id } = {}) {
         <div class="chipset icons" id="fIcons">${ICONS.map((ic) => `<button type="button" data-ic="${ic}" class="${f.icon === ic ? "on" : ""}"><span class="ms">${ic}</span></button>`).join("")}</div>
         <div class="flabel">Welcher Agent führt sie aus?</div>
         <div class="chipset" id="fAgents">${agents().map((a) => `<button type="button" data-a="${a.id}" class="${f.agent_id === a.id ? "on" : ""}">${esc(a.name)}</button>`).join("")}</div>
+        <div class="slist toggles rf-toggle"><div class="srow"><span class="smain"><b>Im Tagesplan auf der Startseite</b><small>Zeigt die heutigen Läufe dieser Routine im Tagesplan</small></span>${sw(f.show_on_home, 'id="fHome" aria-label="Im Tagesplan zeigen"')}</div></div>
       </section>
       <section class="rf-sec">
         <h2 class="rf-h"><span class="ms">task_alt</span>Aufgabe</h2>
@@ -216,6 +218,7 @@ export async function routineForm({ id } = {}) {
     }
     $("fIcons").onclick = (e) => { const b = e.target.closest("[data-ic]"); if (!b) return; keep(); f.icon = b.dataset.ic; draw(); };
     $("fAgents").onclick = (e) => { const b = e.target.closest("[data-a]"); if (!b) return; keep(); f.agent_id = b.dataset.a; draw(); };
+    $("fHome").onclick = () => { f.show_on_home = !f.show_on_home; $("fHome").classList.toggle("on", f.show_on_home); };
     $("fMode").onclick = (e) => { const b = e.target.closest("[data-m]"); if (!b) return; keep(); mode = b.dataset.m; draw(); };
     if ($("tKind")) $("tKind").onclick = (e) => { const b = e.target.closest("[data-k]"); if (!b) return; keep(); kind = b.dataset.k; draw(); };
     if ($("tCode")) bindScriptEditor(connectors, keep, t);
@@ -234,7 +237,7 @@ export async function routineForm({ id } = {}) {
     $("fSave").onclick = async () => {
       keep();
       const body = { name: f.name, icon: f.icon, prompt: f.prompt, agent_id: f.agent_id, model: f.model, account_id: f.account_id,
-        fallback: f.fallback, memory_enabled: f.memory_enabled };
+        fallback: f.fallback, memory_enabled: f.memory_enabled, show_on_home: f.show_on_home };
       if (mode === "demand") { body.on_demand = true; if (id) { body.trigger = null; body.times = null; } }
       else if (id) body.on_demand = false;
       if (mode === "demand") { /* nothing more */ }

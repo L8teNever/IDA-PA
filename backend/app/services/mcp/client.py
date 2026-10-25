@@ -56,17 +56,22 @@ async def _open(connector: Connector, client: httpx.AsyncClient) -> _Session:
     return s
 
 
-async def list_tools(connector: Connector) -> list[str]:
+async def tool_defs(connector: Connector) -> list[dict]:
+    """All tools with name, description and inputSchema."""
     async with httpx.AsyncClient(timeout=20) as client:
         s = await _open(connector, client)
-        names, cursor = [], None
+        tools, cursor = [], None
         for _ in range(20):
             res = await s.call("tools/list", {"cursor": cursor} if cursor else {})
-            names += [t["name"] for t in res.get("tools", [])]
+            tools += res.get("tools", [])
             cursor = res.get("nextCursor")
             if not cursor:
                 break
-        return names
+        return tools
+
+
+async def list_tools(connector: Connector) -> list[str]:
+    return [t["name"] for t in await tool_defs(connector)]
 
 
 async def call_tool(connector: Connector, tool: str, args: dict | None = None) -> str:

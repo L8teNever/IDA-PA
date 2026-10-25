@@ -364,6 +364,85 @@ def test_reminders_are_one_time_and_not_routines(client):
     assert client.get(f"{API}/reminders").json() == []
 
 
+def test_day_plan_shows_marked_items_and_todays_calendar(client):
+    """Start page: only routines/reminders marked for it (by the user or the AI) plus today's events from a calendar MCP – no AI involved."""
+    import threading
+    from datetime import datetime, timedelta
+    from http.server import BaseHTTPRequestHandler, HTTPServer
+    from zoneinfo import ZoneInfo
+    now = datetime.now(ZoneInfo("Europe/Berlin"))
+    today, tomorrow = now.date(), now.date() + timedelta(days=1)
+    calls = []
+
+    class H(BaseHTTPRequestHandler):
+        def log_message(self, *a):
+            pass
+
+        def do_POST(self):
+            m = json.loads(self.rfile.read(int(self.headers["content-length"])))
+            if "id" not in m:
+                self.send_response(202); self.end_headers(); return
+            if m["method"] == "tools/call":
+                calls.append(m["params"]["arguments"])
+            events = [{"titel": "Zahnarzt", "start": f"{today}T23:58:00", "ende": f"{today}T23:59:00", "ort": "Praxis"},
+                      {"titel": "Feiertag", "start": str(today), "ende": str(tomorrow)},
+                      {"titel": "Morgen-Termin", "start": f"{tomorrow}T10:00:00"}]
+            res = {"initialize": {"protocolVersion": "2025-03-26", "capabilities": {}, "serverInfo": {"name": "cal"}},
+                   "tools/list": {"tools": [{"name": "google_termine_liste", "inputSchema": {"properties": {"von": {"type": "string"}, "bis": {"type": "string"}}}}]},
+                   "tools/call": {"content": [{"type": "text", "text": "\n".join(json.dumps(e) for e in events)}]}}[m["method"]]
+            body = json.dumps({"jsonrpc": "2.0", "id": m["id"], "result": res}).encode()
+            self.send_response(200); self.send_header("content-type", "application/json"); self.end_headers(); self.wfile.write(body)
+
+    titles = lambda: [x["title"] for x in client.get(f"{API}/home").json()["timeline"]]  # noqa: E731
+    shown = client.post(f"{API}/routines", json={"name": "Sichtbar", "prompt": "p", "interval_min": 1, "show_on_home": True}).json()
+    hidden = client.post(f"{API}/routines", json={"name": "Hintergrund", "prompt": "p", "interval_min": 1}).json()
+    assert shown["show_on_home"] and not hidden["show_on_home"]  # routines stay out unless marked
+    soon = (now + timedelta(minutes=2)).strftime("%Y-%m-%dT%H:%M")
+    rem = client.post(f"{API}/reminders", json={"text": "Wäsche", "when": soon}).json()
+    quiet = client.post(f"{API}/reminders", json={"text": "Leise", "when": soon, "show_on_home": False}).json()
+    assert rem["show_on_home"] and not quiet["show_on_home"]  # reminders show by default
+    # the AI sets the mark itself when creating
+    ev = chat(client, text="TOOL routine_create " + json.dumps({"name": "Von Ida", "prompt": "p", "interval_min": 1, "show_on_home": True}))
+    assert '"ok": true' in "".join(e.get("text", "") for e in ev)
+    ida = next(r for r in client.get(f"{API}/routines").json() if r["name"] == "Von Ida")
+    if (now + timedelta(minutes=3)).date() == today:
+        t = titles()
+        assert "Sichtbar" in t and "Von Ida" in t and "⏰ Wäsche" in t
+        assert "Hintergrund" not in t and "⏰ Leise" not in t
+        client.patch(f"{API}/routines/{shown['id']}", json={"show_on_home": False})
+        assert "Sichtbar" not in titles()
+
+    srv = HTTPServer(("127.0.0.1", 0), H)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        c = client.post(f"{API}/connectors", json={"name": "Kalender", "url": f"http://127.0.0.1:{srv.server_port}/mcp"}).json()
+        s = client.get(f"{API}/home-calendar").json()
+        assert s["active"]["tool"] == "google_termine_liste" and s["active"]["auto"]  # found automatically
+        home = client.get(f"{API}/home").json()
+        t = [x["title"] for x in home["timeline"]]
+        assert home["calendar"] == {"on": True, "error": None}
+        assert "Zahnarzt" in t and "Feiertag" in t and "Morgen-Termin" not in t
+        assert next(x for x in home["timeline"] if x["title"] == "Feiertag")["all_day"]
+        assert calls[-1]["von"].startswith(str(today)) and calls[-1]["bis"].startswith(str(tomorrow))  # only today is asked for
+        assert client.get(f"{API}/home-calendar/suggest", params={"connector": c["id"], "tool": "google_termine_liste"}).json()["args"] == {"von": "{heute_start}", "bis": "{heute_ende}"}
+        # fixed tool with own arguments
+        client.put(f"{API}/home-calendar", json={"connector": c["id"], "tool": "google_termine_liste", "args": {"von": "{heute}"}})
+        test = client.post(f"{API}/home-calendar/test", json={}).json()
+        assert calls[-1] == {"von": str(today)} and [e["title"] for e in test["events"]] == ["Feiertag", "Zahnarzt"]
+        # switched off: no calendar call at all
+        client.put(f"{API}/home-calendar", json={"off": True})
+        n = len(calls)
+        assert client.get(f"{API}/home").json()["calendar"]["on"] is False and len(calls) == n
+        client.put(f"{API}/home-calendar", json={})
+        client.delete(f"{API}/connectors/{c['id']}")
+    finally:
+        srv.shutdown()
+    for r in (shown, hidden, ida):
+        client.delete(f"{API}/routines/{r['id']}")
+    for r in (rem, quiet):
+        client.delete(f"{API}/reminders/{r['id']}")
+
+
 def test_antigravity_sign_in_models_chat_and_limits(client):
     """Like T3 Code: the ACP agent shows a Google link, the return address (127.0.0.1) is handed back to it."""
     from urllib.parse import parse_qs, urlparse

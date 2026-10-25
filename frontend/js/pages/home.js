@@ -1,4 +1,4 @@
-// "/" – start page of the main agent (infos = unread notifications, today = routine runs) and "/a/:id".
+// "/" – start page of the main agent (infos = unread notifications, today = calendar events + marked routines/reminders) and "/a/:id".
 import { api } from "../api.js";
 import { navigate } from "../router.js";
 import { agentById, agentOf, colors, mainAgent, setUnread } from "../store.js";
@@ -43,8 +43,11 @@ function renderAgentHome(a) {
   };
 }
 
+let calendar = { on: false, error: null };
+
 async function refresh() {
   const data = await api.get("/home");
+  calendar = data.calendar || calendar;
   renderNotes(data.notices);
   renderTimeline(data.timeline);
 }
@@ -90,11 +93,20 @@ function renderNotes(notes) {
   });
 }
 
-function renderTimeline(items) {
+function renderTimeline(all) {
   const now = Date.now();
-  let nowIdx = items.findIndex((x) => new Date(x.at).getTime() >= now - 15 * 60000);
+  const allDay = all.filter((x) => x.all_day);
+  const items = all.filter((x) => !x.all_day);
+  let nowIdx = items.findIndex((x) => new Date(x.end || x.at).getTime() >= now - 15 * 60000);
   if (nowIdx < 0) nowIdx = items.length;
   const html = (x, i) => {
+    if (x.kind === "event") {
+      const span = x.all_day ? "" : x.end ? `${fmtTime(x.at)}–${fmtTime(x.end)}` : fmtTime(x.at);
+      const sub = [x.all_day ? "ganztägig" : span, x.location].filter(Boolean).join(" · ");
+      return `<div class="ev event ${i < nowIdx ? "past" : i === nowIdx ? "now" : ""}">
+        <span class="time">${x.all_day ? `<span class="ms">event</span>` : fmtTime(x.at)}</span>
+        <span class="evtxt"><b>${esc(x.title)}</b><small>${esc(sub)}</small></span></div>`;
+    }
     const a = agentOf(x.agent_id);
     const sub = x.kind === "reminder" ? (x.status === "pending" ? (x.task ? `${a.name} erledigt es` : "Erinnerung") : x.status === "done" ? "erledigt" : "fehlgeschlagen")
       : x.kind === "next" ? `geplant · ${a.name}` : `${x.ok ? "erledigt" : "fehlgeschlagen"} · ${a.name}`;
@@ -104,11 +116,16 @@ function renderTimeline(items) {
       <span class="ms evchev">chevron_right</span></button>`;
   };
   const pastN = Math.min(nowIdx, items.length);
+  const calHint = calendar.error
+    ? `<a class="cal-hint" href="/einstellungen/startseite"><span class="ms">event_busy</span>Kalender nicht erreichbar: ${esc(calendar.error)}</a>`
+    : calendar.on ? "" : `<a class="cal-hint" href="/einstellungen/startseite"><span class="ms">calendar_add_on</span>Kalender verbinden, damit deine Termine hier stehen</a>`;
   $("pastSlot").innerHTML = pastN ? `<button class="past-toggle ${pastOpen ? "open" : ""}" id="pastToggle"><span class="ms">history</span>${pastN}<span class="ms pchev">expand_more</span></button>` : "";
-  $("timeline").innerHTML = (items.length ? "" : `<div class="empty-day"><span class="ms">wb_sunny</span>Heute steht nichts an. Routinen und Erinnerungen erscheinen hier.</div>`)
+  $("timeline").innerHTML = (all.length ? "" : `<div class="empty-day"><span class="ms">wb_sunny</span>Heute stehen keine Termine an.</div>`)
+    + allDay.map((x) => html(x, Infinity)).join("")
     + (pastN ? `<div class="past-wrap ${pastOpen ? "open" : ""}"><div>${items.slice(0, pastN).map(html).join("")}</div></div>` : "")
-    + items.slice(pastN).map((x, k) => html(x, k + pastN)).join("");
-  $("pastSlot").onclick = (e) => { if (e.target.closest("#pastToggle")) { pastOpen = !pastOpen; renderTimeline(items); } };
+    + items.slice(pastN).map((x, k) => html(x, k + pastN)).join("")
+    + calHint;
+  $("pastSlot").onclick = (e) => { if (e.target.closest("#pastToggle")) { pastOpen = !pastOpen; renderTimeline(all); } };
 }
 
 // Scroll: mascot and bell move into the header
