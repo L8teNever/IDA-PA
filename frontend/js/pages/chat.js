@@ -13,6 +13,7 @@ const stageOf = (a) => (a.home === "timeline" ? "home" : "agent");
 
 export function newChat(agent) {
   Object.assign(ctx, { id: null, agentId: agent.id, busy: false });
+  document.dispatchEvent(new CustomEvent("chat:switch"));
   $("messages").innerHTML = "";
 }
 
@@ -20,6 +21,7 @@ export async function openChat(id) {
   const c = await api.get(`/chats/${encodeURIComponent(id)}`);
   const a = agentOf(c.agent_id);
   setAgent(a);
+  if (c.id !== ctx.id) document.dispatchEvent(new CustomEvent("chat:switch")); // waiting messages belong to the old chat
   Object.assign(ctx, { id: c.id, agentId: a.id, model: c.model, accountId: c.account_id, busy: false });
   document.dispatchEvent(new CustomEvent("chat:model", { detail: { model: c.model, account: c.account_id } }));
   setView("chat", { agentStage: stageOf(a) });
@@ -136,6 +138,6 @@ export async function send(text, { skill = null, model, accountId, effort } = {}
     ctx.busy = false;
     setLive(null);
     if (!meta.stopped) flashMood(ok ? "happy" : "sad");
-    document.dispatchEvent(new CustomEvent("chat:done"));
+    document.dispatchEvent(new CustomEvent("chat:done", { detail: { stopped: !!meta.stopped, ok } }));
   }
 }

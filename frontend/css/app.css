@@ -405,3 +405,20 @@ body.answering .send .ms { font-variation-settings: "FILL" 1; }
 .msg-stopped { display: inline-flex; align-items: center; gap: 6px; margin-top: 8px; padding: 3px 10px; border-radius: 10px;
   font-size: 12px; color: var(--muted); background: var(--surface-highest); }
 .msg-stopped .ms { font-size: 16px; }
+
+/* message queue above the input (while Ida answers) */
+.queue { margin: 6px 4px 2px -10px; padding: 8px; border-radius: 20px; background: var(--surface-highest); display: flex; flex-direction: column; gap: 4px; }
+.queue[hidden] { display: none; }
+.q-head { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 500; padding: 2px 6px 4px; color: var(--accent); }
+.q-head small { color: var(--muted); font-weight: 400; margin-left: auto; font-size: 12px; }
+.q-item { display: flex; align-items: center; gap: 6px; padding: 6px 4px 6px 8px; border-radius: 14px; background: rgba(255,255,255,.04); }
+.q-n { flex: none; width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; font-size: 11px; background: rgba(var(--accent-rgb), .18); color: var(--accent); }
+.q-text { flex: 1; min-width: 0; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.q-btn { flex: none; display: inline-flex; align-items: center; gap: 4px; height: 32px; min-width: 32px; padding: 0 8px; border: 0; border-radius: 16px;
+  background: transparent; color: var(--muted); cursor: pointer; font: inherit; font-size: 12px; justify-content: center; }
+.q-btn:hover { background: rgba(255,255,255,.08); color: var(--on-surface); }
+.q-btn.now { background: rgba(var(--accent-rgb), .16); color: var(--accent); }
+.q-btn.now:hover { background: rgba(var(--accent-rgb), .28); }
+.q-btn .ms { font-size: 18px; }
+@media (max-width: 420px) { .q-lbl { display: none; } }
+.send[data-mode="queue"] { background: var(--surface-highest); color: var(--accent); }
