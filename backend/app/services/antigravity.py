@@ -409,8 +409,9 @@ def reap() -> None:
     """Ends agents that were idle for a while (each one keeps about 1 GB unpacked)."""
     now = time.time()
     for aid, c in list(_clients.items()):
-        if aid in _logins:
-            continue
+        if aid in _logins and now - _logins[aid].get("started", 0) < IDLE_LIMIT:
+            continue  # sign-in in progress
+        _logins.pop(aid, None)
         if (not c.sessions and now - c.last_used > IDLE_LIMIT) or not c.alive:
             c.stop()
             _clients.pop(aid, None)
@@ -480,6 +481,11 @@ async def finish_login(account: Account, callback_url: str) -> dict:
     _logins.pop(account.id, None)
     found = await load_models(account, c)
     return {"phase": "done", "models": found}
+
+
+def forget(account_id: str) -> None:
+    """Account deleted: remove its profile (login, status, logs)."""
+    shutil.rmtree(get_settings().data_dir / "agy" / account_id, ignore_errors=True)
 
 
 async def logout(account: Account) -> None:

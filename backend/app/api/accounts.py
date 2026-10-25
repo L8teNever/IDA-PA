@@ -150,6 +150,9 @@ async def delete(account_id: str, db: DB):
         raise NotFound("Account nicht gefunden")
     if (await db.scalar(select(func.count()).select_from(Account))) <= 1:
         raise Invalid("Mindestens ein Account muss bleiben")
+    if a.provider == "antigravity":  # stop its agent and remove its Google login
+        await antigravity.logout(a)
+        antigravity.forget(a.id)
     await db.delete(a)
     return {"ok": True}
 
