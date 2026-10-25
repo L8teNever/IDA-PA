@@ -282,3 +282,32 @@ def test_routine_with_fixed_times(client):
     assert r2["times"] is None and r2["interval_min"] == 30
     assert client.post(f"{API}/routines", json={"name": "X", "prompt": "p", "times": ["99:00"]}).status_code == 400
     client.delete(f"{API}/routines/{r['id']}")
+
+
+def test_one_time_routine_deletes_itself(client):
+    from datetime import datetime, timedelta
+    from zoneinfo import ZoneInfo
+    when = (datetime.now(ZoneInfo("Europe/Berlin")) + timedelta(days=1)).replace(hour=9, minute=0, second=0, microsecond=0)
+    r = client.post(f"{API}/routines", json={"name": "Morgen", "prompt": "Erinner mich", "run_at": when.strftime("%Y-%m-%dT%H:%M")}).json()
+    assert r["run_at"] and r["next_run"] == r["run_at"]
+    assert datetime.fromisoformat(r["next_run"]).astimezone(ZoneInfo("Europe/Berlin")).hour == 9
+    assert client.post(f"{API}/routines", json={"name": "Alt", "prompt": "p", "run_at": "2020-01-01T09:00"}).status_code == 400
+    # after a successful run it is gone
+    client.post(f"{API}/routines/{r['id']}/run")
+    wait(lambda: client.get(f"{API}/routines/{r['id']}").status_code == 404)
+    # a failed one stays, paused, with its run in the history
+    client.patch(f"{API}/agents/lea", json={"enabled": False})
+    f = client.post(f"{API}/routines", json={"name": "Fail", "prompt": "p", "agent_id": "lea", "run_at": when.strftime("%Y-%m-%dT%H:%M")}).json()
+    client.post(f"{API}/routines/{f['id']}/run")
+    runs = wait(lambda: client.get(f"{API}/routines/{f['id']}").json()["runs"])
+    after = client.get(f"{API}/routines/{f['id']}").json()
+    assert not runs[0]["ok"] and after["enabled"] is False and after["next_run"] is None
+    client.patch(f"{API}/agents/lea", json={"enabled": True})
+    # Ida can set one up from the chat ("mach das morgen um 9")
+    import json
+    ev = chat(client, text="TOOL routine_create " + json.dumps({"name": "Morgen 9", "prompt": "Erinnern", "run_at": when.strftime("%Y-%m-%dT%H:%M")}))
+    out = "".join(e.get("text", "") for e in ev)
+    assert "einmalig am" in out and "automatisch gelöscht" in out
+    # agents get the current time so "tomorrow" works
+    from app.services.claude.prompts import now_line
+    assert now_line().startswith("Jetzt ist ")

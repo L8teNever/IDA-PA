@@ -78,6 +78,7 @@ async def prepare(db: AsyncSession, agent: Agent, prompt: str, *, model: str | N
         system += f"\nDeine Notizen aus frueheren Laeufen:\n{agent.notes}\n"
     if extra:
         system += "\n" + extra
+    system += "\n" + prompts.now_line()  # last: everything above stays the same between runs (prompt cache)
     servers, allow, deny = await _connectors(db, agent)
     token = identity.issue(identity.Identity(agent_id=agent.id, is_main=agent.is_main, depth=depth, memory=memory_on, interactive=interactive))
     servers[HUB] = {"type": "http", "url": f"{s.internal_url}/mcp/{token}"}

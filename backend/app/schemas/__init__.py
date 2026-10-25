@@ -82,6 +82,7 @@ class RoutineCreate(BaseModel):
     interval_min: int | None = None
     times: list[str] | None = None  # fixed times "HH:MM"
     days: list[int] | None = None  # 0 = Monday … 6 = Sunday, empty = every day
+    run_at: str | None = None  # one-time: "2026-10-26T09:00" (local time), deleted after a successful run
     trigger: Trigger | None = None
     fallback: bool | None = None
     memory_enabled: bool | None = None
@@ -97,6 +98,7 @@ class RoutineUpdate(BaseModel):
     interval_min: int | None = None
     times: list[str] | None = None
     days: list[int] | None = None
+    run_at: str | None = None
     trigger: Trigger | None = None
     fallback: bool | None = None
     memory_enabled: bool | None = None

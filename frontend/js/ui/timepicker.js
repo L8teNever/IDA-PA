@@ -10,7 +10,7 @@ export function closeTimePicker() {
   if (current) current.close();
 }
 
-export function openTimePicker(anchor, { value = "12:00", taken = [], onPick }) {
+export function openTimePicker(anchor, { value = "12:00", taken = [], onPick, action = "hinzufügen", icon = "add" }) {
   closeTimePicker();
   let [h, m] = value.split(":").map(Number);
   m = Math.round(m / 5) * 5 % 60;
@@ -31,7 +31,7 @@ export function openTimePicker(anchor, { value = "12:00", taken = [], onPick }) 
       <div class="tp-grid tp-m">${Array.from({ length: 12 }, (_, i) => i * 5).map((x) => `<button type="button" data-m="${x}" class="${x === m ? "on" : ""}">:${pad(x)}</button>`).join("")}</div>
       <div class="tp-label">Schnell</div>
       <div class="tp-quick">${QUICK.map((q) => `<button type="button" data-q="${q}" ${taken.includes(q) ? "disabled" : ""}>${q}</button>`).join("")}</div>
-      <div class="tp-actions"><button type="button" class="es-btn" data-act="cancel">Abbrechen</button><button type="button" class="es-btn primary" data-act="ok" ${taken.includes(now) ? "disabled" : ""}><span class="ms">add</span>${now} hinzufügen</button></div>`;
+      <div class="tp-actions"><button type="button" class="es-btn" data-act="cancel">Abbrechen</button><button type="button" class="es-btn primary" data-act="ok" ${taken.includes(now) ? "disabled" : ""}><span class="ms">${icon}</span>${now} ${action}</button></div>`;
   };
   draw();
 

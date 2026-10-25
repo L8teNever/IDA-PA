@@ -40,6 +40,23 @@ def clean_days(days) -> list[int]:
     return out
 
 
+def parse_local(value) -> datetime:
+    """'2026-10-26T09:00' (local time, TIMEZONE) or an ISO time with offset -> UTC."""
+    try:
+        d = value if isinstance(value, datetime) else datetime.fromisoformat(str(value).strip().replace("Z", "+00:00").replace(" ", "T"))
+    except ValueError as e:
+        raise Invalid(f"Zeitpunkt „{value}“ ungültig – Format JJJJ-MM-TTTHH:MM, z. B. 2026-10-26T09:00") from e
+    if d.tzinfo is None:
+        d = d.replace(tzinfo=tz())
+    return d.astimezone(timezone.utc)
+
+
+def describe_once(when: datetime) -> str:
+    """'einmalig am So 26.10. 09:00'"""
+    d = (when if when.tzinfo else when.replace(tzinfo=timezone.utc)).astimezone(tz())
+    return f"einmalig am {DAY_NAMES[d.weekday()]} {d:%d.%m.} {d:%H:%M}"
+
+
 def next_run(times: list[str], days: list[int] | None, after: datetime | None = None) -> datetime:
     """Next point in time (UTC) after `after` that matches one of the times on an allowed weekday."""
     zone = tz()

@@ -36,6 +36,7 @@ def _spec(ids: list[str]) -> list[tuple[str, str, str, dict]]:
                       "interval_min": {"type": "integer", "minimum": 1, "description": "Intervall in Minuten (statt times)"},
                       "times": {"type": "array", "items": E, "description": f"Feste Uhrzeiten HH:MM ({get_settings().timezone}), z. B. [\"07:00\"] – statt interval_min"},
                       "days": {"type": "array", "items": {"type": "integer", "minimum": 0, "maximum": 6}, "description": "Wochentage zu times: 0=Mo … 6=So, leer = täglich"},
+                      "run_at": {**E, "description": f"EINMALIG zu diesem Zeitpunkt (JJJJ-MM-TTTHH:MM, {get_settings().timezone}), z. B. für „mach das morgen um 9“ – läuft genau einmal und wird nach erfolgreichem Lauf automatisch gelöscht. Statt interval_min/times."},
                       "model": model,
                       "memory_enabled": {"type": "boolean"}, "fallback": {"type": "boolean"}}
     mem_scope = {"type": "string", "description": "own = dein eigenes, shared = gemeinsames Gedächtnis; der Haupt-Agent zusätzlich eine Agent-ID (fremdes Gedächtnis!)"}
@@ -196,7 +197,8 @@ async def _call(db: AsyncSession, me: Identity, name: str, a: dict) -> dict:
         else:
             fields.setdefault("agent_id", me.agent_id)
         r = await routine_svc.create(db, fields)
-        return {"ok": True, "id": r.id}
+        return {"ok": True, "id": r.id, "zeitplan": routine_svc.when_text(r),
+                **({"hinweis": "Einmalig: läuft genau einmal und wird nach erfolgreichem Lauf automatisch gelöscht."} if r.run_at else {})}
     if name == "routine_update":
         r = await own_routine(str(a.get("id")))
         fields = {k: v for k, v in a.items() if k not in ("id", "trigger")}

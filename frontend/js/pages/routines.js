@@ -18,8 +18,17 @@ function daysText(days) {
   return d.map((i) => DAYS[i]).join(", ");
 }
 const timesText = (r) => `🕐 ${daysText(r.days)} ${r.times.join(", ")}`;
+const pad = (n) => String(n).padStart(2, "0");
+const isoDay = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+function dayLabel(iso) {
+  const d = new Date(iso + "T12:00"), t = new Date();
+  const diff = Math.round((new Date(isoDay(d) + "T12:00") - new Date(isoDay(t) + "T12:00")) / 86400000);
+  const base = `${DAYS[(d.getDay() + 6) % 7]} ${pad(d.getDate())}.${pad(d.getMonth() + 1)}.`;
+  return diff === 0 ? `heute (${base})` : diff === 1 ? `morgen (${base})` : diff === 2 ? `übermorgen (${base})` : base;
+}
+const onceText = (r) => `📅 einmalig ${fmtDateTime(r.run_at)}`;
 function whenText(r) {
-  return r.trigger ? `🔔 ${MODES[r.trigger.mode]}` : r.times?.length ? timesText(r) : every(r.interval_min);
+  return r.trigger ? `🔔 ${MODES[r.trigger.mode]}` : r.run_at ? onceText(r) : r.times?.length ? timesText(r) : every(r.interval_min);
 }
 
 export async function routinesPage() {
@@ -63,7 +72,7 @@ export async function routineDetail({ id }) {
     ${r.enabled ? "" : `<div class="state-note"><span class="ms">pause_circle</span><span>Diese Routine ist pausiert und startet nicht von selbst. „Jetzt ausführen“ geht trotzdem.</span></div>`}
     <div class="pcard">
       <div class="kv"><span>Agent</span><b style="color:${c["--accent"]}">${esc(a.name)}</b></div>
-      <div class="kv"><span>Start</span><b>${t ? `${esc(t.connector)} › ${esc(t.tool)} · ${MODES[t.mode]}${t.contains ? ` „${esc(t.contains)}“` : ""} · ${everySec(t.every_sec)}` : r.times?.length ? esc(timesText(r)) : every(r.interval_min)}</b></div>
+      <div class="kv"><span>Start</span><b>${t ? `${esc(t.connector)} › ${esc(t.tool)} · ${MODES[t.mode]}${t.contains ? ` „${esc(t.contains)}“` : ""} · ${everySec(t.every_sec)}` : r.run_at ? esc(onceText(r)) + " · wird danach gelöscht" : r.times?.length ? esc(timesText(r)) : every(r.interval_min)}</b></div>
       <div class="kv"><span>Modell</span><b>${esc(r.model ? modelInfo(r.model).name : "wie der Agent")}</b></div>
       <div class="kv"><span>Account</span><b>${esc(r.account_id ? (state.boot.accounts.find((x) => x.id === r.account_id)?.name || r.account_id) : "wie der Agent")}</b></div>
       <div class="kv"><span>Limit-Fallback</span><b>${r.fallback === null ? "wie der Agent" : r.fallback ? "an" : "aus"}</b></div>
@@ -101,8 +110,11 @@ export async function routineForm({ id } = {}) {
   setAgent(mainAgent());
   setView("page");
   const [r, connectors] = await Promise.all([id ? api.get(`/routines/${id}`) : null, api.get("/connectors")]);
-  const f = r ? { ...r } : { name: "", icon: "schedule", prompt: "", agent_id: mainAgent().id, model: null, account_id: null, interval_min: 60, trigger: null, fallback: null, memory_enabled: null, times: null, days: null };
-  let mode = f.trigger ? "mcp" : f.times?.length ? "times" : "interval";
+  const f = r ? { ...r } : { name: "", icon: "schedule", prompt: "", agent_id: mainAgent().id, model: null, account_id: null, interval_min: 60, trigger: null, fallback: null, memory_enabled: null, times: null, days: null, run_at: null };
+  let mode = f.trigger ? "mcp" : f.run_at ? "once" : f.times?.length ? "times" : "interval";
+  // one-time: date (YYYY-MM-DD) + time, default tomorrow 09:00
+  const start = f.run_at ? new Date(f.run_at) : (() => { const d = new Date(); d.setDate(d.getDate() + 1); d.setHours(9, 0, 0, 0); return d; })();
+  let onceDay = isoDay(start), onceTime = `${pad(start.getHours())}:${pad(start.getMinutes())}`;
   let times = f.times?.length ? [...f.times] : ["07:00"];
   let days = f.days?.length ? [...f.days] : [0, 1, 2, 3, 4, 5, 6];
   const t = f.trigger || { connector: connectors.find((c) => c.tools.length)?.id || "", tool: "", args: {}, every_sec: 60, mode: "new", contains: "" };
@@ -128,7 +140,7 @@ export async function routineForm({ id } = {}) {
       </section>
       <section class="rf-sec">
         <h2 class="rf-h"><span class="ms">event_repeat</span>Wann starten?</h2>
-      <div class="seg" id="fMode"><button type="button" data-m="interval" class="${mode === "interval" ? "on" : ""}">⏱ Intervall</button><button type="button" data-m="times" class="${mode === "times" ? "on" : ""}">🕐 Uhrzeiten</button><button type="button" data-m="mcp" class="${mode === "mcp" ? "on" : ""}">🔔 Bei Neuem</button></div>
+      <div class="seg" id="fMode"><button type="button" data-m="interval" class="${mode === "interval" ? "on" : ""}">⏱ Intervall</button><button type="button" data-m="times" class="${mode === "times" ? "on" : ""}">🕐 Uhrzeiten</button><button type="button" data-m="once" class="${mode === "once" ? "on" : ""}">📅 Einmalig</button><button type="button" data-m="mcp" class="${mode === "mcp" ? "on" : ""}">🔔 Bei Neuem</button></div>
       ${mode === "times" ? `
         <div class="flabel" style="margin-top:4px">Uhrzeiten</div>
         <div class="chipset time-chips" id="fTimes">${times.map((x) => `<span class="time-chip"><span class="ms">schedule</span>${esc(x)}<button type="button" data-rm="${esc(x)}" aria-label="${esc(x)} entfernen"><span class="ms">close</span></button></span>`).join("")}
@@ -137,6 +149,14 @@ export async function routineForm({ id } = {}) {
         <div class="chipset" id="fDays">${DAYS.map((d, i) => `<button type="button" data-d="${i}" class="${days.includes(i) ? "on" : ""}">${d}</button>`).join("")}
           <button type="button" class="day-preset" data-preset="all">täglich</button><button type="button" class="day-preset" data-preset="week">Mo–Fr</button><button type="button" class="day-preset" data-preset="weekend">Wochenende</button></div>
         <div class="rf-sum"><span class="ms">info</span><span>Läuft <b>${esc(daysText(days))}</b> um <b>${esc(times.join(", ") || "–")} Uhr</b> · deutsche Zeit, Sommer-/Winterzeit wird beachtet</span></div>`
+      : mode === "once" ? `
+        <div class="flabel" style="margin-top:4px">Welcher Tag?</div>
+        <div class="chipset" id="fOnceDays">${Array.from({ length: 7 }, (_, i) => { const d = new Date(); d.setDate(d.getDate() + i); return isoDay(d); })
+          .map((d, i) => `<button type="button" data-day="${d}" class="${d === onceDay ? "on" : ""}">${i === 0 ? "Heute" : i === 1 ? "Morgen" : i === 2 ? "Übermorgen" : dayLabel(d)}</button>`).join("")}
+          <label class="time-add-btn once-date"><span class="ms">calendar_month</span>Anderes Datum<input type="date" id="fOnceDate" min="${isoDay(new Date())}" value="${onceDay}"></label></div>
+        <div class="flabel">Uhrzeit</div>
+        <div class="chipset"><button type="button" class="time-chip once-time" id="fOnceTime"><span class="ms">schedule</span>${onceTime}<span class="ms">expand_more</span></button></div>
+        <div class="rf-sum"><span class="ms">info</span><span>Läuft <b>einmal ${esc(dayLabel(onceDay))} um ${onceTime} Uhr</b> und wird danach automatisch gelöscht. Klappt der Lauf nicht, bleibt sie pausiert stehen, damit du siehst, was los war.</span></div>`
       : mode === "interval" ? `
         <div class="fld-row"><label class="fld"><span>alle</span><input id="fEvery" type="number" min="1" value="${f.interval_min / unit}"></label>
         <label class="fld"><span>Einheit</span><select id="fUnit"><option value="1" ${unit === 1 ? "selected" : ""}>Minuten</option><option value="60" ${unit === 60 ? "selected" : ""}>Stunden</option><option value="1440" ${unit === 1440 ? "selected" : ""}>Tage</option></select></label></div>`
@@ -205,6 +225,15 @@ export async function routineForm({ id } = {}) {
         draw();
       };
     }
+    if ($("fOnceDays")) {
+      $("fOnceDays").onclick = (e) => { const b = e.target.closest("[data-day]"); if (!b) return; keep(); onceDay = b.dataset.day; draw(); };
+      $("fOnceDate").parentElement.onclick = (e) => { e.preventDefault(); try { $("fOnceDate").showPicker(); } catch { $("fOnceDate").focus(); } };
+      $("fOnceDate").onchange = () => { if ($("fOnceDate").value) { keep(); onceDay = $("fOnceDate").value; draw(); } };
+      $("fOnceTime").onclick = () => openTimePicker($("fOnceTime"), {
+        value: onceTime, action: "übernehmen", icon: "check",
+        onPick: (v) => { keep(); onceTime = v; draw(); },
+      });
+    }
     $("fIcons").onclick = (e) => { const b = e.target.closest("[data-ic]"); if (!b) return; keep(); f.icon = b.dataset.ic; draw(); };
     $("fAgents").onclick = (e) => { const b = e.target.closest("[data-a]"); if (!b) return; keep(); f.agent_id = b.dataset.a; draw(); };
     $("fMode").onclick = (e) => { const b = e.target.closest("[data-m]"); if (!b) return; keep(); mode = b.dataset.m; draw(); };
@@ -224,12 +253,16 @@ export async function routineForm({ id } = {}) {
       keep();
       const body = { name: f.name, icon: f.icon, prompt: f.prompt, agent_id: f.agent_id, model: f.model, account_id: f.account_id,
         fallback: f.fallback, memory_enabled: f.memory_enabled };
-      if (mode === "interval") { body.interval_min = f.interval_min; if (id) { body.trigger = null; body.times = null; } }
+      if (mode === "interval") { body.interval_min = f.interval_min; if (id) { body.trigger = null; body.times = null; body.run_at = null; } }
+      else if (mode === "once") {
+        body.run_at = `${onceDay}T${onceTime}`;
+        if (id) { body.trigger = null; body.times = null; }
+      }
       else if (mode === "times") {
         if (!times.length) { $("fErr").textContent = "Mindestens eine Uhrzeit hinzufügen."; return; }
         if (!days.length) { $("fErr").textContent = "Mindestens einen Tag auswählen."; return; }
         body.times = times; body.days = days;
-        if (id) body.trigger = null;
+        if (id) { body.trigger = null; body.run_at = null; }
       } else body.trigger = { ...t, type: "mcp" };
       try {
         const out = id ? await api.patch(`/routines/${id}`, body) : await api.post("/routines", body);

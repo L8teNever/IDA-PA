@@ -280,3 +280,8 @@ textarea.autogrow { resize: none; overflow-y: auto; min-height: 84px; max-height
   #routinePageList .rcard { margin: 0; }
   #routinePageList .empty { grid-column: 1 / -1; }
 }
+
+/* routine form: one-time date + time */
+.once-date { position: relative; display: inline-flex; align-items: center; gap: 6px; padding: 0 12px; cursor: pointer; overflow: hidden; }
+.once-date input { position: absolute; inset: 0; opacity: 0; pointer-events: none; color-scheme: dark; }
+.once-time { cursor: pointer; border: 0; font: inherit; padding-right: 8px; }
