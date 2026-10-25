@@ -66,7 +66,7 @@ if "TOOL " in prompt:
     out({"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "t1", "content": [{"type": "text", "text": res}]}]}})
     text = f"[{account}] {res}"
 else:
-    text = f"[{account}|{arg('--model')}] {prompt}" + (f"\nSYSTEM:{system}" if "SHOWSYS" in prompt else "")
+    text = f"[{account}|{arg('--model')}{'|' + arg('--effort') if arg('--effort') else ''}] {prompt}" + (f"\nSYSTEM:{system}" if "SHOWSYS" in prompt else "")
 
 if "SLOW" in prompt:
     time.sleep(4)

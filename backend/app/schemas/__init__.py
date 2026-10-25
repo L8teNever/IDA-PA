@@ -3,7 +3,7 @@
 Every "Update" schema has only optional fields; routers pass `model_dump(exclude_unset=True)` to the
 services, so a PATCH changes exactly the fields that were sent.
 """
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -56,6 +56,7 @@ class ChatSend(BaseModel):
     model: str | None = None
     account_id: str | None = None
     skill: str | None = None
+    effort: Literal["low", "medium", "high", "xhigh", "max"] | None = None  # Claude: how much it thinks
 
 
 class ChatUpdate(BaseModel):

@@ -37,7 +37,7 @@ def _transcript(msgs: list[ChatMessage]) -> str:
 
 
 async def stream_chat(*, chat_id: str | None, agent_id: str | None, text: str, model: str | None,
-                      account_id: str | None, skill_id: str | None) -> AsyncIterator[dict]:
+                      account_id: str | None, skill_id: str | None, effort: str | None = None) -> AsyncIterator[dict]:
     s = get_settings()
     text = (text or "").strip()
     async with session_scope() as db:
@@ -84,7 +84,7 @@ async def stream_chat(*, chat_id: str | None, agent_id: str | None, text: str, m
             agent = await db.get(Agent, state["agent_id"])
             skill = await db.get(Skill, skill_id) if skill_id else None
             p = await runs.prepare(db, agent, prompt, model=state["model"], account=acc, interactive=True, forced_skill=skill,
-                                   session_id=resume, persist=True)
+                                   session_id=resume, persist=True, effort=effort)
         used, streamed = acc, False
         try:
             async for ev in runner.stream(p.spec):

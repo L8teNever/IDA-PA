@@ -436,3 +436,16 @@ def test_audio_decoding_really_works(tmp_path):
         w.setnchannels(1); w.setsampwidth(2); w.setframerate(16000)
         w.writeframes(b"\x00\x00" * 8000)
     assert len(decode_audio(str(p))) == 8000
+
+
+def test_chat_effort_reaches_claude(client):
+    """The thinking level picked in the model menu is passed to the CLI as --effort."""
+    ev = chat(client, text="Hallo", effort="max")
+    out = "".join(e.get("text", "") for e in ev)
+    assert "|max]" in out
+    ev = chat(client, text="Hallo")
+    assert "|max]" not in "".join(e.get("text", "") for e in ev)
+    r = client.post(f"{API}/chat", json={"text": "x", "effort": "gigantisch"})
+    assert r.status_code == 422
+    for c in client.get(f"{API}/chats").json():
+        client.delete(f"{API}/chats/{c['id']}")

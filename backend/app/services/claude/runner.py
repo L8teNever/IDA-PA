@@ -64,6 +64,7 @@ class RunSpec:
     persist: bool = False  # keep the session for later resumes (chats)
     agent_id: str | None = None  # whose run this is (shown as the mascot's mood)
     kind: str = "run"  # chat | run
+    effort: str | None = None  # low … max; None = the model's default
 
 
 @dataclass
@@ -127,6 +128,8 @@ async def _stream(spec: RunSpec) -> AsyncIterator[dict]:
             "--system-prompt-file", str(run_dir / "system.txt"),
             "--strict-mcp-config", "--mcp-config", str(run_dir / "mcp.json"),
             "--settings", str(run_dir / "settings.json")]
+    if spec.effort:
+        args += ["--effort", spec.effort]
     if not spec.persist:
         args.append("--no-session-persistence")
     if spec.session_id and re.fullmatch(r"[\w-]+", spec.session_id):

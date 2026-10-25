@@ -21,15 +21,16 @@ function current() {
   const fits = (a) => a && (a.provider === "antigravity") === String(model || "").startsWith("agy:");
   const wanted = accs.find((a) => a.id === sel?.account) || accs.find((a) => a.id === state.agent?.account_id);
   const account = fits(wanted) ? wanted : accs.find(fits) || wanted || accs[0];
-  return { model, account };
+  const effort = effortsOf(model || "").includes(sel?.effort) && !String(model).startsWith("agy:") ? sel.effort : null;
+  return { model, account, effort };
 }
 
 function renderChip() {
-  const { model, account } = current();
+  const { model, account, effort } = current();
   if (!model) return;
   const m = modelInfo(model);
   $("modelIcon").textContent = m.icon;
-  $("modelName").textContent = m.short;
+  $("modelName").textContent = m.short + (effort ? ` · ${EFFORTS[effort]}` : "");
   $("modelBtn").querySelectorAll(".acc-tag").forEach((x) => x.remove());
   if (account && accounts().length > 1) $("modelName").insertAdjacentHTML("afterend", accTag(account));
   const p = account ? state.usage[account.id] : null;
@@ -41,9 +42,18 @@ let menuTab = null;
 const LEVELS = { low: "Niedrig", medium: "Mittel", high: "Hoch" };
 const levelOf = (name) => { const m = /^(.*) \((low|medium|high)\)$/i.exec(name); return m ? [m[1], m[2].toLowerCase()] : [name, null]; };
 const shortName = (n) => String(n || "").split("@")[0];
+// Claude: thinking depth via --effort. Which levels a model knows, and what it uses without a choice
+const EFFORTS = { low: "Niedrig", medium: "Mittel", high: "Hoch", xhigh: "Extra", max: "Max" };
+function effortsOf(id) {
+  if (/haiku-4-5|sonnet-4-5|-3-|-4-1|-4-0|-4$/.test(id)) return [];
+  if (/opus-4-5/.test(id)) return ["low", "medium", "high"];
+  if (/-4-6/.test(id)) return ["low", "medium", "high", "max"];
+  return Object.keys(EFFORTS);
+}
+const effortDefault = (id) => (/opus-5-5|haiku-5-5/.test(id) ? "medium" : "high");
 function renderMenu() {
   const accs = accounts();
-  const { model, account } = current();
+  const { model, account, effort } = current();
   if (!menuTab || !accs.some((a) => a.id === menuTab)) menuTab = account?.id || accs[0]?.id;
   const tabs = accs.map((a) => {
     const p = state.usage[a.id], agy = a.provider === "antigravity";
@@ -66,19 +76,21 @@ function renderMenu() {
     const on = menuTab === account?.id && ids.includes(model);
     const pick = on ? model : g.ids.medium || ids[0];
     const lv = Object.keys(LEVELS).filter((k) => g.ids[k]);
+    const ef = agyTab ? [] : effortsOf(pick), cur = on ? effort || effortDefault(pick) : null;
     return `<div role="menuitem" tabindex="0" data-m="${pick}" class="mm-item ${on ? "sel" : ""}" title="${esc(g.m.desc)}">
       <span class="mic"><span class="ms">${g.m.icon}</span></span>
       <span class="mtxt"><b>${esc(g.base)}</b><small>${esc(g.m.desc)}</small></span>
-      ${lv.length ? `<span class="mm-lvl" aria-label="Nachdenken">${lv.map((k) => `<button type="button" data-m="${g.ids[k]}" class="${on && model === g.ids[k] ? "on" : ""}">${LEVELS[k]}</button>`).join("")}</span>` : `<span class="ms mcheck">check</span>`}</div>`;
+      ${lv.length ? `<span class="mm-lvl" aria-label="Nachdenken">${lv.map((k) => `<button type="button" data-m="${g.ids[k]}" class="${on && model === g.ids[k] ? "on" : ""}">${LEVELS[k]}</button>`).join("")}</span>` : ef.length ? `<span class="mm-lvl claude" aria-label="Nachdenken">${ef.map((k) => `<button type="button" data-m="${pick}" data-eff="${k}" class="${cur === k ? "on" : ""}">${EFFORTS[k]}</button>`).join("")}</span>`
+        : `<span class="ms mcheck">check</span>`}</div>`;
   }).join("") : `<div class="mm-empty">${agyTab ? "Noch keine Modelle – den Antigravity-Account erst anmelden (Einstellungen → Accounts)." : "Keine Modelle."}</div>`;
   $("modelMenu").innerHTML = `${accs.length > 1 ? `<div class="mm-head">Account</div><div class="mm-accs">${tabs}</div>` : ""}
-    <div class="mm-head">Modell${groups.some((g) => Object.keys(g.ids).length > 1) ? " <span>· rechts wählst du, wie gründlich es nachdenkt</span>" : ""}</div><div class="mm-list">${list}</div>`;
+    <div class="mm-head">Modell${groups.length ? " <span>· rechts wählst du, wie gründlich es nachdenkt</span>" : ""}</div><div class="mm-list">${list}</div>`;
   $("modelMenu").querySelector(".mm-acc.on")?.scrollIntoView({ block: "nearest", inline: "nearest" });
 }
 
-function choose(model, accountId) {
+function choose(model, accountId, effort = null) {
   const before = current();
-  sel = { model, account: accountId };
+  sel = { model, account: accountId, effort };
   localStorage.setItem("modelSel", JSON.stringify(sel));
   renderChip();
   const now = current();
@@ -138,8 +150,8 @@ export function initComposer() {
     input.value = ""; input.style.height = "auto";
     updateSend();
     document.body.classList.remove("slash-open");
-    const { model, account } = current();
-    send(body, { skill, model, accountId: account?.id });
+    const { model, account, effort } = current();
+    send(body, { skill, model, accountId: account?.id, effort });
   };
 
   $("modelBtn").onclick = (e) => {
@@ -153,7 +165,7 @@ export function initComposer() {
     const b = e.target.closest("[data-m]");
     if (!b) return;
     document.body.classList.remove("model-open");
-    choose(b.dataset.m, menuTab);
+    choose(b.dataset.m, menuTab, b.dataset.eff || null);
     input.focus();
   };
   document.addEventListener("click", (e) => {

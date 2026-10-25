@@ -67,7 +67,7 @@ async def send(body: ChatSend):
     if not body.text.strip() and not body.skill:
         raise Invalid("Nachricht fehlt")
     gen = stream_chat(chat_id=body.chat_id, agent_id=body.agent_id, text=body.text, model=body.model,
-                      account_id=body.account_id, skill_id=body.skill)
+                      account_id=body.account_id, skill_id=body.skill, effort=body.effort)
     first = await gen.__anext__()  # validation errors surface as normal HTTP errors
 
     async def lines():

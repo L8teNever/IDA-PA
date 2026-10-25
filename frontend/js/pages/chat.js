@@ -82,7 +82,7 @@ function scroll() {
   if (b.scrollHeight - b.scrollTop - b.clientHeight < 160) b.scrollTop = b.scrollHeight;
 }
 
-export async function send(text, { skill = null, model, accountId } = {}) {
+export async function send(text, { skill = null, model, accountId, effort } = {}) {
   if (ctx.busy) return toast("Die Antwort läuft noch …");
   const agent = agentById(ctx.agentId) || state.agent;
   ctx.busy = true;
@@ -98,7 +98,7 @@ export async function send(text, { skill = null, model, accountId } = {}) {
   setLive("thinking");
   let ok = false, meta = {};
   try {
-    await streamChat({ chat_id: ctx.id, agent_id: agent.id, text, skill, model, account_id: accountId }, (ev) => {
+    await streamChat({ chat_id: ctx.id, agent_id: agent.id, text, skill, model, account_id: accountId, effort }, (ev) => {
       if (ev.chat) {
         if (!ctx.id) { ctx.id = ev.chat.id; setUrl(`/chat/${ev.chat.id}`, { push: !location.pathname.startsWith("/chat/") }); }
       } else if (ev.text !== undefined) {

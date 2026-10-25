@@ -392,3 +392,9 @@ body.mic-on .mic-info { color: #ff8f8f; }
   .mm-lvl button { padding: 0 8px; font-size: 11px; }
   .model-menu .mm-head span { display: none; }
 }
+/* Claude: five thinking levels – on small screens below the name */
+@media (max-width: 700px) {
+  .model-menu .mm-item:has(.mm-lvl.claude) { flex-wrap: wrap; row-gap: 6px; }
+  .mm-lvl.claude { flex-basis: 100%; }
+  .mm-lvl.claude button { flex: 1; padding: 0 4px; }
+}

@@ -63,7 +63,7 @@ async def _connectors(db: AsyncSession, agent: Agent) -> tuple[dict, list[str], 
 
 async def prepare(db: AsyncSession, agent: Agent, prompt: str, *, model: str | None = None, account: Account | None = None,
                   interactive: bool = False, depth: int = 0, memory_on: bool | None = None, forced_skill: Skill | None = None,
-                  session_id: str | None = None, persist: bool = False, extra: str = "") -> Prepared:
+                  session_id: str | None = None, persist: bool = False, extra: str = "", effort: str | None = None) -> Prepared:
     s = get_settings()
     memory_on = agent.memory_enabled if memory_on is None else memory_on
     labels = await prompts.labels(db)
@@ -85,7 +85,7 @@ async def prepare(db: AsyncSession, agent: Agent, prompt: str, *, model: str | N
     model = model or agent.model or s.default_model
     acc = account or await account_or_first(db, agent.account_id, model)
     spec = RunSpec(model=model, account=acc, prompt=prompt, system=system,
-                   mcp_servers=servers, allow=allow, deny=deny, session_id=session_id, persist=persist,
+                   mcp_servers=servers, allow=allow, deny=deny, session_id=session_id, persist=persist, effort=effort,
                    agent_id=agent.id, kind="chat" if interactive else "run")
     return Prepared(spec=spec, token=token)
 
