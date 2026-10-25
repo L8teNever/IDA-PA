@@ -502,6 +502,12 @@ async def logout(account: Account) -> None:
 
 # ---------------- models ----------------
 def _parse_models(result: dict) -> list[dict]:
+    """The account's models. The agent lists every model with its thinking level (…-low/-medium/-high) under
+    models.availableModels – that list is preferred; the "model" select only has the base models."""
+    variants = [{"id": m["modelId"], "name": m.get("name") or m["modelId"], "desc": ""}
+                for m in ((result or {}).get("models") or {}).get("availableModels") or [] if m.get("modelId")]
+    order = {"high": 0, "medium": 1, "low": 2}
+    variants.sort(key=lambda m: (re.sub(r"-(low|medium|high)$", "", m["id"]), order.get(m["id"].rsplit("-", 1)[-1], 9)))
     out: list[dict] = []
     for opt in (result or {}).get("configOptions") or []:
         if opt.get("id") == "model" and opt.get("type") == "select":
@@ -509,11 +515,7 @@ def _parse_models(result: dict) -> list[dict]:
                 for o in (entry.get("options") if "options" in entry else [entry]):
                     if o.get("value"):
                         out.append({"id": o["value"], "name": o.get("name") or o["value"], "desc": o.get("description") or ""})
-    if not out:
-        for m in ((result or {}).get("models") or {}).get("availableModels") or []:
-            if m.get("modelId"):
-                out.append({"id": m["modelId"], "name": m.get("name") or m["modelId"], "desc": m.get("description") or ""})
-    return out
+    return variants if len(variants) >= len(out) else out
 
 
 async def load_models(account: Account, c: Client | None = None) -> list[dict]:
@@ -570,9 +572,11 @@ async def _fetch_usage(account: Account) -> dict:
                         if rr.status_code == 200:
                             outs.append(rr.json())
                 return outs
+            # the summary only has the shared Claude/GPT group; Gemini quotas are per model in fetchAvailableModels
             windows = _summary_windows(await call("retrieveUserQuotaSummary"))
-            if not windows:
-                windows = _model_windows(await call("fetchAvailableModels"))
+            covered = {w["id"].split("-")[0] for w in windows}
+            windows += [w for w in _model_windows(await call("fetchAvailableModels"))
+                        if not (w["id"].startswith(("claude", "gpt")) and "3p" in covered)]
     except (OSError, ValueError, KeyError, httpx.HTTPError) as e:
         return {"error": f"Limits konnten nicht gelesen werden: {e.__class__.__name__}"}
     if not windows:
@@ -604,7 +608,7 @@ def _summary_windows(responses: list[dict]) -> list[dict]:
                 if b.get("disabled") or not b.get("bucketId"):
                     continue
                 bid = b["bucketId"]
-                fam = "Gemini" if bid.startswith("gemini-") else "Claude & GPT" if bid.startswith("3p-") else (g.get("displayName") or bid)
+                fam = "Gemini" if bid.startswith("gemini-") else "Claude & GPT (in IDA nicht nutzbar)" if bid.startswith("3p-") else (g.get("displayName") or bid)
                 win = b.get("window")
                 label = f"{fam} · " + ("Woche" if win == "weekly" else "5 Std" if win == "5h" else (b.get("displayName") or "Kontingent"))
                 w = _window(bid, label, b)
@@ -617,13 +621,15 @@ def _model_windows(responses: list[dict]) -> list[dict]:
     out = []
     for s in responses:
         for mid, m in (s.get("models") or {}).items():
+            if not m.get("displayName"):  # internal helpers (tab completion etc.)
+                continue
             prov = m.get("modelProvider") or ""
             fam = ("Gemini" if "GOOGLE" in prov or mid.startswith("gemini-") else "Claude" if "ANTHROPIC" in prov or mid.startswith("claude-")
                    else "GPT" if "OPENAI" in prov or mid.startswith("gpt-") else None)
             if not fam:
                 continue
             for suffix, q in (("quota", m.get("quotaInfo")), ("weekly", m.get("weeklyQuotaInfo"))):
-                w = _window(f"{fam.lower()}-{suffix}", f"{fam} · {'Woche' if suffix == 'weekly' else 'Kontingent'}", q or {})
+                w = _window(f"{fam.lower()}-{suffix}", f"{fam} · {'Woche' if suffix == 'weekly' else 'aktuelles Kontingent'}", q or {})
                 if w:
                     out.append(w)
     return _merge(out)
@@ -689,11 +695,11 @@ async def stream(spec) -> AsyncIterator[dict]:
         c.sessions[sid] = queue
         c.allowed_servers[sid] = set(spec.mcp_servers)
         model = spec.model[len(PREFIX):] if is_model(spec.model) else ""
-        if model:
+        if model:  # variants (…-high) via set_model, base models also via the config option
             try:
-                await c.request("session/set_config_option", {"sessionId": sid, "configId": "model", "value": model}, 30)
-            except Invalid:
                 await c.request("session/set_model", {"sessionId": sid, "modelId": model}, 30)
+            except Invalid:
+                await c.request("session/set_config_option", {"sessionId": sid, "configId": "model", "value": model}, 30)
         prompt = asyncio.create_task(c.request("session/prompt", {"sessionId": sid, "prompt": [{"type": "text", "text": _prompt(spec)}]},
                                                s.run_timeout_s))
         names: dict[str, tuple[str, str]] = {}
