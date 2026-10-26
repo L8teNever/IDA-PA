@@ -2,7 +2,7 @@
 import { api } from "../api.js";
 import { navigate } from "../router.js";
 import { agentById, agentOf, colors, mainAgent, setUnread } from "../store.js";
-import { $, enableSwipe, esc, fmtTime } from "../ui/dom.js";
+import { $, attempt, enableSwipe, esc, fmtTime } from "../ui/dom.js";
 import { setAgent, setView } from "../ui/shell.js";
 import { newChat, send } from "./chat.js";
 
@@ -107,6 +107,14 @@ function renderTimeline(all) {
         <span class="time">${x.all_day ? `<span class="ms">event</span>` : fmtTime(x.at)}</span>
         <span class="evtxt"><b>${esc(x.title)}</b><small>${esc(sub)}</small></span></div>`;
     }
+    if (x.kind === "tracker") {
+      const by = x.by === "link" ? " · per NFC" : x.by && x.by !== "user" ? ` · von ${agentOf(x.by).name}` : "";
+      return `<div class="ev trk-ev ${x.done ? "done" : ""} ${i < nowIdx ? "past" : i === nowIdx ? "now" : ""}" data-href="/tracker">
+        <span class="time">${x.all_day ? `<span class="ms">${esc(x.icon || "task_alt")}</span>` : fmtTime(x.at)}</span>
+        <span class="evtxt"><b>${esc(x.title)}</b><small>${x.done ? "abgehakt" + esc(by) : "offen"}</small></span>
+        <button type="button" class="trk-tick" data-tick="${esc(x.tracker_id)}" data-slot="${esc(x.slot)}" data-done="${x.done ? 1 : ""}"
+          aria-label="${x.done ? "Zurücknehmen" : "Abhaken"}"><span class="ms">${x.done ? "check" : ""}</span></button></div>`;
+    }
     const a = agentOf(x.agent_id);
     const sub = x.kind === "reminder" ? (x.status === "pending" ? (x.task ? `${a.name} erledigt es` : "Erinnerung") : x.status === "done" ? "erledigt" : "fehlgeschlagen")
       : x.kind === "next" ? `geplant · ${a.name}` : `${x.ok ? "erledigt" : "fehlgeschlagen"} · ${a.name}`;
@@ -125,6 +133,15 @@ function renderTimeline(all) {
     + (pastN ? `<div class="past-wrap ${pastOpen ? "open" : ""}"><div>${items.slice(0, pastN).map(html).join("")}</div></div>` : "")
     + items.slice(pastN).map((x, k) => html(x, k + pastN)).join("")
     + calHint;
+  $("timeline").onclick = async (e) => {
+    const b = e.target.closest("[data-tick]");
+    if (!b) return;
+    e.preventDefault(); // not the row's link to /tracker
+    b.disabled = true;
+    const undo = !!b.dataset.done;
+    if (await attempt(() => api.post(`/trackers/${b.dataset.tick}/check`, { slot: b.dataset.slot, undo }), undo ? "Zurückgenommen" : "✓ Abgehakt")) refresh();
+    else b.disabled = false;
+  };
   $("pastSlot").onclick = (e) => { if (e.target.closest("#pastToggle")) { pastOpen = !pastOpen; renderTimeline(all); } };
 }
 

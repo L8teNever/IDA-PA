@@ -126,6 +126,46 @@ class ReminderUpdate(BaseModel):
     show_on_home: bool | None = None
 
 
+class TrackerSlot(BaseModel):
+    key: str | None = None  # kept on changes, so ticks stay attached
+    label: str = ""
+    time: str | None = None  # "HH:MM" – followed up then if still open; None = only tick
+
+
+class TrackerCreate(BaseModel):
+    name: str
+    icon: str | None = None
+    note: str | None = None
+    slots: list[TrackerSlot] = Field(default_factory=lambda: [TrackerSlot()])
+    days: list[int] | None = None  # 0 = Monday … 6 = Sunday, empty = every day
+    on_missed: str = "none"  # none | notify | routine
+    routine_id: str | None = None
+    show_on_home: bool = True
+
+
+class TrackerUpdate(BaseModel):
+    name: str | None = None
+    icon: str | None = None
+    note: str | None = None
+    slots: list[TrackerSlot] | None = None
+    days: list[int] | None = None
+    on_missed: str | None = None
+    routine_id: str | None = None
+    show_on_home: bool | None = None
+    enabled: bool | None = None
+
+
+class TrackerTick(BaseModel):
+    slot: str | None = None  # key; empty = the first open one
+    day: str | None = None  # "YYYY-MM-DD", empty = today
+    undo: bool = False
+
+
+class TrackerLinkCreate(BaseModel):
+    name: str = ""
+    slot: str | None = None  # key; None = automatically by the time of day
+
+
 class HomeCalendar(BaseModel):
     off: bool = False  # no calendar on the start page
     connector: str | None = None  # empty = pick automatically

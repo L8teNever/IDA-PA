@@ -20,6 +20,7 @@ from .. import antigravity
 from ..claude import models as claude_models
 from .. import reminders as reminder_svc
 from .. import routines as routine_svc
+from .. import trackers as tracker_svc
 from .. import skills as skill_svc
 from ..claude import prompts
 from ..errors import Invalid, NotFound
@@ -50,6 +51,14 @@ def _spec(ids: list[str]) -> list[tuple[str, str, str, dict]]:
                        "when": when,
                        "kind": {"type": "string", "enum": ["remind", "task"], "description": "remind = nur erinnern (Benachrichtigung, keine KI); task = der Agent erledigt es zu dem Zeitpunkt"},
                        "agent_id": {**agent_enum, "description": "wer es erledigt (nur bei task wichtig)"}, "show_on_home": on_home}
+    slot = {"type": "object", "properties": {"label": {**E, "description": "z. B. Morgens"}, "time": {**E, "description": f"HH:MM ({s.timezone}) – bis dahin abhaken, sonst wird nachgehakt; weglassen = nur abhaken"},
+                                             "key": {**E, "description": "nur beim Ändern: Schlüssel eines vorhandenen Fensters (behält die Haken)"}}}
+    tracker_fields = {"name": E, "note": {**E, "description": "kurze Notiz, z. B. Dosis"},
+                      "slots": {"type": "array", "items": slot, "description": "Zeitfenster pro Tag, je einmal abzuhaken – z. B. [{\"label\":\"Morgens\",\"time\":\"08:00\"},{\"label\":\"Abends\",\"time\":\"20:00\"}]; Standard: einmal täglich ohne Uhrzeit"},
+                      "days": {"type": "array", "items": {"type": "integer", "minimum": 0, "maximum": 6}, "description": "Wochentage 0=Mo … 6=So, leer = täglich"},
+                      "on_missed": {"type": "string", "enum": list(tracker_svc.ACTIONS), "description": "Ist ein Fenster zu seiner Uhrzeit noch offen: none = nichts, notify = Benachrichtigung an den Nutzer (ohne KI), routine = routine_id starten (je Fenster höchstens einmal am Tag)"},
+                      "routine_id": {**E, "description": "Routine für on_missed=routine – am besten eine mit on_demand=true (sonst läuft sie zusätzlich nach ihrem Zeitplan)"},
+                      "show_on_home": {"type": "boolean", "description": "im Tagesplan auf der Startseite zeigen (Standard ja)"}}
     mem_scope = {"type": "string", "description": "own = dein eigenes, shared = gemeinsames Gedächtnis; der Haupt-Agent zusätzlich eine Agent-ID (fremdes Gedächtnis!)"}
     mem_type = {"type": "string", "enum": ["fact", "preference", "rule", "event"]}
     mem_exp = {"type": "integer", "minimum": 0, "maximum": 3650, "description": "nur so viele Tage gültig (0 = immer)"}
@@ -66,6 +75,12 @@ def _spec(ids: list[str]) -> list[tuple[str, str, str, dict]]:
         (ALL, "reminder_list", "Listet offene und kürzlich erledigte Erinnerungen.", obj({})),
         (ALL, "reminder_update", "Ändert eine Erinnerung (Text, Zeitpunkt, Art).", obj({"id": E, **reminder_fields}, ("id",))),
         (ALL, "reminder_delete", "Löscht eine Erinnerung.", obj({"id": E}, ("id",))),
+        (ALL, "tracker_list", "Listet alle Tracker (täglich abzuhakende Dinge wie „Tablette morgens + abends“) mit dem Stand von heute je Zeitfenster und der Serie.", obj({})),
+        (ALL, "tracker_create", "Legt einen Tracker an: etwas, das der Nutzer regelmäßig abhakt (Tablette, Vitamine, Pflanzen gießen …), optional mit Nachhaken, wenn es zur Uhrzeit nicht abgehakt ist.", obj(tracker_fields, ("name",))),
+        (ALL, "tracker_update", "Ändert einen Tracker (Name, Zeitfenster, Tage, Nachhaken, Routine).", obj({"id": E, **tracker_fields, "enabled": {"type": "boolean"}}, ("id",))),
+        (MAIN, "tracker_delete", "Löscht einen Tracker samt Verlauf.", obj({"id": E}, ("id",))),
+        (ALL, "tracker_check", "Hakt ein Zeitfenster eines Trackers ab (z. B. wenn der Nutzer sagt „hab die Tablette genommen“) – oder mit undo=true wieder zurück. Ohne slot: das Fenster, das zur Uhrzeit passt (z. B. abends das Abend-Fenster; bei Fenstern ohne Uhrzeit das nächste offene).", obj({"id": E, "slot": {**E, "description": "Schlüssel, Name (Morgens) oder Uhrzeit des Fensters"}, "day": {**E, "description": "JJJJ-MM-TT oder gestern; Standard heute"}, "undo": {"type": "boolean"}}, ("id",))),
+        (ALL, "tracker_history", "Verlauf eines Trackers: je Tag, welche Fenster abgehakt wurden.", obj({"id": E, "days": {"type": "integer", "minimum": 1, "maximum": 90}}, ("id",))),
         (ALL, "routine_list", "Listet alle Routinen mit Besitzer, Zeitplan/Auslöser und letztem Ergebnis.", obj({})),
         (ALL, "routine_create", "Legt eine Routine an – nur für Dinge, die sich WIEDERHOLEN (Intervall, feste Uhrzeiten, Auslöser oder auf Abruf). Einmaliges -> reminder_create. Sub-Agenten nur für sich selbst.", obj({**routine_fields, "agent_id": agent_enum}, ("name", "prompt"))),
         (ALL, "routine_update", "Ändert eine Routine (Sub-Agenten nur eigene; Zuteilen nur der Haupt-Agent).", obj({"id": E, **routine_fields, "enabled": {"type": "boolean"}, "agent_id": agent_enum}, ("id",))),
@@ -248,6 +263,8 @@ async def _call(db: AsyncSession, me: Identity, name: str, a: dict) -> dict:
     if name == "reminder_delete":
         await reminder_svc.remove(db, str(a.get("id")))
         return {"ok": True}
+    if name.startswith("tracker_"):
+        return await _tracker_call(db, me, name, a, labels)
     if name == "chat_search":
         return await _chat_search(db, str(a.get("query") or ""), a.get("agent_id"), int(a.get("limit") or 10), labels)
     if name == "chat_read":
@@ -280,6 +297,44 @@ async def _call(db: AsyncSession, me: Identity, name: str, a: dict) -> dict:
         return {"ok": True}
     if name.startswith("memory_"):
         return await memory.call_tool(db, me.agent_id, me.is_main, name, a, labels)
+    return {"error": f"Unbekanntes Tool {name}"}
+
+
+def _tracker_view(t, st: dict, labels: dict) -> dict:
+    today = st["today"]
+    return {"id": t.id, "name": t.name, "notiz": t.note or None, "aktiv": t.enabled, "tage": t.days or "täglich",
+            "nachhaken": t.on_missed, "routine": t.routine_id, "serie": st["streak"], "heuteFaellig": today["due"],
+            "heute": [{"slot": x["key"], "name": x["label"], "uhrzeit": x["time"], "abgehakt": x["done"],
+                       **({"von": "NFC-Tag/Link" if x["by"] == tracker_svc.LINK_BY else labels.get(x["by"], x["by"])} if x["done"] else {})} for x in today["slots"]]}
+
+
+async def _tracker_call(db: AsyncSession, me: Identity, name: str, a: dict, labels: dict) -> dict:
+    owner = None if me.is_main else me.agent_id  # sub-agents link only their own routines
+    fields = {k: v for k, v in a.items() if k in ("name", "note", "slots", "days", "on_missed", "routine_id", "show_on_home", "enabled")}
+    if name == "tracker_list":
+        rows = await tracker_svc.listing(db)
+        st = await tracker_svc.overview(db, rows, 1)
+        return {"heute": tracker_svc.local_today().isoformat(), "tracker": [_tracker_view(t, st[t.id], labels) for t in rows]}
+    if name == "tracker_create":
+        t = await tracker_svc.create(db, fields, created_by=me.agent_id, owner=owner)
+        return {"ok": True, "id": t.id, "zeitfenster": [tracker_svc.slot_text(x) for x in t.slots], "nachhaken": t.on_missed}
+    if name == "tracker_update":
+        t = await tracker_svc.update(db, str(a.get("id")), fields, owner=owner)
+        return {"ok": True, "zeitfenster": [{"slot": x["key"], "name": tracker_svc.slot_text(x)} for x in t.slots]}
+    if name == "tracker_delete":
+        await tracker_svc.remove(db, str(a.get("id")))
+        return {"ok": True}
+    if name == "tracker_check":
+        res = await tracker_svc.check(db, str(a.get("id")), a.get("slot"), a.get("day"), by=me.agent_id, undo=bool(a.get("undo")))
+        t = res["tracker"]
+        st = (await tracker_svc.overview(db, [t], 1))[t.id]
+        return {"ok": True, "abgehakt": res["checked"], "tag": res["day"], "fenster": tracker_svc.slot_text(res["slot"]),
+                "stand": _tracker_view(t, st, labels)}
+    if name == "tracker_history":
+        t = await tracker_svc.get(db, str(a.get("id")))
+        st = (await tracker_svc.overview(db, [t], max(1, min(int(a.get("days") or 14), 90))))[t.id]
+        return {"id": t.id, "name": t.name, "serie": st["streak"],
+                "tage": [{"tag": d["day"], "faellig": d["due"], "abgehakt": [x["label"] for x in d["slots"] if x["done"]], "von": d["total"]} for d in st["recent"]]}
     return {"error": f"Unbekanntes Tool {name}"}
 
 

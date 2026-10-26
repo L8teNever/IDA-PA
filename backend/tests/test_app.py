@@ -553,3 +553,152 @@ def test_stop_button_ends_running_answer(client):
     assert next(e["done"] for e in ev if "done" in e)["ok"]
     assert client.post(f"{API}/chats/{cid}/stop").json()["ok"] is False
     client.delete(f"{API}/chats/{cid}")
+
+
+def test_trackers(client):
+    """Daily things to tick off – by the user or an agent; open slots are followed up (notification or routine)."""
+    from datetime import datetime, timedelta
+    from zoneinfo import ZoneInfo
+    today = datetime.now(ZoneInfo("Europe/Berlin")).date()
+    yesterday = (today - timedelta(days=1)).isoformat()
+    bad = client.post(f"{API}/trackers", json={"name": "X", "slots": [{"label": "M", "time": "25:00"}]})
+    assert bad.status_code == 400
+    assert client.post(f"{API}/trackers", json={"name": "X", "on_missed": "routine"}).status_code == 400  # needs a routine
+    assert client.post(f"{API}/trackers", json={"name": "X", "on_missed": "notify"}).status_code == 400  # needs a time
+    t = client.post(f"{API}/trackers", json={"name": "Tablette", "slots": [{"label": "Morgens", "time": "08:00"}, {"label": "Abends", "time": "20:00"}],
+                                             "on_missed": "notify"}).json()
+    assert [s["label"] for s in t["slots"]] == ["Morgens", "Abends"] and t["today"]["done"] == 0 and len(t["recent"]) == 14
+    morning, evening = (s["key"] for s in t["slots"])
+    # tick, untick, tick the first open one
+    t = client.post(f"{API}/trackers/{t['id']}/check", json={"slot": morning}).json()
+    assert t["today"]["slots"][0]["done"] and t["today"]["slots"][0]["by"] == "user"
+    t = client.post(f"{API}/trackers/{t['id']}/check", json={"slot": morning, "undo": True}).json()
+    assert t["today"]["done"] == 0
+    t = client.post(f"{API}/trackers/{t['id']}/check", json={}).json()
+    assert t["today"]["slots"][0]["done"] and not t["today"]["slots"][1]["done"]
+    # add a forgotten day; the streak counts it, an open today does not break it
+    for s in (morning, evening):
+        t = client.post(f"{API}/trackers/{t['id']}/check", json={"slot": s, "day": yesterday}).json()
+    assert t["streak"] == 1 and t["recent"][-2]["done"] == 2
+    t = client.post(f"{API}/trackers/{t['id']}/check", json={"slot": evening}).json()
+    assert t["streak"] == 2 and t["today"]["done"] == 2
+    assert client.post(f"{API}/trackers/{t['id']}/check", json={"day": (today + timedelta(days=1)).isoformat()}).status_code == 400
+    # renaming a slot keeps its ticks
+    t = client.patch(f"{API}/trackers/{t['id']}", json={"slots": [{"key": morning, "label": "Früh", "time": "07:30"}, {"key": evening, "label": "Abends", "time": "20:00"}]}).json()
+    assert t["today"]["slots"][0]["label"] == "Früh" and t["today"]["slots"][0]["done"]
+    # follow-up: notification without AI
+    before = len(client.get(f"{API}/messages").json())
+    assert client.post(f"{API}/trackers/{t['id']}/missed/{morning}").json()["action"] == "notify"
+    msgs = client.get(f"{API}/messages").json()
+    assert len(msgs) == before + 1 and any("Tablette" in m["title"] and "Früh" in m["text"] for m in msgs)
+    # follow-up: a linked routine (on demand) runs and learns which slot is open
+    r = client.post(f"{API}/routines", json={"name": "Tabletten-Nachhaken", "prompt": "Frag nach der Tablette", "on_demand": True}).json()
+    t = client.patch(f"{API}/trackers/{t['id']}", json={"on_missed": "routine", "routine_id": r["id"]}).json()
+    assert client.post(f"{API}/trackers/{t['id']}/missed/{evening}").json()["action"] == "routine"
+    run = wait(lambda: client.get(f"{API}/routines/{r['id']}").json()["runs"])
+    assert run[0]["via"] == "tracker" and "Abends (20:00)" in run[0]["text"] and "tracker_check" in run[0]["text"]
+    assert client.get(f"{API}/routines/{r['id']}").json()["trackers"] == [{"id": t["id"], "name": "Tablette"}]
+    # day plan: both slots, ticked
+    plan = [x for x in client.get(f"{API}/home").json()["timeline"] if x["kind"] == "tracker" and x["tracker_id"] == t["id"]]
+    assert len(plan) == 2 and all(x["done"] for x in plan) and plan[0]["title"] == "Tablette · Früh"
+    # agents: create and tick via MCP; their name is kept as who ticked it
+    ev = chat(client, text="TOOL tracker_create " + json.dumps({"name": "Vitamin D", "slots": [{"time": "09:00"}], "on_missed": "notify"}))
+    assert '"ok": true' in "".join(e.get("text", "") for e in ev)
+    vit = next(x for x in client.get(f"{API}/trackers").json() if x["name"] == "Vitamin D")
+    assert vit["slots"][0]["label"] == "Morgens" and vit["created_by"] == "ida"
+    ev = chat(client, text="TOOL tracker_check " + json.dumps({"id": vit["id"], "slot": "morgens"}))
+    assert '"abgehakt": true' in "".join(e.get("text", "") for e in ev)
+    vit = next(x for x in client.get(f"{API}/trackers").json() if x["id"] == vit["id"])
+    assert vit["today"]["slots"][0]["by"] == "ida"
+    ev = chat(client, text="TOOL tracker_list {}")
+    assert "Vitamin D" in "".join(e.get("text", "") for e in ev)
+    # deleting the routine unlinks it; the follow-up falls back to a notification
+    client.delete(f"{API}/routines/{r['id']}")
+    assert client.post(f"{API}/trackers/{t['id']}/missed/{evening}").json()["action"] == "notify"
+    for x in client.get(f"{API}/trackers").json():
+        assert client.delete(f"{API}/trackers/{x['id']}").status_code == 200
+    assert client.get(f"{API}/trackers").json() == []
+
+
+def test_tracker_follow_up_timing(client):
+    """A slot is followed up once its time is reached, at most 3 h later, once per day and only while open."""
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    from app.models import Tracker
+    from app.services.trackers import due_slots
+    z = ZoneInfo("Europe/Berlin")
+    t = Tracker(name="T", enabled=True, on_missed="notify", days=None, fired={},
+                slots=[{"key": "m", "label": "Morgens", "time": "08:00"}, {"key": "a", "label": "Abends", "time": "20:00"}, {"key": "x", "label": "Egal", "time": None}])
+    at = lambda h, m=0: datetime(2026, 10, 26, h, m, tzinfo=z)  # noqa: E731 – a Monday
+    keys = lambda now, done=(): [s["key"] for s in due_slots(t, now, set(done))]  # noqa: E731
+    assert keys(at(7, 59)) == []
+    assert keys(at(8, 0)) == ["m"] and keys(at(10, 59)) == ["m"]
+    assert keys(at(11, 1)) == []  # too late (e.g. after a restart) – not followed up any more
+    assert keys(at(8, 30), done=["m"]) == []  # ticked: nothing
+    t.fired = {"m": "2026-10-26"}
+    assert keys(at(9)) == [] and keys(at(20, 5)) == ["a"]  # once per day and slot; evening separately
+    t.days = [5, 6]
+    assert keys(at(20, 5)) == []  # not due on Mondays
+    t.days, t.on_missed = None, "none"
+    assert keys(at(20, 5)) == []
+
+
+def test_tracker_pick_slot_by_time_of_day(client):
+    """A tick without slot (NFC link, „hab ich gemacht“) takes the slot that fits the time of day."""
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    from app.models import Tracker
+    from app.services.trackers import _clean_slots, pick_slot
+    z = ZoneInfo("Europe/Berlin")
+    at = lambda h, m=0: datetime(2026, 10, 26, h, m, tzinfo=z)  # noqa: E731
+    t = Tracker(name="Tablette", slots=[{"key": "m", "label": "Morgens", "time": "08:00"}, {"key": "a", "label": "Abends", "time": "20:00"}])
+    key = lambda now, done=(): (pick_slot(t, now, set(done)) or {}).get("key")  # noqa: E731
+    assert key(at(7, 30)) == "m"  # shortly before: the morning
+    assert key(at(6, 30)) == "m"  # nothing due yet: the earliest open one (taken early)
+    assert key(at(14)) == "m"  # morning still open: catch up on it
+    assert key(at(14), done=["m"]) == "a"  # morning done: the evening (early)
+    assert key(at(21)) == "a"  # evening: the evening one – the morning stays missed
+    assert key(at(21), done=["m", "a"]) is None
+    # 3× a day, no matter when: one after the other
+    slots = _clean_slots([{}, {}, {}], [])
+    assert [s["label"] for s in slots] == ["1. Mal", "2. Mal", "3. Mal"]
+    t3 = Tracker(name="Wasser", slots=slots)
+    done = []
+    for _ in range(3):
+        done.append(pick_slot(t3, at(12), set(done))["key"])
+    assert done == [s["key"] for s in slots] and pick_slot(t3, at(12), set(done)) is None
+
+
+def test_tracker_links_tick_by_tapping(client):
+    """Secret links (NFC tags): opening one ticks the tracker once – the slot that fits now, or a fixed one."""
+    from datetime import timedelta
+
+    from app.services import trackers as svc
+    t = client.post(f"{API}/trackers", json={"name": "Wasser", "slots": [{}, {}]}).json()
+    first, second = (s["key"] for s in t["slots"])
+    a = client.post(f"{API}/trackers/{t['id']}/links", json={"name": "Küche"}).json()
+    b = client.post(f"{API}/trackers/{t['id']}/links", json={"name": "Bad", "slot": second}).json()
+    assert a["path"] == f"/t/{a['token']}" and a["slot"] is None and b["slot"] == second and len(a["token"]) >= 20
+    assert [x["name"] for x in client.get(f"{API}/trackers/{t['id']}/links").json()] == ["Küche", "Bad"]
+    assert next(x for x in client.get(f"{API}/trackers").json() if x["id"] == t["id"])["links"] == 2
+    assert client.get(f"/t/{a['token']}").status_code == 200  # the page is the app (it ticks via POST, not on load)
+
+    r = client.post(f"{API}/tap/{a['token']}").json()
+    assert r["status"] == "checked" and r["slot"]["key"] == first and r["link"] == "Küche"
+    assert r["tracker"]["today"]["slots"][0]["by"] == "link"
+    assert client.post(f"{API}/tap/{a['token']}").json()["status"] == "repeat"  # tag read twice: only once
+    assert client.post(f"{API}/tap/{b['token']}").json()["status"] == "checked"  # another link: fixed slot
+    svc.REPEAT = timedelta(0)  # the server runs in this process: switch off the 30-s guard against double reads
+    try:
+        assert client.post(f"{API}/tap/{b['token']}").json()["status"] == "already"
+        r = client.post(f"{API}/tap/{a['token']}").json()
+    finally:
+        svc.REPEAT = timedelta(seconds=30)
+    assert r["status"] == "all_done" and r["tracker"]["today"]["done"] == 2
+    assert [x["uses"] for x in client.get(f"{API}/trackers/{t['id']}/links").json()] == [1, 1]
+    assert client.delete(f"{API}/trackers/{t['id']}/links/{a['id']}").status_code == 200
+    assert client.post(f"{API}/tap/{a['token']}").status_code == 404
+    client.delete(f"{API}/trackers/{t['id']}")
+    assert client.post(f"{API}/tap/{b['token']}").status_code == 404  # links go with their tracker

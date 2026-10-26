@@ -1,7 +1,7 @@
 """Model -> JSON for the browser. Secrets (tokens, URLs with tokens) never leave the server unmasked."""
 from datetime import datetime, timezone
 
-from ..models import Account, Agent, AgentRun, Chat, ChatMessage, Connector, MemoryEntry, Message, Reminder, Routine, RoutineRun, Skill
+from ..models import Account, Agent, AgentRun, Chat, ChatMessage, Connector, MemoryEntry, Message, Reminder, Routine, RoutineRun, Skill, Tracker, TrackerLink
 from ..services.mcp.client import mask_url
 
 
@@ -68,6 +68,18 @@ def routine(r: Routine, last: RoutineRun | None = None, running: bool = False) -
 def reminder(r: Reminder) -> dict:
     return {"id": r.id, "text": r.text, "kind": r.kind, "agent_id": r.agent_id, "due_at": iso(r.due_at), "status": r.status,
             "result": r.result, "created_by": r.created_by, "show_on_home": r.show_on_home, "done_at": iso(r.done_at), "created_at": iso(r.created_at)}
+
+
+def tracker(t: Tracker, status: dict) -> dict:
+    """status from services.trackers.overview: today, recent (oldest first), streak."""
+    return {"id": t.id, "name": t.name, "icon": t.icon, "note": t.note, "slots": t.slots, "days": t.days, "on_missed": t.on_missed,
+            "routine_id": t.routine_id, "enabled": t.enabled, "show_on_home": t.show_on_home, "created_by": t.created_by,
+            "created_at": iso(t.created_at), **status}
+
+
+def tracker_link(link: TrackerLink) -> dict:
+    return {"id": link.id, "name": link.name, "token": link.token, "path": f"/t/{link.token}", "slot": link.slot,
+            "uses": link.uses, "last_used_at": iso(link.last_used_at), "created_at": iso(link.created_at)}
 
 
 def routine_run(r: RoutineRun) -> dict:

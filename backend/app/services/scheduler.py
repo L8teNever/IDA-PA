@@ -4,7 +4,7 @@ import logging
 import time
 
 from ..db import session_scope
-from . import reminders, routines
+from . import reminders, routines, trackers
 from . import antigravity
 from .claude import terminal
 from .memory import embeddings
@@ -21,6 +21,7 @@ async def _loop() -> None:
         try:
             await routines.schedule_tick()
             await reminders.schedule_tick()
+            await trackers.schedule_tick()
             await terminal.reap()
             antigravity.reap()
             if time.monotonic() - last_upkeep > 300:

@@ -6,9 +6,9 @@ from sqlalchemy import func, select
 
 from ..config import get_settings
 from ..db import utcnow
-from ..models import USER, Account, Agent, Connector, Message, Reminder, Routine, RoutineRun, Skill
+from ..models import USER, Account, Agent, Connector, Message, Reminder, Routine, RoutineRun, Skill, Tracker
 from ..schemas import HomeCalendar
-from ..services import activity, home_calendar, jobs, providers, settings_store, speech
+from ..services import activity, home_calendar, jobs, providers, settings_store, speech, trackers
 from ..services.agents import PALETTES
 from ..services.claude.usage import logged_in
 from ..services.errors import Invalid, NotFound
@@ -73,6 +73,17 @@ async def home(db: DB):
     for r in (await db.scalars(select(Reminder).where(Reminder.due_at >= start, Reminder.due_at < end, Reminder.show_on_home.is_(True)))).all():
         timeline.append({"kind": "reminder", "at": ser.iso(r.due_at), "title": ("⏰ " if r.kind == "remind" else "") + r.text[:80],
                          "agent_id": r.agent_id, "status": r.status, "task": r.kind == "task"})
+    marked = (await db.scalars(select(Tracker).where(Tracker.show_on_home.is_(True), Tracker.enabled.is_(True)).order_by(Tracker.position))).all()
+    status = await trackers.overview(db, list(marked), 1)
+    for t in marked:
+        today = status[t.id]["today"]
+        if not today["due"]:
+            continue
+        for x in today["slots"]:  # without a time: on top like all-day events
+            at = day.replace(hour=int(x["time"][:2]), minute=int(x["time"][3:])) if x["time"] else day
+            timeline.append({"kind": "tracker", "at": ser.iso(at.astimezone(timezone.utc)), "all_day": not x["time"], "icon": t.icon,
+                             "title": t.name + (f" · {x['label']}" if len(today["slots"]) > 1 else ""),
+                             "tracker_id": t.id, "slot": x["key"], "done": x["done"], "by": x["by"]})
     cal, cal_error = await home_calendar.config(db), None
     if cal:
         got = await home_calendar.fetch(db, cal)

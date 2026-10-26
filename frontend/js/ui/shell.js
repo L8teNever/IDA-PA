@@ -7,7 +7,7 @@ import { $, closeSheet, esc } from "./dom.js";
 // "home" (main agent: infos + today) | "agent" (start page of another agent) | "page" | "chat"
 export function setView(mode, { agentStage } = {}) {
   const b = document.body;
-  b.classList.remove("chatting", "on-page", "view-timeline", "show-mini", "show-bell");
+  b.classList.remove("chatting", "on-page", "view-timeline", "show-mini", "show-bell", "tap-view");
   closeDrawers();
   closeSheet();
   $("agentWrap").classList.remove("open");

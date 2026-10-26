@@ -4,6 +4,7 @@ from sqlalchemy import select
 from ..models import Routine, RoutineRun
 from ..schemas import RoutineCreate, RoutineUpdate, TriggerTest
 from ..services import routines as svc
+from ..services import trackers as tracker_svc
 from ..services import trigger_script, triggers
 from ..services.errors import Invalid, NotFound
 from ..services.mcp.client import McpError
@@ -29,7 +30,8 @@ async def get_routine(routine_id: str, db: DB):
     if not r:
         raise NotFound("Routine nicht gefunden")
     runs = (await db.scalars(select(RoutineRun).where(RoutineRun.routine_id == r.id).order_by(RoutineRun.at.desc()))).all()
-    return {**await _view(db, r), "runs": [ser.routine_run(x) for x in runs]}
+    linked = [{"id": t.id, "name": t.name} for t in await tracker_svc.linked(db, r.id)]
+    return {**await _view(db, r), "runs": [ser.routine_run(x) for x in runs], "trackers": linked}
 
 
 @router.post("", status_code=201)

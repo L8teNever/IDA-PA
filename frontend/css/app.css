@@ -430,3 +430,90 @@ body.answering .send .ms { font-variation-settings: "FILL" 1; }
 .cal-hint .ms { font-size: 18px; }
 .cal-hint:hover { color: var(--accent); }
 .rf-toggle { margin-top: 14px; }
+
+/* tracker */
+.rcard.trk { flex-direction: column; align-items: stretch; gap: 12px; }
+.trk-head { display: flex; align-items: center; gap: 14px; }
+.trk .ric { background: var(--container); color: var(--accent); }
+.trk-slots { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; }
+.trk-slot { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 18px; border: 0; cursor: pointer; text-align: left;
+  background: var(--surface-highest); color: var(--on-surface); font: inherit; transition: background .2s, border-radius .3s var(--spring); }
+.trk-slot:active { border-radius: 26px; }
+.trk-box { width: 34px; height: 34px; flex: none; border-radius: 50%; border: 2px solid #8e9099; display: grid; place-items: center;
+  transition: background .2s, border-color .2s, transform .3s var(--spring); }
+.trk-box .ms { font-size: 22px; font-weight: 700; }
+.trk-lbl b { display: block; font-size: 15px; font-weight: 500; }
+.trk-lbl small { color: var(--muted); font-size: 12px; }
+.trk-slot.done { background: rgba(var(--accent-rgb), .14); }
+.trk-slot.done .trk-box { background: var(--accent); border-color: var(--accent); color: var(--on-accent); transform: scale(1.05); }
+.trk-free { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 14px; padding: 2px 4px; }
+.trk-free .ms { font-size: 20px; }
+.trk-dots { display: grid; grid-template-columns: repeat(14, 1fr); gap: 2px; }
+.trk-dot { border: 0; background: transparent; color: var(--muted); cursor: pointer; padding: 4px 0; display: grid; justify-items: center; gap: 4px; border-radius: 8px; }
+.trk-dot:hover { background: rgba(255,255,255,.05); }
+.trk-dot i { width: 14px; height: 14px; border-radius: 50%; border: 2px solid #45464f; box-sizing: border-box; }
+.trk-dot small { font-size: 10px; }
+.trk-dot.full i { background: var(--accent); border-color: var(--accent); }
+.trk-dot.part i { border-color: var(--accent); background: linear-gradient(90deg, var(--accent) 50%, transparent 50%); }
+.trk-dot.free i { border-style: dashed; opacity: .5; }
+.trk-dot.today small { color: var(--accent); font-weight: 700; }
+.trk-edit { display: grid; gap: 8px; }
+.trk-erow { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.trk-erow .mini-in { flex: 1 1 140px; }
+.trk-edit > .time-add-btn { justify-self: start; }
+/* day plan: tick right in the row */
+.ev.trk-ev { cursor: pointer; align-items: flex-start; }
+.ev.trk-ev.done b { text-decoration: line-through; text-decoration-color: rgba(255,255,255,.35); }
+.trk-tick { width: 32px; height: 32px; flex: none; border-radius: 50%; border: 2px solid #8e9099; background: transparent; color: var(--on-accent);
+  display: grid; place-items: center; cursor: pointer; padding: 0; margin-top: -4px; }
+.trk-tick .ms { font-size: 20px; font-weight: 700; }
+.ev.trk-ev.done .trk-tick { background: var(--accent); border-color: var(--accent); }
+.time-chip .trk-tpick { width: auto; display: inline-flex; align-items: center; gap: 4px; padding: 0 4px 0 0; font: inherit; font-weight: 500; }
+.time-chip .trk-tpick .ms { font-size: 17px; opacity: .8; }
+.time-chip:has(.trk-tpick) { padding-left: 10px; }
+
+/* tracker links */
+.trk-link { display: flex; align-items: center; gap: 10px; padding: 10px 12px; margin-bottom: 8px; border-radius: 16px; background: var(--surface-highest); }
+.trk-link-main { flex: 1; min-width: 0; }
+.trk-link-main b { display: block; font-weight: 500; }
+.trk-link-main small { display: block; color: var(--muted); font-size: 12px; }
+.trk-link-main code { display: block; margin-top: 4px; font-size: 12px; color: var(--accent); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.trk-link-act { display: flex; gap: 2px; flex: none; }
+.trk-link-act .icon-btn { width: 40px; height: 40px; }
+.trk-link-new { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 6px 0 8px; }
+.trk-link-new .mini-in { flex: 1 1 180px; }
+.trk-link-new .fld { flex: 1 1 200px; margin: 0; padding-top: 8px; padding-bottom: 8px; }
+
+/* /t/<token>: ticked by link (NFC tag) – full screen celebration */
+body.tap-view #appHeader { display: none; }
+.tap { min-height: calc(100dvh - 48px); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px; text-align: center; padding: 24px 0; }
+.tap-stage { position: relative; display: grid; place-items: center; }
+.tap-buddy { width: min(46vw, 210px); }
+.tap-badge { position: absolute; right: -18px; bottom: -18px; width: 92px; height: 92px; }
+.tap-check { width: 100%; height: 100%; overflow: visible; }
+.tap-ring { fill: var(--surface-high); stroke: var(--accent); stroke-width: 7; stroke-dasharray: 327; stroke-dashoffset: 327; }
+.tap-tick { fill: none; stroke: var(--on-accent); stroke-width: 10; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 80; stroke-dashoffset: 80; }
+.tap-stage.go .tap-ring { animation: tapRing .55s .15s var(--emph, ease-out) forwards, tapFill .3s .65s ease-out forwards; }
+.tap-stage.go .tap-tick { animation: tapTick .35s .8s ease-out forwards; }
+.tap-stage.go .tap-badge { animation: tapPop .5s .65s var(--spring, ease-out) both; }
+.tap-stage.calm .tap-ring { stroke-dashoffset: 0; fill: var(--accent); opacity: .85; }
+.tap-stage.calm .tap-tick { stroke-dashoffset: 0; }
+@keyframes tapRing { to { stroke-dashoffset: 0; } }
+@keyframes tapFill { to { fill: var(--accent); } }
+@keyframes tapTick { to { stroke-dashoffset: 0; } }
+@keyframes tapPop { 0% { transform: scale(.6); } 60% { transform: scale(1.15); } 100% { transform: scale(1); } }
+.tap-sparks { position: absolute; inset: 0; pointer-events: none; }
+.tap-sparks i { position: absolute; left: 50%; top: 50%; width: 8px; height: 8px; margin: -4px; border-radius: 50%; background: var(--accent); opacity: 0;
+  animation: tapSpark .8s calc(.9s + var(--d)) ease-out forwards; }
+@keyframes tapSpark { 0% { opacity: 1; transform: rotate(var(--a)) translateY(0) scale(1); } 100% { opacity: 0; transform: rotate(var(--a)) translateY(-78px) scale(.4); } }
+.tap-text b { display: block; font-size: 24px; font-weight: 500; line-height: 1.25; }
+.tap-text small { display: block; margin-top: 6px; color: var(--muted); font-size: 15px; }
+.tap-slots { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
+.tap-slots span { display: inline-flex; align-items: center; gap: 6px; height: 34px; padding: 0 12px; border-radius: 12px; background: var(--surface-high); color: var(--muted); font-size: 14px; }
+.tap-slots span .ms { font-size: 18px; }
+.tap-slots span.on { background: rgba(var(--accent-rgb), .14); color: var(--on-surface); }
+.tap-slots span.on .ms { color: var(--accent); }
+.tap-btns { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 6px; }
+@media (prefers-reduced-motion: reduce) {
+  .tap-stage.go .tap-ring, .tap-stage.go .tap-tick, .tap-stage.go .tap-badge, .tap-sparks i { animation-duration: .01s; animation-delay: 0s; }
+}

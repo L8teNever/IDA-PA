@@ -69,6 +69,7 @@ export async function routineDetail({ id }) {
       <div class="kv"><span>Account</span><b>${esc(r.account_id ? (state.boot.accounts.find((x) => x.id === r.account_id)?.name || r.account_id) : "wie der Agent")}</b></div>
       <div class="kv"><span>Limit-Fallback</span><b>${r.fallback === null ? "wie der Agent" : r.fallback ? "an" : "aus"}</b></div>
       <div class="kv"><span>Gedächtnis</span><b>${r.memory_enabled === null ? "wie der Agent" : r.memory_enabled ? "an" : "aus"}</b></div>
+      ${r.trackers?.length ? `<div class="kv"><span>Tracker</span><b>startet, wenn ${r.trackers.map((x) => `<a href="/tracker">„${esc(x.name)}“</a>`).join(", ")} zur Uhrzeit nicht abgehakt ist</b></div>` : ""}
       <div class="kv"><span>Startseite</span><b>${r.show_on_home ? "im Tagesplan" : "nicht im Tagesplan"}</b></div>
       ${t ? `<div class="kv"><span>Letzte Prüfung</span><b>${t.last_check ? fmtDateTime(t.last_check) : "noch nicht"}${t.last_error ? ` · ⚠ ${esc(t.last_error)}` : t.last_note ? ` · ${esc(t.last_note)}` : ""}</b></div>
              ${t.last_fired ? `<div class="kv"><span>Zuletzt ausgelöst</span><b>${fmtDateTime(t.last_fired)}</b></div>` : ""}`
@@ -83,8 +84,8 @@ export async function routineDetail({ id }) {
     </div>
     <div class="grp">Verlauf</div>
     <div class="slist">${r.runs.length ? r.runs.map((x) => `<details class="srow run">
-      <summary><span class="sic" style="color:${x.ok ? "#7ee2b8" : "#ff8f8f"}"><span class="ms">${x.via === "trigger" ? "notifications_active" : x.ok ? "check_circle" : "error"}</span></span>
-      <span class="smain"><b>${fmtDateTime(x.at)}</b><small>${Math.round(x.ms / 1000)} s${x.account ? " · " + esc(x.account) : ""}${x.tools.length ? " · 🔧 " + esc(x.tools.join(", ")) : ""}</small></span></summary>
+      <summary><span class="sic" style="color:${x.ok ? "#7ee2b8" : "#ff8f8f"}"><span class="ms">${x.via === "trigger" ? "notifications_active" : x.via === "tracker" ? "checklist" : x.ok ? "check_circle" : "error"}</span></span>
+      <span class="smain"><b>${fmtDateTime(x.at)}${x.via === "tracker" ? " · vom Tracker" : ""}</b><small>${Math.round(x.ms / 1000)} s${x.account ? " · " + esc(x.account) : ""}${x.tools.length ? " · 🔧 " + esc(x.tools.join(", ")) : ""}</small></span></summary>
       <div class="md run-text">${md(x.text)}</div></details>`).join("") : `<div class="empty">Noch nicht gelaufen.</div>`}</div>`;
   $("rEnabled").onclick = async () => { await attempt(() => api.patch(`/routines/${id}`, { enabled: !r.enabled })); routineDetail({ id }); };
   $("rRun").onclick = async () => { await attempt(() => api.post(`/routines/${id}/run`), "In die Warteschlange gestellt"); };
