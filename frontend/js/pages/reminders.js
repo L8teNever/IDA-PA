@@ -1,6 +1,7 @@
-// "/erinnerungen" – things that happen ONCE („erinnere mich morgen um 9 an …“, „mach das am Freitag“).
+// "/erinnerungen", "/erinnerungen/neu", "/erinnerungen/<id>" – things that happen ONCE („erinnere mich morgen um 9 an …“, „mach das am Freitag“).
 // Routines repeat; reminders fire once: "remind" only sends a notification (no AI), "task" lets the agent do it.
 import { api } from "../api.js";
+import { navigate } from "../router.js";
 import { agentOf, agents, colors, mainAgent } from "../store.js";
 import { $, attempt, autogrow, esc, fmtDateTime, sw, toast } from "../ui/dom.js";
 import { openTimePicker } from "../ui/timepicker.js";
@@ -18,7 +19,7 @@ function dayLabel(iso) {
 const whenLabel = (iso) => { const d = new Date(iso); return `${dayLabel(isoDay(d))}, ${pad(d.getHours())}:${pad(d.getMinutes())}`; };
 const STATUS = { pending: "geplant", running: "läuft", done: "erledigt", failed: "fehlgeschlagen" };
 
-export async function remindersPage() {
+export async function remindersPage({ id: current } = {}) {
   setAgent(mainAgent());
   setView("page");
   const list = await api.get("/reminders");
@@ -44,16 +45,22 @@ export async function remindersPage() {
     <div id="remForm"></div>
     <div id="remList">${open.map(row).join("") || `<div class="empty">Keine offenen Erinnerungen.</div>`}</div>
     ${done.length ? `<div class="grp" style="margin-top:18px">Erledigt (14 Tage)</div><div>${done.map(row).join("")}</div>` : ""}`;
-  $("remNew").onclick = () => form(null);
+  $("remNew").onclick = () => navigate("/erinnerungen/neu");
   $("page").onclick = async (e) => {
     const b = e.target.closest("[data-act]");
     if (!b) return;
     const id = b.closest("[data-id]").dataset.id;
     const r = list.find((x) => x.id === id);
-    if (b.dataset.act === "edit") return form(r);
-    if (b.dataset.act === "fire" && await attempt(() => api.post(`/reminders/${id}/fire`), "Ausgelöst")) setTimeout(remindersPage, 800);
-    if (b.dataset.act === "del" && confirm("Erinnerung löschen?") && await attempt(() => api.del(`/reminders/${id}`), "Gelöscht")) remindersPage();
+    if (b.dataset.act === "edit") return navigate(`/erinnerungen/${id}`);
+    if (b.dataset.act === "fire" && await attempt(() => api.post(`/reminders/${id}/fire`), "Ausgelöst")) setTimeout(() => remindersPage({ id: current }), 800);
+    if (b.dataset.act === "del" && confirm("Erinnerung löschen?") && await attempt(() => api.del(`/reminders/${id}`), "Gelöscht")) navigate("/erinnerungen");
   };
+  // /erinnerungen/neu or /erinnerungen/<id>: the form for it right away
+  if (current) {
+    const r = current === "neu" ? null : list.find((x) => x.id === current);
+    if (current !== "neu" && !r) { toast("Erinnerung nicht gefunden"); return navigate("/erinnerungen", { replace: true }); }
+    form(r);
+  }
 }
 
 function form(r) {
@@ -89,7 +96,7 @@ function form(r) {
     $("rDate").onchange = () => { if ($("rDate").value) { keep(); f.day = $("rDate").value; draw(); } };
     $("rTime").onclick = () => openTimePicker($("rTime"), { value: f.time, action: "übernehmen", icon: "check", onPick: (v) => { keep(); f.time = v; draw(); } });
     $("rHome").onclick = () => { f.show_on_home = !f.show_on_home; $("rHome").classList.toggle("on", f.show_on_home); };
-    $("rCancel").onclick = () => { box.innerHTML = ""; $("remNew").hidden = false; };
+    $("rCancel").onclick = () => navigate("/erinnerungen");
     $("rSave").onclick = async () => {
       keep();
       if (!f.text.trim()) { $("rErr").textContent = "Bitte eintragen, woran erinnert werden soll."; return; }
@@ -97,11 +104,11 @@ function form(r) {
       try {
         await (r ? api.patch(`/reminders/${r.id}`, body) : api.post("/reminders", body));
         toast(r ? "Gespeichert" : "Erinnerung angelegt");
-        remindersPage();
+        navigate("/erinnerungen");
       } catch (err) { $("rErr").textContent = err.message; }
     };
     $("rText").focus();
   };
   draw();
-  box.scrollIntoView({ block: "nearest" });
+  box.scrollIntoView({ block: "start" });
 }

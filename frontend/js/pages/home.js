@@ -109,16 +109,16 @@ function renderTimeline(all) {
     }
     if (x.kind === "tracker") {
       const by = x.by === "link" ? " · per NFC" : x.by && x.by !== "user" ? ` · von ${agentOf(x.by).name}` : "";
-      return `<div class="ev trk-ev ${x.done ? "done" : ""} ${i < nowIdx ? "past" : i === nowIdx ? "now" : ""}" data-href="/tracker">
+      return `<div class="ev trk-ev ${x.done ? "done" : ""} ${i < nowIdx ? "past" : i === nowIdx ? "now" : ""}" data-href="/tracker/${esc(x.tracker_id)}">
         <span class="time">${x.all_day ? `<span class="ms">${esc(x.icon || "task_alt")}</span>` : fmtTime(x.at)}</span>
         <span class="evtxt"><b>${esc(x.title)}</b><small>${x.done ? "abgehakt" + esc(by) : "offen"}</small></span>
-        <button type="button" class="trk-tick" data-tick="${esc(x.tracker_id)}" data-slot="${esc(x.slot)}" data-done="${x.done ? 1 : ""}"
+        <button type="button" class="trk-tick" data-tick="${esc(x.tracker_id)}" data-slot="${esc(x.slot)}" data-done="${x.done ? 1 : ""}" data-dur="${x.duration_s || ""}"
           aria-label="${x.done ? "Zurücknehmen" : "Abhaken"}"><span class="ms">${x.done ? "check" : ""}</span></button></div>`;
     }
     const a = agentOf(x.agent_id);
     const sub = x.kind === "reminder" ? (x.status === "pending" ? (x.task ? `${a.name} erledigt es` : "Erinnerung") : x.status === "done" ? "erledigt" : "fehlgeschlagen")
       : x.kind === "next" ? `geplant · ${a.name}` : `${x.ok ? "erledigt" : "fehlgeschlagen"} · ${a.name}`;
-    return `<button class="ev ${i < nowIdx ? "past" : i === nowIdx ? "now" : ""}" data-href="${x.kind === "reminder" ? "/erinnerungen" : "/routinen/" + x.routine_id}">
+    return `<button class="ev ${i < nowIdx ? "past" : i === nowIdx ? "now" : ""}" data-href="${x.kind === "reminder" ? "/erinnerungen/" + x.reminder_id : "/routinen/" + x.routine_id}">
       <span class="time">${fmtTime(x.at)}</span>
       <span class="evtxt"><b>${esc(x.title)}</b><small>${esc(sub)}</small></span>
       <span class="ms evchev">chevron_right</span></button>`;
@@ -137,8 +137,9 @@ function renderTimeline(all) {
     const b = e.target.closest("[data-tick]");
     if (!b) return;
     e.preventDefault(); // not the row's link to /tracker
-    b.disabled = true;
     const undo = !!b.dataset.done;
+    if (!undo && b.dataset.dur) return navigate(`/tracker/${b.dataset.tick}/timer`); // with a duration: the timer first
+    b.disabled = true;
     if (await attempt(() => api.post(`/trackers/${b.dataset.tick}/check`, { slot: b.dataset.slot, undo }), undo ? "Zurückgenommen" : "✓ Abgehakt")) refresh();
     else b.disabled = false;
   };

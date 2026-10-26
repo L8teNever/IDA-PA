@@ -42,7 +42,7 @@ async function load(q) {
       return `<a class="crow" href="/chat/${c.id}" data-id="${c.id}">
         <span class="ag-dot" style="background:${col["--container"]};color:${col["--accent"]}">${esc(a.name[0])}</span>
         <span class="cmain"><span class="ctop"><b>${esc(c.title)}</b><span class="ctime">${fmtRel(c.updated_at)}</span></span>
-        <small>${esc(last)}</small></span></a>`;
+        <small>${c.running ? `<span class="c-running"><span class="ms spin">progress_activity</span>${esc(a.name)} schreibt gerade …</span>` : esc(last)}</small></span></a>`;
     }).join("")}</div>`).join("");
   box.querySelectorAll(".crow").forEach((el) => enableSwipe(el, {
     onSwipe: async () => {

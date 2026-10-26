@@ -4,7 +4,7 @@ import logging
 import time
 
 from ..db import session_scope
-from . import reminders, routines, trackers
+from . import files, reminders, routines, trackers
 from . import antigravity
 from .claude import terminal
 from .memory import embeddings
@@ -28,6 +28,7 @@ async def _loop() -> None:
                 last_upkeep = time.monotonic()
                 async with session_scope() as db:
                     await memory.purge(db)
+                    await files.purge(db)
                 await embeddings.backfill()
         except asyncio.CancelledError:
             raise

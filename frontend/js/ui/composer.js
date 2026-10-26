@@ -1,6 +1,7 @@
 // Input at the bottom: auto-growing text field, model/account menu with limits, "/" skill menu, send.
 import { ctx, send, addSys, stopAnswer } from "../pages/chat.js";
 import { enqueue, initQueue } from "./queue.js";
+import { hasFiles, initAttach, takeFiles, uploading } from "./attach.js";
 import { loadUsage, modelInfo, onChange, state } from "../store.js";
 import { $, esc } from "./dom.js";
 
@@ -118,9 +119,10 @@ function pickSlash(id) {
 
 function updateSend() {
   const v = $("input").value;
-  const mode = !ctx.busy ? "send" : v.trim() ? "queue" : "stop";
+  const content = !!v.trim() || hasFiles();
+  const mode = !ctx.busy ? "send" : content ? "queue" : "stop";
   const b = $("send");
-  b.disabled = !v.trim() && !ctx.busy;
+  b.disabled = !content && !ctx.busy;
   b.dataset.mode = mode;
   b.querySelector(".ms").textContent = { send: "arrow_upward", queue: "playlist_add", stop: "stop" }[mode];
   b.title = { send: "", queue: "In die Warteschlange – geht raus, sobald Ida fertig ist", stop: "Antwort stoppen" }[mode];
@@ -150,7 +152,8 @@ export function initComposer() {
   $("composer").onsubmit = (e) => {
     e.preventDefault();
     const text = input.value.trim();
-    if (!text) return ctx.busy && e.submitter ? stopAnswer() : undefined; // empty field while answering: the button stops
+    if (!text && !hasFiles()) return ctx.busy && e.submitter ? stopAnswer() : undefined; // empty field while answering: the button stops
+    if (uploading()) return addSys("Moment – die Dateien werden noch hochgeladen", "upload");
     let skill = null, body = text;
     const m = /^\/([a-z0-9-]{1,32})(?:\s+([\s\S]*))?$/.exec(text);
     if (m && (state.boot?.skills || []).some((s) => s.id === m[1])) { skill = m[1]; body = (m[2] || "").trim(); }
@@ -158,7 +161,7 @@ export function initComposer() {
     updateSend();
     document.body.classList.remove("slash-open");
     const { model, account, effort } = current();
-    const opts = { model, accountId: account?.id, effort };
+    const opts = { model, accountId: account?.id, effort, files: takeFiles() };
     if (ctx.busy) enqueue(body, skill, opts); // Ida is still answering: it waits in the queue
     else send(body, { skill, ...opts });
   };
@@ -189,6 +192,8 @@ export function initComposer() {
     updateSend();
   };
   initQueue();
+  initAttach();
+  document.addEventListener("attach:change", updateSend);
   document.addEventListener("chat:busy", () => busy(true));
   document.addEventListener("chat:done", () => busy(false));
   // the chat that was opened brings its own model/account

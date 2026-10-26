@@ -24,6 +24,8 @@ class Tracker(Timestamps, Base):
     slots: Mapped[list] = mapped_column(Json, default=list)
     days: Mapped[list | None] = mapped_column(Json, default=None)  # 0=Mon … 6=Sun; None/empty = every day
     on_missed: Mapped[str] = mapped_column(String(8), default="none")  # none | notify | routine
+    # > 0: ticking via link / timer page first runs a countdown of this many seconds (e.g. 180 = brush teeth 3 min)
+    duration_s: Mapped[int] = mapped_column(default=0, server_default="0")
     routine_id: Mapped[str | None] = mapped_column(ForeignKey("routines.id", ondelete="SET NULL"), default=None, index=True)
     fired: Mapped[dict] = mapped_column(Json, default=dict)  # {slot_key: "YYYY-MM-DD"} – followed up on that day already
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)

@@ -72,7 +72,7 @@ async def home(db: DB):
             timeline.append({"kind": "next", "at": ser.iso(nxt), "title": r.name, "icon": r.icon, "agent_id": r.agent_id, "routine_id": r.id})
     for r in (await db.scalars(select(Reminder).where(Reminder.due_at >= start, Reminder.due_at < end, Reminder.show_on_home.is_(True)))).all():
         timeline.append({"kind": "reminder", "at": ser.iso(r.due_at), "title": ("⏰ " if r.kind == "remind" else "") + r.text[:80],
-                         "agent_id": r.agent_id, "status": r.status, "task": r.kind == "task"})
+                         "agent_id": r.agent_id, "status": r.status, "task": r.kind == "task", "reminder_id": r.id})
     marked = (await db.scalars(select(Tracker).where(Tracker.show_on_home.is_(True), Tracker.enabled.is_(True)).order_by(Tracker.position))).all()
     status = await trackers.overview(db, list(marked), 1)
     for t in marked:
@@ -83,7 +83,7 @@ async def home(db: DB):
             at = day.replace(hour=int(x["time"][:2]), minute=int(x["time"][3:])) if x["time"] else day
             timeline.append({"kind": "tracker", "at": ser.iso(at.astimezone(timezone.utc)), "all_day": not x["time"], "icon": t.icon,
                              "title": t.name + (f" · {x['label']}" if len(today["slots"]) > 1 else ""),
-                             "tracker_id": t.id, "slot": x["key"], "done": x["done"], "by": x["by"]})
+                             "tracker_id": t.id, "slot": x["key"], "done": x["done"], "by": x["by"], "duration_s": t.duration_s})
     cal, cal_error = await home_calendar.config(db), None
     if cal:
         got = await home_calendar.fetch(db, cal)

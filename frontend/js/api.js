@@ -28,10 +28,17 @@ export const api = {
 };
 
 // Chat answers come as NDJSON lines; onEvent gets every parsed line.
-export async function streamChat(body, onEvent, signal) {
-  const r = await fetch(BASE + "/chat", {
-    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body), signal,
-  });
+export function streamChat(body, onEvent, signal) {
+  return ndjson(BASE + "/chat", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body), signal }, onEvent);
+}
+
+// Follows an answer that is already running on the server (after a page switch / reopening the app).
+export function followChat(chatId, onEvent, signal) {
+  return ndjson(`${BASE}/chats/${encodeURIComponent(chatId)}/live`, { signal }, onEvent);
+}
+
+async function ndjson(url, init, onEvent) {
+  const r = await fetch(url, init);
   if (!r.ok) {
     const d = await r.json().catch(() => ({}));
     throw new ApiError(d.detail || `Fehler ${r.status}`, r.status);

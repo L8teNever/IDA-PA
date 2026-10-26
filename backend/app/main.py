@@ -12,7 +12,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import db, seed
-from .api import accounts, agents, chats, connectors, internal_mcp, memory, messages, reminders, routines, skills, system, trackers
+from .api import accounts, agents, chats, connectors, files, internal_mcp, memory, messages, reminders, routines, skills, system, trackers
 from .config import get_settings
 from .services import jobs, scheduler
 from .services.errors import Invalid, NotFound
@@ -81,7 +81,7 @@ def create_app() -> FastAPI:
         return JSONResponse({"detail": str(e)}, status_code=404)
 
     app.include_router(trackers.tap_router)
-    for r in (system, agents, chats, messages, routines, reminders, trackers, connectors, skills, memory, accounts, internal_mcp):
+    for r in (system, agents, chats, files, messages, routines, reminders, trackers, connectors, skills, memory, accounts, internal_mcp):
         app.include_router(r.router)
 
     front = s.frontend_dir

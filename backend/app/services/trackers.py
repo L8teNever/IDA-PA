@@ -29,6 +29,7 @@ GRACE = timedelta(hours=3)  # a slot is followed up only this long after its tim
 KEY_RE = re.compile(r"^[a-z0-9]{1,12}$")
 SOON = timedelta(hours=2)  # a timed slot counts as due this long before its time (link / tick without slot)
 MAX_LINKS = 10
+MAX_DURATION = 2 * 3600  # timer: at most 2 hours
 REPEAT = timedelta(seconds=30)  # NFC tags are often read twice: the same link within this time ticks only once
 LINK_BY = "link"
 
@@ -95,6 +96,14 @@ async def _clean(db: AsyncSession, f: dict, partial: bool, old: Tracker | None, 
         v["note"] = str(f["note"]).strip()[:500]
     if not partial or f.get("slots") is not None:
         v["slots"] = _clean_slots(f.get("slots") or [{}], old.slots if old else [])
+    if f.get("duration_s") is not None:
+        try:
+            dur = int(f["duration_s"])
+        except (TypeError, ValueError) as e:
+            raise Invalid("Dauer: Sekunden als ganze Zahl") from e
+        if dur and not 10 <= dur <= MAX_DURATION:
+            raise Invalid("Dauer: 0 (ohne Timer) oder 10 Sekunden bis 2 Stunden")
+        v["duration_s"] = dur
     if "days" in f:
         d = schedule.clean_days(f["days"])
         v["days"] = None if len(d) == 7 else d
@@ -285,7 +294,8 @@ async def overview(db: AsyncSession, trackers: list[Tracker], days: int = RECENT
     for t in trackers:
         by_day = data[t.id]
         recent = [day_status(t, d, by_day.get(d.isoformat(), {})) for d in (today - timedelta(days=i) for i in range(days - 1, -1, -1))]
-        out[t.id] = {"today": recent[-1], "recent": recent, "streak": streak(t, by_day, today)}
+        nxt = pick_slot(t, utcnow(), by_day.get(today.isoformat(), {}))
+        out[t.id] = {"today": recent[-1], "recent": recent, "streak": streak(t, by_day, today), "next": nxt["key"] if nxt else None}
     return out
 
 

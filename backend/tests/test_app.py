@@ -18,7 +18,7 @@ def test_no_web_login(server):
 
 
 def test_pages_get_the_app(client):
-    for url in ("/", "/chats", "/einstellungen/agents/lea", "/routinen/neu"):
+    for url in ("/", "/chats", "/einstellungen/agents/lea", "/routinen/neu", "/tracker/neu", "/tracker/x1", "/tracker/x1/timer", "/erinnerungen/x1"):
         r = client.get(url)
         assert r.status_code == 200 and r.headers["cache-control"] == "no-store"
     # files are linked under a version path (new with every update) and may be cached for good
@@ -620,6 +620,29 @@ def test_trackers(client):
     assert client.get(f"{API}/trackers").json() == []
 
 
+def test_tracker_with_duration(client):
+    """Brush teeth 3 min: a tracker with a duration (timer before ticking); 'next' tells what would be ticked now."""
+    for bad in (5, 7201):
+        assert client.post(f"{API}/trackers", json={"name": "X", "duration_s": bad}).status_code == 400
+    t = client.post(f"{API}/trackers", json={"name": "Zähne", "slots": [{"time": "07:00"}, {"time": "20:00"}], "duration_s": 180}).json()
+    assert t["duration_s"] == 180 and t["next"] in [s["key"] for s in t["slots"]]
+    assert client.patch(f"{API}/trackers/{t['id']}", json={"duration_s": 15}).json()["duration_s"] == 15
+    nxt = t["next"]
+    r = client.post(f"{API}/trackers/{t['id']}/check", json={}).json()
+    assert r["ticked"]["status"] == "checked" and r["ticked"]["slot"]["key"] == nxt and r["next"] != nxt
+    plan = [x for x in client.get(f"{API}/home").json()["timeline"] if x["kind"] == "tracker" and x["tracker_id"] == t["id"]]
+    assert plan and all(x["duration_s"] == 15 for x in plan)
+    assert client.patch(f"{API}/trackers/{t['id']}", json={"duration_s": 0}).json()["duration_s"] == 0
+    client.delete(f"{API}/trackers/{t['id']}")
+    # agents set the duration, too
+    ev = chat(client, text="TOOL tracker_create " + json.dumps({"name": "Zähne putzen", "slots": [{"time": "07:00"}, {"time": "20:00"}], "duration_s": 180}))
+    assert '"ok": true' in "".join(e.get("text", "") for e in ev)
+    z = next(x for x in client.get(f"{API}/trackers").json() if x["name"] == "Zähne putzen")
+    assert z["duration_s"] == 180 and len(z["slots"]) == 2
+    assert "180" in "".join(e.get("text", "") for e in chat(client, text="TOOL tracker_list {}"))
+    client.delete(f"{API}/trackers/{z['id']}")
+
+
 def test_tracker_follow_up_timing(client):
     """A slot is followed up once its time is reached, at most 3 h later, once per day and only while open."""
     from datetime import datetime
@@ -702,3 +725,63 @@ def test_tracker_links_tick_by_tapping(client):
     assert client.post(f"{API}/tap/{a['token']}").status_code == 404
     client.delete(f"{API}/trackers/{t['id']}")
     assert client.post(f"{API}/tap/{b['token']}").status_code == 404  # links go with their tracker
+
+
+def test_chat_files_and_pictures(client):
+    """Pictures and PDFs go to the model as they are, text files as text; other kinds are refused."""
+    import struct
+    import zlib
+
+    def png():
+        def chunk(t, d):
+            return struct.pack(">I", len(d)) + t + d + struct.pack(">I", zlib.crc32(t + d) & 0xffffffff)
+        return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", 2, 2, 8, 2, 0, 0, 0))
+                + chunk(b"IDAT", zlib.compress(b"\x00" + b"\xff\x00\x00" * 2) * 2) + chunk(b"IEND", b""))
+    up = lambda name, data, mime="application/octet-stream": client.post(f"{API}/uploads", files={"file": (name, data, mime)})  # noqa: E731
+    img = up("foto.png", png(), "image/png").json()
+    pdf = up("brief.pdf", b"%PDF-1.4\n%fake\n").json()
+    txt = up("liste.txt", "Milch, Eier, Käse".encode(), "text/plain").json()
+    assert (img["kind"], pdf["kind"], txt["kind"]) == ("image", "pdf", "text")
+    assert up("doc.docx", b"PK\x03\x04 word").status_code == 400  # Word etc. cannot be read by the model
+    assert up("leer.txt", b"").status_code == 400
+    gone = up("weg.txt", b"x").json()
+    assert client.delete(f"{API}/uploads/{gone['id']}").status_code == 200
+    assert client.get(f"{API}/files/{gone['id']}").status_code == 404
+    r = client.get(f"{API}/files/{img['id']}")
+    assert r.status_code == 200 and r.headers["content-type"] == "image/png"
+    ev = chat(client, text="Was siehst du?", files=[img["id"], pdf["id"], txt["id"]])
+    out = "".join(e.get("text", "") for e in ev)
+    assert "[BILDER:1 PDFS:1]" in out and "Milch, Eier, Käse" in out and '<datei name="liste.txt">' in out
+    cid = ev[0]["chat"]["id"]
+    user = client.get(f"{API}/chats/{cid}").json()["messages"][0]
+    assert user["text"] == "Was siehst du?" and [f["name"] for f in user["meta"]["files"]] == ["foto.png", "brief.pdf", "liste.txt"]
+    # only files: the chat is named after the first one
+    pic = up("katze.png", png(), "image/png").json()
+    ev = chat(client, files=[pic["id"]])
+    assert ev[0]["chat"]["title"] == "katze.png" and "[BILDER:1 PDFS:0]" in "".join(e.get("text", "") for e in ev)
+    assert client.post(f"{API}/chat", json={"text": "", "files": []}).status_code == 400
+    assert client.post(f"{API}/chat", json={"text": "x", "files": [img["id"]], "chat_id": ev[0]["chat"]["id"]}).status_code == 400  # belongs to another chat
+    client.delete(f"{API}/chats/{cid}")
+    assert client.get(f"{API}/files/{img['id']}").status_code == 404
+
+
+def test_chat_answer_goes_on_when_the_page_is_closed(client):
+    """The answer runs on the server: leaving the page does not stop it, coming back shows it (live, then saved)."""
+    with client.stream("POST", f"{API}/chat", json={"text": "SLOW Erzaehl was"}) as r:
+        first = json.loads(next(r.iter_lines()))
+    cid = first["chat"]["id"]  # the browser went away right after the start
+    c = client.get(f"{API}/chats/{cid}").json()
+    assert c["running"] and [m["role"] for m in c["messages"]] == ["user"] and c["running_since"]
+    assert next(x for x in client.get(f"{API}/chats").json() if x["id"] == cid)["running"]
+    assert client.post(f"{API}/chat", json={"chat_id": cid, "text": "noch was"}).status_code == 400  # one answer at a time
+    # coming back: the answer so far is replayed and keeps streaming until it is done
+    with client.stream("GET", f"{API}/chats/{cid}/live") as r:
+        evs = [json.loads(x) for x in r.iter_lines() if x]
+    assert evs[-1]["done"]["ok"] and "SLOW Erzaehl was" in "".join(e.get("text", "") for e in evs)
+    c = client.get(f"{API}/chats/{cid}").json()
+    assert not c["running"] and c["messages"][-1]["role"] == "assistant" and "Erzaehl was" in c["messages"][-1]["text"]
+    assert c["running_since"] is None and c["messages"][-1]["meta"]["ms"] == evs[-1]["done"]["ms"] >= 0  # how long it took
+    # just after the end the run can still be followed (a browser coming back gets "done")
+    with client.stream("GET", f"{API}/chats/{cid}/live?after=1") as r:
+        assert json.loads(list(r.iter_lines())[-1])["done"]["ok"]
+    assert client.get(f"{API}/chats/gibtsnicht/live").status_code == 404

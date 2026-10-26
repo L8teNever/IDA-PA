@@ -4,6 +4,7 @@ Every run gets: no built-in tools, no user settings/memory/skills of the account
 only the MCP servers passed in, an allow/deny list for their tools and its own system prompt.
 """
 import asyncio
+import base64
 import json
 import logging
 import os
@@ -65,6 +66,8 @@ class RunSpec:
     agent_id: str | None = None  # whose run this is (shown as the mascot's mood)
     kind: str = "run"  # chat | run
     effort: str | None = None  # low … max; None = the model's default
+    # pictures / PDFs for the model: [{"kind": "image"|"pdf", "mime", "path", "name"}] (text files are in the prompt)
+    attachments: list[dict] = field(default_factory=list)
 
 
 @dataclass
@@ -141,6 +144,8 @@ async def _stream(spec: RunSpec) -> AsyncIterator[dict]:
             "--settings", str(run_dir / "settings.json")]
     if spec.effort:
         args += ["--effort", spec.effort]
+    if spec.attachments:  # the message as JSON with picture/document blocks instead of plain text
+        args += ["--input-format", "stream-json"]
     if not spec.persist:
         args.append("--no-session-persistence")
     if spec.session_id and re.fullmatch(r"[\w-]+", spec.session_id):
@@ -160,7 +165,7 @@ async def _stream(spec: RunSpec) -> AsyncIterator[dict]:
 
     err_task = asyncio.create_task(read_err())
     assert proc.stdin and proc.stdout
-    proc.stdin.write(spec.prompt.encode())
+    proc.stdin.write(_stdin(spec))
     await proc.stdin.drain()
     proc.stdin.close()
 
@@ -210,6 +215,23 @@ async def _stream(spec: RunSpec) -> AsyncIterator[dict]:
     if not done:
         err = b"".join(stderr_chunks).decode(errors="replace").strip()
         yield {"type": "done", "ok": False, "result": err[:800] or f"Beendet ohne Ergebnis (Code {proc.returncode})", "session_id": None}
+
+
+def blocks(spec: RunSpec) -> list[dict]:
+    """The message for Claude: the text, then pictures (image) and PDFs (document) as base64."""
+    out: list[dict] = [{"type": "text", "text": spec.prompt}]
+    for a in spec.attachments:
+        data = base64.b64encode(Path(a["path"]).read_bytes()).decode()
+        typ = "image" if a["kind"] == "image" else "document"
+        out.append({"type": typ, "source": {"type": "base64", "media_type": a["mime"], "data": data},
+                    **({"title": a["name"]} if typ == "document" else {})})
+    return out
+
+
+def _stdin(spec: RunSpec) -> bytes:
+    if not spec.attachments:
+        return spec.prompt.encode()
+    return (json.dumps({"type": "user", "message": {"role": "user", "content": blocks(spec)}}) + "\n").encode()
 
 
 async def run(spec: RunSpec) -> RunResult:

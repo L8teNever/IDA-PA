@@ -7,6 +7,7 @@ from sqlalchemy import or_, select
 from ..models import Chat, ChatMessage
 from ..schemas import ChatSend, ChatUpdate
 from ..services import chat as chat_service
+from ..services import files as file_svc
 from ..services.chat import stream_chat
 from ..services.errors import Invalid, NotFound
 from . import serializers as ser
@@ -28,7 +29,7 @@ async def list_chats(db: DB, q: str = "", agent: str | None = None, limit: int =
     out = []
     for c in chats:
         last = await db.scalar(select(ChatMessage).where(ChatMessage.chat_id == c.id, ChatMessage.role != "system").order_by(ChatMessage.at.desc()).limit(1))
-        out.append(ser.chat(c, last))
+        out.append({**ser.chat(c, last), "running": chat_service.running(c.id)})
     return out
 
 
@@ -38,7 +39,8 @@ async def get_chat(chat_id: str, db: DB):
     if not c:
         raise NotFound("Chat nicht gefunden")
     msgs = (await db.scalars(select(ChatMessage).where(ChatMessage.chat_id == chat_id).order_by(ChatMessage.at))).all()
-    return {**ser.chat(c), "messages": [ser.chat_message(m) for m in msgs]}
+    return {**ser.chat(c), "messages": [ser.chat_message(m) for m in msgs], "running": chat_service.running(chat_id),
+            "running_since": ser.iso(chat_service.running_since(chat_id))}
 
 
 @router.patch("/chats/{chat_id}")
@@ -58,6 +60,8 @@ async def delete(chat_id: str, db: DB):
     c = await db.get(Chat, chat_id)
     if not c:
         raise NotFound("Chat nicht gefunden")
+    chat_service.stop(chat_id)
+    await file_svc.delete_for_chat(db, chat_id)
     await db.delete(c)
     return {"ok": True}
 
@@ -68,21 +72,33 @@ async def stop_answer(chat_id: str):
     return {"ok": chat_service.stop(chat_id)}
 
 
-@router.post("/chat")
-async def send(body: ChatSend):
-    """Sends a message and streams the answer as NDJSON (see services/chat.py)."""
-    if not body.text.strip() and not body.skill:
-        raise Invalid("Nachricht fehlt")
-    gen = stream_chat(chat_id=body.chat_id, agent_id=body.agent_id, text=body.text, model=body.model,
-                      account_id=body.account_id, skill_id=body.skill, effort=body.effort)
-    first = await gen.__anext__()  # validation errors surface as normal HTTP errors
-
+def _ndjson(first: dict | None, events) -> StreamingResponse:
     async def lines():
-        yield json.dumps(first, ensure_ascii=False) + "\n"
+        if first:
+            yield json.dumps(first, ensure_ascii=False) + "\n"
         try:
-            async for ev in gen:
+            async for ev in events:
                 yield json.dumps(ev, ensure_ascii=False, default=str) + "\n"
         except (Invalid, NotFound) as e:
             yield json.dumps({"done": {"ok": False, "error": str(e)}}, ensure_ascii=False) + "\n"
 
     return StreamingResponse(lines(), media_type="application/x-ndjson", headers={"cache-control": "no-cache", "x-accel-buffering": "no"})
+
+
+@router.post("/chat")
+async def send(body: ChatSend):
+    """Sends a message and streams the answer as NDJSON (see services/chat.py).
+    The answer runs on the server: closing the page does not stop it (GET /chats/{id}/live follows it again)."""
+    gen = stream_chat(chat_id=body.chat_id, agent_id=body.agent_id, text=body.text, model=body.model,
+                      account_id=body.account_id, skill_id=body.skill, effort=body.effort, file_ids=body.files)
+    first = await gen.__anext__()  # validation errors surface as normal HTTP errors
+    return _ndjson(first, gen)
+
+
+@router.get("/chats/{chat_id}/live")
+async def live(chat_id: str, after: int = 0):
+    """Follows the answer running in this chat – from the start (or event `after`) until it is done."""
+    events = chat_service.follow(chat_id, after)
+    if events is None:
+        raise NotFound("Gerade läuft keine Antwort")
+    return _ndjson(None, events)

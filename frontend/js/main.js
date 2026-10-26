@@ -19,7 +19,7 @@ import { usagePage } from "./pages/usage.js";
 import { remindersPage } from "./pages/reminders.js";
 import { codePage } from "./pages/code.js";
 import { trackerPage } from "./pages/tracker.js";
-import { tapPage } from "./pages/tap.js";
+import { tapPage, timerPage } from "./pages/tap.js";
 
 router.add("/", homePage);
 router.add("/a/:id", agentPage);
@@ -28,10 +28,13 @@ router.add("/chats", chatsPage);
 router.add("/nachrichten", inboxPage);
 router.add("/routinen", routinesPage);
 router.add("/erinnerungen", remindersPage);
+router.add("/erinnerungen/:id", remindersPage); // also /erinnerungen/neu
 router.add("/routinen/neu", () => routineForm());
 router.add("/routinen/:id/bearbeiten", routineForm);
 router.add("/routinen/:id", routineDetail);
 router.add("/tracker", trackerPage);
+router.add("/tracker/:id/timer", timerPage);
+router.add("/tracker/:id", trackerPage); // also /tracker/neu
 router.add("/t/:token", tapPage);
 router.add("/code", codePage);
 router.add("/limits", usagePage);

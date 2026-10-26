@@ -1,6 +1,8 @@
-// "/tracker" – daily things to tick off („Tablette morgens + abends“), by you or by the agents.
+// "/tracker", "/tracker/neu", "/tracker/<id>" – daily things to tick off („Tablette morgens + abends“), by you or by the agents.
 // A slot with a time is followed up when it is still open then: a notification (no AI) or a linked routine.
+// With a duration (brush teeth 3 min) a timer runs first (/tracker/<id>/timer or the NFC link), then it is ticked.
 import { api } from "../api.js";
+import { navigate } from "../router.js";
 import { agentOf, mainAgent } from "../store.js";
 import { $, attempt, esc, sw, toast } from "../ui/dom.js";
 import { openTimePicker } from "../ui/timepicker.js";
@@ -14,6 +16,9 @@ const PRESETS = {
   thrice: [{ label: "1. Mal", time: null }, { label: "2. Mal", time: null }, { label: "3. Mal", time: null }],
 };
 const ACTIONS = { none: "Nichts", notify: "Benachrichtigen", routine: "Routine starten" };
+const DURATIONS = [0, 60, 120, 180, 300, 600];
+const durText = (s) => (s % 60 ? `${Math.floor(s / 60) ? Math.floor(s / 60) + " Min " : ""}${s % 60} s` : `${s / 60} Min`);
+const clockText = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 
 function daysText(days) {
   const d = [...(days?.length ? days : [0, 1, 2, 3, 4, 5, 6])].sort();
@@ -32,7 +37,7 @@ function missedText(t, routines) {
   return t.on_missed === "notify" ? "🔔 erinnert, wenn offen" : `⚙ startet „${r ? r.name : "?"}“, wenn offen`;
 }
 
-export async function trackerPage() {
+export async function trackerPage({ id } = {}) {
   setAgent(mainAgent());
   setView("page");
   const [list, routines] = await Promise.all([api.get("/trackers"), api.get("/routines")]);
@@ -46,13 +51,15 @@ export async function trackerPage() {
         <span class="ric"><span class="ms">${esc(t.icon)}</span></span>
         <div class="rmain"><b>${esc(t.name)}</b>${t.note ? `<div class="rdesc">${esc(t.note)}</div>` : ""}
           <div class="rmeta"><span>${esc(daysText(t.days))}</span>${t.streak ? `<span>🔥 ${t.streak} ${t.streak === 1 ? "Tag" : "Tage"}</span>` : ""}
-          ${missedText(t, routines) ? `<span>${esc(missedText(t, routines))}</span>` : ""}${t.enabled ? "" : "<span>pausiert</span>"}${t.show_on_home ? "" : "<span>nicht im Tagesplan</span>"}${t.links ? `<span>📶 ${t.links} NFC-Link${t.links > 1 ? "s" : ""}</span>` : ""}</div></div>
+          ${missedText(t, routines) ? `<span>${esc(missedText(t, routines))}</span>` : ""}${t.enabled ? "" : "<span>pausiert</span>"}${t.show_on_home ? "" : "<span>nicht im Tagesplan</span>"}${t.links ? `<span>📶 ${t.links} NFC-Link${t.links > 1 ? "s" : ""}</span>` : ""}${t.duration_s ? `<span>⏱ ${durText(t.duration_s)}</span>` : ""}</div></div>
         <div class="rem-act"><button class="icon-btn" data-act="edit" aria-label="Bearbeiten"><span class="ms">edit</span></button></div>
       </div>
       ${today.due ? `<div class="trk-slots">${today.slots.map((s) => `<button type="button" class="trk-slot ${s.done ? "done" : ""}" data-slot="${esc(s.key)}" aria-pressed="${s.done}"
           title="${s.done ? "Zurücknehmen" : "Abhaken"}"><span class="trk-box"><span class="ms">${s.done ? "check" : ""}</span></span>
           <span class="trk-lbl"><b>${esc(s.label)}</b><small>${esc([s.time, byText(s.by)].filter(Boolean).join(" · ") || (s.done ? "erledigt" : "offen"))}</small></span></button>`).join("")}</div>`
         : `<div class="trk-free"><span class="ms">event_available</span>Heute nicht dran</div>`}
+      ${t.duration_s && today.done < today.total ? `<a class="trk-timer" href="/tracker/${t.id}/timer"><span class="ms">timer</span>${clockText(t.duration_s)} starten
+        <small>danach wird ${t.next && t.slots.length > 1 ? `„${esc(t.slots.find((s) => s.key === t.next)?.label || "")}“ ` : ""}abgehakt</small></a>` : ""}
       <div class="trk-dots" aria-label="Letzte 14 Tage">${t.recent.map((d, i) => {
         const cls = !d.due || (d.day < created && !d.done) ? "free" : d.done === d.total ? "full" : d.done ? "part" : "open";
         const today_ = i === t.recent.length - 1;
@@ -68,15 +75,16 @@ export async function trackerPage() {
     <button class="add-btn" id="trkNew"><span class="ms">add_task</span>Neuer Tracker</button>
     <div id="trkForm"></div>
     <div id="trkList">${list.map(card).join("") || `<div class="empty">Noch keine Tracker.</div>`}</div>`;
-  $("trkNew").onclick = () => form(null, routines);
+  $("trkNew").onclick = () => navigate("/tracker/neu");
+  const again = () => trackerPage({ id });
   $("trkList").onclick = async (e) => {
     const el = e.target.closest("[data-act],[data-slot],[data-day]");
     if (!el) return;
     const t = list.find((x) => x.id === el.closest("[data-id]").dataset.id);
-    if (el.dataset.act === "edit") return form(t, routines);
+    if (el.dataset.act === "edit") return navigate(`/tracker/${t.id}`);
     if (el.dataset.slot) {
       const s = t.today.slots.find((x) => x.key === el.dataset.slot);
-      if (await attempt(() => api.post(`/trackers/${t.id}/check`, { slot: s.key, undo: s.done }), s.done ? "Zurückgenommen" : `✓ ${s.label} abgehakt`)) trackerPage();
+      if (await attempt(() => api.post(`/trackers/${t.id}/check`, { slot: s.key, undo: s.done }), s.done ? "Zurückgenommen" : `✓ ${s.label} abgehakt`)) again();
       return;
     }
     // a dot: tick the next open slot of that day; a full day: take the last tick back
@@ -84,13 +92,19 @@ export async function trackerPage() {
     if (!d.due && !d.done) return toast(`${dayLabel(d.day)}: nicht dran`);
     const undo = d.done === d.total;
     if (undo && !confirm(`${dayLabel(d.day)}: letzten Haken zurücknehmen?`)) return;
-    if (await attempt(() => api.post(`/trackers/${t.id}/check`, { day: d.day, undo }), undo ? "Zurückgenommen" : `${dayLabel(d.day)} nachgetragen`)) trackerPage();
+    if (await attempt(() => api.post(`/trackers/${t.id}/check`, { day: d.day, undo }), undo ? "Zurückgenommen" : `${dayLabel(d.day)} nachgetragen`)) again();
   };
+  // /tracker/neu or /tracker/<id>: the form for it right away
+  if (id) {
+    const t = id === "neu" ? null : list.find((x) => x.id === id);
+    if (id !== "neu" && !t) { toast("Tracker nicht gefunden"); return navigate("/tracker", { replace: true }); }
+    form(t, routines);
+  }
 }
 
 function form(t, routines) {
   const f = t ? { ...t, slots: t.slots.map((s) => ({ ...s })), days: t.days?.length ? [...t.days] : [0, 1, 2, 3, 4, 5, 6] }
-    : { name: "", icon: "medication", note: "", slots: PRESETS.twice.map((s) => ({ ...s })), days: [0, 1, 2, 3, 4, 5, 6], on_missed: "notify", routine_id: null, show_on_home: true, enabled: true };
+    : { name: "", icon: "medication", note: "", slots: PRESETS.twice.map((s) => ({ ...s })), days: [0, 1, 2, 3, 4, 5, 6], on_missed: "notify", routine_id: null, show_on_home: true, enabled: true, duration_s: 0 };
   const box = $("trkForm");
   $("trkNew").hidden = true;
   const keep = () => {
@@ -98,6 +112,7 @@ function form(t, routines) {
     f.note = $("tNote").value;
     box.querySelectorAll("[data-lbl]").forEach((i) => { f.slots[+i.dataset.lbl].label = i.value; });
     if ($("tRoutine")) f.routine_id = $("tRoutine").value || null;
+    if ($("tDurMin")?.value) f.duration_s = Math.round(parseFloat($("tDurMin").value.replace(",", ".")) * 60) || 0;
   };
   const timed = () => f.slots.filter((s) => s.time);
   const summary = () => {
@@ -108,6 +123,9 @@ function form(t, routines) {
     const when = timed().map((s) => `<b>${esc(s.label || "–")}</b> um <b>${s.time}</b>`).join(" bzw. ");
     return `Ist ${when} noch nicht abgehakt, ${what} – je Zeitfenster höchstens einmal am Tag.`;
   };
+  const durSummary = () => (f.duration_s
+    ? `Beim Öffnen des NFC-Links (oder mit „Timer starten“) läuft ein <b>${durText(f.duration_s)}</b>-Timer, das Display bleibt an – danach wird automatisch abgehakt.`
+    : "Ohne Timer: Antippen bzw. der NFC-Link hakt sofort ab.");
   const links = t ? linkEditor(t) : null;
   const draw = () => {
     const r = routines.find((x) => x.id === f.routine_id);
@@ -125,6 +143,10 @@ function form(t, routines) {
           : `<button type="button" class="time-add-btn" data-time="${i}"><span class="ms">schedule</span>Uhrzeit</button>`}
         ${f.slots.length > 1 ? `<button type="button" class="icon-btn" data-rm="${i}" aria-label="Zeitfenster entfernen"><span class="ms">delete</span></button>` : ""}</div>`).join("")}
         ${f.slots.length < 6 ? `<button type="button" class="time-add-btn" id="tAddSlot"><span class="ms">add</span>Zeitfenster</button>` : ""}</div>
+      <div class="flabel">Dauer (optional) – z. B. 3 Min Zähne putzen</div>
+      <div class="chipset" id="tDur">${DURATIONS.map((d) => `<button type="button" data-dur="${d}" class="${f.duration_s === d ? "on" : ""}">${d ? durText(d) : "Ohne"}</button>`).join("")}
+        <label class="trk-dur-own">eigene: <input class="mini-in" id="tDurMin" inputmode="decimal" placeholder="Min" value="${f.duration_s && !DURATIONS.includes(f.duration_s) ? String(+(f.duration_s / 60).toFixed(2)).replace(".", ",") : ""}"> Min</label></div>
+      <div class="rf-sum"><span class="ms">timer</span><span>${durSummary()}</span></div>
       <div class="flabel">An welchen Tagen?</div>
       <div class="chipset" id="tDays">${DAYS.map((d, i) => `<button type="button" data-d="${i}" class="${f.days.includes(i) ? "on" : ""}">${d}</button>`).join("")}
         <button type="button" class="day-preset" data-preset="all">täglich</button><button type="button" class="day-preset" data-preset="week">Mo–Fr</button></div>
@@ -175,13 +197,15 @@ function form(t, routines) {
       else { const d = +b.dataset.d; f.days = f.days.includes(d) ? f.days.filter((x) => x !== d) : [...f.days, d].sort(); }
       draw();
     };
+    $("tDur").onclick = (e) => { const b = e.target.closest("[data-dur]"); if (!b) return; keep(); f.duration_s = +b.dataset.dur; $("tDurMin").value = ""; draw(); };
+    $("tDurMin").onchange = () => { keep(); draw(); };
     $("tMissed").onclick = (e) => { const b = e.target.closest("[data-m]"); if (!b) return; keep(); f.on_missed = b.dataset.m; draw(); };
     if ($("tRoutine")) $("tRoutine").onchange = () => { keep(); draw(); };
     $("tHome").onclick = () => { f.show_on_home = !f.show_on_home; $("tHome").classList.toggle("on", f.show_on_home); };
     if ($("tEnabled")) $("tEnabled").onclick = () => { f.enabled = !f.enabled; $("tEnabled").classList.toggle("on", f.enabled); };
-    $("tCancel").onclick = () => { box.innerHTML = ""; $("trkNew").hidden = false; };
+    $("tCancel").onclick = () => navigate("/tracker");
     if ($("tDel")) $("tDel").onclick = async () => {
-      if (confirm(`Tracker „${t.name}“ samt Verlauf löschen?`) && await attempt(() => api.del(`/trackers/${t.id}`), "Gelöscht")) trackerPage();
+      if (confirm(`Tracker „${t.name}“ samt Verlauf löschen?`) && await attempt(() => api.del(`/trackers/${t.id}`), "Gelöscht")) navigate("/tracker");
     };
     if ($("tTest")) $("tTest").onclick = async () => {
       const s = t.slots.find((x) => x.time);
@@ -193,18 +217,18 @@ function form(t, routines) {
       if (!f.name.trim()) { $("tErr").textContent = "Bitte eintragen, was abgehakt werden soll."; return; }
       if (!f.days.length) { $("tErr").textContent = "Mindestens einen Tag wählen."; return; }
       const body = { name: f.name, note: f.note, icon: f.icon, slots: f.slots.map((s) => ({ key: s.key || null, label: s.label, time: s.time || null })),
-        days: f.days, on_missed: f.on_missed, routine_id: f.on_missed === "routine" ? f.routine_id : null, show_on_home: f.show_on_home };
+        days: f.days, on_missed: f.on_missed, routine_id: f.on_missed === "routine" ? f.routine_id : null, show_on_home: f.show_on_home, duration_s: f.duration_s || 0 };
       if (t) body.enabled = f.enabled;
       try {
         await (t ? api.patch(`/trackers/${t.id}`, body) : api.post("/trackers", body));
         toast(t ? "Gespeichert" : "Tracker angelegt");
-        trackerPage();
+        navigate("/tracker");
       } catch (err) { $("tErr").textContent = err.message; }
     };
   };
   draw();
   if (!t) $("tName").focus();
-  box.scrollIntoView({ block: "nearest" });
+  box.scrollIntoView({ block: "start" });
 }
 
 // NFC / tap links of a tracker: opening one ticks it (the slot that fits the time, or a fixed one).
@@ -218,7 +242,7 @@ function linkEditor(t) {
     const box = $("tLinks");
     if (!box) return;
     box.innerHTML = `<h2 class="rf-h"><span class="ms">nfc</span>NFC- & Abhak-Links</h2>
-      <p class="rf-note">Öffnet man so einen Link, wird ${esc(t.name)} sofort abgehakt – mit kleiner Animation. Schreib ihn z. B. mit der App „NFC Tools“ auf einen NFC-Tag
+      <p class="rf-note">Öffnet man so einen Link, wird ${esc(t.name)} ${t.duration_s ? `nach einem <b>${durText(t.duration_s)}</b>-Timer (Display bleibt an)` : "sofort"} abgehakt – mit kleiner Animation. Schreib ihn z. B. mit der App „NFC Tools“ auf einen NFC-Tag
         und kleb ihn an die Tablettendose. Ohne festes Zeitfenster wählt IDA das passende nach der Uhrzeit (morgens → Morgens, abends → Abends, sonst das nächste offene).
         Das Handy muss IDA dabei erreichen (z. B. über deinen Cloudflare-Zugang).</p>
       ${list === null ? `<div class="empty">Lade …</div>` : list.map((l) => `<div class="trk-link" data-link="${l.id}">

@@ -57,6 +57,7 @@ class ChatSend(BaseModel):
     account_id: str | None = None
     skill: str | None = None
     effort: Literal["low", "medium", "high", "xhigh", "max"] | None = None  # Claude: how much it thinks
+    files: list[str] = Field(default_factory=list)  # ids from POST /uploads (pictures, PDFs, text files)
 
 
 class ChatUpdate(BaseModel):
@@ -141,6 +142,7 @@ class TrackerCreate(BaseModel):
     on_missed: str = "none"  # none | notify | routine
     routine_id: str | None = None
     show_on_home: bool = True
+    duration_s: int = 0  # > 0: a timer runs before the tick (link / timer page)
 
 
 class TrackerUpdate(BaseModel):
@@ -153,6 +155,7 @@ class TrackerUpdate(BaseModel):
     routine_id: str | None = None
     show_on_home: bool | None = None
     enabled: bool | None = None
+    duration_s: int | None = None
 
 
 class TrackerTick(BaseModel):

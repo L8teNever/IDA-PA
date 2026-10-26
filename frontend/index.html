@@ -77,6 +77,7 @@
     <div class="model-menu" id="modelMenu" role="menu"></div>
     <div class="slash-menu" id="slashMenu" role="listbox"></div>
     <div class="queue" id="queue" hidden></div>
+    <div class="att-list" id="attList" hidden></div>
     <div class="field-row">
       <textarea id="input" rows="1" placeholder="Schreib Ida was…"></textarea>
       <button type="button" class="mic-btn" id="micBtn" aria-label="Sprechen" title="Sprechen – wird lokal in Text umgewandelt (Esc bricht ab)"><span class="ms">mic</span></button>
@@ -87,6 +88,8 @@
         <span class="ms" id="modelIcon">auto_awesome</span><span id="modelName">Modell</span><span class="ms mchev">expand_more</span>
       </button>
       <button type="button" class="model-chip" id="skillBtn" aria-label="Skill einfügen"><span class="ms">auto_fix_high</span><span>Skills</span></button>
+      <button type="button" class="model-chip" id="attachBtn" aria-label="Datei oder Bild anhängen" title="Bilder, PDFs, Textdateien – auch einfügen (Strg+V) oder hineinziehen"><span class="ms">attach_file</span><span>Datei</span></button>
+      <input type="file" id="fileInput" multiple hidden accept="image/png,image/jpeg,image/gif,image/webp,application/pdf,text/*,.md,.csv,.json,.xml,.yaml,.yml,.log,.ics,.py,.js,.ts,.html,.css,.sql">
       <span class="lim-now" id="limNow"></span>
     </div>
   </div>

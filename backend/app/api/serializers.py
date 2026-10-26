@@ -73,7 +73,7 @@ def reminder(r: Reminder) -> dict:
 def tracker(t: Tracker, status: dict) -> dict:
     """status from services.trackers.overview: today, recent (oldest first), streak."""
     return {"id": t.id, "name": t.name, "icon": t.icon, "note": t.note, "slots": t.slots, "days": t.days, "on_missed": t.on_missed,
-            "routine_id": t.routine_id, "enabled": t.enabled, "show_on_home": t.show_on_home, "created_by": t.created_by,
+            "duration_s": t.duration_s, "routine_id": t.routine_id, "enabled": t.enabled, "show_on_home": t.show_on_home, "created_by": t.created_by,
             "created_at": iso(t.created_at), **status}
 
 

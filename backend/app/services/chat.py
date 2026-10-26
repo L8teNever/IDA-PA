@@ -1,5 +1,9 @@
 """Live chat with an agent: streams the answer and stores everything in the database.
 
+The answer runs as a background task on the server: it goes on (and is saved) when the browser switches
+the page, closes the app or loses the connection. The browser only follows it (follow) and can come back
+later – a reopened chat replays what was written so far and keeps streaming.
+
 Events (NDJSON lines to the browser):
   {"chat": {...}}  first, with the chat id (new chats get one here)
   {"text": "…"}    answer text (streamed)
@@ -9,6 +13,7 @@ Events (NDJSON lines to the browser):
 """
 import asyncio
 import logging
+import time
 from collections.abc import AsyncIterator
 from contextlib import aclosing
 
@@ -17,12 +22,14 @@ from sqlalchemy import select
 from ..config import get_settings
 from ..db import session_scope, utcnow
 from ..models import Account, Agent, Chat, ChatMessage, Skill
+from . import files as file_svc
 from . import providers, runs
 from .claude import runner
 from .errors import Invalid, NotFound
 from .mcp import identity
 
 log = logging.getLogger("ida.chat")
+KEEP_FINISHED = 120  # seconds a finished run stays followable (a browser that comes back just then still gets "done")
 
 
 def chat_dict(c: Chat) -> dict:
@@ -33,8 +40,10 @@ def chat_dict(c: Chat) -> dict:
 def _transcript(msgs: list[ChatMessage]) -> str:
     lines = []
     for m in msgs:
-        if m.role in ("user", "assistant") and m.text:
-            lines.append(f"{'Nutzer' if m.role == 'user' else 'Assistent'}: {m.text}")
+        names = [f["name"] for f in (m.meta or {}).get("files") or []]
+        if m.role in ("user", "assistant") and (m.text or names):
+            note = f" [Anhang: {', '.join(names)}]" if names else ""
+            lines.append(f"{'Nutzer' if m.role == 'user' else 'Assistent'}: {m.text}{note}")
     return "\n".join(lines)[-12000:]
 
 
@@ -72,10 +81,104 @@ async def _until(source: AsyncIterator[dict], stopped: asyncio.Event) -> AsyncIt
             halt.cancel()
 
 
+class _Live:
+    """A running answer: every event is kept, so any number of browsers can follow it – also from the start."""
+
+    def __init__(self) -> None:
+        self.events: list[dict] = []
+        self.done = False
+        self.cond = asyncio.Condition()
+        self.started = utcnow()  # shown as "läuft seit …" when a browser follows it later
+
+    async def push(self, ev: dict) -> None:
+        async with self.cond:
+            self.events.append(ev)
+            self.cond.notify_all()
+
+    async def finish(self) -> None:
+        async with self.cond:
+            self.done = True
+            self.cond.notify_all()
+
+    async def follow(self, after: int = 0) -> AsyncIterator[dict]:
+        i = max(0, after)
+        while True:
+            async with self.cond:
+                while i >= len(self.events) and not self.done:
+                    await self.cond.wait()
+                new, finished = self.events[i:], self.done
+            for ev in new:
+                yield ev
+            i += len(new)
+            if finished and i >= len(self.events):
+                return
+
+
+_live: dict[str, _Live] = {}
+_tasks: set[asyncio.Task] = set()  # keeps the background runs referenced
+
+
+def running(chat_id: str) -> bool:
+    live = _live.get(chat_id)
+    return bool(live and not live.done)
+
+
+def running_since(chat_id: str):
+    live = _live.get(chat_id)
+    return live.started if live and not live.done else None
+
+
+def follow(chat_id: str, after: int = 0) -> AsyncIterator[dict] | None:
+    """The events of the chat's current (or just finished) answer; None = nothing running."""
+    live = _live.get(chat_id)
+    return live.follow(after) if live else None
+
+
+async def start_chat(*, chat_id: str | None, agent_id: str | None, text: str, model: str | None, account_id: str | None,
+                     skill_id: str | None, effort: str | None = None, file_ids: list[str] | None = None) -> dict:
+    """Saves the message and starts the answer in the background; returns the chat (follow it with follow())."""
+    state, order, prompt, skill_id, attachments, info = await _prepare(chat_id=chat_id, agent_id=agent_id, text=text, model=model,
+                                                                       account_id=account_id, skill_id=skill_id, file_ids=file_ids or [])
+    live = _live[state["chat_id"]] = _Live()
+    stopped = _stops[state["chat_id"]] = asyncio.Event()
+
+    async def drive():
+        try:
+            async for ev in _answer(state, order, prompt, skill_id, effort, stopped, attachments):
+                await live.push(ev)
+        except Exception as e:  # noqa: BLE001 – the browser must always get an end
+            log.exception("chat answer %s failed", state["chat_id"])
+            await live.push({"done": {"ok": False, "error": f"Fehler: {str(e)[:300] or e.__class__.__name__}"}})
+        finally:
+            await live.finish()
+            if _stops.get(state["chat_id"]) is stopped:
+                del _stops[state["chat_id"]]
+            asyncio.get_running_loop().call_later(KEEP_FINISHED, lambda: _live.pop(state["chat_id"], None) if _live.get(state["chat_id"]) is live else None)
+
+    task = asyncio.create_task(drive())
+    _tasks.add(task)
+    task.add_done_callback(_tasks.discard)
+    return info
+
+
 async def stream_chat(*, chat_id: str | None, agent_id: str | None, text: str, model: str | None,
-                      account_id: str | None, skill_id: str | None, effort: str | None = None) -> AsyncIterator[dict]:
+                      account_id: str | None, skill_id: str | None, effort: str | None = None,
+                      file_ids: list[str] | None = None) -> AsyncIterator[dict]:
+    """Start + follow: {"chat": …} first, then the answer's events. Leaving early does not stop the answer."""
+    info = await start_chat(chat_id=chat_id, agent_id=agent_id, text=text, model=model, account_id=account_id,
+                            skill_id=skill_id, effort=effort, file_ids=file_ids)
+    yield {"chat": info}
+    async for ev in follow(info["id"]):
+        yield ev
+
+
+async def _prepare(*, chat_id, agent_id, text, model, account_id, skill_id, file_ids):
     s = get_settings()
     text = (text or "").strip()
+    if chat_id and running(chat_id):
+        raise Invalid("Hier läuft noch eine Antwort – warte kurz oder stoppe sie")
+    if not text and not skill_id and not file_ids:
+        raise Invalid("Nachricht fehlt")
     async with session_scope() as db:
         if chat_id:
             chat = await db.get(Chat, chat_id)
@@ -88,6 +191,7 @@ async def stream_chat(*, chat_id: str | None, agent_id: str | None, text: str, m
                 raise NotFound("Agent nicht gefunden")
             chat = Chat(agent_id=agent.id, title=(text or "Neuer Chat")[:60], model=model or agent.model or s.default_model)
             db.add(chat)
+            await db.flush()  # the chat needs its id for the files
         if model:
             providers.check_model(model)
             chat.model = model
@@ -97,26 +201,32 @@ async def stream_chat(*, chat_id: str | None, agent_id: str | None, text: str, m
         if skill_id and not (skill and skill.enabled):
             raise Invalid(f"Skill /{skill_id} gibt es nicht oder er ist aus")
         history = list((await db.scalars(select(ChatMessage).where(ChatMessage.chat_id == chat.id).order_by(ChatMessage.at))).all()) if chat_id else []
-        db.add(ChatMessage(chat_id=chat.id, role="user", text=text, meta={"skill": skill_id} if skill_id else {}))
+        fs = await file_svc.take(db, file_ids, chat.id)
+        if fs and not chat_id and not text:
+            chat.title = fs[0].name[:60]
+        meta = {**({"skill": skill_id} if skill_id else {}), **({"files": [file_svc.info(f) for f in fs]} if fs else {})}
+        db.add(ChatMessage(chat_id=chat.id, role="user", text=text, meta=meta))
         chat.updated_at = utcnow()
         await db.flush()
         info = chat_dict(chat)
         state = {"chat_id": chat.id, "agent_id": agent.id, "model": chat.model, "session": chat.session_id if chat.session_account == acc.id else None,
                  "history": _transcript(history)}
         order = [acc] + ([a for a in await providers.accounts_for(db, chat.model) if a.id != acc.id] if agent.fallback else [])
-    yield {"chat": info}
-    stopped = _stops[state["chat_id"]] = asyncio.Event()
-    try:
-        async for ev in _answer(state, order, text, skill_id, effort, stopped):
-            yield ev
-    finally:
-        if _stops.get(state["chat_id"]) is stopped:
-            del _stops[state["chat_id"]]
+    # text files go into the message itself; pictures and PDFs go to the model as they are
+    prompt = text
+    for f in fs:
+        if f.kind == "text":
+            prompt += f"\n\n<datei name=\"{f.name}\">\n{file_svc.as_text(f)}\n</datei>"
+    if fs and not text:
+        prompt = ("(Siehe Anhang.)" + prompt) if not skill_id else prompt.strip()
+    attachments = [{"kind": f.kind, "mime": f.mime, "path": str(file_svc.path(f)), "name": f.name} for f in fs if f.kind != "text"]
+    return state, order, prompt.strip(), skill_id, attachments, info
 
 
 async def _answer(state: dict, order: list[Account], text: str, skill_id: str | None, effort: str | None,
-                  stopped: asyncio.Event) -> AsyncIterator[dict]:
+                  stopped: asyncio.Event, attachments: list[dict] | None = None) -> AsyncIterator[dict]:
     prompt_text = text or "(Wende den Skill auf das bisherige Gespräch bzw. deine letzte Antwort an.)"
+    t0 = time.monotonic()  # how long the answer took (shown under it)
     parts: list[dict] = []
     tools: dict[str, dict] = {}
     result: dict = {"ok": False, "result": "Keine Antwort"}
@@ -131,6 +241,7 @@ async def _answer(state: dict, order: list[Account], text: str, skill_id: str | 
             skill = await db.get(Skill, skill_id) if skill_id else None
             p = await runs.prepare(db, agent, prompt, model=state["model"], account=acc, interactive=True, forced_skill=skill,
                                    session_id=resume, persist=True, effort=effort)
+        p.spec.attachments = list(attachments or [])
         used, streamed = acc, False
         try:
             async for ev in _until(runner.stream(p.spec), stopped):
@@ -165,9 +276,10 @@ async def _answer(state: dict, order: list[Account], text: str, skill_id: str | 
         yield {"sys": f"{acc.name} ist am Limit – weiter mit {order[i + 1].name}"}
 
     answer = "".join(p["text"] for p in parts if p["t"] == "text").strip()
+    ms = int((time.monotonic() - t0) * 1000)
     async with session_scope() as db:
         chat = await db.get(Chat, state["chat_id"])
-        meta = {"model": state["model"], "account": used.name if used else None}
+        meta = {"model": state["model"], "account": used.name if used else None, "ms": ms}
         if result.get("stopped"):
             meta["stopped"] = True
             chat.session_id = None  # the cut-off turn is not in Claude's session – the next message carries the history
@@ -182,4 +294,4 @@ async def _answer(state: dict, order: list[Account], text: str, skill_id: str | 
         chat.updated_at = utcnow()
         await db.flush()
         mid = msg.id
-    yield {"done": {"ok": result["ok"], "message_id": mid, **({"stopped": True} if result.get("stopped") else {} if result["ok"] else {"error": result["result"][:800]})}}
+    yield {"done": {"ok": result["ok"], "message_id": mid, "ms": ms, **({"stopped": True} if result.get("stopped") else {} if result["ok"] else {"error": result["result"][:800]})}}

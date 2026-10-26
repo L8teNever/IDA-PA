@@ -35,3 +35,18 @@ class ChatMessage(Base):
     at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
 
     chat: Mapped[Chat] = relationship(back_populates="messages")
+
+
+class ChatFile(Base):
+    """A file or picture attached to a chat message; the bytes live in data/uploads/<id>.
+    Uploaded first (chat_id None), linked to the chat when the message is sent."""
+
+    __tablename__ = "chat_files"
+
+    id: Mapped[str] = mapped_column(String(12), primary_key=True, default=new_id)
+    chat_id: Mapped[str | None] = mapped_column(ForeignKey("chats.id", ondelete="CASCADE"), index=True, default=None)
+    name: Mapped[str] = mapped_column(String(200))
+    mime: Mapped[str] = mapped_column(String(100))
+    kind: Mapped[str] = mapped_column(String(8))  # image | pdf | text
+    size: Mapped[int] = mapped_column(default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)

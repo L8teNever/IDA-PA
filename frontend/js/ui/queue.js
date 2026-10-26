@@ -40,7 +40,7 @@ function render() {
   box.innerHTML = items.length ? `<div class="q-head"><span class="ms">schedule_send</span>${items.length === 1 ? "1 Nachricht wartet" : `${items.length} Nachrichten warten`}
       <small>${steer ? "wird gleich gesendet …" : ctx.busy ? "geht raus, sobald Ida fertig ist" : "pausiert"}</small></div>
     ${items.map((x, n) => `<div class="q-item" data-id="${x.id}"><span class="q-n">${n + 1}</span>
-      <span class="q-text">${x.skill ? `<b>/${esc(x.skill)}</b> ` : ""}${esc(x.text)}</span>
+      <span class="q-text">${x.skill ? `<b>/${esc(x.skill)}</b> ` : ""}${x.opts?.files?.length ? `📎${x.opts.files.length} ` : ""}${esc(x.text)}</span>
       <button type="button" class="q-btn now" data-act="now" title="Antwort unterbrechen und diese Nachricht jetzt senden"><span class="ms">bolt</span><span class="q-lbl">Jetzt senden</span></button>
       <button type="button" class="q-btn" data-act="edit" title="Zurück ins Eingabefeld zum Bearbeiten" aria-label="Bearbeiten"><span class="ms">edit</span></button>
       <button type="button" class="q-btn" data-act="del" title="Aus der Warteschlange löschen" aria-label="Löschen"><span class="ms">close</span></button></div>`).join("")}` : "";

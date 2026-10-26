@@ -69,7 +69,7 @@ export async function routineDetail({ id }) {
       <div class="kv"><span>Account</span><b>${esc(r.account_id ? (state.boot.accounts.find((x) => x.id === r.account_id)?.name || r.account_id) : "wie der Agent")}</b></div>
       <div class="kv"><span>Limit-Fallback</span><b>${r.fallback === null ? "wie der Agent" : r.fallback ? "an" : "aus"}</b></div>
       <div class="kv"><span>Gedächtnis</span><b>${r.memory_enabled === null ? "wie der Agent" : r.memory_enabled ? "an" : "aus"}</b></div>
-      ${r.trackers?.length ? `<div class="kv"><span>Tracker</span><b>startet, wenn ${r.trackers.map((x) => `<a href="/tracker">„${esc(x.name)}“</a>`).join(", ")} zur Uhrzeit nicht abgehakt ist</b></div>` : ""}
+      ${r.trackers?.length ? `<div class="kv"><span>Tracker</span><b>startet, wenn ${r.trackers.map((x) => `<a href="/tracker/${x.id}">„${esc(x.name)}“</a>`).join(", ")} zur Uhrzeit nicht abgehakt ist</b></div>` : ""}
       <div class="kv"><span>Startseite</span><b>${r.show_on_home ? "im Tagesplan" : "nicht im Tagesplan"}</b></div>
       ${t ? `<div class="kv"><span>Letzte Prüfung</span><b>${t.last_check ? fmtDateTime(t.last_check) : "noch nicht"}${t.last_error ? ` · ⚠ ${esc(t.last_error)}` : t.last_note ? ` · ${esc(t.last_note)}` : ""}</b></div>
              ${t.last_fired ? `<div class="kv"><span>Zuletzt ausgelöst</span><b>${fmtDateTime(t.last_fired)}</b></div>` : ""}`

@@ -1,7 +1,7 @@
 """All tables. Import from here so Alembic sees every model."""
 from .account import Account
 from .agent import Agent, AgentConnector, AgentRun
-from .chat import Chat, ChatMessage
+from .chat import Chat, ChatFile, ChatMessage
 from .connector import Connector
 from .memory import MemoryBackup, MemoryEntry
 from .setting import Setting
@@ -12,7 +12,7 @@ from .skill import AgentSkill, Skill
 from .tracker import Tracker, TrackerCheck, TrackerLink
 
 __all__ = [
-    "Account", "Agent", "AgentConnector", "AgentRun", "Chat", "ChatMessage", "Connector",
+    "Account", "Agent", "AgentConnector", "AgentRun", "Chat", "ChatFile", "ChatMessage", "Connector",
     "MemoryBackup", "MemoryEntry", "Setting", "USER", "Message", "Reminder", "Routine", "RoutineRun", "AgentSkill", "Skill",
     "Tracker", "TrackerCheck", "TrackerLink",
 ]

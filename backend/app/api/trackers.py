@@ -40,7 +40,7 @@ async def delete(tracker_id: str, db: DB):
 async def check(tracker_id: str, body: TrackerTick, db: DB):
     """Tick or untick a slot – today or a forgotten earlier day."""
     res = await svc.check(db, tracker_id, body.slot, body.day, undo=body.undo)
-    return await _view(db, res["tracker"])
+    return {**await _view(db, res["tracker"]), "ticked": {"status": res["status"], "slot": res["slot"], "day": res["day"]}}
 
 
 @router.get("/{tracker_id}/history")

@@ -514,6 +514,58 @@ body.tap-view #appHeader { display: none; }
 .tap-slots span.on { background: rgba(var(--accent-rgb), .14); color: var(--on-surface); }
 .tap-slots span.on .ms { color: var(--accent); }
 .tap-btns { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 6px; }
+/* tracker with a duration: countdown before ticking (/t/<token>, /tracker/<id>/timer) */
+.tmr { position: relative; width: min(72vw, 300px); aspect-ratio: 1; }
+.tmr-ring { width: 100%; height: 100%; transform: rotate(-90deg); }
+.tmr-bg { fill: none; stroke: var(--surface-high); stroke-width: 12; }
+.tmr-fg { fill: none; stroke: var(--accent); stroke-width: 12; stroke-linecap: round; transition: stroke-dashoffset .25s linear; }
+.tmr.paused .tmr-fg { opacity: .45; }
+.tmr-mid { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; }
+.tmr-mid .ms { font-size: 30px; color: var(--accent); }
+.tmr-mid b { font-size: clamp(44px, 14vw, 64px); font-weight: 500; font-variant-numeric: tabular-nums; line-height: 1.1; }
+.tmr-mid small { min-height: 18px; color: var(--muted); font-size: 14px; }
+.tmr-note { display: flex; align-items: center; gap: 6px; max-width: 360px; color: var(--muted); font-size: 13px; }
+.tmr-note .ms { font-size: 18px; }
+.trk-timer { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 8px; padding: 10px 14px; border-radius: 14px;
+  background: rgba(var(--accent-rgb), .14); color: var(--on-surface); text-decoration: none; font-weight: 500; }
+.trk-timer .ms { color: var(--accent); }
+.trk-timer small { color: var(--muted); font-weight: 400; font-size: 13px; }
+.trk-dur-own { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 14px; }
+.trk-dur-own .mini-in { width: 70px; min-width: 0; flex: none; padding: 8px 10px; }
 @media (prefers-reduced-motion: reduce) {
   .tap-stage.go .tap-ring, .tap-stage.go .tap-tick, .tap-stage.go .tap-badge, .tap-sparks i { animation-duration: .01s; animation-delay: 0s; }
 }
+
+/* chat files: waiting in the composer … */
+.att-list { display: flex; flex-wrap: wrap; gap: 8px; padding: 10px 12px 2px; }
+.att { position: relative; display: inline-flex; align-items: center; gap: 6px; height: 56px; max-width: 220px; padding: 0 30px 0 12px;
+  border-radius: 14px; background: var(--surface-highest); font-size: 13px; }
+.att.pic { width: 56px; padding: 0; overflow: hidden; }
+.att.pic img { width: 100%; height: 100%; object-fit: cover; }
+.att > .ms { color: var(--accent); font-size: 22px; }
+.att-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.att button { position: absolute; top: 4px; right: 4px; width: 22px; height: 22px; border: 0; border-radius: 50%; padding: 0; cursor: pointer;
+  display: grid; place-items: center; background: rgba(0,0,0,.65); color: #fff; }
+.att button .ms { font-size: 15px; }
+.att.up { opacity: .6; }
+.att-spin { position: absolute; left: 50%; top: 50%; width: 20px; height: 20px; margin: -10px; border-radius: 50%;
+  border: 2px solid rgba(255,255,255,.3); border-top-color: var(--accent); animation: spin .8s linear infinite; }
+.composer.drop .field { box-shadow: 0 0 0 2px var(--accent); }
+/* … and in the conversation */
+.row.me:has(.msg-files) { flex-direction: column; align-items: flex-end; gap: 6px; }
+.msg-files { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; max-width: min(80%, 520px); }
+.mf-pic { display: block; border-radius: 18px; overflow: hidden; background: var(--surface-high); }
+.mf-pic img { display: block; max-width: 240px; max-height: 240px; object-fit: cover; }
+.msg-files .mf-pic:only-child img { max-width: min(320px, 70vw); max-height: 360px; }
+.mf-file { display: inline-flex; align-items: center; gap: 8px; height: 44px; padding: 0 14px; border-radius: 14px; background: var(--surface-high);
+  color: var(--on-surface); text-decoration: none; font-size: 14px; max-width: 260px; }
+.mf-file .ms { color: var(--accent); }
+.mf-file span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* chat list: an answer is being written right now */
+.c-running { display: inline-flex; align-items: center; gap: 4px; color: var(--accent); }
+.c-running .ms { font-size: 14px; }
+
+/* chat: how long an answer took */
+.msg-meta { display: flex; align-items: center; gap: 4px; margin-top: 8px; font-size: 12px; color: var(--muted); }
+.msg-meta .ms { font-size: 14px; }
+.msg-meta.live { margin: -2px 0 6px 52px; }

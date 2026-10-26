@@ -349,8 +349,10 @@ class Client:
     async def initialize(self) -> None:
         if self.initialized:
             return
-        await self.request("initialize", {"protocolVersion": 1, "clientInfo": {"name": "ida", "version": "2.0"},
-                                          "clientCapabilities": {"fs": {"readTextFile": False, "writeTextFile": False}, "terminal": False}}, 90)
+        res = await self.request("initialize", {"protocolVersion": 1, "clientInfo": {"name": "ida", "version": "2.0"},
+                                                "clientCapabilities": {"fs": {"readTextFile": False, "writeTextFile": False}, "terminal": False}}, 90)
+        # what a prompt may contain besides text (pictures, embedded files)
+        self.prompt_caps = ((res or {}).get("agentCapabilities") or {}).get("promptCapabilities") or {}
         self.initialized = True
 
     async def authenticate(self, interactive: bool) -> None:
@@ -666,6 +668,24 @@ def _prompt(spec) -> str:
     return f"<anweisungen>\n{spec.system}\n</anweisungen>\n\n{spec.prompt}" if spec.system else spec.prompt
 
 
+def _prompt_blocks(spec, caps: dict) -> list[dict]:
+    """ACP prompt: text, pictures (if the agent takes them) and PDFs as embedded resource; otherwise a note."""
+    import base64
+    out, missing = [], []
+    for a in getattr(spec, "attachments", None) or []:
+        data = base64.b64encode(Path(a["path"]).read_bytes()).decode()
+        if a["kind"] == "image" and caps.get("image"):
+            out.append({"type": "image", "mimeType": a["mime"], "data": data})
+        elif a["kind"] == "pdf" and caps.get("embeddedContext"):
+            out.append({"type": "resource", "resource": {"uri": f"file:///{a['name']}", "mimeType": a["mime"], "blob": data}})
+        else:
+            missing.append(a["name"])
+    text = _prompt(spec)
+    if missing:
+        text += "\n\n(Angehängt, aber für dieses Modell nicht lesbar: " + ", ".join(missing) + " – sag das dem Nutzer.)"
+    return [{"type": "text", "text": text}, *out]
+
+
 def _content_text(c) -> str:
     if isinstance(c, str):
         return c
@@ -722,7 +742,7 @@ async def stream(spec) -> AsyncIterator[dict]:
                 await c.request("session/set_model", {"sessionId": sid, "modelId": model}, 30)
             except Invalid:
                 await c.request("session/set_config_option", {"sessionId": sid, "configId": "model", "value": model}, 30)
-        prompt = asyncio.create_task(c.request("session/prompt", {"sessionId": sid, "prompt": [{"type": "text", "text": _prompt(spec)}]},
+        prompt = asyncio.create_task(c.request("session/prompt", {"sessionId": sid, "prompt": _prompt_blocks(spec, getattr(c, "prompt_caps", {}))},
                                                s.run_timeout_s))
         names: dict[str, tuple[str, str]] = {}
         texts: list[str] = []

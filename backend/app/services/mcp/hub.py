@@ -58,7 +58,8 @@ def _spec(ids: list[str]) -> list[tuple[str, str, str, dict]]:
                       "days": {"type": "array", "items": {"type": "integer", "minimum": 0, "maximum": 6}, "description": "Wochentage 0=Mo … 6=So, leer = täglich"},
                       "on_missed": {"type": "string", "enum": list(tracker_svc.ACTIONS), "description": "Ist ein Fenster zu seiner Uhrzeit noch offen: none = nichts, notify = Benachrichtigung an den Nutzer (ohne KI), routine = routine_id starten (je Fenster höchstens einmal am Tag)"},
                       "routine_id": {**E, "description": "Routine für on_missed=routine – am besten eine mit on_demand=true (sonst läuft sie zusätzlich nach ihrem Zeitplan)"},
-                      "show_on_home": {"type": "boolean", "description": "im Tagesplan auf der Startseite zeigen (Standard ja)"}}
+                      "show_on_home": {"type": "boolean", "description": "im Tagesplan auf der Startseite zeigen (Standard ja)"},
+                      "duration_s": {"type": "integer", "minimum": 0, "maximum": 7200, "description": "Wie lange es dauert, in Sekunden (z. B. 180 = 3 Minuten Zähne putzen). Dann läuft beim Abhaken per NFC-Link oder Timer-Knopf erst ein Countdown, danach wird abgehakt. 0 = ohne Timer"}}
     mem_scope = {"type": "string", "description": "own = dein eigenes, shared = gemeinsames Gedächtnis; der Haupt-Agent zusätzlich eine Agent-ID (fremdes Gedächtnis!)"}
     mem_type = {"type": "string", "enum": ["fact", "preference", "rule", "event"]}
     mem_exp = {"type": "integer", "minimum": 0, "maximum": 3650, "description": "nur so viele Tage gültig (0 = immer)"}
@@ -303,14 +304,14 @@ async def _call(db: AsyncSession, me: Identity, name: str, a: dict) -> dict:
 def _tracker_view(t, st: dict, labels: dict) -> dict:
     today = st["today"]
     return {"id": t.id, "name": t.name, "notiz": t.note or None, "aktiv": t.enabled, "tage": t.days or "täglich",
-            "nachhaken": t.on_missed, "routine": t.routine_id, "serie": st["streak"], "heuteFaellig": today["due"],
+            "nachhaken": t.on_missed, "routine": t.routine_id, "dauer_s": t.duration_s or None, "serie": st["streak"], "heuteFaellig": today["due"],
             "heute": [{"slot": x["key"], "name": x["label"], "uhrzeit": x["time"], "abgehakt": x["done"],
                        **({"von": "NFC-Tag/Link" if x["by"] == tracker_svc.LINK_BY else labels.get(x["by"], x["by"])} if x["done"] else {})} for x in today["slots"]]}
 
 
 async def _tracker_call(db: AsyncSession, me: Identity, name: str, a: dict, labels: dict) -> dict:
     owner = None if me.is_main else me.agent_id  # sub-agents link only their own routines
-    fields = {k: v for k, v in a.items() if k in ("name", "note", "slots", "days", "on_missed", "routine_id", "show_on_home", "enabled")}
+    fields = {k: v for k, v in a.items() if k in ("name", "note", "slots", "days", "on_missed", "routine_id", "show_on_home", "enabled", "duration_s")}
     if name == "tracker_list":
         rows = await tracker_svc.listing(db)
         st = await tracker_svc.overview(db, rows, 1)

@@ -36,6 +36,10 @@ def arg(name):
 
 
 prompt = sys.stdin.read()
+if arg("--input-format") == "stream-json":  # message with pictures/PDFs: answer with what arrived
+    blocks = json.loads(prompt.splitlines()[0])["message"]["content"]
+    prompt = "".join(b["text"] for b in blocks if b["type"] == "text")
+    prompt += f" [BILDER:{sum(b['type'] == 'image' for b in blocks)} PDFS:{sum(b['type'] == 'document' for b in blocks)}]"
 system = open(arg("--system-prompt-file"), encoding="utf8").read()
 mcp = json.load(open(arg("--mcp-config"), encoding="utf8"))["mcpServers"]
 account = os.path.basename(os.environ.get("CLAUDE_CONFIG_DIR", ""))

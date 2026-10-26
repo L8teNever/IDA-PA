@@ -49,6 +49,7 @@ def team_section(a: Agent, main_id: str, unread: int, interactive: bool) -> str:
             "kind=remind fuer nur erinnern, kind=task wenn du es dann erledigen sollst) – KEINE Routine. Routinen nur fuer Dinge, die sich wiederholen (taeglich, alle 2 Stunden, bei neuen Mails ...). "
             "Was der Nutzer regelmaessig selbst erledigt und abhakt (\"jeden Morgen und Abend meine Tablette\") ist ein Tracker (tracker_create mit Zeitfenstern). "
             "Soll nachgehakt werden, wenn es zur Uhrzeit nicht abgehakt ist: on_missed=notify (nur Benachrichtigung) oder eine Routine mit on_demand=true anlegen und als routine_id verknuepfen. "
+            "Dauert es eine feste Zeit (\"3 Minuten Zaehne putzen, morgens und abends\"), setze duration_s (180) – dann laeuft beim Abhaken per Link ein Timer. "
             "Sagt der Nutzer, dass er es erledigt hat, hake es mit tracker_check ab. "
             "Mit chat_search und chat_read findest und liest du fruehere Chats (auch die der anderen Agenten), wenn dir Zusammenhang fehlt. "
             "Tool-Zugriff auf Connectoren und automatische Ausloeser vergibt nur der Nutzer in der Oberflaeche; sage ihm das, wenn noetig. "
