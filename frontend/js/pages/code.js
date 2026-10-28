@@ -145,7 +145,7 @@ export async function projectPage({ project }) {
           ${p.git_error ? `<div class="ferr">${esc(p.git_error)}</div>` : ""}
           ${ready ? `<div class="btn-row pj-btns">
             <button class="es-btn ${files ? "primary" : ""}" data-changes="${p.id}"><span class="ms">difference</span>${files ? "Änderungen ansehen" : "Git & Verlauf"}</button>
-            ${!p.repo_url ? `<button class="es-btn" id="pjPublish"><span class="ms">publish</span>Auf GitHub</button>` : ""}
+            ${!p.repo_url ? `<button class="es-btn" id="pjPublish" title="Neues Repo erstellen und hochladen"><span class="ms">publish</span>Auf GitHub veröffentlichen</button>` : ""}
           </div>` : ""}
         </div>
         <div class="seg seg-ic pj-tabs" id="pjTabs">
@@ -214,7 +214,6 @@ function projectMenu(p) {
   const s = openSheet(`<h2 class="cs-title">${esc(p.name)}</h2>
     <div class="slist">
       <button type="button" class="srow" data-a="rename"><span class="sic"><span class="ms">edit</span></span><span class="smain"><b>Umbenennen</b></span></button>
-      ${!p.repo_url && p.status === "ready" ? `<button type="button" class="srow" data-a="publish"><span class="sic"><span class="ms">publish</span></span><span class="smain"><b>Auf GitHub veröffentlichen</b><small>Neues Repo erstellen und hochladen</small></span></button>` : ""}
       <button type="button" class="srow" data-a="delete"><span class="sic"><span class="ms">delete</span></span><span class="smain"><b>Projekt löschen</b><small>Ordner und alle Threads hier – das Repo auf GitHub bleibt</small></span></button>
     </div>`);
   s.onclick = async (e) => {
@@ -225,7 +224,6 @@ function projectMenu(p) {
       const name = prompt("Neuer Name:", p.name);
       if (name && await attempt(() => api.patch(`/code/projects/${p.id}`, { name }), "Umbenannt")) projectPage({ project: p.id });
     }
-    if (a === "publish") publishProject(p);
     if (a === "delete" && confirm(`Projekt „${p.name}“ mit allen Threads löschen? Nicht gepushte Änderungen gehen verloren.`)) {
       if (await attempt(() => api.del(`/code/projects/${p.id}`), "Projekt gelöscht")) navigate("/code");
     }

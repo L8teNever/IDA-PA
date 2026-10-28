@@ -176,6 +176,10 @@ export async function renderChanges(s, projectId, { onChange, onClose } = {}) {
 document.addEventListener("click", (e) => {
   if (e.target.closest("#cbMenu")) openDrawer();
   const bChanges = e.target.closest("[data-changes]");
+  if (bChanges?.id === "cbChanges" && document.body.classList.contains("code-thread") && matchMedia("(min-width: 1100px)").matches) {
+    document.dispatchEvent(new CustomEvent("code:pane", { detail: "changes" }));
+    return;
+  }
   if (bChanges) openChanges(bChanges.dataset.changes, { onChange: () => document.dispatchEvent(new CustomEvent("code:changed")) });
   const bFiles = e.target.closest("[data-files]");
   if (bFiles) openFileSheet(bFiles.dataset.files);

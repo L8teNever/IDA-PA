@@ -771,13 +771,15 @@ body.code-thread .code-bar { margin-top: calc(env(safe-area-inset-top) + 8px); }
     padding-inline: max(20px, calc((100vw - var(--cl) - var(--cr) - var(--cw)) / 2));
   }
   body.code-thread .code-bar { margin-top: 10px; }
-  body.code-thread .cb-menu, body.code-thread .cb-back, body.code-thread #cbFiles { display: none; }
-  body.code-thread .cb-pane { display: grid; }
+  body.code-thread .cb-menu, body.code-thread #cbFiles { display: none; }
+  /* a pane's toggle sits in the pane while it is open and in the bar only while it is hidden */
+  body.code-thread.no-left .cb-pane[data-pane="left"], body.code-thread.no-right .cb-pane[data-pane="right"] { display: grid; }
   .code-pane { position: fixed; top: 0; bottom: 0; z-index: 5; display: none; flex-direction: column; gap: 8px; overflow: hidden;
     padding: calc(env(safe-area-inset-top) + 10px) 12px 12px; background: var(--surface); }
   body.code-thread .code-pane { display: flex; }
-  .code-pane.left { left: 0; width: var(--cl); border-right: 1px solid rgba(255,255,255,.06); }
-  .code-pane.right { right: 0; width: var(--cr); border-left: 1px solid rgba(255,255,255,.06); transition: width .25s var(--emph); }
+  /* same look as the side menu: a floating sheet with round inner corners */
+  .code-pane.left { left: 0; width: var(--cl); border-radius: 0 28px 28px 0; }
+  .code-pane.right { right: 0; width: var(--cr); border-radius: 28px 0 0 28px; }
 
   .cp-head { display: flex; align-items: center; gap: 8px; }
   .cp-head .icon-btn { width: 40px; height: 40px; flex: none; }
@@ -825,3 +827,7 @@ body.code-thread .code-bar { margin-top: calc(env(safe-area-inset-top) + 8px); }
   .cp-pv-frame { flex: 1; min-height: 0; width: 100%; border: 0; border-radius: 14px; background: #fff; }
 }
 .cb-pane { display: none; width: 36px !important; height: 36px !important; }
+
+/* header: one back button – hidden on the start page, and on the phone when the page has its own */
+body.view-timeline #btnBack { display: none; }
+@media (max-width: 899px) { body:has(#page:not([hidden]) .sub-head .back) #btnBack { display: none; } }

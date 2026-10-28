@@ -27,10 +27,15 @@ export async function resolve() {
   if (notFound) await notFound();
 }
 
+// position in the app's own history (0 = first page of this visit)
+const idx = () => history.state?.i || 0;
+const stateFor = (push) => ({ i: idx() + (push ? 1 : 0) });
+export const canGoBack = () => idx() > 0;
+
 export async function navigate(url, { replace = false } = {}) {
   await closeAll(); // open menus/sheets close first and take their history entries back out
   if (url === location.pathname + location.search && !replace) return resolve();
-  history[replace ? "replaceState" : "pushState"](null, "", url);
+  history[replace ? "replaceState" : "pushState"](stateFor(!replace), "", url);
   return resolve();
 }
 
@@ -38,7 +43,7 @@ export async function navigate(url, { replace = false } = {}) {
 // push: a new history entry, so "back" returns to the page before (start page -> new chat).
 export async function setUrl(url, { push = false } = {}) {
   await (push ? closeAll() : settled());
-  history[push ? "pushState" : "replaceState"](null, "", url);
+  history[push ? "pushState" : "replaceState"](stateFor(push), "", url);
   current = url;
 }
 export const path = () => current;

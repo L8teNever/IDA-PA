@@ -1,6 +1,6 @@
 // App frame: header with agent switcher, side drawer, which area of <main> is visible.
 import { api } from "../api.js";
-import { navigate } from "../router.js";
+import { canGoBack, navigate } from "../router.js";
 import { agents, colors, mainAgent, onChange, state } from "../store.js";
 import { $, closeSheet, esc } from "./dom.js";
 
@@ -66,7 +66,12 @@ export function initShell() {
   $("btnMenu").onclick = openDrawer;
   $("scrim").onclick = closeDrawers;
   $("sideNav").addEventListener("click", (e) => { if (e.target.closest("a")) closeDrawers(); });
-  $("btnHome").onclick = () => navigate("/");
+  $("btnBack").onclick = () => {
+    if (canGoBack()) return history.back();
+    // opened directly (link, reload): one level up, a chat goes to the start page
+    const p = location.pathname.replace(/\/+$/, "");
+    navigate(p.startsWith("/chat/") ? "/" : p.slice(0, p.lastIndexOf("/")) || "/", { replace: true });
+  };
   $("agentBtn").onclick = (e) => { e.stopPropagation(); $("agentWrap").classList.toggle("open"); };
   $("agentMenu").onclick = (e) => {
     const b = e.target.closest("button");

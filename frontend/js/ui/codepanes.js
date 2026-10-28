@@ -156,4 +156,10 @@ document.addEventListener("code:bar", () => {
   if (cur.tab === "changes") drawRight();
   if (cur.tab === "preview") { const f = $("cpPv"); if (f) f.src = `${f.src.split("?")[0]}?_r=${Date.now()}`; }
 });
+document.addEventListener("code:pane", (e) => {
+  if (!cur) return;
+  if (body.classList.contains("no-right")) togglePane("right");
+  cur.tab = e.detail;
+  drawRight();
+});
 document.addEventListener("chat:done", () => { if (cur) refreshThreads(); });
