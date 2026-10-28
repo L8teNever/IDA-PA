@@ -725,8 +725,9 @@ body.tap-view #appHeader { display: none; }
 .pv-title { font-size: 15px; font-weight: 600; color: var(--on-surface); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .pv-meta small { color: var(--muted); font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .pv-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-left: auto; }
-.pv-actions .icon-btn.mini { width: 32px; height: 32px; border-radius: 8px; }
-.pv-actions .icon-btn.mini.on { background: var(--container); color: var(--on-container); }
+.icon-btn.ib-sm { width: 32px; height: 32px; border-radius: 10px; flex: none; }
+.icon-btn.ib-sm .ms { font-size: 18px; }
+.pv-actions .icon-btn.ib-sm.on { background: var(--container); color: var(--on-container); }
 .seg.seg-mini { height: 32px; padding: 2px; border-radius: 10px; }
 .seg.seg-mini button { padding: 0 9px; font-size: 12px; gap: 4px; }
 .seg.seg-mini button .ms { font-size: 15px; }
@@ -767,7 +768,8 @@ body.code-thread .code-bar { margin-top: calc(env(safe-area-inset-top) + 8px); }
   body.code-thread.no-left { --cl: 0px !important; }
   body.code-thread.no-right { --cr: 0px !important; }
   body.code-thread.no-left #codeLeft, body.code-thread.no-right #codeRight { display: none; }
-  body.code-thread main, body.code-thread .composer { margin-left: var(--cl); margin-right: var(--cr); }
+  body.code-thread { --cg: 10px; }
+  body.code-thread main, body.code-thread .composer { margin-left: calc(var(--cl) + var(--cg)); margin-right: calc(var(--cr) + var(--cg)); }
   body.code-thread .messages, body.code-thread .composer {
     padding-inline: max(20px, calc((100vw - var(--cl) - var(--cr) - var(--cw)) / 2));
   }
@@ -775,12 +777,12 @@ body.code-thread .code-bar { margin-top: calc(env(safe-area-inset-top) + 8px); }
   body.code-thread .cb-menu, body.code-thread #cbFiles { display: none; }
   /* a pane's toggle sits in the pane while it is open and in the bar only while it is hidden */
   body.code-thread.no-left .cb-pane[data-pane="left"], body.code-thread.no-right .cb-pane[data-pane="right"] { display: grid; }
-  .code-pane { position: fixed; top: 0; bottom: 0; z-index: 5; display: none; flex-direction: column; gap: 8px; overflow: hidden;
-    padding: calc(env(safe-area-inset-top) + 10px) 12px 12px; background: var(--surface); }
+  .code-pane { position: fixed; top: calc(env(safe-area-inset-top) + var(--cg)); bottom: var(--cg); z-index: 5; border-radius: 28px; display: none; flex-direction: column; gap: 8px; overflow: hidden;
+    padding: 12px; background: var(--surface); }
   body.code-thread .code-pane { display: flex; }
   /* same look as the side menu: a floating sheet with round inner corners */
-  .code-pane.left { left: 0; width: var(--cl); border-radius: 0 28px 28px 0; }
-  .code-pane.right { right: 0; width: var(--cr); border-radius: 28px 0 0 28px; }
+  .code-pane.left { left: var(--cg); width: var(--cl); }
+  .code-pane.right { right: var(--cg); width: var(--cr); }
 
   .cp-head { display: flex; align-items: center; gap: 8px; }
   .cp-head .icon-btn { width: 40px; height: 40px; flex: none; }
@@ -800,12 +802,15 @@ body.code-thread .code-bar { margin-top: calc(env(safe-area-inset-top) + 8px); }
   .cp-tmain small { color: var(--muted); font-size: 11.5px; }
 
   .cp-tabs { display: flex; align-items: center; gap: 2px; flex: none; min-width: 0; }
-  .cp-tabs [data-tab] { flex: 1 1 0; min-width: 0; height: 38px; border: 0; border-radius: 19px; padding: 0 10px; display: flex; align-items: center; justify-content: center; gap: 6px; cursor: pointer;
-    background: transparent; color: var(--muted); font: inherit; font-size: 13.5px; white-space: nowrap; overflow: hidden; }
-  .cp-tabs [data-tab]:hover { background: rgba(255,255,255,.05); }
-  .cp-tabs [data-tab] .ms { font-size: 19px; }
-  .cp-tabs [data-tab].on { background: var(--container); color: var(--on-container); }
-  .cp-tabs .icon-btn { margin-left: 4px; width: 36px; height: 36px; flex: none; }
+  .cp-tabs [data-tab] { flex: 1 1 0; min-width: 0; height: 40px; border: 0; border-radius: 6px; padding: 0 4px; display: flex; align-items: center; justify-content: center; gap: 5px; cursor: pointer;
+    background: var(--surface-high); color: var(--on-surface); font: inherit; font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    transition: background .2s, border-radius .3s var(--spring); }
+  .cp-tabs [data-tab]:first-child { border-radius: 20px 6px 6px 20px; }
+  .cp-tabs [data-tab]:nth-child(3) { border-radius: 6px 20px 20px 6px; }
+  .cp-tabs [data-tab].on { background: var(--accent); color: var(--on-accent); border-radius: 20px; }
+  .cp-tabs [data-tab] .ms { font-size: 18px; flex: none; }
+  .cp-tabs .cp-tl { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .cp-tabs .icon-btn { margin-left: 6px; width: 36px; height: 36px; flex: none; }
   .cp-body { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
   .cp-body .fe-box { margin-top: 0; flex: 1; }
   .cp-body .preview-frame, .cp-body .preview-frame-wrap.device-tablet .preview-frame, .cp-body .preview-frame-wrap.device-mobile .preview-frame { height: 62vh; }

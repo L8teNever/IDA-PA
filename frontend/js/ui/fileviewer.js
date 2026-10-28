@@ -145,11 +145,11 @@ export function mountFileExplorer(container, projectId, { initialPath = "" } = {
         <button type="button" class="${htmlTab === "code" ? "on" : ""}" data-ht="code"><span class="ms">code</span>Code</button>
       </div>
       ${htmlTab === "render" ? `<div class="device-toggles">
-        <button type="button" class="icon-btn mini ${device === "full" ? "on" : ""}" data-dev="full" title="Volle Breite (Desktop)"><span class="ms">laptop</span></button>
-        <button type="button" class="icon-btn mini ${device === "tablet" ? "on" : ""}" data-dev="tablet" title="Tablet (768px)"><span class="ms">tablet</span></button>
-        <button type="button" class="icon-btn mini ${device === "mobile" ? "on" : ""}" data-dev="mobile" title="Handy (375px)"><span class="ms">smartphone</span></button>
+        <button type="button" class="icon-btn ib-sm ${device === "full" ? "on" : ""}" data-dev="full" title="Volle Breite (Desktop)"><span class="ms">laptop</span></button>
+        <button type="button" class="icon-btn ib-sm ${device === "tablet" ? "on" : ""}" data-dev="tablet" title="Tablet (768px)"><span class="ms">tablet</span></button>
+        <button type="button" class="icon-btn ib-sm ${device === "mobile" ? "on" : ""}" data-dev="mobile" title="Handy (375px)"><span class="ms">smartphone</span></button>
       </div>` : ""}
-      <button type="button" class="icon-btn mini" id="feReloadIframe" title="Vorschau neu laden"><span class="ms">refresh</span></button>`;
+      <button type="button" class="icon-btn ib-sm" id="feReloadIframe" title="Vorschau neu laden"><span class="ms">refresh</span></button>`;
     } else if (isMd) {
       topActions = `<div class="seg seg-mini" id="feMdSeg">
         <button type="button" class="${mdTab === "render" ? "on" : ""}" data-md="render"><span class="ms">visibility</span>Vorschau</button>
@@ -158,9 +158,9 @@ export function mountFileExplorer(container, projectId, { initialPath = "" } = {
     }
 
     if (data.is_text) {
-      topActions += `<button type="button" class="icon-btn mini" id="feCopy" title="Inhalt kopieren"><span class="ms">content_copy</span></button>`;
+      topActions += `<button type="button" class="icon-btn ib-sm" id="feCopy" title="Inhalt kopieren"><span class="ms">content_copy</span></button>`;
     }
-    topActions += `<a class="icon-btn mini" href="${raw}" target="_blank" rel="noopener" title="In neuem Tab \u00f6ffnen"><span class="ms">open_in_new</span></a>`;
+    topActions += `<a class="icon-btn ib-sm" href="${raw}" target="_blank" rel="noopener" title="In neuem Tab \u00f6ffnen"><span class="ms">open_in_new</span></a>`;
 
     let bodyHtml = "";
     if (isHtml && htmlTab === "render") {

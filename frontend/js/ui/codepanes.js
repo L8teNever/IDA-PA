@@ -43,7 +43,7 @@ function dragHandle(side) {
     h.setPointerCapture(e.pointerId);
     const name = side === "left" ? "--cl" : "--cr";
     const move = (ev) => {
-      const w = side === "left" ? ev.clientX : innerWidth - ev.clientX;
+      const w = (side === "left" ? ev.clientX : innerWidth - ev.clientX) - 10; // panes float 10px from the edge
       setW(name, Math.max(220, Math.min(w, innerWidth * 0.45)));
     };
     const up = () => {
@@ -118,7 +118,7 @@ function paintThreads() {
 function drawRight() {
   const { project } = cur;
   const box = $("codeRight");
-  box.innerHTML = `<div class="cp-tabs">${TABS.map(([k, ic, t]) => `<button type="button" data-tab="${k}" class="${cur.tab === k ? "on" : ""}"><span class="ms">${ic}</span>${t}</button>`).join("")}
+  box.innerHTML = `<div class="cp-tabs">${TABS.map(([k, ic, t]) => `<button type="button" data-tab="${k}" class="${cur.tab === k ? "on" : ""}"><span class="ms">${ic}</span><span class="cp-tl">${t}</span></button>`).join("")}
       <button type="button" class="icon-btn" data-pane="right" title="Bereich ausblenden (Strg+.)"><span class="ms">right_panel_close</span></button></div>
     <div class="cp-body" id="cpBody"></div>`;
   box.appendChild(dragHandle("right"));
@@ -143,7 +143,7 @@ async function drawPreview() {
   if (!path) { el.innerHTML = `<div class="empty">Keine HTML-Datei im Projekt. Öffne im Tab „Dateien“ eine HTML-Datei, dann erscheint sie hier.</div>`; return; }
   const src = `/api/v1/code/projects/${project.id}/raw/${encodeURI(path.replace(/\\/g, "/"))}`;
   el.innerHTML = `<div class="cp-pv-bar"><span class="mono">${esc(path)}</span>
-      <button type="button" class="icon-btn mini" id="cpPvReload" title="Neu laden"><span class="ms">refresh</span></button></div>
+      <button type="button" class="icon-btn ib-sm" id="cpPvReload" title="Neu laden"><span class="ms">refresh</span></button></div>
     <iframe class="cp-pv-frame" id="cpPv" src="${src}" sandbox="allow-scripts allow-forms allow-popups"></iframe>`;
   $("cpPvReload").onclick = () => { $("cpPv").src = `${src}?_r=${Date.now()}`; };
 }
