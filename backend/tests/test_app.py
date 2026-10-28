@@ -575,7 +575,12 @@ def test_trackers(client):
     t = client.post(f"{API}/trackers/{t['id']}/check", json={"slot": morning, "undo": True}).json()
     assert t["today"]["done"] == 0
     t = client.post(f"{API}/trackers/{t['id']}/check", json={}).json()
-    assert t["today"]["slots"][0]["done"] and not t["today"]["slots"][1]["done"]
+    # without slot it takes the slot that fits the time of day: from 18:00 on the evening (due within 2 h)
+    first = 1 if datetime.now(ZoneInfo("Europe/Berlin")).hour >= 18 else 0
+    assert t["today"]["slots"][first]["done"] and not t["today"]["slots"][1 - first]["done"]
+    if first:  # the rest expects the morning ticked and the evening open
+        client.post(f"{API}/trackers/{t['id']}/check", json={"slot": evening, "undo": True})
+        t = client.post(f"{API}/trackers/{t['id']}/check", json={"slot": morning}).json()
     # add a forgotten day; the streak counts it, an open today does not break it
     for s in (morning, evening):
         t = client.post(f"{API}/trackers/{t['id']}/check", json={"slot": s, "day": yesterday}).json()
