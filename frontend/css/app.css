@@ -632,22 +632,31 @@ body.tap-view #appHeader { display: none; }
 .cs-file .ms { font-size: 15px; }
 .st-A { color: #7ee2b8; } .st-M { color: #ffc85a; } .st-D { color: #ff8f8f; } .st-R { color: #8ab4ff; }
 
-.gh-line { display: flex; align-items: center; gap: 10px; background: var(--surface-high); border-radius: 18px; padding: 10px 14px; margin-bottom: 12px; font-size: 14px; color: var(--muted); }
-.gh-line img { width: 28px; height: 28px; border-radius: 50%; }
-.gh-line b { color: var(--on-surface); font-weight: 500; }
-.gh-line a { margin-left: auto; color: var(--accent); font-size: 13px; }
-a.gh-line { text-decoration: none; color: var(--on-surface); }
-a.gh-line .ms:first-child { color: var(--accent); }
-a.gh-line .ms:last-child { margin-left: auto; color: var(--muted); }
 .crow .proj-dot { background: var(--surface-highest); color: var(--accent); }
 .crow .proj-dot .ms { font-size: 22px; }
 .c-err { display: inline-flex; align-items: center; gap: 4px; color: #ff8f8f; }
 .c-err .ms, .c-wait .ms { font-size: 14px; }
 .c-wait { display: inline-flex; align-items: center; gap: 4px; color: #ffc85a; }
-.proj-card .pj-row { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 14px; margin: 4px 0; }
-.proj-card .pj-row .ms { font-size: 18px; }
-.proj-card .pj-row b { color: var(--on-surface); font-weight: 500; }
-.proj-card .pj-status { margin-bottom: 8px; font-size: 14px; }
+.srow .sic img { width: 100%; height: 100%; border-radius: inherit; object-fit: cover; }
+/* project page: info card + tabs (phone), two columns threads | files (desktop) */
+.pj-card .pj-status { margin-bottom: 8px; font-size: 14px; }
+.pj-card .pj-btns { margin: 14px 0 0; }
+.pj-card .pj-btns .es-btn { flex: 1 1 180px; }
+.seg.seg-ic button { display: flex; align-items: center; justify-content: center; gap: 8px; }
+.seg.seg-ic button .ms { font-size: 20px; }
+.pj-tabs { margin: 14px 0 12px; }
+.pj-wide { display: none; }
+.pj-wrap[data-tab="threads"] .pj-files, .pj-wrap[data-tab="files"] .pj-threads { display: none; }
+.pj-files .fe-box { margin-top: 0; }
+@media (min-width: 1100px) {
+  .pj-wrap { display: grid; grid-template-columns: minmax(360px, 440px) minmax(0, 1fr); gap: 32px; align-items: start; }
+  .pj-wrap .pj-files, .pj-wrap .pj-threads { display: block !important; }
+  .pj-tabs { display: none; }
+  .pj-wide { display: block; margin-top: 14px; }
+  .pj-files { position: sticky; top: 0; }
+  .pj-files .grp { margin-top: 0; }
+  .pj-files .fe-box { min-height: calc(100dvh - 190px); }
+}
 .big-new.disabled { opacity: .45; pointer-events: none; }
 .gh-card { display: flex; align-items: center; gap: 14px; }
 .gh-card img { width: 56px; height: 56px; border-radius: 50%; flex: none; }
@@ -787,12 +796,13 @@ body.code-thread .code-bar { margin-top: calc(env(safe-area-inset-top) + 8px); }
   .cp-tmain b { font-weight: 400; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .cp-tmain small { color: var(--muted); font-size: 11.5px; }
 
-  .cp-tabs { display: flex; align-items: center; gap: 4px; flex: none; }
-  .cp-tabs [data-tab] { height: 38px; border: 0; border-radius: 19px; padding: 0 14px; display: flex; align-items: center; gap: 6px; cursor: pointer;
-    background: transparent; color: var(--muted); font: inherit; font-size: 14px; }
+  .cp-tabs { display: flex; align-items: center; gap: 2px; flex: none; min-width: 0; }
+  .cp-tabs [data-tab] { flex: 1 1 0; min-width: 0; height: 38px; border: 0; border-radius: 19px; padding: 0 10px; display: flex; align-items: center; justify-content: center; gap: 6px; cursor: pointer;
+    background: transparent; color: var(--muted); font: inherit; font-size: 13.5px; white-space: nowrap; overflow: hidden; }
+  .cp-tabs [data-tab]:hover { background: rgba(255,255,255,.05); }
   .cp-tabs [data-tab] .ms { font-size: 19px; }
   .cp-tabs [data-tab].on { background: var(--container); color: var(--on-container); }
-  .cp-tabs .icon-btn { margin-left: auto; width: 36px; height: 36px; }
+  .cp-tabs .icon-btn { margin-left: 4px; width: 36px; height: 36px; flex: none; }
   .cp-body { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
   .cp-body .fe-box { margin-top: 0; flex: 1; }
   .cp-body .preview-frame, .cp-body .preview-frame-wrap.device-tablet .preview-frame, .cp-body .preview-frame-wrap.device-mobile .preview-frame { height: 62vh; }

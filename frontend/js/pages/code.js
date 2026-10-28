@@ -36,17 +36,22 @@ const statusLine = (p) => (p.status === "cloning" ? `<span class="c-running"><sp
 // ---- /code ----
 export async function codePage() {
   if (!state.boot?.code_enabled) return page(offBox());
-  page(`<div class="page-head"><h1>Code</h1></div>
-    <div id="ghLine"></div>
+  page(`<div class="page-head"><h1>Code</h1><span class="tag" id="projCount" hidden></span></div>
     <button class="big-new" id="addProject"><span class="ms">add</span>Projekt hinzufügen</button>
-    <div id="projList"><div class="empty">Lade …</div></div>`);
+    <div id="projList"><div class="empty">Lade …</div></div>
+    <div class="grp">GitHub</div>
+    <div class="slist" id="ghLine"></div>`);
   $("addProject").onclick = addProjectSheet;
   const [gh, list] = await Promise.all([api.get("/github/status"), api.get("/code/projects")]);
   if (!$("projList")) return;
+  $("projCount").hidden = !list.length;
+  $("projCount").textContent = `${list.length} Projekt${list.length === 1 ? "" : "e"}`;
   $("ghLine").innerHTML = gh.connected
-    ? `<div class="gh-line"><img src="${esc(gh.avatar || "")}" alt=""><span>Angemeldet bei GitHub als <b>${esc(gh.login)}</b></span><a href="/einstellungen/github">ändern</a></div>`
-    : `<a class="gh-line warn" href="/einstellungen/github"><span class="ms">link</span><span>Mit GitHub anmelden – für deine Repos, Push und Pull Requests</span><span class="ms">chevron_right</span></a>`;
-  $("projList").innerHTML = list.length ? `<div class="clist">${list.map((p) => `<a class="crow" href="/code/${p.id}" data-id="${p.id}">
+    ? `<a class="srow" href="/einstellungen/github"><span class="sic">${gh.avatar ? `<img src="${esc(gh.avatar)}" alt="">` : `<span class="ms">person</span>`}</span>
+        <span class="smain"><b>Angemeldet als ${esc(gh.login)}</b><small>Deine Repos, Push und Pull Requests sind bereit</small></span><span class="ms schev">chevron_right</span></a>`
+    : `<a class="srow" href="/einstellungen/github"><span class="sic"><span class="ms">link</span></span>
+        <span class="smain"><b>Mit GitHub anmelden</b><small>Für deine Repos, Push und Pull Requests</small></span><span class="ms schev">chevron_right</span></a>`;
+  $("projList").innerHTML = list.length ? `<div class="grp">Projekte</div><div class="clist">${list.map((p) => `<a class="crow" href="/code/${p.id}" data-id="${p.id}">
       <span class="ag-dot proj-dot"><span class="ms">${p.repo_url ? "folder_code" : "folder"}</span></span>
       <span class="cmain"><span class="ctop"><b>${esc(p.name)}</b><span class="ctime">${fmtRel(p.updated_at)}</span></span>
       <small>${statusLine(p) || (p.running ? `<span class="c-running"><span class="ms spin">progress_activity</span>${p.running} Thread${p.running > 1 ? "s" : ""} arbeite${p.running > 1 ? "n" : "t"} …</span>`
@@ -125,50 +130,53 @@ export async function projectPage({ project }) {
   if (!state.boot?.code_enabled) return page(offBox());
   let p;
   try { p = await api.get(`/code/projects/${encodeURIComponent(project)}`); } catch { toast("Projekt nicht gefunden"); return navigate("/code", { replace: true }); }
-  page(`<div class="sub-head"><a class="icon-btn back" href="/code" aria-label="Zurück"><span class="ms">arrow_back</span></a><h1>${esc(p.name)}</h1>
-      <button class="icon-btn" id="pjMenu" aria-label="Projekt-Einstellungen"><span class="ms">more_vert</span></button></div>
-    <div class="pcard proj-card" id="pjCard"></div>
-    <div class="seg" id="pjTabs" style="margin:14px 0 10px;">
-      <button type="button" class="on" data-tab="threads"><span class="ms">chat</span>Threads</button>
-      <button type="button" data-tab="files"><span class="ms">folder_open</span>Dateien & Vorschau</button>
-    </div>
-    <div id="tabThreads">
-      <a class="big-new ${p.status === "ready" ? "" : "disabled"}" href="/code/${p.id}/neu"><span class="ms">edit_square</span>Neuer Thread</a>
-      <div id="thList"></div>
-      <p class="hint">Zum Löschen eine Zeile zur Seite wischen.</p>
-    </div>
-    <div id="tabFiles" style="display:none">
-      <div id="feMount"></div>
-    </div>`);
   const g = p.git || {};
   const files = (g.files || []).length;
-  $("pjCard").innerHTML = `${statusLine(p) ? `<div class="pj-status">${statusLine(p)}</div>` : ""}
-    <div class="pj-row"><span class="ms">${p.repo_url ? "cloud" : "cloud_off"}</span>${p.repo_url ? `<span class="mono">${esc(repoName(p.repo_url))}</span>` : "nur lokal – noch kein GitHub-Repo"}</div>
-    ${p.status === "ready" ? `<div class="pj-row"><span class="ms">alt_route</span><b>${esc(g.branch || p.default_branch)}</b>${g.ahead ? ` · ${g.ahead} Commit${g.ahead > 1 ? "s" : ""} nicht gepusht` : ""}${g.behind ? ` · ${g.behind} neuer auf GitHub` : ""}</div>
-    <div class="es-actions" style="margin-top:12px">
-      <button class="es-btn ${files ? "primary" : ""}" data-changes="${p.id}"><span class="ms">difference</span>${files ? `${files} Änderung${files === 1 ? "" : "en"}` : "Änderungen & Git"}</button>
-      <button class="es-btn" id="pjBtnFiles"><span class="ms">folder_open</span>Dateien & Vorschau</button>
-    </div>` : ""}
-    ${p.git_error ? `<div class="ferr">${esc(p.git_error)}</div>` : ""}`;
+  const ready = p.status === "ready";
+  page(`<div class="sub-head"><a class="icon-btn back" href="/code" aria-label="Zurück"><span class="ms">arrow_back</span></a><h1>${esc(p.name)}</h1>
+      <button class="icon-btn" id="pjMenu" aria-label="Projekt-Einstellungen"><span class="ms">more_vert</span></button></div>
+    <div class="pj-wrap" id="pjWrap" data-tab="threads">
+      <div class="pj-side">
+        <div class="pcard pj-card">
+          ${statusLine(p) ? `<div class="pj-status">${statusLine(p)}</div>` : ""}
+          <div class="kv"><span>Repo</span><b>${p.repo_url ? `<span class="mono">${esc(repoName(p.repo_url))}</span>` : "nur lokal – noch nicht auf GitHub"}</b></div>
+          ${ready ? `<div class="kv"><span>Branch</span><b>${esc(g.branch || p.default_branch)}${g.ahead ? ` · ${g.ahead} nicht gepusht` : ""}${g.behind ? ` · ${g.behind} neuer auf GitHub` : ""}</b></div>
+          <div class="kv"><span>Änderungen</span><b>${files ? `${files} Datei${files === 1 ? "" : "en"} geändert` : "keine"}</b></div>` : ""}
+          ${p.git_error ? `<div class="ferr">${esc(p.git_error)}</div>` : ""}
+          ${ready ? `<div class="btn-row pj-btns">
+            <button class="es-btn ${files ? "primary" : ""}" data-changes="${p.id}"><span class="ms">difference</span>${files ? "Änderungen ansehen" : "Git & Verlauf"}</button>
+            ${!p.repo_url ? `<button class="es-btn" id="pjPublish"><span class="ms">publish</span>Auf GitHub</button>` : ""}
+          </div>` : ""}
+        </div>
+        <div class="seg seg-ic pj-tabs" id="pjTabs">
+          <button type="button" class="on" data-tab="threads"><span class="ms">chat</span>Threads</button>
+          <button type="button" data-tab="files"><span class="ms">folder_open</span>Dateien & Vorschau</button>
+        </div>
+        <div class="pj-threads">
+          <div class="grp pj-wide">Threads</div>
+          <a class="big-new ${ready ? "" : "disabled"}" href="/code/${p.id}/neu"><span class="ms">edit_square</span>Neuer Thread</a>
+          <div id="thList"></div>
+          <p class="hint">Zum Löschen eine Zeile zur Seite wischen.</p>
+        </div>
+      </div>
+      <div class="pj-files">
+        <div class="grp pj-wide">Dateien & Vorschau</div>
+        <div id="feMount">${ready ? "" : `<div class="empty">Die Dateien erscheinen, sobald das Projekt bereit ist.</div>`}</div>
+      </div>
+    </div>`);
   $("pjMenu").onclick = () => projectMenu(p);
-
-  let feInstance = null;
-  const switchTab = (tab) => {
-    $("pjTabs")?.querySelectorAll("[data-tab]").forEach((b) => b.classList.toggle("on", b.dataset.tab === tab));
-    if ($("tabThreads")) $("tabThreads").style.display = tab === "threads" ? "" : "none";
-    if ($("tabFiles")) $("tabFiles").style.display = tab === "files" ? "" : "none";
-    if (tab === "files" && !feInstance && $("feMount")) {
-      feInstance = mountFileExplorer($("feMount"), p.id);
-    }
-  };
-  $("pjTabs")?.querySelectorAll("[data-tab]").forEach((b) => (b.onclick = () => switchTab(b.dataset.tab)));
-  if ($("pjBtnFiles")) $("pjBtnFiles").onclick = (e) => { e.stopPropagation(); switchTab("files"); };
+  if ($("pjPublish")) $("pjPublish").onclick = () => publishProject(p);
+  if (ready) mountFileExplorer($("feMount"), p.id);
+  $("pjTabs").querySelectorAll("[data-tab]").forEach((b) => (b.onclick = () => {
+    $("pjWrap").dataset.tab = b.dataset.tab;
+    $("pjTabs").querySelectorAll("[data-tab]").forEach((x) => x.classList.toggle("on", x === b));
+  }));
 
   if (p.status === "cloning") { poll = setTimeout(() => location.pathname === `/code/${p.id}` && projectPage({ project: p.id }), 1500); return; }
   const list = await api.get(`/code/projects/${p.id}/threads`);
   if (!$("thList")) return;
   const thTabBtn = $("pjTabs")?.querySelector("[data-tab='threads']");
-  if (thTabBtn) thTabBtn.innerHTML = `<span class="ms">chat</span>Threads (${list.length})`;
+  if (thTabBtn) thTabBtn.innerHTML = `<span class="ms">chat</span>Threads${list.length ? ` (${list.length})` : ""}`;
 
   const icon = (m) => (MODES.find((x) => x[0] === m) || MODES[0])[1];
   $("thList").innerHTML = list.length ? `<div class="clist">${list.map((t) => {
@@ -195,6 +203,13 @@ document.addEventListener("code:changed", () => {
   if (m) projectPage({ project: m[1] });
 });
 
+async function publishProject(p) {
+  const name = prompt("Name des neuen GitHub-Repos:", p.name.toLowerCase().replace(/[^a-z0-9._-]+/g, "-"));
+  if (name === null) return;
+  const priv = confirm("Privates Repo? (OK = privat, Abbrechen = öffentlich)");
+  if (await attempt(() => api.post(`/code/projects/${p.id}/publish`, { name, private: priv }), "Auf GitHub veröffentlicht")) projectPage({ project: p.id });
+}
+
 function projectMenu(p) {
   const s = openSheet(`<h2 class="cs-title">${esc(p.name)}</h2>
     <div class="slist">
@@ -210,12 +225,7 @@ function projectMenu(p) {
       const name = prompt("Neuer Name:", p.name);
       if (name && await attempt(() => api.patch(`/code/projects/${p.id}`, { name }), "Umbenannt")) projectPage({ project: p.id });
     }
-    if (a === "publish") {
-      const name = prompt("Name des neuen GitHub-Repos:", p.name.toLowerCase().replace(/[^a-z0-9._-]+/g, "-"));
-      if (name === null) return;
-      const priv = confirm("Privates Repo? (OK = privat, Abbrechen = öffentlich)");
-      if (await attempt(() => api.post(`/code/projects/${p.id}/publish`, { name, private: priv }), "Auf GitHub veröffentlicht")) projectPage({ project: p.id });
-    }
+    if (a === "publish") publishProject(p);
     if (a === "delete" && confirm(`Projekt „${p.name}“ mit allen Threads löschen? Nicht gepushte Änderungen gehen verloren.`)) {
       if (await attempt(() => api.del(`/code/projects/${p.id}`), "Projekt gelöscht")) navigate("/code");
     }
