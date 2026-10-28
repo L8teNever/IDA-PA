@@ -137,6 +137,7 @@ export async function projectPage({ project }) {
       <button class="icon-btn" id="pjMenu" aria-label="Projekt-Einstellungen"><span class="ms">more_vert</span></button></div>
     <div class="pj-wrap" id="pjWrap" data-tab="threads">
       <div class="pj-side">
+        <div class="grp pj-wide">Projekt</div>
         <div class="pcard pj-card">
           ${statusLine(p) ? `<div class="pj-status">${statusLine(p)}</div>` : ""}
           <div class="kv"><span>Repo</span><b>${p.repo_url ? `<span class="mono">${esc(repoName(p.repo_url))}</span>` : "nur lokal – noch nicht auf GitHub"}</b></div>

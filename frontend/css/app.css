@@ -641,7 +641,8 @@ body.tap-view #appHeader { display: none; }
 /* project page: info card + tabs (phone), two columns threads | files (desktop) */
 .pj-card .pj-status { margin-bottom: 8px; font-size: 14px; }
 .pj-card .pj-btns { margin: 14px 0 0; }
-.pj-card .pj-btns .es-btn { flex: 1 1 180px; }
+.pj-card .pj-btns { flex-direction: column; }
+.pj-card .pj-btns .es-btn { width: 100%; justify-content: center; }
 .seg.seg-ic button { display: flex; align-items: center; justify-content: center; gap: 8px; }
 .seg.seg-ic button .ms { font-size: 20px; }
 .pj-tabs { margin: 14px 0 12px; }
@@ -652,10 +653,10 @@ body.tap-view #appHeader { display: none; }
   .pj-wrap { display: grid; grid-template-columns: minmax(360px, 440px) minmax(0, 1fr); gap: 32px; align-items: start; }
   .pj-wrap .pj-files, .pj-wrap .pj-threads { display: block !important; }
   .pj-tabs { display: none; }
-  .pj-wide { display: block; margin-top: 14px; }
+  .pj-wide { display: block; margin-top: 18px; }
+  .pj-side > .pj-wide:first-child, .pj-files > .pj-wide { margin-top: 0; }
   .pj-files { position: sticky; top: 0; }
-  .pj-files .grp { margin-top: 0; }
-  .pj-files .fe-box { min-height: calc(100dvh - 190px); }
+  .pj-files .fe-box { min-height: 320px; }
 }
 .big-new.disabled { opacity: .45; pointer-events: none; }
 .gh-card { display: flex; align-items: center; gap: 14px; }
