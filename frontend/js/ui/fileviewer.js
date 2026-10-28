@@ -136,6 +136,7 @@ export function mountFileExplorer(container, projectId, { initialPath = "" } = {
     const isMd = data.ext === ".md" || data.ext === ".markdown";
     const isImg = [".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".ico"].includes(data.ext);
     const raw = rawUrl(data.path);
+    if (isHtml) document.dispatchEvent(new CustomEvent("fe:html", { detail: { projectId, path: data.path } }));
 
     let topActions = "";
     if (isHtml) {

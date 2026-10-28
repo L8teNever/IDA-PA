@@ -18,6 +18,7 @@ export function codeBar(project, mode) {
   const changes = (g.files || []).length;
   return `<div class="code-bar" id="codeBar">
     <button type="button" class="icon-btn cb-menu" id="cbMenu" aria-label="Menü"><span class="ms">menu</span></button>
+    <button type="button" class="icon-btn cb-pane" data-pane="left" aria-label="Threads ein-/ausblenden" title="Threads (Strg+B)"><span class="ms">left_panel_open</span></button>
     <a class="icon-btn cb-back" href="/code/${project.id}" aria-label="Zum Projekt"><span class="ms">arrow_back</span></a>
     <div class="cb-main"><b>${esc(project.name)}</b>
       <small><span class="ms">alt_route</span>${esc(g.branch || project.default_branch)}${g.ahead ? ` · ${g.ahead}↑` : ""}${g.behind ? ` · ${g.behind}↓` : ""}</small></div>
@@ -26,6 +27,7 @@ export function codeBar(project, mode) {
     <button type="button" class="cb-chip" id="cbMode" title="${esc(modeOf(mode)[3])}"><span class="ms">${modeOf(mode)[1]}</span><span>${modeOf(mode)[2]}</span></button>
     <button type="button" class="cb-chip ${changes ? "has" : ""}" id="cbChanges" data-changes="${project.id}" title="Änderungen, Commit, Push, Pull Request">
       <span class="ms">difference</span><span>${changes ? `${changes} Änderung${changes === 1 ? "" : "en"}` : "Änderungen"}</span></button>
+    <button type="button" class="icon-btn cb-pane" data-pane="right" aria-label="Dateien ein-/ausblenden" title="Dateien, Änderungen, Vorschau (Strg+.)"><span class="ms">right_panel_open</span></button>
   </div>`;
 }
 
@@ -101,14 +103,19 @@ function diffHtml(text) {
 
 export async function openChanges(projectId, { onChange } = {}) {
   const s = openSheet(`<div class="empty">Lade Änderungen …</div>`, "code-sheet");
+  await renderChanges(s, projectId, { onChange, onClose: closeSheet });
+}
+
+// diff, commit, push, branch, PR – in a sheet (onClose set) or inline in the right pane of a code thread
+export async function renderChanges(s, projectId, { onChange, onClose } = {}) {
   const draw = async (file = null) => {
     let st, d;
     try {
       [st, d] = await Promise.all([api.get(`/code/projects/${projectId}/git`), api.get(`/code/projects/${projectId}/diff${file ? `?file=${encodeURIComponent(file)}` : ""}`)]);
     } catch (e) { s.innerHTML = `<div class="handle"></div><div class="ferr">${esc(e.message)}</div>`; return; }
     const gh = !!st.github;
-    s.innerHTML = `<div class="handle"></div>
-      <div class="cs-head"><h2 class="cs-title">Änderungen</h2><button class="icon-btn" data-x aria-label="Schließen"><span class="ms">close</span></button></div>
+    s.innerHTML = `${onClose ? `<div class="handle"></div>` : ""}
+      ${onClose ? `<div class="cs-head"><h2 class="cs-title">Änderungen</h2><button class="icon-btn" data-x aria-label="Schließen"><span class="ms">close</span></button></div>` : ""}
       <div class="cs-info"><span><span class="ms">alt_route</span><b>${esc(st.branch)}</b>${st.upstream ? ` → ${esc(st.upstream)}` : ""}${st.ahead ? ` · ${st.ahead} nicht gepusht` : ""}${st.behind ? ` · ${st.behind} neuer auf GitHub` : ""}</span>
         <span>${st.remote ? `<span class="ms">cloud</span>${esc(st.remote.replace(/^https?:\/\//, "").replace(/\.git$/, ""))}` : `<span class="ms">cloud_off</span>nur lokal`}</span>
         <span>${gh ? `<span class="ms">account_circle</span>${esc(st.github)}` : `<a href="/einstellungen/github"><span class="ms">link_off</span>GitHub nicht verbunden</a>`}</span></div>
@@ -125,7 +132,7 @@ export async function openChanges(projectId, { onChange } = {}) {
         ${st.branches.length > 1 ? `<button class="es-btn" data-act="switch"><span class="ms">swap_horiz</span>Branch wechseln</button>` : ""}
         ${st.remote ? `<button class="es-btn" data-act="pr"><span class="ms">merge</span>Pull Request</button>` : ""}
       </div><div class="ferr" id="csErr"></div>`;
-    s.querySelector("[data-x]").onclick = closeSheet;
+    if (onClose) s.querySelector("[data-x]").onclick = onClose;
     s.querySelectorAll("[data-file]").forEach((b) => (b.onclick = () => draw(b.dataset.file || null)));
     s.querySelectorAll("[data-act]").forEach((b) => (b.onclick = async () => {
       const act = b.dataset.act;
