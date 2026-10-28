@@ -2,6 +2,7 @@
 // the bar above a code thread (project, branch, rights), the changes sheet (diff, commit, push, PR) and approval cards.
 import { api } from "../api.js";
 import { $, attempt, closeSheet, esc, openSheet, toast } from "./dom.js";
+import { openFileSheet } from "./fileviewer.js";
 
 export const MODES = [
   ["ask", "front_hand", "Nachfragen", "Jede Änderung und jeder Befehl wartet auf dein OK"],
@@ -18,6 +19,8 @@ export function codeBar(project, mode) {
     <a class="icon-btn" href="/code/${project.id}" aria-label="Zum Projekt"><span class="ms">arrow_back</span></a>
     <div class="cb-main"><b>${esc(project.name)}</b>
       <small><span class="ms">alt_route</span>${esc(g.branch || project.default_branch)}${g.ahead ? ` · ${g.ahead}↑` : ""}${g.behind ? ` · ${g.behind}↓` : ""}</small></div>
+    <button type="button" class="cb-chip" id="cbFiles" data-files="${project.id}" title="Dateien & Vorschau">
+      <span class="ms">folder_open</span><span>Dateien</span></button>
     <button type="button" class="cb-chip" id="cbMode" title="${esc(modeOf(mode)[3])}"><span class="ms">${modeOf(mode)[1]}</span><span>${modeOf(mode)[2]}</span></button>
     <button type="button" class="cb-chip ${changes ? "has" : ""}" id="cbChanges" data-changes="${project.id}" title="Änderungen, Commit, Push, Pull Request">
       <span class="ms">difference</span><span>${changes ? `${changes} Änderung${changes === 1 ? "" : "en"}` : "Änderungen"}</span></button>
@@ -162,6 +165,8 @@ export async function openChanges(projectId, { onChange } = {}) {
 }
 
 document.addEventListener("click", (e) => {
-  const b = e.target.closest("[data-changes]");
-  if (b) openChanges(b.dataset.changes, { onChange: () => document.dispatchEvent(new CustomEvent("code:changed")) });
+  const bChanges = e.target.closest("[data-changes]");
+  if (bChanges) openChanges(bChanges.dataset.changes, { onChange: () => document.dispatchEvent(new CustomEvent("code:changed")) });
+  const bFiles = e.target.closest("[data-files]");
+  if (bFiles) openFileSheet(bFiles.dataset.files);
 });

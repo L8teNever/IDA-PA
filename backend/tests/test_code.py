@@ -273,3 +273,67 @@ def test_delete_project_removes_threads_and_folder(client, code_on, github):
     assert not folder.exists()
     assert client.get(f"{API}/chats/{cid}").status_code == 404
     assert client.get(f"{API}/code/projects/{p['id']}").status_code == 404
+
+
+def test_project_files_listing_and_preview(client, code_on, github):
+    from app.services.code import projects
+    p = client.post(f"{API}/code/projects", json={"name": "FilesTest"}).json()
+    pid = p["id"]
+    folder = projects.root() / pid
+
+    # Create subfolder and test files
+    (folder / "index.html").write_text("<!DOCTYPE html><html><body><h1>Hello World</h1></body></html>", encoding="utf-8")
+    (folder / "style.css").write_text("body { color: red; }", encoding="utf-8")
+    sub = folder / "src"
+    sub.mkdir(parents=True, exist_ok=True)
+    (sub / "app.js").write_text("console.log('test');", encoding="utf-8")
+
+    # 1. Root files listing
+    res = client.get(f"{API}/code/projects/{pid}/files")
+    assert res.status_code == 200
+    data = res.json()
+    assert data["path"] == ""
+    assert data["parent"] is None
+    names = [e["name"] for e in data["entries"]]
+    assert "src" in names and "index.html" in names and "style.css" in names
+    # Folders first
+    assert data["entries"][0]["name"] == "src" and data["entries"][0]["is_dir"] is True
+    # .git should be filtered out
+    assert ".git" not in names
+
+    # 2. Subdirectory listing
+    res_sub = client.get(f"{API}/code/projects/{pid}/files?path=src")
+    assert res_sub.status_code == 200
+    sub_data = res_sub.json()
+    assert sub_data["path"] == "src"
+    assert sub_data["parent"] == ""
+    assert [e["name"] for e in sub_data["entries"]] == ["app.js"]
+
+    # 3. Path traversal protection
+    assert client.get(f"{API}/code/projects/{pid}/files?path=../").status_code == 400
+    assert client.get(f"{API}/code/projects/{pid}/files?path=.git").status_code == 400
+    assert client.get(f"{API}/code/projects/{pid}/file?path=../main.py").status_code == 400
+    assert client.get(f"{API}/code/projects/{pid}/file?path=.git/config").status_code == 400
+
+    # 4. File info & text preview
+    f_res = client.get(f"{API}/code/projects/{pid}/file?path=index.html")
+    assert f_res.status_code == 200
+    f_data = f_res.json()
+    assert f_data["name"] == "index.html"
+    assert f_data["is_text"] is True
+    assert "<h1>Hello World</h1>" in f_data["content"]
+    assert f_data["mime"] == "text/html"
+
+    # 5. Raw file endpoint
+    raw_res = client.get(f"{API}/code/projects/{pid}/raw/index.html")
+    assert raw_res.status_code == 200
+    assert "text/html" in raw_res.headers.get("content-type", "")
+    assert "<h1>Hello World</h1>" in raw_res.text
+
+    raw_css = client.get(f"{API}/code/projects/{pid}/raw/style.css")
+    assert raw_css.status_code == 200
+    assert "text/css" in raw_css.headers.get("content-type", "")
+    assert "color: red" in raw_css.text
+
+    # Cleanup
+    client.delete(f"{API}/code/projects/{pid}")

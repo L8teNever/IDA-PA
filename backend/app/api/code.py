@@ -1,6 +1,9 @@
 """Code area: on/off switch, projects (git repos), their threads, git actions and approvals.
 Threads themselves are chats: messages go through POST /chat (with project_id for a new thread), /chats/{id}/live, /stop."""
+import mimetypes
+
 from fastapi import APIRouter
+from fastapi.responses import FileResponse
 from sqlalchemy import select
 
 from ..models import Chat, ChatMessage
@@ -86,6 +89,47 @@ async def publish(pid: str, body: Publish, db: DB):
     """Local project -> new GitHub repo (origin) and push."""
     await code_area.require(db)
     return ser.code_project(await projects.publish(db, pid, body.name, body.private))
+
+
+# ---- files and preview ----
+
+@router.get("/projects/{pid}/files")
+async def project_files(pid: str, db: DB, path: str = ""):
+    _, d = await _project(db, pid)
+    return projects.list_dir(d, path)
+
+
+@router.get("/projects/{pid}/file")
+async def project_file(pid: str, db: DB, path: str):
+    _, d = await _project(db, pid)
+    return projects.file_info(d, path)
+
+
+@router.get("/projects/{pid}/raw/{file_path:path}")
+async def project_raw_file(pid: str, file_path: str, db: DB):
+    _, d = await _project(db, pid)
+    target = projects.resolve_file(d, file_path)
+    if not target.exists() or not target.is_file():
+        raise NotFound("Datei nicht gefunden")
+
+    ext = target.suffix.lower()
+    mime, _ = mimetypes.guess_type(target.name)
+    if ext in (".html", ".htm"):
+        mime = "text/html; charset=utf-8"
+    elif ext in (".js", ".mjs"):
+        mime = "application/javascript; charset=utf-8"
+    elif ext == ".css":
+        mime = "text/css; charset=utf-8"
+    elif ext == ".svg":
+        mime = "image/svg+xml"
+    elif ext in (".md", ".markdown"):
+        mime = "text/markdown; charset=utf-8"
+    elif ext == ".json":
+        mime = "application/json; charset=utf-8"
+    elif not mime:
+        mime = "text/plain; charset=utf-8" if ext in projects.TEXT_EXTENSIONS else "application/octet-stream"
+
+    return FileResponse(target, media_type=mime, headers={"X-Content-Type-Options": "nosniff", "Cache-Control": "no-cache"})
 
 
 # ---- threads ----

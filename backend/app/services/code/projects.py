@@ -1,11 +1,13 @@
 """Code projects: a git repository per project in data/projects/<id> – cloned (GitHub/URL) or started empty."""
 import asyncio
+from datetime import datetime, timezone
 import logging
+import mimetypes
 import os
+from pathlib import Path
 import shutil
 import stat
 import sys
-from pathlib import Path
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -188,3 +190,135 @@ async def publish(db: AsyncSession, pid: str, name: str, private: bool) -> CodeP
     if await git.has_commits(d):
         await git.push(d, git.auth_env(await github.account(db)))
     return p
+
+
+# ---- file tree and preview ----
+
+TEXT_EXTENSIONS = {
+    ".py", ".js", ".mjs", ".cjs", ".ts", ".tsx", ".jsx",
+    ".html", ".htm", ".css", ".scss", ".sass", ".less",
+    ".json", ".json5", ".jsonl", ".yml", ".yaml", ".toml", ".ini", ".cfg",
+    ".md", ".markdown", ".txt", ".rst", ".log",
+    ".sh", ".bash", ".zsh", ".bat", ".cmd", ".ps1",
+    ".sql", ".env", ".example", ".gitignore", ".gitattributes", ".dockerignore",
+    ".xml", ".svg", ".csv", ".tsv", ".conf", ".c", ".h", ".cpp", ".hpp",
+    ".rs", ".go", ".java", ".kt", ".rb", ".php", ".lua", ".swift",
+}
+
+MAX_PREVIEW_BYTES = 2 * 1024 * 1024  # 2 MB for text preview
+
+
+def resolve_file(d: Path, rel_path: str) -> Path:
+    """Safely resolves rel_path inside the project directory d, forbidding traversal and .git."""
+    clean = (rel_path or "").strip().replace("\\", "/").lstrip("/")
+    target = (d / clean).resolve()
+    try:
+        rel = target.relative_to(d)
+    except ValueError:
+        raise Invalid("Ungültiger Dateipfad")
+    if ".git" in rel.parts:
+        raise Invalid("Zugriff auf .git ist nicht erlaubt")
+    return target
+
+
+def list_dir(d: Path, rel_path: str = "") -> dict:
+    target = resolve_file(d, rel_path)
+    if not target.exists() or not target.is_dir():
+        raise NotFound("Ordner nicht gefunden")
+
+    entries = []
+    try:
+        items = list(target.iterdir())
+    except PermissionError:
+        raise Invalid("Keine Berechtigung für diesen Ordner")
+
+    for item in items:
+        if item.name == ".git":
+            continue
+        is_dir = item.is_dir()
+        try:
+            st = item.stat()
+            size = st.st_size if not is_dir else None
+            mtime = datetime.fromtimestamp(st.st_mtime, tz=timezone.utc).isoformat()
+        except OSError:
+            size = None
+            mtime = None
+
+        rel = item.relative_to(d).as_posix()
+        ext = item.suffix.lower() if not is_dir else ""
+        entries.append({
+            "name": item.name,
+            "path": rel,
+            "is_dir": is_dir,
+            "size": size,
+            "modified_at": mtime,
+            "ext": ext,
+        })
+
+    entries.sort(key=lambda x: (not x["is_dir"], x["name"].lower()))
+
+    curr_rel = target.relative_to(d).as_posix() if target != d else ""
+    parent = None
+    if target != d:
+        p = target.parent.relative_to(d).as_posix()
+        parent = "" if p == "." else p
+
+    return {
+        "path": curr_rel,
+        "parent": parent,
+        "entries": entries,
+    }
+
+
+def file_info(d: Path, rel_path: str) -> dict:
+    target = resolve_file(d, rel_path)
+    if not target.exists() or not target.is_file():
+        raise NotFound("Datei nicht gefunden")
+
+    st = target.stat()
+    size = st.st_size
+    mtime = datetime.fromtimestamp(st.st_mtime, tz=timezone.utc).isoformat()
+    ext = target.suffix.lower()
+    mime, _ = mimetypes.guess_type(target.name)
+    if not mime:
+        if ext in (".md", ".markdown"):
+            mime = "text/markdown"
+        elif ext in (".yaml", ".yml"):
+            mime = "text/yaml"
+        elif ext in (".toml", ".ini", ".cfg", ".env", ".gitignore", ".dockerignore"):
+            mime = "text/plain"
+        elif ext in (".ts", ".tsx"):
+            mime = "text/typescript"
+        elif ext in (".py", ".sh", ".ps1", ".bat", ".sql"):
+            mime = "text/plain"
+        else:
+            mime = "application/octet-stream"
+
+    is_text = ext in TEXT_EXTENSIONS or (mime and (mime.startswith("text/") or mime in ("application/json", "application/javascript", "application/xml", "image/svg+xml")))
+
+    content = None
+    truncated = False
+
+    if is_text:
+        try:
+            raw = target.read_bytes()
+            if len(raw) > MAX_PREVIEW_BYTES:
+                content = raw[:MAX_PREVIEW_BYTES].decode("utf-8", errors="replace")
+                truncated = True
+            else:
+                content = raw.decode("utf-8", errors="replace")
+        except Exception:
+            is_text = False
+            content = None
+
+    return {
+        "name": target.name,
+        "path": target.relative_to(d).as_posix(),
+        "size": size,
+        "modified_at": mtime,
+        "mime": mime,
+        "ext": ext,
+        "is_text": is_text,
+        "truncated": truncated,
+        "content": content,
+    }

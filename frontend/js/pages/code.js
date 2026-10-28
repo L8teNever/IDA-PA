@@ -1,6 +1,6 @@
 // "/code" – code area: projects (GitHub repos in data/projects), their threads, a thread itself.
 //   /code                 projects + "Projekt hinzufügen" (your repos, new repo, URL, empty)
-//   /code/:project        threads of the project, git state, changes
+//   /code/:project        threads of the project, git state, changes, files & preview
 //   /code/:project/neu    new thread (chat view with the code bar)
 //   /code/:project/:id    a thread (chat view with the code bar)
 import { api } from "../api.js";
@@ -8,6 +8,7 @@ import { navigate } from "../router.js";
 import { mainAgent, state } from "../store.js";
 import { MODES } from "../ui/codebar.js";
 import { $, attempt, closeSheet, enableSwipe, esc, fmtRel, openSheet, toast } from "../ui/dom.js";
+import { mountFileExplorer } from "../ui/fileviewer.js";
 import { setAgent, setView } from "../ui/shell.js";
 import { newCodeThread, openChat } from "./chat.js";
 
@@ -127,20 +128,48 @@ export async function projectPage({ project }) {
   page(`<div class="sub-head"><a class="icon-btn back" href="/code" aria-label="Zurück"><span class="ms">arrow_back</span></a><h1>${esc(p.name)}</h1>
       <button class="icon-btn" id="pjMenu" aria-label="Projekt-Einstellungen"><span class="ms">more_vert</span></button></div>
     <div class="pcard proj-card" id="pjCard"></div>
-    <a class="big-new ${p.status === "ready" ? "" : "disabled"}" href="/code/${p.id}/neu"><span class="ms">edit_square</span>Neuer Thread</a>
-    <div id="thList"></div>
-    <p class="hint">Zum Löschen eine Zeile zur Seite wischen.</p>`);
+    <div class="seg" id="pjTabs" style="margin:14px 0 10px;">
+      <button type="button" class="on" data-tab="threads"><span class="ms">chat</span>Threads</button>
+      <button type="button" data-tab="files"><span class="ms">folder_open</span>Dateien & Vorschau</button>
+    </div>
+    <div id="tabThreads">
+      <a class="big-new ${p.status === "ready" ? "" : "disabled"}" href="/code/${p.id}/neu"><span class="ms">edit_square</span>Neuer Thread</a>
+      <div id="thList"></div>
+      <p class="hint">Zum Löschen eine Zeile zur Seite wischen.</p>
+    </div>
+    <div id="tabFiles" style="display:none">
+      <div id="feMount"></div>
+    </div>`);
   const g = p.git || {};
   const files = (g.files || []).length;
   $("pjCard").innerHTML = `${statusLine(p) ? `<div class="pj-status">${statusLine(p)}</div>` : ""}
     <div class="pj-row"><span class="ms">${p.repo_url ? "cloud" : "cloud_off"}</span>${p.repo_url ? `<span class="mono">${esc(repoName(p.repo_url))}</span>` : "nur lokal – noch kein GitHub-Repo"}</div>
     ${p.status === "ready" ? `<div class="pj-row"><span class="ms">alt_route</span><b>${esc(g.branch || p.default_branch)}</b>${g.ahead ? ` · ${g.ahead} Commit${g.ahead > 1 ? "s" : ""} nicht gepusht` : ""}${g.behind ? ` · ${g.behind} neuer auf GitHub` : ""}</div>
-    <div class="es-actions" style="margin-top:12px"><button class="es-btn ${files ? "primary" : ""}" data-changes="${p.id}"><span class="ms">difference</span>${files ? `${files} Änderung${files === 1 ? "" : "en"}` : "Änderungen & Git"}</button></div>` : ""}
+    <div class="es-actions" style="margin-top:12px">
+      <button class="es-btn ${files ? "primary" : ""}" data-changes="${p.id}"><span class="ms">difference</span>${files ? `${files} Änderung${files === 1 ? "" : "en"}` : "Änderungen & Git"}</button>
+      <button class="es-btn" id="pjBtnFiles"><span class="ms">folder_open</span>Dateien & Vorschau</button>
+    </div>` : ""}
     ${p.git_error ? `<div class="ferr">${esc(p.git_error)}</div>` : ""}`;
   $("pjMenu").onclick = () => projectMenu(p);
+
+  let feInstance = null;
+  const switchTab = (tab) => {
+    $("pjTabs")?.querySelectorAll("[data-tab]").forEach((b) => b.classList.toggle("on", b.dataset.tab === tab));
+    if ($("tabThreads")) $("tabThreads").style.display = tab === "threads" ? "" : "none";
+    if ($("tabFiles")) $("tabFiles").style.display = tab === "files" ? "" : "none";
+    if (tab === "files" && !feInstance && $("feMount")) {
+      feInstance = mountFileExplorer($("feMount"), p.id);
+    }
+  };
+  $("pjTabs")?.querySelectorAll("[data-tab]").forEach((b) => (b.onclick = () => switchTab(b.dataset.tab)));
+  if ($("pjBtnFiles")) $("pjBtnFiles").onclick = (e) => { e.stopPropagation(); switchTab("files"); };
+
   if (p.status === "cloning") { poll = setTimeout(() => location.pathname === `/code/${p.id}` && projectPage({ project: p.id }), 1500); return; }
   const list = await api.get(`/code/projects/${p.id}/threads`);
   if (!$("thList")) return;
+  const thTabBtn = $("pjTabs")?.querySelector("[data-tab='threads']");
+  if (thTabBtn) thTabBtn.innerHTML = `<span class="ms">chat</span>Threads (${list.length})`;
+
   const icon = (m) => (MODES.find((x) => x[0] === m) || MODES[0])[1];
   $("thList").innerHTML = list.length ? `<div class="clist">${list.map((t) => {
     const last = t.last ? (t.last.role === "user" ? "Du: " : "") + t.last.text.split("\n")[0] : "";
