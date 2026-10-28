@@ -4,6 +4,7 @@ import { api, followChat, streamChat } from "../api.js";
 import { setUrl } from "../router.js";
 import { agentById, agentOf, mainAgent, state } from "../store.js";
 import { approvalHtml, bindCodeBar, codeBar, refreshBar } from "../ui/codebar.js";
+import { mountCodePanes } from "../ui/codepanes.js";
 import { $, esc, fmtDateTime, md, toast } from "../ui/dom.js";
 import { flashMood, moodForTool, setLive } from "../ui/mascot.js";
 import { setAgent, setView } from "../ui/shell.js";
@@ -37,6 +38,7 @@ export function newChat(agent) {
 function showCodeBar() {
   $("messages").insertAdjacentHTML("afterbegin", codeBar(ctx.project, ctx.mode));
   bindBar();
+  mountCodePanes(ctx.project, () => ctx.id);
 }
 function bindBar() {
   bindCodeBar(async (mode) => {

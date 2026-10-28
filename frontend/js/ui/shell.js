@@ -8,6 +8,9 @@ import { $, closeSheet, esc } from "./dom.js";
 export function setView(mode, { agentStage } = {}) {
   const b = document.body;
   b.classList.remove("chatting", "on-page", "view-timeline", "show-mini", "show-bell", "tap-view");
+  const code = mode === "chat" && agentStage === "code"; // thread of the code area: own panes instead of the header
+  b.classList.toggle("code-thread", code);
+  if (!code) { $("codeLeft").innerHTML = ""; $("codeRight").innerHTML = ""; }
   closeDrawers();
   closeSheet();
   $("agentWrap").classList.remove("open");

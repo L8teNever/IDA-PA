@@ -3,6 +3,7 @@
 import { api } from "../api.js";
 import { $, attempt, closeSheet, esc, openSheet, toast } from "./dom.js";
 import { openFileSheet } from "./fileviewer.js";
+import { openDrawer } from "./shell.js";
 
 export const MODES = [
   ["ask", "front_hand", "Nachfragen", "Jede Änderung und jeder Befehl wartet auf dein OK"],
@@ -16,7 +17,8 @@ export function codeBar(project, mode) {
   const g = project.git || {};
   const changes = (g.files || []).length;
   return `<div class="code-bar" id="codeBar">
-    <a class="icon-btn" href="/code/${project.id}" aria-label="Zum Projekt"><span class="ms">arrow_back</span></a>
+    <button type="button" class="icon-btn cb-menu" id="cbMenu" aria-label="Menü"><span class="ms">menu</span></button>
+    <a class="icon-btn cb-back" href="/code/${project.id}" aria-label="Zum Projekt"><span class="ms">arrow_back</span></a>
     <div class="cb-main"><b>${esc(project.name)}</b>
       <small><span class="ms">alt_route</span>${esc(g.branch || project.default_branch)}${g.ahead ? ` · ${g.ahead}↑` : ""}${g.behind ? ` · ${g.behind}↓` : ""}</small></div>
     <button type="button" class="cb-chip" id="cbFiles" data-files="${project.id}" title="Dateien & Vorschau">
@@ -165,6 +167,7 @@ export async function openChanges(projectId, { onChange } = {}) {
 }
 
 document.addEventListener("click", (e) => {
+  if (e.target.closest("#cbMenu")) openDrawer();
   const bChanges = e.target.closest("[data-changes]");
   if (bChanges) openChanges(bChanges.dataset.changes, { onChange: () => document.dispatchEvent(new CustomEvent("code:changed")) });
   const bFiles = e.target.closest("[data-files]");
