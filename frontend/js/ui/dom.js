@@ -14,9 +14,10 @@ export function toast(text) {
   toast.timer = setTimeout(() => t.classList.remove("show"), 2200);
 }
 
-// Bottom sheet (the design's event sheet). Returns the sheet element.
-export function openSheet(html) {
+// Bottom sheet (the design's event sheet). Returns the sheet element. cls: extra class (e.g. "code-sheet" = wide)
+export function openSheet(html, cls = "") {
   const s = $("evSheet");
+  s.className = "ev-sheet" + (cls ? " " + cls : "");
   s.innerHTML = `<div class="handle"></div>` + html;
   document.body.classList.add("ev-open");
   return s;

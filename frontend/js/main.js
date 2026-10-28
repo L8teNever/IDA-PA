@@ -17,7 +17,7 @@ import { routineDetail, routineForm, routinesPage } from "./pages/routines.js";
 import { settingsPage } from "./pages/settings/index.js";
 import { usagePage } from "./pages/usage.js";
 import { remindersPage } from "./pages/reminders.js";
-import { codePage } from "./pages/code.js";
+import { codePage, projectPage, threadPage } from "./pages/code.js";
 import { trackerPage } from "./pages/tracker.js";
 import { tapPage, timerPage } from "./pages/tap.js";
 
@@ -37,6 +37,8 @@ router.add("/tracker/:id/timer", timerPage);
 router.add("/tracker/:id", trackerPage); // also /tracker/neu
 router.add("/t/:token", tapPage);
 router.add("/code", codePage);
+router.add("/code/:project", projectPage);
+router.add("/code/:project/:thread", threadPage); // also /code/:project/neu
 router.add("/limits", usagePage);
 router.add("/einstellungen", () => settingsPage());
 router.add("/einstellungen/:section", settingsPage);

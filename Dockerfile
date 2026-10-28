@@ -9,11 +9,15 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     INTERNAL_URL=http://127.0.0.1:8000
 
 # Node.js + Claude Code CLI (chats and agents run through it, using the Claude subscription login)
+# git + GitHub CLI for the code area (projects are cloned into /data/projects)
 ARG CLAUDE_CODE_VERSION=latest
 RUN apt-get update \
- && apt-get install -y --no-install-recommends ca-certificates curl gnupg tini \
+ && apt-get install -y --no-install-recommends ca-certificates curl gnupg tini git \
  && curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
- && apt-get install -y --no-install-recommends nodejs \
+ && curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg -o /usr/share/keyrings/githubcli-archive-keyring.gpg \
+ && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" > /etc/apt/sources.list.d/github-cli.list \
+ && apt-get update \
+ && apt-get install -y --no-install-recommends nodejs gh \
  && npm install -g @anthropic-ai/claude-code@${CLAUDE_CODE_VERSION} \
  && npm cache clean --force \
  && apt-get purge -y gnupg && apt-get autoremove -y && rm -rf /var/lib/apt/lists/*
@@ -28,8 +32,8 @@ RUN pip install -r requirements.txt
 COPY backend/ /app/backend/
 COPY frontend/ /app/frontend/
 
-# unprivileged user; /data is the volume (database for SQLite setups, Claude logins, sandbox)
-RUN useradd --create-home --uid 1000 ida && mkdir -p /data && chown -R ida:ida /data /app
+# unprivileged user; /data is the volume (database for SQLite setups, Claude logins, sandbox, code projects)
+RUN useradd --create-home --uid 1000 ida && mkdir -p /data/projects && chown -R ida:ida /data /app
 USER ida
 VOLUME /data
 EXPOSE 8000

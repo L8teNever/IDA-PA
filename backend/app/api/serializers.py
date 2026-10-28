@@ -1,7 +1,7 @@
 """Model -> JSON for the browser. Secrets (tokens, URLs with tokens) never leave the server unmasked."""
 from datetime import datetime, timezone
 
-from ..models import Account, Agent, AgentRun, Chat, ChatMessage, Connector, MemoryEntry, Message, Reminder, Routine, RoutineRun, Skill, Tracker, TrackerLink
+from ..models import Account, Agent, AgentRun, Chat, ChatMessage, CodeProject, Connector, MemoryEntry, Message, Reminder, Routine, RoutineRun, Skill, Tracker, TrackerLink
 from ..services.mcp.client import mask_url
 
 
@@ -40,10 +40,17 @@ def skill(s: Skill, agents: list[str] | None = None) -> dict:
 
 def chat(c: Chat, last: ChatMessage | None = None) -> dict:
     out = {"id": c.id, "agent_id": c.agent_id, "title": c.title, "model": c.model, "account_id": c.account_id,
+           "kind": c.kind, "project_id": c.project_id, "permission_mode": c.permission_mode,
            "created_at": iso(c.created_at), "updated_at": iso(c.updated_at)}
     if last is not None:
         out["last"] = {"role": last.role, "text": (last.text or "")[:200]}
     return out
+
+
+def code_project(p: CodeProject, threads: int | None = None, running: int | None = None) -> dict:
+    return {"id": p.id, "name": p.name, "repo_url": p.repo_url, "default_branch": p.default_branch, "status": p.status,
+            "status_text": p.status_text, "created_at": iso(p.created_at), "updated_at": iso(p.updated_at),
+            **({"threads": threads} if threads is not None else {}), **({"running": running} if running is not None else {})}
 
 
 def chat_message(m: ChatMessage) -> dict:

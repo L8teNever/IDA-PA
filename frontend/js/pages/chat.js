@@ -1,13 +1,15 @@
-// Chat view: shows a conversation and streams new answers. Used by "/", "/a/:id" (new chat) and "/chat/:id".
+// Chat view: shows a conversation and streams new answers. Used by "/", "/a/:id" (new chat) and "/chat/:id",
+// and for the threads of the code area ("/code/:project/:thread"): same view with the code bar on top.
 import { api, followChat, streamChat } from "../api.js";
 import { setUrl } from "../router.js";
-import { agentById, agentOf, state } from "../store.js";
+import { agentById, agentOf, mainAgent, state } from "../store.js";
+import { approvalHtml, bindCodeBar, codeBar, refreshBar } from "../ui/codebar.js";
 import { $, esc, fmtDateTime, md, toast } from "../ui/dom.js";
 import { flashMood, moodForTool, setLive } from "../ui/mascot.js";
 import { setAgent, setView } from "../ui/shell.js";
 
-// current conversation: { id|null, agentId, model, accountId }
-export const ctx = { id: null, agentId: null, model: null, accountId: null, busy: false };
+// current conversation: { id|null, agentId, model, accountId }; code threads also: project (from /code/projects/:id), mode (rights)
+export const ctx = { id: null, agentId: null, model: null, accountId: null, busy: false, project: null, mode: "ask" };
 
 const stageOf = (a) => (a.home === "timeline" ? "home" : "agent");
 
@@ -25,23 +27,58 @@ function idle() {
 
 export function newChat(agent) {
   detach();
-  Object.assign(ctx, { id: null, agentId: agent.id, busy: false });
+  Object.assign(ctx, { id: null, agentId: agent.id, busy: false, project: null });
   document.dispatchEvent(new CustomEvent("chat:switch"));
   idle();
   $("messages").innerHTML = "";
+}
+
+// the bar above a code thread: project, branch, rights, changes
+function showCodeBar() {
+  $("messages").insertAdjacentHTML("afterbegin", codeBar(ctx.project, ctx.mode));
+  bindBar();
+}
+function bindBar() {
+  bindCodeBar(async (mode) => {
+    if (ctx.id) {
+      try { await api.patch(`/code/threads/${ctx.id}`, { permission_mode: mode }); } catch (e) { return toast(e.message); }
+    }
+    ctx.mode = mode;
+    refreshBar(ctx.project.id, mode);
+  });
+}
+document.addEventListener("code:bar", () => { if (ctx.project) bindBar(); });
+document.addEventListener("code:changed", () => { if (ctx.project) refreshBar(ctx.project.id, ctx.mode); });
+
+// "/code/:project/neu": a new thread of a code project (always the main agent)
+export function newCodeThread(project, mode = "ask") {
+  detach();
+  const a = mainAgent();
+  setAgent(a);
+  document.dispatchEvent(new CustomEvent("chat:switch"));
+  Object.assign(ctx, { id: null, agentId: a.id, busy: false, project, mode });
+  idle();
+  setView("chat", { agentStage: "code" });
+  $("messages").innerHTML = `<div class="code-intro"><span class="ms">terminal</span><b>Neuer Thread in ${esc(project.name)}</b>
+    <small>${esc(a.name)} arbeitet direkt im Projekt – liest Code, ändert Dateien, führt Befehle aus. Was soll gemacht werden?</small></div>`;
+  showCodeBar();
+  $("input").placeholder = `Was soll ${a.name} in ${project.name} machen?`;
+  $("input").focus();
 }
 
 export async function openChat(id) {
   detach();
   const c = await api.get(`/chats/${encodeURIComponent(id)}`);
   const a = agentOf(c.agent_id);
+  const project = c.kind === "code" ? await api.get(`/code/projects/${c.project_id}`) : null;
   setAgent(a);
   if (c.id !== ctx.id) document.dispatchEvent(new CustomEvent("chat:switch")); // waiting messages belong to the old chat
-  Object.assign(ctx, { id: c.id, agentId: a.id, model: c.model, accountId: c.account_id, busy: false });
+  Object.assign(ctx, { id: c.id, agentId: a.id, model: c.model, accountId: c.account_id, busy: false, project, mode: c.permission_mode || "ask" });
   document.dispatchEvent(new CustomEvent("chat:model", { detail: { model: c.model, account: c.account_id } }));
-  setView("chat", { agentStage: stageOf(a) });
+  setView("chat", { agentStage: project ? "code" : stageOf(a) });
   const box = $("messages");
   box.innerHTML = `<div class="chat-day">${esc(c.title)} · ${fmtDateTime(c.created_at)}</div>`;
+  if (project) { showCodeBar(); $("input").placeholder = `Was soll ${a.name} in ${project.name} machen?`; }
   for (const m of c.messages) {
     if (m.role === "user") addUser(m.text, m.meta?.skill, m.meta?.files);
     else if (m.role === "assistant") renderBot(addBot(), m.parts, m.text, m.meta);
@@ -106,7 +143,7 @@ export function fmtDur(ms) {
 }
 
 function renderBot(el, parts, text, meta) {
-  const html = (parts || []).map((p) => (p.t === "text" ? `<div class="md-text">${md(p.text)}</div>` : toolHtml(p))).join("");
+  const html = (parts || []).map((p) => (p.t === "text" ? `<div class="md-text">${md(p.text)}</div>` : p.t === "approval" ? approvalHtml(p) : toolHtml(p))).join("");
   el.innerHTML = html || (text ? `<div class="md-text">${md(text)}</div>` : "");
   if (meta?.stopped) el.insertAdjacentHTML("beforeend", `<div class="msg-stopped"><span class="ms">stop_circle</span>Gestoppt</div>`);
   if (meta?.error) el.insertAdjacentHTML("beforeend", `<div class="msg-err"><span class="ms">error</span>${esc(meta.error)}</div>`);
@@ -149,7 +186,11 @@ async function follow(start, since = null) {
   setLive("thinking");
   const onEvent = (ev) => {
     if (ev.chat) {
-      if (!ctx.id) { ctx.id = ev.chat.id; setUrl(`/chat/${ev.chat.id}`, { push: !location.pathname.startsWith("/chat/") }); }
+      if (!ctx.id) {
+        ctx.id = ev.chat.id;
+        if (ctx.project) setUrl(`/code/${ctx.project.id}/${ev.chat.id}`); // replaces /code/:project/neu
+        else setUrl(`/chat/${ev.chat.id}`, { push: !location.pathname.startsWith("/chat/") });
+      }
       return;
     }
     if (ev.text !== undefined) {
@@ -162,6 +203,13 @@ async function follow(start, since = null) {
     } else if (ev.tool_result) {
       const p = tools[ev.tool_result.id];
       if (p) { p.out = ev.tool_result.content; p.error = ev.tool_result.error; }
+    } else if (ev.approval) {
+      parts.push({ t: "approval", ...ev.approval });
+      setLive(null);
+    } else if (ev.approval_done) {
+      const p = parts.find((x) => x.t === "approval" && x.id === ev.approval_done.id);
+      if (p) p.decision = ev.approval_done.decision;
+      setLive("thinking");
     } else if (ev.sys) {
       addSys(ev.sys);
     } else if (ev.done) {
@@ -195,6 +243,7 @@ async function follow(start, since = null) {
       setLive(null);
       if (!meta.stopped && !ctrl.signal.aborted) flashMood(ok ? "happy" : "sad");
       document.dispatchEvent(new CustomEvent("chat:done", { detail: { stopped: !!meta.stopped, ok } }));
+      if (ctx.project) refreshBar(ctx.project.id, ctx.mode); // the agent may have changed files
     }
   }
 }
@@ -203,10 +252,13 @@ export async function send(text, { skill = null, model, accountId, effort, files
   if (ctx.busy) return toast("Die Antwort läuft noch …");
   const agent = agentById(ctx.agentId) || state.agent;
   if (!document.body.classList.contains("chatting")) {
-    setView("chat", { agentStage: stageOf(agent) });
+    setView("chat", { agentStage: ctx.project ? "code" : stageOf(agent) });
     $("messages").innerHTML = `<div class="chat-day">${new Date().toLocaleString("de-DE", { weekday: "long", hour: "2-digit", minute: "2-digit" })}</div>`;
+    if (ctx.project) showCodeBar();
   }
+  $("messages").querySelector(".code-intro")?.remove();
   addUser(text, skill, files);
   const body = { chat_id: ctx.id, agent_id: agent.id, text, skill, model, account_id: accountId, effort, files: files.map((f) => f.id) };
+  if (ctx.project) Object.assign(body, { project_id: ctx.id ? null : ctx.project.id, permission_mode: ctx.mode });
   await follow((onEvent, signal) => streamChat(body, onEvent, signal));
 }

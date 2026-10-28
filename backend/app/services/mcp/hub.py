@@ -5,6 +5,7 @@ Rights depend on the caller (see identity.Identity):
   sub-agents:  messages, notifications, own notes, see all routines, edit/create only their own routines.
   chat_*:      every agent may search and read all chats (also those of other agents) for context.
   memory_*:    only when memory is switched on for the run.
+  code_*:      code_projects for the main agent; code_approve only inside a code thread (the CLI's permission tool).
 Triggers and connector access are never settable here – only by the user in the UI.
 """
 import json
@@ -14,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...config import get_settings
 from ...db import session_scope
-from ...models import USER, Agent, Chat, ChatMessage, Routine, RoutineRun, Skill
+from ...models import USER, Agent, Chat, ChatMessage, CodeProject, Routine, RoutineRun, Skill
 from .. import agents as agent_svc
 from .. import antigravity
 from ..claude import models as claude_models
@@ -24,11 +25,12 @@ from .. import trackers as tracker_svc
 from .. import skills as skill_svc
 from ..claude import prompts
 from ..errors import Invalid, NotFound
+from ..code import approvals
 from ..memory import store as memory
 from .identity import Identity, get
 
 E = {"type": "string"}
-ALL, MAIN, MAIN_LIVE = "all", "main", "main_live"
+ALL, MAIN, MAIN_LIVE, CODE = "all", "main", "main_live", "code"
 
 
 def _spec(ids: list[str]) -> list[tuple[str, str, str, dict]]:
@@ -87,8 +89,10 @@ def _spec(ids: list[str]) -> list[tuple[str, str, str, dict]]:
         (ALL, "routine_update", "Ändert eine Routine (Sub-Agenten nur eigene; Zuteilen nur der Haupt-Agent).", obj({"id": E, **routine_fields, "enabled": {"type": "boolean"}, "agent_id": agent_enum}, ("id",))),
         (MAIN, "routine_delete", "Löscht eine Routine.", obj({"id": E}, ("id",))),
         (ALL, "routine_run_now", "Führt eine Routine sofort aus (Sub-Agenten nur eigene). So startest du auch Routinen „nur auf Abruf“. Optional info: zusätzlicher Hinweis für diesen Lauf.", obj({"id": E, "info": E}, ("id",))),
-        (ALL, "chat_search", "Durchsucht alle Chats (auch die der anderen Agenten) nach Wörtern – um Zusammenhang aus früheren Gesprächen zu finden. Ohne query: die neuesten Chats.", obj({"query": {**E, "description": "Suchwörter; alle müssen vorkommen"}, "agent_id": {**E, "description": "nur Chats dieses Agenten (optional): " + ", ".join(ids)}, "limit": {"type": "integer", "minimum": 1, "maximum": 30}})),
+        (ALL, "chat_search", "Durchsucht alle Chats (auch die der anderen Agenten und die Threads im Code-Bereich) nach Wörtern – um Zusammenhang aus früheren Gesprächen zu finden. Ohne query: die neuesten Chats.", obj({"query": {**E, "description": "Suchwörter; alle müssen vorkommen"}, "agent_id": {**E, "description": "nur Chats dieses Agenten (optional): " + ", ".join(ids)}, "bereich": {"type": "string", "enum": ["alle", "chat", "code"], "description": "chat = normale Chats, code = Threads der Code-Projekte, Standard alle"}, "project_id": {**E, "description": "nur Threads dieses Code-Projekts (id aus code_projects)"}, "limit": {"type": "integer", "minimum": 1, "maximum": 30}})),
         (ALL, "chat_read", "Liest die Nachrichten eines Chats (id aus chat_search), neueste zuletzt. Mit offset ältere Teile nachladen.", obj({"chat_id": E, "limit": {"type": "integer", "minimum": 1, "maximum": 100}, "offset": {"type": "integer", "minimum": 0, "description": "so viele der neuesten Nachrichten überspringen"}}, ("chat_id",))),
+        (MAIN, "code_projects", "Listet die Projekte im Code-Bereich (Repos, an denen der Nutzer mit dir programmiert) mit ihren Threads (neueste zuerst). Threads liest du mit chat_read(chat_id).", obj({"project_id": {**E, "description": "nur dieses Projekt, mit allen Threads"}})),
+        (CODE, "code_approve", "Interne Freigabe-Abfrage des Code-Bereichs (wird von Claude Code selbst aufgerufen).", obj({"tool_name": E, "input": {"type": "object"}, "tool_use_id": E}, ("tool_name",))),
         (ALL, "skill_list", "Listet alle Skills.", obj({})),
         (ALL, "skill_get", "Lädt die Anleitung eines Skills.", obj({"id": E}, ("id",))),
         (MAIN_LIVE, "skill_create", "Legt einen Skill an (Anleitung, die Agenten bei passenden Aufgaben befolgen; der Nutzer aktiviert ihn mit /id).", obj({"name": E, "description": E, "body": E, "agents": {"type": "array", "items": E}}, ("name", "body"))),
@@ -107,6 +111,8 @@ def _spec(ids: list[str]) -> list[tuple[str, str, str, dict]]:
 def _allowed(who: str, name: str, me: Identity) -> bool:
     if name.startswith("memory_") and not me.memory:
         return False
+    if who == CODE:
+        return me.code and bool(me.chat_id)
     if who == ALL:
         return True
     if who == MAIN:
@@ -133,29 +139,62 @@ def _snippet(text: str, words: list[str], width: int = 220) -> str:
     return ("…" if start else "") + text[start:start + width].replace("\n", " ") + ("…" if start + width < len(text) else "")
 
 
-async def _chat_search(db: AsyncSession, query: str, agent_id: str | None, limit: int, labels: dict) -> dict:
+async def _where(db: AsyncSession, c: Chat, names: dict) -> dict:
+    """Where a chat lives: normal chat or thread of a code project."""
+    if c.kind != "code":
+        return {}
+    if c.project_id not in names:
+        p = await db.get(CodeProject, c.project_id) if c.project_id else None
+        names[c.project_id] = p.name if p else "?"
+    return {"bereich": "code", "projekt": names[c.project_id], "project_id": c.project_id}
+
+
+def _scope(q, agent_id: str | None, area: str | None, project_id: str | None):
+    if agent_id:
+        q = q.where(Chat.agent_id == agent_id)
+    if area in ("chat", "code"):
+        q = q.where(Chat.kind == area)
+    if project_id:
+        q = q.where(Chat.project_id == project_id)
+    return q
+
+
+async def _chat_search(db: AsyncSession, query: str, agent_id: str | None, limit: int, labels: dict,
+                       area: str | None = None, project_id: str | None = None) -> dict:
     limit = max(1, min(limit, 30))
     words = [w.lower() for w in query.split() if w.strip()][:8]
+    names: dict = {}
     if not words:  # newest chats
-        q = select(Chat).order_by(Chat.updated_at.desc()).limit(limit)
-        if agent_id:
-            q = q.where(Chat.agent_id == agent_id)
-        rows = (await db.scalars(q)).all()
-        return {"chats": [{"chat_id": c.id, "titel": c.title, "agent": labels.get(c.agent_id, c.agent_id), "zuletzt": c.updated_at.isoformat()} for c in rows]}
+        rows = (await db.scalars(_scope(select(Chat).order_by(Chat.updated_at.desc()).limit(limit), agent_id, area, project_id))).all()
+        return {"chats": [{"chat_id": c.id, "titel": c.title, "agent": labels.get(c.agent_id, c.agent_id), "zuletzt": c.updated_at.isoformat(),
+                           **await _where(db, c, names)} for c in rows]}
     q = (select(ChatMessage, Chat).join(Chat, Chat.id == ChatMessage.chat_id)
          .where(*[or_(func.lower(ChatMessage.text).contains(w), func.lower(Chat.title).contains(w)) for w in words])
          .where(ChatMessage.role.in_(("user", "assistant")))
          .order_by(ChatMessage.at.desc()).limit(limit * 3))
-    if agent_id:
-        q = q.where(Chat.agent_id == agent_id)
     hits, per_chat = [], {}
-    for m, c in (await db.execute(q)).all():
+    for m, c in (await db.execute(_scope(q, agent_id, area, project_id))).all():
         if per_chat.get(c.id, 0) >= 3 or len(hits) >= limit:
             continue
         per_chat[c.id] = per_chat.get(c.id, 0) + 1
         hits.append({"chat_id": c.id, "titel": c.title, "agent": labels.get(c.agent_id, c.agent_id), "zeit": m.at.isoformat(),
-                     "von": "Nutzer" if m.role == "user" else labels.get(c.agent_id, c.agent_id), "ausschnitt": _snippet(m.text, words)})
+                     "von": "Nutzer" if m.role == "user" else labels.get(c.agent_id, c.agent_id), "ausschnitt": _snippet(m.text, words),
+                     **await _where(db, c, names)})
     return {"treffer": hits, "hinweis": "Mit chat_read(chat_id) den ganzen Zusammenhang lesen." if hits else "Nichts gefunden."}
+
+
+async def _code_projects(db: AsyncSession, project_id: str | None) -> dict:
+    q = select(CodeProject).order_by(CodeProject.updated_at.desc())
+    if project_id:
+        q = q.where(CodeProject.id == project_id)
+    out = []
+    for p in (await db.scalars(q)).all():
+        threads = (await db.scalars(select(Chat).where(Chat.project_id == p.id).order_by(Chat.updated_at.desc()).limit(100 if project_id else 10))).all()
+        out.append({"id": p.id, "name": p.name, "repo": p.repo_url, "branch": p.default_branch, "status": p.status,
+                    "threads": [{"chat_id": c.id, "titel": c.title, "zuletzt": c.updated_at.isoformat()} for c in threads]})
+    if project_id and not out:
+        raise NotFound("Projekt nicht gefunden")
+    return {"projekte": out, "hinweis": "Threads mit chat_read(chat_id) lesen, mit chat_search(bereich=\"code\") durchsuchen." if out else "Noch keine Code-Projekte."}
 
 
 async def _chat_read(db: AsyncSession, chat_id: str, limit: int, offset: int, labels: dict) -> dict:
@@ -172,7 +211,7 @@ async def _chat_read(db: AsyncSession, chat_id: str, limit: int, offset: int, la
         tools = [p.get("name") for p in (m.parts or []) if p.get("t") == "tool"]
         msgs.append({"zeit": m.at.isoformat(), "von": "Nutzer" if m.role == "user" else who if m.role == "assistant" else m.role,
                      "text": m.text[:3000] + ("…" if len(m.text) > 3000 else ""), **({"tools": tools} if tools else {})})
-    return {"chat_id": c.id, "titel": c.title, "agent": who, "nachrichten_gesamt": total,
+    return {"chat_id": c.id, "titel": c.title, "agent": who, **await _where(db, c, {}), "nachrichten_gesamt": total,
             "gezeigt": f"{offset + 1}–{offset + len(rows)} von den neuesten", "nachrichten": msgs,
             **({"aelter": f"offset={offset + limit} für ältere"} if offset + limit < (total or 0) else {})}
 
@@ -267,7 +306,10 @@ async def _call(db: AsyncSession, me: Identity, name: str, a: dict) -> dict:
     if name.startswith("tracker_"):
         return await _tracker_call(db, me, name, a, labels)
     if name == "chat_search":
-        return await _chat_search(db, str(a.get("query") or ""), a.get("agent_id"), int(a.get("limit") or 10), labels)
+        return await _chat_search(db, str(a.get("query") or ""), a.get("agent_id"), int(a.get("limit") or 10), labels,
+                                  a.get("bereich"), a.get("project_id"))
+    if name == "code_projects":
+        return await _code_projects(db, a.get("project_id"))
     if name == "chat_read":
         return await _chat_read(db, str(a.get("chat_id")), int(a.get("limit") or 30), int(a.get("offset") or 0), labels)
     if name == "skill_list":
@@ -359,6 +401,8 @@ async def handle(token: str, msg: dict) -> dict | None | bool:
         return reply({"tools": [{"name": n, "description": d, "inputSchema": schema} for who, n, d, schema in _spec(ids) if _allowed(who, n, me)]})
     if method == "tools/call":
         p = msg.get("params") or {}
+        if p.get("name") == "code_approve":  # waits for the user – without holding a database session meanwhile
+            return reply(await _approve(me, p.get("arguments") or {}))
         try:
             async with session_scope() as db:
                 out = await _call(db, me, p.get("name", ""), p.get("arguments") or {})
@@ -370,6 +414,15 @@ async def handle(token: str, msg: dict) -> dict | None | bool:
             out = {"error": str(e)}
         return reply({"content": [{"type": "text", "text": json.dumps(out, ensure_ascii=False, default=str)}], "isError": bool(out.get("error"))})
     return {"jsonrpc": "2.0", "id": msg["id"], "error": {"code": -32601, "message": "Method not found"}}
+
+
+async def _approve(me: Identity, a: dict) -> dict:
+    """Permission prompt of the Claude CLI in a code thread (--permission-prompt-tool): the user decides in the thread."""
+    if not _allowed(CODE, "code_approve", me):
+        out = {"behavior": "deny", "message": "Keine Berechtigung"}
+    else:
+        out = await approvals.ask(me.chat_id, str(a.get("tool_name") or "?"), a.get("input") if isinstance(a.get("input"), dict) else {})
+    return {"content": [{"type": "text", "text": json.dumps(out, ensure_ascii=False)}]}
 
 
 class _ToolError(Exception):

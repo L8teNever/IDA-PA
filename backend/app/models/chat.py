@@ -18,6 +18,10 @@ class Chat(Timestamps, Base):
     # Claude Code session to resume; reset when the account changes (sessions belong to one login).
     session_id: Mapped[str | None] = mapped_column(String(64), default=None)
     session_account: Mapped[str | None] = mapped_column(String(16), default=None)
+    # chat = normal chat with an agent; code = thread of a code project (real tools in the project folder)
+    kind: Mapped[str] = mapped_column(String(8), default="chat", server_default="chat", index=True)
+    project_id: Mapped[str | None] = mapped_column(ForeignKey("code_projects.id", ondelete="CASCADE"), index=True, default=None)
+    permission_mode: Mapped[str] = mapped_column(String(8), default="ask", server_default="ask")  # ask | edits | full
 
     messages: Mapped[list["ChatMessage"]] = relationship(back_populates="chat", cascade="all, delete-orphan", order_by="ChatMessage.at", lazy="raise")
 

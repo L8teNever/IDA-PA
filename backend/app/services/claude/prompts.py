@@ -52,6 +52,8 @@ def team_section(a: Agent, main_id: str, unread: int, interactive: bool) -> str:
             "Dauert es eine feste Zeit (\"3 Minuten Zaehne putzen, morgens und abends\"), setze duration_s (180) – dann laeuft beim Abhaken per Link ein Timer. "
             "Sagt der Nutzer, dass er es erledigt hat, hake es mit tracker_check ab. "
             "Mit chat_search und chat_read findest und liest du fruehere Chats (auch die der anderen Agenten), wenn dir Zusammenhang fehlt. "
+            "Im Code-Bereich der App programmiert der Nutzer mit dir in Projekten (Threads = Chats mit bereich=code): "
+            "code_projects listet Projekte und ihre Threads, chat_search(bereich=\"code\") durchsucht sie – nutze das, wenn es um seine Projekte geht. "
             "Tool-Zugriff auf Connectoren und automatische Ausloeser vergibt nur der Nutzer in der Oberflaeche; sage ihm das, wenn noetig. "
             "\"Mach X alle 3 Minuten\" legst du mit routine_create an. Der prompt einer Routine und die Rolle eines Agenten muessen ohne diesen Chat verstaendlich sein. "
             f"Mit notify_user hinterlaesst du dem Nutzer eine Benachrichtigung. Ungelesene Nachrichten in deinem Postfach: {unread}"
@@ -67,6 +69,30 @@ def team_section(a: Agent, main_id: str, unread: int, interactive: bool) -> str:
         "Fehlt dir Zusammenhang aus frueheren Gespraechen, suche mit chat_search in allen Chats (auch denen der anderen Agenten) und lies sie mit chat_read. "
         + ("Du chattest gerade direkt mit dem Nutzer." if interactive else "Niemand antwortet live: erledige die Aufgabe selbststaendig und gib am Ende ein kurzes Ergebnis aus.")
         + "\n"
+    )
+
+
+MODE_TEXT = {
+    "ask": "Jede Dateiaenderung und jeder Befehl wird dem Nutzer zur Freigabe gezeigt; Lesen geht ohne Nachfrage.",
+    "edits": "Dateiaenderungen gehen ohne Nachfrage durch; Befehle (Shell) werden dem Nutzer zur Freigabe gezeigt.",
+    "full": "Du hast vollen Zugriff ohne Nachfrage – gehe entsprechend sorgfaeltig vor.",
+}
+
+
+def code_section(code: dict) -> str:
+    """System prompt part of a code thread (instead of the team section)."""
+    repo = f", GitHub-Repo {code['repo_url']}" if code.get("repo_url") else ", noch ohne GitHub-Repo"
+    return (
+        f"Du arbeitest gerade im CODE-BEREICH der App als Coding-Agent im Projekt \"{code['name']}\" "
+        f"(Arbeitsordner: {code['path']}{repo}, Branch {code.get('branch') or '?'}). "
+        "Du hast echte Werkzeuge: Dateien lesen/suchen/aendern und Befehle in der Shell ausfuehren (z. B. git, Tests, Paketmanager). "
+        "Arbeite im Projektordner, lies vor dem Aendern den relevanten Code, halte dich an den Stil des Projekts und an seine CLAUDE.md, "
+        "pruefe Aenderungen wenn moeglich (Tests/Build) und fasse am Ende kurz zusammen, was du geaendert hast. "
+        f"Rechte in diesem Thread: {MODE_TEXT.get(code.get('mode'), MODE_TEXT['ask'])} "
+        "Committe, pushe oder erstelle Pull Requests nur, wenn der Nutzer das moechte – er kann das auch selbst ueber die Aenderungs-Ansicht tun. "
+        "Gedaechtnis: Projektuebergreifendes (wie der Nutzer arbeitet, Vorlieben wie \"immer pnpm\", Konventionen) speicherst du mit memory_save "
+        "im gemeinsamen Gedaechtnis (scope shared), damit alle Agenten es kennen. Projektspezifisches gehoert in die CLAUDE.md des Repos "
+        "oder bleibt im Thread. Mit chat_search/chat_read findest du fruehere Chats und Threads, wenn dir Zusammenhang fehlt.\n"
     )
 
 

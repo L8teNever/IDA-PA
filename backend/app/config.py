@@ -38,6 +38,13 @@ class Settings(BaseSettings):
     frontend_dir: Path = Path(__file__).resolve().parents[2] / "frontend"
     scheduler_enabled: bool = True
 
+    # Code area (projects, threads with real file/shell tools) – switched on in Einstellungen → Code
+    git_bin: str = "git"
+    # GitHub sign-in (Einstellungen → GitHub): Client ID of your own OAuth App with "Device Flow" enabled
+    github_client_id: str = ""
+    github_api_url: str = "https://api.github.com"
+    github_url: str = "https://github.com"
+
     @property
     def model_list(self) -> list[str]:
         return [m.strip() for m in self.models.split(",") if m.strip()]
@@ -57,6 +64,12 @@ class Settings(BaseSettings):
     def sandbox_dir(self) -> Path:
         """Empty working dir for CLI runs (no project files, no git)."""
         return self.data_dir / "sandbox"
+
+
+    @property
+    def projects_dir(self) -> Path:
+        """One folder per code project (git clone / git init)."""
+        return self.data_dir / "projects"
 
 
 @lru_cache

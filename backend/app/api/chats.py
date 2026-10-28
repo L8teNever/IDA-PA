@@ -9,6 +9,7 @@ from ..schemas import ChatSend, ChatUpdate
 from ..services import chat as chat_service
 from ..services import files as file_svc
 from ..services.chat import stream_chat
+from ..services.code import approvals
 from ..services.errors import Invalid, NotFound
 from . import serializers as ser
 from .deps import DB
@@ -18,7 +19,7 @@ router = APIRouter(prefix="/api/v1", tags=["chats"])
 
 @router.get("/chats")
 async def list_chats(db: DB, q: str = "", agent: str | None = None, limit: int = 200):
-    stmt = select(Chat).order_by(Chat.updated_at.desc()).limit(min(limit, 500))
+    stmt = select(Chat).where(Chat.kind != "code").order_by(Chat.updated_at.desc()).limit(min(limit, 500))  # code threads: /code
     if agent:
         stmt = stmt.where(Chat.agent_id == agent)
     if q.strip():
@@ -40,7 +41,7 @@ async def get_chat(chat_id: str, db: DB):
         raise NotFound("Chat nicht gefunden")
     msgs = (await db.scalars(select(ChatMessage).where(ChatMessage.chat_id == chat_id).order_by(ChatMessage.at))).all()
     return {**ser.chat(c), "messages": [ser.chat_message(m) for m in msgs], "running": chat_service.running(chat_id),
-            "running_since": ser.iso(chat_service.running_since(chat_id))}
+            "running_since": ser.iso(chat_service.running_since(chat_id)), "approvals": approvals.waiting(chat_id)}
 
 
 @router.patch("/chats/{chat_id}")
@@ -61,6 +62,7 @@ async def delete(chat_id: str, db: DB):
     if not c:
         raise NotFound("Chat nicht gefunden")
     chat_service.stop(chat_id)
+    approvals.forget(chat_id)
     await file_svc.delete_for_chat(db, chat_id)
     await db.delete(c)
     return {"ok": True}
@@ -90,7 +92,8 @@ async def send(body: ChatSend):
     """Sends a message and streams the answer as NDJSON (see services/chat.py).
     The answer runs on the server: closing the page does not stop it (GET /chats/{id}/live follows it again)."""
     gen = stream_chat(chat_id=body.chat_id, agent_id=body.agent_id, text=body.text, model=body.model,
-                      account_id=body.account_id, skill_id=body.skill, effort=body.effort, file_ids=body.files)
+                      account_id=body.account_id, skill_id=body.skill, effort=body.effort, file_ids=body.files,
+                      project_id=body.project_id, permission_mode=body.permission_mode)
     first = await gen.__anext__()  # validation errors surface as normal HTTP errors
     return _ndjson(first, gen)
 

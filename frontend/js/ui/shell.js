@@ -80,5 +80,7 @@ export function initShell() {
     const n = state.boot?.unread || 0;
     $("navBadge").hidden = !n;
     $("navBadge").textContent = n;
+    const code = document.querySelector('#sideNav [data-nav="code"]');
+    if (code) code.hidden = !state.boot?.code_enabled; // the code area is off until switched on in the settings
   });
 }

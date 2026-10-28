@@ -11,7 +11,7 @@ from ..db import session_scope
 from ..models import Account, Agent, AgentConnector, Connector, Message, Skill
 from . import providers
 from .claude import prompts, runner, usage
-from .claude.runner import RunResult, RunSpec, norm
+from .claude.runner import CodeRun, RunResult, RunSpec, norm
 from .errors import Invalid
 from .memory import store as memory
 from .mcp import identity
@@ -63,13 +63,19 @@ async def _connectors(db: AsyncSession, agent: Agent) -> tuple[dict, list[str], 
 
 async def prepare(db: AsyncSession, agent: Agent, prompt: str, *, model: str | None = None, account: Account | None = None,
                   interactive: bool = False, depth: int = 0, memory_on: bool | None = None, forced_skill: Skill | None = None,
-                  session_id: str | None = None, persist: bool = False, extra: str = "", effort: str | None = None) -> Prepared:
+                  session_id: str | None = None, persist: bool = False, extra: str = "", effort: str | None = None,
+                  code: dict | None = None, chat_id: str | None = None) -> Prepared:
+    """code: a code thread – {"path", "mode", "name", "repo_url", "branch", "env"}: Claude's own tools in the project
+    folder instead of the empty sandbox; memory and the internal tools stay the same as in every chat."""
     s = get_settings()
     memory_on = agent.memory_enabled if memory_on is None else memory_on
     labels = await prompts.labels(db)
     main = await main_agent(db)
     unread = await db.scalar(select(func.count()).select_from(Message).where(Message.to_id == agent.id, Message.read_at.is_(None))) or 0
-    system = prompts.persona(agent) + prompts.team_section(agent, main.id, unread, interactive)
+    if code:
+        system = prompts.persona(agent) + prompts.code_section(code)
+    else:
+        system = prompts.persona(agent) + prompts.team_section(agent, main.id, unread, interactive)
     system += prompts.skills_section(await prompts.skills_for(db, agent.id), forced_skill)
     if memory_on:
         system += "\n" + await memory.block(db, agent.id, agent.is_main, prompt, labels)
@@ -79,14 +85,16 @@ async def prepare(db: AsyncSession, agent: Agent, prompt: str, *, model: str | N
         system += "\n" + extra
     system += "\n" + prompts.now_line()  # last: everything above stays the same between runs (prompt cache)
     servers, allow, deny = await _connectors(db, agent)
-    token = identity.issue(identity.Identity(agent_id=agent.id, is_main=agent.is_main, depth=depth, memory=memory_on, interactive=interactive))
+    token = identity.issue(identity.Identity(agent_id=agent.id, is_main=agent.is_main, depth=depth, memory=memory_on, interactive=interactive,
+                                             chat_id=chat_id, code=bool(code)))
     servers[HUB] = {"type": "http", "url": f"{s.internal_url}/mcp/{token}"}
     allow.append(f"mcp__{HUB}")
     model = model or agent.model or s.default_model
     acc = account or await account_or_first(db, agent.account_id, model)
     spec = RunSpec(model=model, account=acc, prompt=prompt, system=system,
                    mcp_servers=servers, allow=allow, deny=deny, session_id=session_id, persist=persist, effort=effort,
-                   agent_id=agent.id, kind="chat" if interactive else "run")
+                   agent_id=agent.id, kind="chat" if interactive else "run",
+                   code=CodeRun(cwd=code["path"], mode=code["mode"], env=code.get("env") or {}) if code else None)
     return Prepared(spec=spec, token=token)
 
 

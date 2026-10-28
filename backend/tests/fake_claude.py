@@ -4,6 +4,9 @@ Behaviour (decided by the prompt text):
   LIMIT     -> account a1 answers with a usage-limit error (fallback tests)
   TOOL x y  -> calls tool x of the internal MCP with JSON args y, answers with the tool result
   SLOW      -> pauses a few seconds per step (to watch the mascot in the browser)
+  code threads (--permission-mode set):
+    PWD          -> answers with cwd, permission mode and what the environment brings (git identity, GitHub token)
+    WRITE f text -> writes f in the cwd like the Write tool – in mode "default" only after asking code_approve
   otherwise -> echoes the prompt; the system prompt is appended after "SYSTEM:" when the prompt contains SHOWSYS
 """
 import json
@@ -55,6 +58,35 @@ def hub(name, a):
     req = urllib.request.Request(mcp["ida"]["url"], data=body, headers={"content-type": "application/json"})
     return json.loads(urllib.request.urlopen(req).read())["result"]["content"][0]["text"]
 
+
+if arg("--permission-mode"):  # code thread: works in the project folder (cwd) with its own tools
+    mode = arg("--permission-mode")
+    if "PWD" in prompt:
+        text = (f"[code] cwd={os.getcwd()} mode={mode} tools={'--tools' in args} prompt_tool={arg('--permission-prompt-tool')} "
+                f"git_name={os.environ.get('GIT_AUTHOR_NAME')} gh={'GH_TOKEN' in os.environ} timeout={os.environ.get('MCP_TOOL_TIMEOUT')}")
+        for i in range(0, len(text), 40):
+            out({"type": "stream_event", "event": {"delta": {"type": "text_delta", "text": text[i:i + 40]}}})
+        out({"type": "result", "is_error": False, "result": text, "session_id": session})
+        sys.exit(0)
+    if "WRITE " in prompt:  # WRITE <file> <text>: like Claude's Write tool, asking the permission tool first unless allowed
+        _, name, content = prompt[prompt.index("WRITE "):].splitlines()[0].split(" ", 2)
+        inp = {"file_path": os.path.join(os.getcwd(), name), "content": content}
+        out({"type": "assistant", "message": {"content": [{"type": "tool_use", "id": "w1", "name": "Write", "input": inp}]}})
+        allowed = mode in ("acceptEdits", "bypassPermissions")
+        reason = ""
+        if not allowed:
+            res = json.loads(hub("code_approve", {"tool_name": "Write", "input": inp, "tool_use_id": "w1"}))
+            allowed, reason = res["behavior"] == "allow", res.get("message", "")
+        if allowed:
+            with open(inp["file_path"], "w", encoding="utf8") as f:
+                f.write(content + "\n")
+        out({"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "w1", "is_error": not allowed,
+                                                      "content": [{"type": "text", "text": "geschrieben" if allowed else reason}]}]}})
+        text = f"[code] {name} {'geschrieben' if allowed else 'abgelehnt: ' + reason}"
+        for i in range(0, len(text), 40):
+            out({"type": "stream_event", "event": {"delta": {"type": "text_delta", "text": text[i:i + 40]}}})
+        out({"type": "result", "is_error": False, "result": text, "session_id": session})
+        sys.exit(0)
 
 if "LIMIT" in prompt and account == "a1":
     out({"type": "result", "is_error": True, "result": "You've hit your session limit · resets 3pm", "session_id": session})

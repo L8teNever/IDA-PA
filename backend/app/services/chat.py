@@ -9,7 +9,11 @@ Events (NDJSON lines to the browser):
   {"text": "…"}    answer text (streamed)
   {"tool": {id, server, name, input}} / {"tool_result": {id, error, content}}
   {"sys": "…"}     info line (e.g. switched account because of the limit)
+  {"approval": {id, tool, input}} / {"approval_done": {id, decision}}   code threads: a request waits for the user
   {"done": {"ok", "error"?, "message_id"}}
+
+Code threads (kind="code") are chats of a code project: the main agent works in the project folder with real
+tools (services/code), with the same memory and internal tools as every chat.
 """
 import asyncio
 import logging
@@ -21,9 +25,11 @@ from sqlalchemy import select
 
 from ..config import get_settings
 from ..db import session_scope, utcnow
-from ..models import Account, Agent, Chat, ChatMessage, Skill
+from ..models import Account, Agent, Chat, ChatMessage, CodeProject, Skill
+from . import code as code_area
 from . import files as file_svc
 from . import providers, runs
+from .code import approvals, git, github
 from .claude import runner
 from .errors import Invalid, NotFound
 from .mcp import identity
@@ -34,7 +40,11 @@ KEEP_FINISHED = 120  # seconds a finished run stays followable (a browser that c
 
 def chat_dict(c: Chat) -> dict:
     return {"id": c.id, "agent_id": c.agent_id, "title": c.title, "model": c.model, "account_id": c.account_id,
+            "kind": c.kind, "project_id": c.project_id, "permission_mode": c.permission_mode,
             "created_at": c.created_at.isoformat(), "updated_at": c.updated_at.isoformat()}
+
+
+PERMISSION_MODES = ("ask", "edits", "full")
 
 
 def _transcript(msgs: list[ChatMessage]) -> str:
@@ -55,6 +65,7 @@ def stop(chat_id: str) -> bool:
     ev = _stops.get(chat_id)
     if ev:
         ev.set()
+    approvals.cancel_chat(chat_id)  # a request that waits for the user would keep the run alive
     return bool(ev)
 
 
@@ -128,6 +139,13 @@ def running_since(chat_id: str):
     return live.started if live and not live.done else None
 
 
+async def push(chat_id: str, ev: dict) -> None:
+    """An extra event into the running answer (e.g. an approval request), seen by every browser that follows it."""
+    live = _live.get(chat_id)
+    if live and not live.done:
+        await live.push(ev)
+
+
 def follow(chat_id: str, after: int = 0) -> AsyncIterator[dict] | None:
     """The events of the chat's current (or just finished) answer; None = nothing running."""
     live = _live.get(chat_id)
@@ -135,10 +153,13 @@ def follow(chat_id: str, after: int = 0) -> AsyncIterator[dict] | None:
 
 
 async def start_chat(*, chat_id: str | None, agent_id: str | None, text: str, model: str | None, account_id: str | None,
-                     skill_id: str | None, effort: str | None = None, file_ids: list[str] | None = None) -> dict:
-    """Saves the message and starts the answer in the background; returns the chat (follow it with follow())."""
+                     skill_id: str | None, effort: str | None = None, file_ids: list[str] | None = None,
+                     project_id: str | None = None, permission_mode: str | None = None) -> dict:
+    """Saves the message and starts the answer in the background; returns the chat (follow it with follow()).
+    project_id: a new thread of this code project; permission_mode: rights of a code thread (ask | edits | full)."""
     state, order, prompt, skill_id, attachments, info = await _prepare(chat_id=chat_id, agent_id=agent_id, text=text, model=model,
-                                                                       account_id=account_id, skill_id=skill_id, file_ids=file_ids or [])
+                                                                       account_id=account_id, skill_id=skill_id, file_ids=file_ids or [],
+                                                                       project_id=project_id, permission_mode=permission_mode)
     live = _live[state["chat_id"]] = _Live()
     stopped = _stops[state["chat_id"]] = asyncio.Event()
 
@@ -150,6 +171,7 @@ async def start_chat(*, chat_id: str | None, agent_id: str | None, text: str, mo
             log.exception("chat answer %s failed", state["chat_id"])
             await live.push({"done": {"ok": False, "error": f"Fehler: {str(e)[:300] or e.__class__.__name__}"}})
         finally:
+            approvals.cancel_chat(state["chat_id"])
             await live.finish()
             if _stops.get(state["chat_id"]) is stopped:
                 del _stops[state["chat_id"]]
@@ -163,28 +185,45 @@ async def start_chat(*, chat_id: str | None, agent_id: str | None, text: str, mo
 
 async def stream_chat(*, chat_id: str | None, agent_id: str | None, text: str, model: str | None,
                       account_id: str | None, skill_id: str | None, effort: str | None = None,
-                      file_ids: list[str] | None = None) -> AsyncIterator[dict]:
+                      file_ids: list[str] | None = None, project_id: str | None = None,
+                      permission_mode: str | None = None) -> AsyncIterator[dict]:
     """Start + follow: {"chat": …} first, then the answer's events. Leaving early does not stop the answer."""
     info = await start_chat(chat_id=chat_id, agent_id=agent_id, text=text, model=model, account_id=account_id,
-                            skill_id=skill_id, effort=effort, file_ids=file_ids)
+                            skill_id=skill_id, effort=effort, file_ids=file_ids, project_id=project_id, permission_mode=permission_mode)
     yield {"chat": info}
     async for ev in follow(info["id"]):
         yield ev
 
 
-async def _prepare(*, chat_id, agent_id, text, model, account_id, skill_id, file_ids):
+async def _prepare(*, chat_id, agent_id, text, model, account_id, skill_id, file_ids, project_id=None, permission_mode=None):
     s = get_settings()
     text = (text or "").strip()
     if chat_id and running(chat_id):
         raise Invalid("Hier läuft noch eine Antwort – warte kurz oder stoppe sie")
     if not text and not skill_id and not file_ids:
         raise Invalid("Nachricht fehlt")
+    if permission_mode and permission_mode not in PERMISSION_MODES:
+        raise Invalid("Unbekannte Rechte-Stufe")
     async with session_scope() as db:
+        project = None
         if chat_id:
             chat = await db.get(Chat, chat_id)
             if not chat:
                 raise NotFound("Chat nicht gefunden")
             agent = await db.get(Agent, chat.agent_id)
+            if chat.project_id:
+                project = await db.get(CodeProject, chat.project_id)
+                if not project:
+                    raise NotFound("Projekt nicht gefunden")
+        elif project_id:  # new thread of a code project: always the main agent (no agent choice in the code area)
+            project = await db.get(CodeProject, project_id)
+            if not project:
+                raise NotFound("Projekt nicht gefunden")
+            agent = await runs.main_agent(db)
+            chat = Chat(agent_id=agent.id, title=(text or "Neuer Thread")[:60], model=model or agent.model or s.default_model,
+                        kind="code", project_id=project.id, permission_mode=permission_mode or "ask")
+            db.add(chat)
+            await db.flush()
         else:
             agent = await db.get(Agent, agent_id) if agent_id else await runs.main_agent(db)
             if not agent:
@@ -192,6 +231,9 @@ async def _prepare(*, chat_id, agent_id, text, model, account_id, skill_id, file
             chat = Chat(agent_id=agent.id, title=(text or "Neuer Chat")[:60], model=model or agent.model or s.default_model)
             db.add(chat)
             await db.flush()  # the chat needs its id for the files
+        code = None
+        if project:
+            code = await _code_run(db, project, chat, permission_mode, model)
         if model:
             providers.check_model(model)
             chat.model = model
@@ -210,7 +252,7 @@ async def _prepare(*, chat_id, agent_id, text, model, account_id, skill_id, file
         await db.flush()
         info = chat_dict(chat)
         state = {"chat_id": chat.id, "agent_id": agent.id, "model": chat.model, "session": chat.session_id if chat.session_account == acc.id else None,
-                 "history": _transcript(history)}
+                 "history": _transcript(history), "code": code}
         order = [acc] + ([a for a in await providers.accounts_for(db, chat.model) if a.id != acc.id] if agent.fallback else [])
     # text files go into the message itself; pictures and PDFs go to the model as they are
     prompt = text
@@ -221,6 +263,26 @@ async def _prepare(*, chat_id, agent_id, text, model, account_id, skill_id, file
         prompt = ("(Siehe Anhang.)" + prompt) if not skill_id else prompt.strip()
     attachments = [{"kind": f.kind, "mime": f.mime, "path": str(file_svc.path(f)), "name": f.name} for f in fs if f.kind != "text"]
     return state, order, prompt.strip(), skill_id, attachments, info
+
+
+async def _code_run(db, project: CodeProject, chat: Chat, permission_mode: str | None, model: str | None) -> dict:
+    """What a code thread's run needs: the project folder, its rights and the GitHub identity for git."""
+    from .code import projects
+    await code_area.require(db)
+    if project.status != "ready":
+        raise Invalid("Das Projekt wird noch geklont" if project.status == "cloning" else f"Das Projekt ist nicht bereit: {project.status_text}")
+    if permission_mode:
+        chat.permission_mode = permission_mode
+    if providers.of_model(model or chat.model) != "claude":
+        raise Invalid("Im Code-Bereich laufen nur Claude-Modelle")
+    path = projects.path_of(project)
+    try:
+        branch = (await git.run(path, "rev-parse", "--abbrev-ref", "HEAD")).strip()
+    except Invalid:
+        branch = project.default_branch
+    project.updated_at = utcnow()
+    return {"path": path, "mode": chat.permission_mode, "name": project.name, "repo_url": project.repo_url, "branch": branch,
+            "env": git.auth_env(await github.account(db))}
 
 
 async def _answer(state: dict, order: list[Account], text: str, skill_id: str | None, effort: str | None,
@@ -240,8 +302,10 @@ async def _answer(state: dict, order: list[Account], text: str, skill_id: str | 
             agent = await db.get(Agent, state["agent_id"])
             skill = await db.get(Skill, skill_id) if skill_id else None
             p = await runs.prepare(db, agent, prompt, model=state["model"], account=acc, interactive=True, forced_skill=skill,
-                                   session_id=resume, persist=True, effort=effort)
+                                   session_id=resume, persist=True, effort=effort, code=state.get("code"), chat_id=state["chat_id"])
         p.spec.attachments = list(attachments or [])
+        if state.get("code"):  # tools the user allowed for good in this thread
+            p.spec.allow += approvals.always(state["chat_id"])
         used, streamed = acc, False
         try:
             async for ev in _until(runner.stream(p.spec), stopped):

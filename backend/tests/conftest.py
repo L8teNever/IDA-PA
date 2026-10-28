@@ -44,11 +44,24 @@ def _fake_acp(tmp: Path) -> str:
     return str(d)
 
 
+_github = None
+
+
+@pytest.fixture(scope="session")
+def github(server):
+    """The fake GitHub (Device Flow, API, bare repos) the app talks to."""
+    return _github
+
+
 @pytest.fixture(scope="session")
 def server():
+    global _github
+    from .fake_github import FakeGitHub
     tmp = Path(tempfile.mkdtemp(prefix="ida-test-"))
     port = _free_port()
+    _github = FakeGitHub(tmp / "github")
     os.environ.update({
+        "GITHUB_API_URL": _github.url, "GITHUB_URL": _github.url, "GITHUB_CLIENT_ID": "",
         "DATA_DIR": str(tmp / "data"), "CLAUDE_BIN": _fake_bin(tmp), "SCHEDULER_ENABLED": "false", "WHISPER_PRELOAD": "false",
         "AGY_RUNTIME_DIR": _fake_acp(tmp),
         "INTERNAL_URL": f"http://127.0.0.1:{port}", "OLLAMA_URL": "http://127.0.0.1:9",

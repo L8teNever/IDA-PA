@@ -10,6 +10,8 @@ class Identity:
     depth: int = 0  # length of the chain of messages that led to this run
     memory: bool = True  # memory tools available
     interactive: bool = False  # a live chat with the user (management tools only then)
+    chat_id: str | None = None  # the chat this run answers in
+    code: bool = False  # a code thread (approvals go to the user through code_approve)
 
 
 _tokens: dict[str, Identity] = {}

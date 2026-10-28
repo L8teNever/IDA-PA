@@ -58,6 +58,8 @@ class ChatSend(BaseModel):
     skill: str | None = None
     effort: Literal["low", "medium", "high", "xhigh", "max"] | None = None  # Claude: how much it thinks
     files: list[str] = Field(default_factory=list)  # ids from POST /uploads (pictures, PDFs, text files)
+    project_id: str | None = None  # code area: start a new thread of this project
+    permission_mode: Literal["ask", "edits", "full"] | None = None  # code threads: rights (ask = every edit/command needs an OK)
 
 
 class ChatUpdate(BaseModel):
@@ -247,3 +249,66 @@ class UserMessage(BaseModel):
     to: str
     text: str
     priority: str = "normal"
+
+
+# ---- code area (projects, threads, git, GitHub) ----
+
+Mode = Literal["ask", "edits", "full"]  # rights of a code thread
+
+
+class CodeSettings(BaseModel):
+    enabled: bool
+
+
+class NewRepo(BaseModel):
+    name: str
+    private: bool = True
+    description: str = ""
+
+
+class ProjectCreate(BaseModel):
+    name: str = ""
+    repo_url: str | None = None  # clone this (https://…); with neither repo_url nor new_repo: empty local repo
+    new_repo: NewRepo | None = None  # create a new GitHub repo and clone it
+
+
+class ProjectUpdate(BaseModel):
+    name: str
+
+
+class ThreadUpdate(BaseModel):
+    title: str | None = None
+    permission_mode: Mode | None = None
+
+
+class GitCommit(BaseModel):
+    message: str
+    push: bool = False
+
+
+class GitBranch(BaseModel):
+    name: str
+    create: bool = True
+
+
+class PullRequest(BaseModel):
+    title: str
+    body: str = ""
+    base: str | None = None  # default: the project's default branch
+
+
+class Publish(BaseModel):
+    name: str = ""
+    private: bool = True
+
+
+class ApprovalAnswer(BaseModel):
+    decision: Literal["allow", "deny", "always"]
+
+
+class GithubToken(BaseModel):
+    token: str
+
+
+class GithubClient(BaseModel):
+    client_id: str

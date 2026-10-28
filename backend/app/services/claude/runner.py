@@ -2,6 +2,10 @@
 
 Every run gets: no built-in tools, no user settings/memory/skills of the account, an empty working dir,
 only the MCP servers passed in, an allow/deny list for their tools and its own system prompt.
+
+Code threads (spec.code) are the exception: they work in their project folder with Claude's own tools
+(files, shell, git) under a permission mode; in "ask" mode every edit/command goes to the user first
+(permission tool mcp__ida__code_approve) and the run waits for the answer – so it has no time limit.
 """
 import asyncio
 import base64
@@ -39,9 +43,10 @@ def account_dir(account_id: str) -> Path:
     return d
 
 
-def account_env(account: Account) -> dict[str, str]:
-    env = {**os.environ, "CLAUDE_CONFIG_DIR": str(account_dir(account.id)),
-           "CLAUDE_CODE_DISABLE_AUTO_MEMORY": "1", "CLAUDE_CODE_DISABLE_GIT_INSTRUCTIONS": "1"}
+def account_env(account: Account, code: bool = False) -> dict[str, str]:
+    env = {**os.environ, "CLAUDE_CONFIG_DIR": str(account_dir(account.id)), "CLAUDE_CODE_DISABLE_AUTO_MEMORY": "1"}
+    if not code:  # code threads work in a real repo: there git instructions help
+        env["CLAUDE_CODE_DISABLE_GIT_INSTRUCTIONS"] = "1"
     if account.oauth_token:
         env["CLAUDE_CODE_OAUTH_TOKEN"] = account.oauth_token
     return env
@@ -68,6 +73,20 @@ class RunSpec:
     effort: str | None = None  # low … max; None = the model's default
     # pictures / PDFs for the model: [{"kind": "image"|"pdf", "mime", "path", "name"}] (text files are in the prompt)
     attachments: list[dict] = field(default_factory=list)
+    code: "CodeRun | None" = None  # code thread: real tools in the project folder
+
+
+# --permission-mode per code thread: ask = every edit/command needs the user's OK, edits = file edits go through,
+# full = everything goes through
+PERMISSION_MODES = {"ask": "default", "edits": "acceptEdits", "full": "bypassPermissions"}
+APPROVE_TOOL = "mcp__ida__code_approve"
+
+
+@dataclass
+class CodeRun:
+    cwd: Path
+    mode: str = "ask"  # ask | edits | full
+    env: dict[str, str] = field(default_factory=dict)  # git identity / GitHub token for git and gh
 
 
 @dataclass
@@ -132,16 +151,22 @@ async def _stream(spec: RunSpec) -> AsyncIterator[dict]:
     s = get_settings()
     run_dir = s.sandbox_dir / "runs" / new_id()
     run_dir.mkdir(parents=True, exist_ok=True)
-    work = s.sandbox_dir / "work"  # fixed cwd: Claude stores sessions per working dir, resume needs the same one
+    code = spec.code
+    work = code.cwd if code else s.sandbox_dir / "work"  # fixed cwd: Claude stores sessions per working dir, resume needs the same one
     work.mkdir(parents=True, exist_ok=True)
-    (run_dir / "system.txt").write_text(BASE_SYSTEM + ("\n" + spec.system if spec.system else ""), encoding="utf8")
+    system = spec.system if code else BASE_SYSTEM + ("\n" + spec.system if spec.system else "")
+    (run_dir / "system.txt").write_text(system, encoding="utf8")
     (run_dir / "mcp.json").write_text(json.dumps({"mcpServers": spec.mcp_servers}), encoding="utf8")
     (run_dir / "settings.json").write_text(json.dumps({"permissions": {"allow": spec.allow, "deny": spec.deny}}), encoding="utf8")
     args = ["-p", "--output-format", "stream-json", "--verbose", "--include-partial-messages",
-            "--model", spec.model, "--tools", "", "--setting-sources", "project", "--disable-slash-commands",
+            "--model", spec.model, *([] if code else ["--tools", ""]), "--setting-sources", "project", "--disable-slash-commands",
             "--system-prompt-file", str(run_dir / "system.txt"),
             "--strict-mcp-config", "--mcp-config", str(run_dir / "mcp.json"),
             "--settings", str(run_dir / "settings.json")]
+    if code:
+        args += ["--permission-mode", PERMISSION_MODES.get(code.mode, "default")]
+        if code.mode != "full":  # whatever the mode does not allow by itself is asked through the user
+            args += ["--permission-prompt-tool", APPROVE_TOOL]
     if spec.effort:
         args += ["--effort", spec.effort]
     if spec.attachments:  # the message as JSON with picture/document blocks instead of plain text
@@ -151,8 +176,12 @@ async def _stream(spec: RunSpec) -> AsyncIterator[dict]:
     if spec.session_id and re.fullmatch(r"[\w-]+", spec.session_id):
         args += ["--resume", spec.session_id]
 
+    env = account_env(spec.account, code=bool(code))
+    if code:
+        # a tool call may wait for the user's approval as long as it takes
+        env.update({**code.env, "MCP_TOOL_TIMEOUT": str(2**31 - 1)})
     proc = await asyncio.create_subprocess_exec(
-        *_command(args), cwd=work, env=account_env(spec.account),
+        *_command(args), cwd=work, env=env,
         stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
         limit=16 * 1024 * 1024,
     )
@@ -171,7 +200,7 @@ async def _stream(spec: RunSpec) -> AsyncIterator[dict]:
 
     done = False
     try:
-        async with asyncio.timeout(s.run_timeout_s):
+        async with asyncio.timeout(None if code else s.run_timeout_s):  # code: may wait for approvals
             async for raw in proc.stdout:
                 line = raw.decode(errors="replace").strip()
                 if not line:
