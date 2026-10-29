@@ -203,22 +203,22 @@ async def setup(admin_user: str, admin_password: str, owner: str | None = None) 
                     "visibilityRestrictions": f"Leben.{space}", "creationRestrictionsAreSuggestions": "0",
                     "terminal": "0", "action": "edit"})
                 done.append(f"Vorlage {template} für {title}")
-    # polish for existing wikis (all of it can run again): the new name, rights, hidden templates, app list
-    if await _update_page(c, ("Leben",), "WebHome", title=LIFE, replace=[("Mein Leben", LIFE)]):
-        done.append(f"„{LIFE}“ umbenannt")
-    if await _update_page(c, ("Vorlagen",), "WebHome", replace=[("Mein Leben", LIFE)]):
-        done.append("Vorlagen-Startseite angepasst")
-    for spaces in HIDDEN_SPACES:
-        r = await c.get(page_path(spaces, "WebHome").rsplit("/pages/", 1)[0] + "/pages?hidden=true", headers={"Accept": "application/json"})
-        for pg in r.json().get("pageSummaries", []):
-            if await _update_page(c, spaces, pg["name"], hidden=True):
-                done.append(f"{'.'.join(spaces)}.{pg['name']} ausgeblendet")
-    for app in await _hide_apps(c):
-        done.append(f"App {app} aus dem Menü genommen")
-    if owner:
-        for spaces in PRIVATE_SPACES:
-            if await _restrict(c, spaces, [owner, s.wiki_user]):
-                done.append(f"{'.'.join(spaces)} nur für {owner} und {s.wiki_user}")
-    else:
-        done.append("Zugriff nicht eingeschränkt (Benutzernamen als dritten Wert angeben)")
+        # polish for existing wikis (all of it can run again): the new name, rights, hidden templates, app list
+        if await _update_page(c, ("Leben",), "WebHome", title=LIFE, replace=[("Mein Leben", LIFE)]):
+            done.append(f"„{LIFE}“ umbenannt")
+        if await _update_page(c, ("Vorlagen",), "WebHome", replace=[("Mein Leben", LIFE)]):
+            done.append("Vorlagen-Startseite angepasst")
+        for spaces in HIDDEN_SPACES:
+            r = await c.get(page_path(spaces, "WebHome").rsplit("/pages/", 1)[0] + "/pages?hidden=true", headers={"Accept": "application/json"})
+            for pg in r.json().get("pageSummaries", []):
+                if await _update_page(c, spaces, pg["name"], hidden=True):
+                    done.append(f"{'.'.join(spaces)}.{pg['name']} ausgeblendet")
+        for app in await _hide_apps(c):
+            done.append(f"App {app} aus dem Menü genommen")
+        if owner:
+            for spaces in PRIVATE_SPACES:
+                if await _restrict(c, spaces, [owner, s.wiki_user]):
+                    done.append(f"{'.'.join(spaces)} nur für {owner} und {s.wiki_user}")
+        else:
+            done.append("Zugriff nicht eingeschränkt (Benutzernamen als dritten Wert angeben)")
     return done
