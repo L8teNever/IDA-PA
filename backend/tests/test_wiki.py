@@ -29,3 +29,5 @@ def test_wiki_pages_cover_every_area_with_a_template():
     for space, _title, _what, template, *_ in wiki_setup.AREAS:
         assert ("Leben." + space, "WebHome") in pages and ("Vorlagen", f"{template}Template") in pages
     assert ("Ida.Chats", "WebHome") in pages
+    assert wiki_setup.LIFE == "Simons Leben" and not any("Mein Leben" in c for *_, c in wiki_setup.pages())
+    assert wiki_setup.pages()[0][2] == wiki_setup.LIFE

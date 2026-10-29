@@ -44,9 +44,10 @@ def page_path(spaces: tuple[str, ...], name: str) -> str:
     return "/rest/wikis/xwiki/" + "/".join(f"spaces/{sp}" for sp in spaces) + f"/pages/{name}"
 
 
-async def put_page(c: httpx.AsyncClient, spaces: tuple[str, ...], name: str, title: str, content: str, syntax: str = "xwiki/2.1") -> None:
+async def put_page(c: httpx.AsyncClient, spaces: tuple[str, ...], name: str, title: str, content: str, syntax: str = "xwiki/2.1",
+                   hidden: bool = False) -> None:
     body = (f'<page xmlns="http://www.xwiki.org"><title>{escape(title)}</title>'
-            f"<syntax>{syntax}</syntax><content>{escape(content)}</content></page>")
+            f"<syntax>{syntax}</syntax><hidden>{'true' if hidden else 'false'}</hidden><content>{escape(content)}</content></page>")
     r = await c.put(page_path(spaces, name), content=body.encode("utf8"), headers={"Content-Type": "application/xml"})
     if r.status_code not in (200, 201, 202, 304):
         raise RuntimeError(f"Wiki antwortet {r.status_code}: {r.text[:200]}")

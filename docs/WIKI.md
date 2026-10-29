@@ -26,15 +26,18 @@ Dann `docker compose up -d`. Der erste Start dauert ein paar Minuten.
 2. Struktur und IDAs Benutzer anlegen, mit deinem Admin-Login:
 
    ```
-   docker compose exec app python -m app.cli wiki-setup <admin> <passwort>
+   docker compose exec app python -m app.cli wiki-setup <admin> <passwort> [<dein-wiki-benutzer>]
    ```
 
-   Das legt **Mein Leben** mit den Bereichen und Vorlagen an, IDAs Wiki-Benutzer, und schreibt alle bisherigen Chats
-   ins Wiki. Vorhandene Seiten bleiben unangetastet – der Befehl darf jederzeit nochmal laufen.
+   Das legt **Simons Leben** mit den Bereichen und Vorlagen an, IDAs Wiki-Benutzer, und schreibt alle bisherigen Chats
+   ins Wiki. Vorhandene Seiten bleiben unangetastet – der Befehl darf jederzeit nochmal laufen. Mit dem dritten Wert
+   (dein Wiki-Benutzer) dürfen **nur du und IDA** Simons Leben, Ida und Vorlagen sehen; ohne ihn bleibt der Zugriff offen.
+   Außerdem werden die Vorlagen aus der Navigation ausgeblendet und „Help“ und „Sandbox“ aus dem Anwendungen-Menü genommen
+   (siehe `PRIVATE_SPACES`, `HIDDEN_SPACES`, `HIDDEN_APPS` in `backend/app/services/wiki_setup.py`).
 
 ## Aufbau
 
-- **Leben** – die Bereiche (Ich, Menschen, Gesundheit, Schule & Arbeit, Finanzen, Zuhause, Projekte, Wissen,
+- **Leben** („Simons Leben“) – die Bereiche (Ich, Menschen, Gesundheit, Schule & Arbeit, Finanzen, Zuhause, Projekte, Wissen,
   Orte & Reisen, Ziele & Ideen, Tagebuch). Jeder Bereich hat einen Knopf **„＋ Neuer Eintrag“**, der eine Seite
   aus der Vorlage des Bereichs anlegt – so ist jede Seite gleich aufgebaut und landet am richtigen Platz.
 - **Vorlagen** – die Vorlagen der Bereiche. Änderst du eine, sehen neue Einträge ab da so aus.

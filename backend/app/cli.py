@@ -3,7 +3,7 @@
   python -m app.cli import-legacy <ordner>   übernimmt Daten des alten Node-Prototyps (legacy/node-app):
       connectors.json + tools.json, agents.json + main-profile.json, skills.json, routines.json, messages.json,
       memory.db (SQLite) oder memory.json. Bereits vorhandene Einträge (gleiche ID) werden übersprungen.
-  python -m app.cli wiki-setup <admin> <passwort>   legt im Wiki die Struktur „Mein Leben“ mit Vorlagen und IDAs
+  python -m app.cli wiki-setup <admin> <passwort> [<dein-wiki-benutzer>]   legt im Wiki die Struktur „Simons Leben“ mit Vorlagen und IDAs
       Benutzer für die Chats an (vorhandene Seiten bleiben), danach schreibt IDA alle Chats hinein.
 """
 import asyncio
@@ -136,9 +136,9 @@ async def import_legacy(folder: Path) -> None:
     print("Claude-Logins werden nicht übernommen: unter Einstellungen -> Claude-Accounts .credentials.json hochladen.")
 
 
-async def wiki_setup(admin: str, password: str) -> None:
+async def wiki_setup(admin: str, password: str, owner: str | None = None) -> None:
     from .services import wiki, wiki_setup as ws
-    for line in await ws.setup(admin, password) or ["Struktur war schon komplett"]:
+    for line in await ws.setup(admin, password, owner or (admin if admin != "superadmin" else None)) or ["Struktur war schon komplett"]:
         print("✓", line)
     print("Chats ins Wiki geschrieben:", await wiki.catch_up())
 
@@ -147,7 +147,7 @@ def main() -> None:
     if len(sys.argv) >= 3 and sys.argv[1] == "import-legacy":
         asyncio.run(import_legacy(Path(sys.argv[2])))
     elif len(sys.argv) >= 4 and sys.argv[1] == "wiki-setup":
-        asyncio.run(wiki_setup(sys.argv[2], sys.argv[3]))
+        asyncio.run(wiki_setup(sys.argv[2], sys.argv[3], sys.argv[4] if len(sys.argv) > 4 else None))
     else:
         print(__doc__)
 
