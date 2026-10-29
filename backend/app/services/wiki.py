@@ -10,6 +10,7 @@ from datetime import datetime
 from xml.sax.saxutils import escape
 
 import httpx
+import markdown
 from sqlalchemy import select
 
 from ..config import get_settings
@@ -21,7 +22,7 @@ from .schedule import tz
 log = logging.getLogger("ida.wiki")
 
 SPACE = ("Ida", "Chats")
-SYNCED_KEY = "wiki_synced_until"
+SYNCED_KEY = "wiki_synced_until_v2"  # v2: pages as HTML (xwiki/2.1) – everything is written again once
 DELAY_S = 3  # an answer often ends with several quick writes (title, message) – write the page once afterwards
 
 _due: set[str] = set()
@@ -43,7 +44,7 @@ def page_path(spaces: tuple[str, ...], name: str) -> str:
     return "/rest/wikis/xwiki/" + "/".join(f"spaces/{sp}" for sp in spaces) + f"/pages/{name}"
 
 
-async def put_page(c: httpx.AsyncClient, spaces: tuple[str, ...], name: str, title: str, content: str, syntax: str = "markdown/1.2") -> None:
+async def put_page(c: httpx.AsyncClient, spaces: tuple[str, ...], name: str, title: str, content: str, syntax: str = "xwiki/2.1") -> None:
     body = (f'<page xmlns="http://www.xwiki.org"><title>{escape(title)}</title>'
             f"<syntax>{syntax}</syntax><content>{escape(content)}</content></page>")
     r = await c.put(page_path(spaces, name), content=body.encode("utf8"), headers={"Content-Type": "application/xml"})
@@ -55,21 +56,26 @@ def _when(d: datetime) -> str:
     return d.astimezone(tz()).strftime("%d.%m.%Y, %H:%M")
 
 
-def _safe(text: str) -> str:
-    # no wiki macros out of chat text ({{velocity}} …) – a chat may quote anything from a web page
-    return (text or "").replace("{{", "{​{").strip()
+def _html(text: str) -> str:
+    """Chat text (Markdown) -> HTML. Raw HTML in the text stays text; nothing may close the {{html}} macro."""
+    md = markdown.Markdown(extensions=["fenced_code", "tables", "sane_lists", "nl2br"])
+    md.preprocessors.deregister("html_block")
+    md.inlinePatterns.deregister("html")
+    return md.convert(text or "").replace("{{", "&#123;&#123;")
 
 
-def chat_markdown(chat: Chat, agent: Agent | None, project: CodeProject | None, msgs: list[ChatMessage]) -> str:
+def chat_page(chat: Chat, agent: Agent | None, project: CodeProject | None, msgs: list[ChatMessage]) -> str:
+    """The page in xwiki/2.1: everything inside one {{html}} block, so it needs no extra wiki extension."""
     s = get_settings()
-    who = agent.name if agent else "Ida"
-    head = [f"**Agent:** {who}", f"**Modell:** {chat.model}", f"**Begonnen:** {_when(chat.created_at)}", f"**Zuletzt:** {_when(chat.updated_at)}"]
+    who = escape(agent.name if agent else "Ida")
+    head = [f"<b>Agent:</b> {who}", f"<b>Modell:</b> {escape(chat.model)}", f"<b>Begonnen:</b> {_when(chat.created_at)}",
+            f"<b>Zuletzt:</b> {_when(chat.updated_at)}"]
     if project:
-        head.insert(1, f"**Code-Projekt:** {project.name}")
+        head.insert(1, f"<b>Code-Projekt:</b> {escape(project.name)}")
     if s.ida_public_url:
         path = f"/code/{project.id}/{chat.id}" if project else f"/chat/{chat.id}"
-        head.append(f"[In IDA öffnen]({s.ida_public_url.rstrip('/')}{path})")
-    out = [" · ".join(head), ""]
+        head.append(f'<a href="{escape(s.ida_public_url.rstrip("/") + path)}">In IDA öffnen</a>')
+    out = [f"<p>{' · '.join(head)}</p>"]
     for m in msgs:
         if m.role not in ("user", "assistant"):
             continue
@@ -77,15 +83,14 @@ def chat_markdown(chat: Chat, agent: Agent | None, project: CodeProject | None, 
         error = (m.meta or {}).get("error")
         if not (m.text or "").strip() and not tools and not error:
             continue
-        out.append(f"### {'Du' if m.role == 'user' else who} · {_when(m.at)}")
-        out.append("")
+        out.append(f"<h3>{'Du' if m.role == 'user' else who} · {_when(m.at)}</h3>")
         if tools:
-            out += [f"_Werkzeuge: {', '.join(tools)}_", ""]
-        if m.text.strip():
-            out += [_safe(m.text), ""]
+            out.append(f"<p><i>Werkzeuge: {escape(', '.join(tools))}</i></p>")
+        if (m.text or "").strip():
+            out.append(_html(m.text))
         if error:
-            out += [f"> Fehler: {_safe(error)}", ""]
-    return "\n".join(out).rstrip() + "\n"
+            out.append(f"<blockquote>Fehler: {escape(error)}</blockquote>".replace("{{", "&#123;&#123;"))
+    return '{{html clean="true"}}\n' + "\n".join(out) + "\n{{/html}}\n"
 
 
 async def sync_chat(chat_id: str, c: httpx.AsyncClient | None = None) -> bool:
@@ -98,7 +103,7 @@ async def sync_chat(chat_id: str, c: httpx.AsyncClient | None = None) -> bool:
         project = await db.get(CodeProject, chat.project_id) if chat.project_id else None
         msgs = list((await db.scalars(select(ChatMessage).where(ChatMessage.chat_id == chat_id).order_by(ChatMessage.at))).all())
         title = (f"Code · {project.name} · " if project else "") + (chat.title or "Chat")
-        content = chat_markdown(chat, agent, project, msgs)
+        content = chat_page(chat, agent, project, msgs)
     if c is not None:
         await put_page(c, SPACE, chat_id, title, content)
     else:
