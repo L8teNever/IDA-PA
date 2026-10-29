@@ -14,7 +14,7 @@ from fastapi.staticfiles import StaticFiles
 from . import db, seed
 from .api import accounts, agents, chats, code, connectors, files, github, internal_mcp, memory, messages, reminders, routines, skills, system, trackers
 from .config import get_settings
-from .services import jobs, scheduler
+from .services import jobs, scheduler, wiki
 from .services.errors import Invalid, NotFound
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -56,6 +56,7 @@ async def lifespan(app: FastAPI):
     await asyncio.to_thread(migrate)  # alembic runs its own event loop
     await seed.seed()
     jobs.start()
+    wiki.start()
     if get_settings().scheduler_enabled:
         scheduler.start()
     if get_settings().whisper_preload:

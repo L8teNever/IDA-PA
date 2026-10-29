@@ -2,6 +2,7 @@
 #   cp .env.example .env   (Passwörter eintragen)
 #   docker compose up -d
 # Update: docker compose pull && docker compose up -d   (oder automatisch: docker compose --profile autoupdate up -d)
+# Wiki dazu (XWiki, Profil "wiki"): COMPOSE_PROFILES=wiki in die .env, dann läuft es bei jedem up/pull mit – siehe docs/WIKI.md
 name: ida
 
 services:
@@ -40,6 +41,46 @@ services:
       timeout: 5s
       retries: 20
 
+  # Wiki für dein Leben (XWiki) – IDA schreibt die Chats nach Ida › Chats (WIKI_* in der .env)
+  # Image: immer das neueste der stabilen Reihe (keine Sprünge auf eine ungetestete Hauptversion)
+  xwiki:
+    image: ${XWIKI_IMAGE:-xwiki:stable-postgres-tomcat}
+    profiles: ["wiki"]
+    pull_policy: always
+    restart: unless-stopped
+    environment:
+      DB_HOST: xwiki-db
+      DB_DATABASE: xwiki
+      DB_USER: xwiki
+      DB_PASSWORD: ${XWIKI_DB_PASSWORD:-}
+      JAVA_OPTS: ${XWIKI_JAVA_OPTS:--Xmx2g}
+    ports:
+      - "${XWIKI_PORT:-8081}:8080"
+    volumes:
+      - xwiki-data:/usr/local/xwiki   # Anhänge, Erweiterungen, Einstellungen (xwiki.cfg, xwiki.properties)
+    depends_on:
+      xwiki-db:
+        condition: service_healthy
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"
+
+  xwiki-db:
+    image: postgres:16-alpine
+    profiles: ["wiki"]
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: xwiki
+      POSTGRES_USER: xwiki
+      POSTGRES_PASSWORD: ${XWIKI_DB_PASSWORD:-}
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8"
+    volumes:
+      - xwiki-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U xwiki -d xwiki"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
   # optional: holt neue Images von GitHub automatisch (alle 10 Minuten) und startet die App neu
   watchtower:
     image: containrrr/watchtower
@@ -53,3 +94,5 @@ services:
 volumes:
   ida-data:
   ida-db:
+  xwiki-data:
+  xwiki-db:

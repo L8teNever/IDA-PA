@@ -28,7 +28,7 @@ from ..db import session_scope, utcnow
 from ..models import Account, Agent, Chat, ChatMessage, CodeProject, Skill
 from . import code as code_area
 from . import files as file_svc
-from . import providers, runs
+from . import providers, runs, wiki
 from .code import approvals, git, github
 from .claude import runner
 from .errors import Invalid, NotFound
@@ -173,6 +173,7 @@ async def start_chat(*, chat_id: str | None, agent_id: str | None, text: str, mo
         finally:
             approvals.cancel_chat(state["chat_id"])
             await live.finish()
+            wiki.schedule(state["chat_id"])
             if _stops.get(state["chat_id"]) is stopped:
                 del _stops[state["chat_id"]]
             asyncio.get_running_loop().call_later(KEEP_FINISHED, lambda: _live.pop(state["chat_id"], None) if _live.get(state["chat_id"]) is live else None)
