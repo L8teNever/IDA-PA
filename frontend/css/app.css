@@ -758,6 +758,37 @@ body.tap-view #appHeader { display: none; }
 
 .ev-sheet.file-sheet { min-height: 60vh; }
 
+/* right pane of a code thread and its phone sheet: tabs files | changes | preview */
+.cp-tabs { display: flex; align-items: center; gap: 2px; flex: none; min-width: 0; }
+.cp-tabs [data-tab] { flex: 1 1 0; min-width: 0; height: 40px; border: 0; border-radius: 6px; padding: 0 4px; display: flex; align-items: center; justify-content: center; gap: 5px; cursor: pointer;
+  background: var(--surface-high); color: var(--on-surface); font: inherit; font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  transition: background .2s, border-radius .3s var(--spring); }
+.cp-tabs [data-tab]:first-child { border-radius: 20px 6px 6px 20px; }
+.cp-tabs [data-tab]:nth-child(3) { border-radius: 6px 20px 20px 6px; }
+.cp-tabs [data-tab].on { background: var(--accent); color: var(--on-accent); border-radius: 20px; }
+.cp-tabs [data-tab] .ms { font-size: 18px; flex: none; }
+.cp-tabs .cp-tl { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.cp-tabs .icon-btn { margin-left: 6px; width: 36px; height: 36px; flex: none; }
+.cp-body { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
+.cp-pv-bar { display: flex; align-items: center; gap: 8px; flex: none; }
+.cp-pv-bar .mono { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: 12.5px; }
+.cp-pv-frame { flex: 1; min-height: 0; width: 100%; border: 0; border-radius: 14px; background: #fff; }
+.cs-pane { min-height: 55vh; }
+.cs-pane .fe-box { margin-top: 0; }
+.ev-sheet .cp-tabs { margin-bottom: 12px; }
+.ev-sheet .cp-tabs .icon-btn { width: 38px; height: 38px; margin-left: 4px; }
+@media (max-width: 480px) {
+  .ev-sheet .cp-tabs [data-tab] { gap: 4px; padding: 0 3px; font-size: 12.5px; }
+  .ev-sheet .cp-tabs [data-tab] .ms { font-size: 16px; }
+}
+.ev-sheet .cp-pv-frame { height: 65vh; flex: none; }
+/* number of changes on the phone, where the chip shows only its icon */
+.cb-n { display: none; }
+@media (max-width: 560px) {
+  .cb-chip .cb-n { display: grid; place-items: center; min-width: 18px; height: 18px; padding: 0 5px; margin-left: -2px; border-radius: 9px;
+    background: var(--accent); color: var(--on-accent); font-size: 11px; font-weight: 600; }
+}
+
 /* ---------- Code thread: one header, three columns on the desktop (threads | chat | files & changes) ---------- */
 body.code-thread #appHeader { display: none; }
 body.code-thread .messages { padding-top: 0 !important; }
@@ -801,17 +832,6 @@ body.code-thread .code-bar { margin-top: calc(env(safe-area-inset-top) + 8px); }
   .cp-tmain b { font-weight: 400; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .cp-tmain small { color: var(--muted); font-size: 11.5px; }
 
-  .cp-tabs { display: flex; align-items: center; gap: 2px; flex: none; min-width: 0; }
-  .cp-tabs [data-tab] { flex: 1 1 0; min-width: 0; height: 40px; border: 0; border-radius: 6px; padding: 0 4px; display: flex; align-items: center; justify-content: center; gap: 5px; cursor: pointer;
-    background: var(--surface-high); color: var(--on-surface); font: inherit; font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-    transition: background .2s, border-radius .3s var(--spring); }
-  .cp-tabs [data-tab]:first-child { border-radius: 20px 6px 6px 20px; }
-  .cp-tabs [data-tab]:nth-child(3) { border-radius: 6px 20px 20px 6px; }
-  .cp-tabs [data-tab].on { background: var(--accent); color: var(--on-accent); border-radius: 20px; }
-  .cp-tabs [data-tab] .ms { font-size: 18px; flex: none; }
-  .cp-tabs .cp-tl { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-  .cp-tabs .icon-btn { margin-left: 6px; width: 36px; height: 36px; flex: none; }
-  .cp-body { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
   .cp-body .fe-box { margin-top: 0; flex: 1; }
   .cp-body .preview-frame, .cp-body .preview-frame-wrap.device-tablet .preview-frame, .cp-body .preview-frame-wrap.device-mobile .preview-frame { height: 62vh; }
   .cp-files { display: flex; flex-direction: column; gap: 2px; }
@@ -828,9 +848,6 @@ body.code-thread .code-bar { margin-top: calc(env(safe-area-inset-top) + 8px); }
   .cp-group > summary small { font-size: 11px; }
   .cp-thread.wait .ms { color: #e3b341; }
   .cp-none { padding: 6px 12px; color: var(--muted); font-size: 12px; }
-  .cp-pv-bar { display: flex; align-items: center; gap: 8px; flex: none; }
-  .cp-pv-bar .mono { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: 12.5px; }
-  .cp-pv-frame { flex: 1; min-height: 0; width: 100%; border: 0; border-radius: 14px; background: #fff; }
 }
 .cb-pane { display: none; width: 36px !important; height: 36px !important; }
 

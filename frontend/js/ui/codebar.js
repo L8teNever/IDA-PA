@@ -26,7 +26,7 @@ export function codeBar(project, mode) {
       <span class="ms">folder_open</span><span>Dateien</span></button>
     <button type="button" class="cb-chip" id="cbMode" title="${esc(modeOf(mode)[3])}"><span class="ms">${modeOf(mode)[1]}</span><span>${modeOf(mode)[2]}</span></button>
     <button type="button" class="cb-chip ${changes ? "has" : ""}" id="cbChanges" data-changes="${project.id}" title="Änderungen, Commit, Push, Pull Request">
-      <span class="ms">difference</span><span>${changes ? `${changes} Änderung${changes === 1 ? "" : "en"}` : "Änderungen"}</span></button>
+      <span class="ms">difference</span><span>${changes ? `${changes} Änderung${changes === 1 ? "" : "en"}` : "Änderungen"}</span>${changes ? `<b class="cb-n">${changes}</b>` : ""}</button>
     <button type="button" class="icon-btn cb-pane" data-pane="right" aria-label="Dateien ein-/ausblenden" title="Dateien, Änderungen, Vorschau (Strg+.)"><span class="ms">right_panel_open</span></button>
   </div>`;
 }
@@ -178,6 +178,12 @@ document.addEventListener("click", (e) => {
   const bChanges = e.target.closest("[data-changes]");
   if (bChanges?.id === "cbChanges" && document.body.classList.contains("code-thread") && matchMedia("(min-width: 1100px)").matches) {
     document.dispatchEvent(new CustomEvent("code:pane", { detail: "changes" }));
+    return;
+  }
+  // phone: files and changes open one sheet with the tabs of the desktop's right pane
+  const files = e.target.closest("#cbFiles");
+  if ((files || bChanges?.id === "cbChanges") && document.body.classList.contains("code-thread")) {
+    document.dispatchEvent(new CustomEvent("code:sheet", { detail: files ? { project: files.dataset.files, tab: "files" } : { project: bChanges.dataset.changes, tab: "changes" } }));
     return;
   }
   if (bChanges) openChanges(bChanges.dataset.changes, { onChange: () => document.dispatchEvent(new CustomEvent("code:changed")) });

@@ -235,8 +235,7 @@ export function mountFileExplorer(container, projectId, { initialPath = "" } = {
 }
 
 export function openFileSheet(projectId, initialPath = "") {
-  const s = openSheet(`<div class="handle"></div>
-    <div class="cs-head">
+  const s = openSheet(`<div class="cs-head">
       <h2 class="cs-title">Dateien & Vorschau</h2>
       <button class="icon-btn" data-x aria-label="Schlie\u00dfen"><span class="ms">close</span></button>
     </div>
