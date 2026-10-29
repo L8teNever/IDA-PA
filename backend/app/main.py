@@ -12,7 +12,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import db, seed
-from .api import accounts, agents, chats, code, connectors, files, github, internal_mcp, memory, messages, reminders, routines, skills, system, trackers
+from .api import accounts, agents, chats, code, connectors, files, github, internal_mcp, kalender, memory, messages, reminders, routines, skills, system, trackers
 from .config import get_settings
 from .services import jobs, scheduler, wiki
 from .services.errors import Invalid, NotFound
@@ -82,7 +82,7 @@ def create_app() -> FastAPI:
         return JSONResponse({"detail": str(e)}, status_code=404)
 
     app.include_router(trackers.tap_router)
-    for r in (system, agents, chats, files, messages, routines, reminders, trackers, code, github, connectors, skills, memory, accounts, internal_mcp):
+    for r in (system, agents, chats, files, messages, routines, reminders, trackers, code, github, connectors, skills, memory, accounts, internal_mcp, kalender):
         app.include_router(r.router)
 
     front = s.frontend_dir
@@ -121,7 +121,7 @@ def create_app() -> FastAPI:
     @app.get("/{path:path}", include_in_schema=False)
     async def spa(path: str):
         """Every page URL (/, /chats, /einstellungen/agents/lea …) gets the app; the browser router shows the page."""
-        if path.startswith(("api/", "mcp/")):
+        if path.startswith(("api/", "mcp/", "kal/")):
             return JSONResponse({"detail": "Nicht gefunden"}, status_code=404)
         return HTMLResponse(index_html, headers={"cache-control": "no-store"})
 

@@ -19,6 +19,7 @@ import { usagePage } from "./pages/usage.js";
 import { remindersPage } from "./pages/reminders.js";
 import { codePage, projectPage, threadPage } from "./pages/code.js";
 import { trackerPage } from "./pages/tracker.js";
+import { calendarPage } from "./pages/calendar.js";
 import { tapPage, timerPage } from "./pages/tap.js";
 
 router.add("/", homePage);
@@ -32,6 +33,7 @@ router.add("/erinnerungen/:id", remindersPage); // also /erinnerungen/neu
 router.add("/routinen/neu", () => routineForm());
 router.add("/routinen/:id/bearbeiten", routineForm);
 router.add("/routinen/:id", routineDetail);
+router.add("/kalender", calendarPage);
 router.add("/tracker", trackerPage);
 router.add("/tracker/:id/timer", timerPage);
 router.add("/tracker/:id", trackerPage); // also /tracker/neu

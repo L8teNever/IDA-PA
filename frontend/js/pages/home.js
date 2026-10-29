@@ -103,9 +103,10 @@ function renderTimeline(all) {
     if (x.kind === "event") {
       const span = x.all_day ? "" : x.end ? `${fmtTime(x.at)}–${fmtTime(x.end)}` : fmtTime(x.at);
       const sub = [x.all_day ? "ganztägig" : span, x.location].filter(Boolean).join(" · ");
-      return `<div class="ev event ${i < nowIdx ? "past" : i === nowIdx ? "now" : ""}">
-        <span class="time">${x.all_day ? `<span class="ms">event</span>` : fmtTime(x.at)}</span>
-        <span class="evtxt"><b>${esc(x.title)}</b><small>${esc(sub)}</small></span></div>`;
+      const own = x.event_id && !x.holiday; // Termin aus dem IDA-Kalender: antippen öffnet ihn dort
+      return `<div class="ev event ${i < nowIdx ? "past" : i === nowIdx ? "now" : ""}" ${own ? `data-href="/kalender/termin/${esc(x.event_id)}"` : ""} ${x.color ? `data-color style="--evc:var(--ev-${esc(x.color)})"` : ""}>
+        <span class="time">${x.all_day ? `<span class="ms">${x.holiday ? "celebration" : "event"}</span>` : fmtTime(x.at)}</span>
+        <span class="evtxt"><b>${esc(x.title)}</b><small>${esc(sub)}</small></span>${own ? `<span class="ms evchev">chevron_right</span>` : ""}</div>`;
     }
     if (x.kind === "tracker") {
       const by = x.by === "link" ? " · per NFC" : x.by && x.by !== "user" ? ` · von ${agentOf(x.by).name}` : "";

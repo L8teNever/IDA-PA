@@ -3,6 +3,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...models import Agent, AgentSkill, Skill
+from ..mcp import kalender_tools
 
 
 async def labels(db: AsyncSession) -> dict[str, str]:
@@ -58,6 +59,7 @@ def team_section(a: Agent, main_id: str, unread: int, interactive: bool) -> str:
             "\"Mach X alle 3 Minuten\" legst du mit routine_create an. Der prompt einer Routine und die Rolle eines Agenten muessen ohne diesen Chat verstaendlich sein. "
             f"Mit notify_user hinterlaesst du dem Nutzer eine Benachrichtigung. Ungelesene Nachrichten in deinem Postfach: {unread}"
             + (" (lies sie mit inbox_read und erwaehne sie)." if unread else ".")
+            + (" Termine des Nutzers liegen im lokalen IDA Kalender: lege sie mit den calendar_*-Tools an, aendere und suche sie (keine Erinnerung dafuer)." if kalender_tools.enabled() else "")
             + ("" if interactive else " Dies ist ein Lauf im Hintergrund: niemand antwortet live, erledige die Aufgabe selbststaendig und gib am Ende ein kurzes Ergebnis aus.")
             + "\n"
         )

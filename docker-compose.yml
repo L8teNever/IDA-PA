@@ -14,6 +14,8 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://ida:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD in .env setzen}@db:5432/ida
       OLLAMA_URL: ${OLLAMA_URL:-http://host.docker.internal:11434}
+      KALENDER_URL: http://kalender:8000          # Kalender-Dienst (siehe unten); leer = Kalender-Funktionen aus
+      KALENDER_IDA_TOKEN: ${KALENDER_IDA_TOKEN:-}
     ports:
       - "${IDA_PORT:-8080}:8000"
     volumes:
@@ -81,6 +83,27 @@ services:
       timeout: 5s
       retries: 20
 
+  # Kalender – eigener Dienst mit eigenen Daten (SQLite im Volume kalender-data, getrennt von IDA), eigener Port, eigene PWA.
+  # Läuft auch ohne IDA. Ida bedient ihn über die calendar_*-Tools; Erinnerungen gehen per Webhook an IDA. Siehe docs/KALENDER.md
+  kalender:
+    image: ${KALENDER_IMAGE:-ghcr.io/l8tenever/ida-kalender:latest}
+    pull_policy: always
+    restart: unless-stopped
+    environment:
+      TIMEZONE: ${TIMEZONE:-Europe/Berlin}
+      KALENDER_IDA_TOKEN: ${KALENDER_IDA_TOKEN:-}
+      KALENDER_MCP_TOKEN: ${KALENDER_MCP_TOKEN:-}
+      KALENDER_PUBLIC_URL: ${KALENDER_PUBLIC_URL:-https://kalender.kulbarts.com}
+      KALENDER_STATE: ${KALENDER_STATE:-NW}
+      IDA_WEBHOOK_URL: http://app:8000/api/v1/ext/kalender
+      IDA_INTERNAL_URL: http://app:8000
+    ports:
+      - "${KALENDER_PORT:-8082}:8000"
+    volumes:
+      - kalender-data:/data       # kalender.db, backups/ (nächtlich), files/
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"
+
   # optional: holt neue Images von GitHub automatisch (alle 10 Minuten) und startet die App neu
   watchtower:
     image: containrrr/watchtower
@@ -94,5 +117,6 @@ services:
 volumes:
   ida-data:
   ida-db:
+  kalender-data:
   xwiki-data:
   xwiki-db:

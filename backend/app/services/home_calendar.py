@@ -1,7 +1,9 @@
 """Today's calendar events for the start page – the server calls a calendar tool of a connector itself (no AI).
 
 Setting "home_calendar":
-  missing          -> automatic: the first enabled connector with a tool like "termine_liste" / "list_events"
+  missing          -> the local IDA calendar (calendar service, KALENDER_URL) when set up, otherwise automatic:
+                      the first enabled connector with a tool like "termine_liste" / "list_events"
+  {"source": "kalender"} -> the local IDA calendar
   {"off": true}    -> no calendar on the start page
   {"connector", "tool", "args"} -> exactly this tool; in args, {heute_start} {heute_ende} {heute} {monat} are filled in
 """
@@ -14,7 +16,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models import Connector
-from . import settings_store
+from . import kalender_client, settings_store
 from .mcp import client
 from .schedule import tz
 
@@ -153,11 +155,30 @@ def events_today(text: str, start: datetime, end: datetime) -> list[dict]:
     return sorted(out, key=lambda x: (not x["all_day"], x["at"]))
 
 
+LOCAL = {"source": "kalender", "connector": None, "tool": None, "args": None, "auto": False, "connector_name": "IDA Kalender"}
+
+
+def local_events(items: list[dict], start: datetime) -> list[dict]:
+    """Termine des lokalen Kalenders (API-Ansicht) → Einträge des Tagesplans."""
+    out = []
+    for v in items:
+        base = {"kind": "event", "title": str(v["title"])[:120], "location": str(v.get("location") or "")[:80], "color": v.get("color"),
+                "event_id": v.get("event_id"), "holiday": bool(v.get("holiday"))}
+        if v["all_day"]:
+            out.append({**base, "at": start.astimezone(timezone.utc).isoformat(), "end": None, "all_day": True})
+        else:
+            out.append({**base, "at": datetime.fromisoformat(v["start"]).astimezone(timezone.utc).isoformat(),
+                        "end": datetime.fromisoformat(v["end"]).astimezone(timezone.utc).isoformat(), "all_day": False})
+    return sorted(out, key=lambda x: (not x["all_day"], x["at"]))
+
+
 async def config(db: AsyncSession) -> dict | None:
     """The calendar to use (with args), or None when switched off / nothing found."""
     saved = await settings_store.get(db, KEY)
     if saved and saved.get("off"):
         return None
+    if kalender_client.enabled() and (not saved or saved.get("source") == "kalender"):
+        return dict(LOCAL)
     if saved and saved.get("connector") and saved.get("tool"):
         return {"connector": saved["connector"], "tool": saved["tool"], "args": saved.get("args") or {}, "auto": False}
     conns = (await db.scalars(select(Connector).order_by(Connector.name))).all()
@@ -168,6 +189,11 @@ async def config(db: AsyncSession) -> dict | None:
 async def fetch(db: AsyncSession, cfg: dict, use_cache: bool = True) -> dict:
     """{"events": [...], "error": str | None} for today."""
     start, end = _today()
+    if cfg.get("source") == "kalender":
+        try:
+            return {"events": local_events(await kalender_client.today(cache=use_cache), start), "error": None}
+        except Exception as e:  # noqa: BLE001 – the start page should show the rest anyway
+            return {"events": [], "error": str(e)[:200] or e.__class__.__name__}
     key = json.dumps([cfg.get("connector"), cfg.get("tool"), cfg.get("args"), start.date().isoformat()], sort_keys=True, default=str)
     hit = _cache.get(key)
     if use_cache and hit and time.time() - hit[0] < TTL:

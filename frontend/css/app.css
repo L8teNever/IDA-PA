@@ -429,6 +429,8 @@ body.answering .send .ms { font-variation-settings: "FILL" 1; }
 
 /* day plan: calendar events, hint when the calendar is missing */
 .ev.event::before { border-radius: 3px; }
+.ev.event[data-color]:not(.now)::before { background: var(--evc); }
+.ev.event[data-href] { cursor: pointer; }
 .ev .time .ms { font-size: 18px; vertical-align: -3px; }
 .cal-hint { display: flex; align-items: center; gap: 8px; margin: 2px 0 0 26px; color: var(--muted); font-size: 13px; text-decoration: none; }
 .cal-hint .ms { font-size: 18px; }
@@ -854,3 +856,5 @@ body.code-thread .code-bar { margin-top: calc(env(safe-area-inset-top) + 8px); }
 /* header: one back button – hidden on the start page, and on the phone when the page has its own */
 body.view-timeline #btnBack { display: none; }
 @media (max-width: 899px) { body:has(#page:not([hidden]) .sub-head .back) #btnBack { display: none; } }
+  .cal-frame { display: block; width: 100%; height: 100%; min-height: calc(100dvh - 120px); border: 0; border-radius: 24px; background: #000; }
+  #page:has(> .cal-frame) { padding: 0; }

@@ -5,3 +5,9 @@ services:
     image: ida-pa:dev
     pull_policy: build
     build: .
+  kalender:
+    image: ida-kalender:dev
+    pull_policy: build
+    build:
+      context: .
+      dockerfile: kalender/Dockerfile

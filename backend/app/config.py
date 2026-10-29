@@ -53,6 +53,10 @@ class Settings(BaseSettings):
     # Public addresses, only for links inside the pages (wiki page -> chat in IDA)
     ida_public_url: str = ""
 
+    # Kalender (eigener Dienst, siehe docs/KALENDER.md): Adresse und gemeinsames Geheimnis; leer = Kalender-Funktionen aus
+    kalender_url: str = ""
+    kalender_ida_token: str = ""
+
     @property
     def model_list(self) -> list[str]:
         return [m.strip() for m in self.models.split(",") if m.strip()]

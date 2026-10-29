@@ -1,0 +1,274 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<title>IDA Kalender – Handy-Entwurf</title>
+<!-- Nur für den Entwurf: Schriften vom CDN. Im echten Kalender liegen sie lokal unter /fonts. -->
+<link href="https://fonts.googleapis.com/css2?family=Google+Sans+Flex:wght@400;500;600&family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,500,1,0&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --accent:#7fd3ff;--on-accent:#00344a;--container:#0e2a38;--on-container:#c4ecff;
+    --surface:#121316;--surface-high:#1d1f23;--surface-highest:#282a2f;--on-surface:#e3e2e6;--muted:#9a9ca3;
+    --rot:#f28b82;--orange:#fbbc6e;--gelb:#fde293;--gruen:#81c995;--tuerkis:#78d9ec;--blau:#8ab4f8;--lila:#d7aefb;--koralle:#f6aea9;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:"Google Sans Flex","Google Sans",Roboto,system-ui,sans-serif;color:var(--on-surface)}
+  .ms{font-family:"Material Symbols Rounded";font-size:22px;line-height:1;font-weight:normal;font-style:normal;display:inline-block;-webkit-font-smoothing:antialiased;font-feature-settings:"liga"}
+  .wrap{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:20px;justify-items:center}
+  .cap{font-size:13px;color:var(--muted, #9a9ca3);margin:8px 0 0;text-align:center;max-width:320px;line-height:1.35}
+  .cap b{color:var(--foreground,#e3e2e6);font-weight:600}
+  .phone{width:320px;height:660px;background:#000;border-radius:36px;border:6px solid #23252a;position:relative;overflow:hidden;box-shadow:0 10px 40px rgba(0,0,0,.4)}
+  .status{height:28px;display:flex;align-items:center;justify-content:space-between;padding:0 22px;font-size:12px;color:#ddd}
+  .status .ms{font-size:14px}
+  .top{height:56px;display:flex;align-items:center;gap:6px;padding:0 10px}
+  .ib{width:40px;height:40px;border-radius:20px;background:var(--surface-high);display:grid;place-items:center;flex:none}
+  .ib.plain{background:none}
+  .title{font-size:19px;font-weight:500;white-space:nowrap;display:flex;align-items:center;gap:2px;margin-left:4px}
+  .title .ms{font-size:20px;color:var(--muted)}
+  .sp{flex:1}
+  .today{width:40px;height:40px;border-radius:20px;background:var(--surface-high);display:grid;place-items:center;position:relative}
+  .today span{position:absolute;font-size:9px;font-weight:700;top:17px;color:#000}
+  /* Floating Toolbar + FAB */
+  /* Untere Leiste: Floating Toolbar + FAB in einer Reihe, gleiche Höhe, fester Abstand */
+  .bar{position:absolute;left:12px;right:12px;bottom:14px;display:flex;align-items:center;justify-content:space-between;gap:12px;z-index:2}
+  .bar:before{content:"";position:absolute;left:-12px;right:-12px;bottom:-14px;height:110px;background:linear-gradient(to top,#000 45%,rgba(0,0,0,0));z-index:-1;pointer-events:none}
+  .tb{height:56px;border-radius:28px;background:var(--surface-highest);display:flex;align-items:center;padding:0 4px;gap:0;box-shadow:0 4px 16px rgba(0,0,0,.6)}
+  .tb .t{height:48px;width:40px;border-radius:24px;display:flex;align-items:center;justify-content:center;gap:6px;color:var(--muted);transition:width .4s}
+  .tb .t .ms{font-size:22px}
+  .tb .t.on{width:auto;white-space:nowrap;padding:0 12px 0 10px;background:var(--container);color:var(--on-container);font-size:13px;font-weight:600}
+  .fab{flex:none;width:56px;height:56px;border-radius:18px;background:var(--accent);color:var(--on-accent);display:grid;place-items:center;box-shadow:0 4px 16px rgba(127,211,255,.3)}
+  .fab .ms{font-size:26px}
+  /* Monat */
+  .wd{display:grid;grid-template-columns:repeat(7,1fr);padding:0 8px;font-size:11px;color:var(--muted);text-align:center;margin-bottom:2px}
+  .mg{display:grid;grid-template-columns:repeat(7,1fr);padding:0 8px;row-gap:2px}
+  .d{height:40px;display:flex;flex-direction:column;align-items:center;font-size:13px;padding-top:4px}
+  .d .n{width:26px;height:26px;border-radius:13px;display:grid;place-items:center}
+  .d.o{color:#555}.d.we{color:var(--muted)}
+  .d.t .n{background:var(--accent);color:var(--on-accent);font-weight:600}
+  .d.s .n{box-shadow:inset 0 0 0 2px var(--accent)}
+  .dots{display:flex;gap:2px;margin-top:2px}.dots i{width:5px;height:5px;border-radius:50%}
+  .grip{width:36px;height:4px;border-radius:2px;background:#444;margin:8px auto}
+  .dayh{padding:2px 16px 8px;font-size:14px;font-weight:500}
+  .ev{margin:0 12px 8px;background:var(--surface-high);border-radius:16px;display:flex;gap:10px;padding:10px 12px;align-items:center}
+  .ev .bar4{width:4px;align-self:stretch;border-radius:2px}
+  .ev .tt{font-size:14px;font-weight:500}.ev .sub{font-size:12px;color:var(--muted);margin-top:2px}
+  .chip{font-size:11px;padding:3px 8px;border-radius:8px;background:var(--container);color:var(--on-container);display:inline-flex;align-items:center;gap:3px}
+  .chip .ms{font-size:13px}
+  .icons{margin-left:auto;display:flex;gap:4px;color:var(--muted);align-items:center}.icons .ms{font-size:16px}
+  /* Liste */
+  .lh{padding:10px 16px 6px;font-size:12px;font-weight:600;color:var(--accent);letter-spacing:.3px}
+  .lh.m{color:var(--muted)}
+  .empty{margin:0 12px 8px;padding:10px 12px;border-radius:16px;border:1px dashed #333;font-size:12px;color:var(--muted)}
+  .swipe{margin:0 12px 8px;border-radius:16px;background:#5c1f1b;display:flex;align-items:center;justify-content:flex-end;position:relative;height:58px;overflow:hidden}
+  .swipe .ms{color:#f6aea9;margin-right:18px}
+  .swipe .ev{position:absolute;left:-70px;right:70px;margin:0;top:0;height:58px}
+  .banner{margin:4px 12px 10px;height:64px;border-radius:20px;background:linear-gradient(120deg,#0e2a38,#2a1d3a);display:flex;align-items:flex-end;padding:10px 14px;font-size:20px;font-weight:500}
+  /* Raster */
+  .cols{display:grid;grid-template-columns:34px repeat(3,1fr);font-size:11px;color:var(--muted);text-align:center;padding-right:6px}
+  .cols .h{padding:4px 0}.cols .h b{display:block;font-size:18px;color:var(--on-surface);font-weight:500}
+  .cols .h.t b{color:var(--on-accent);background:var(--accent);width:32px;height:32px;border-radius:16px;margin:2px auto 0;display:grid;place-items:center;font-size:15px}
+  .allday{margin-left:34px;margin-right:6px;display:grid;grid-template-columns:repeat(3,1fr);gap:3px;padding:4px 0 6px;border-bottom:1px solid #222}
+  .allday div{font-size:11px;border-radius:6px;padding:3px 6px;color:#1b1b1b}
+  .grid{position:relative;height:420px;margin-right:6px}
+  .hr{position:absolute;left:0;right:0;border-top:1px solid #1d1f23;font-size:10px;color:var(--muted)}
+  .hr span{position:absolute;top:-7px;left:2px;background:#000;padding-right:2px}
+  .blk{position:absolute;border-radius:10px;padding:5px 7px;font-size:11px;color:#1b1b1b;font-weight:500;line-height:1.25;overflow:hidden}
+  .blk small{display:block;font-weight:400;opacity:.8}
+  .now{position:absolute;left:34px;right:0;border-top:2px solid var(--accent)}
+  .now:before{content:"";position:absolute;left:-5px;top:-6px;width:10px;height:10px;border-radius:5px;background:var(--accent)}
+  .ghost{position:absolute;border-radius:10px;border:2px dashed var(--accent);background:rgba(127,211,255,.12);font-size:11px;color:var(--accent);padding:5px 7px}
+  .travel{position:absolute;border-radius:10px 10px 0 0;background:repeating-linear-gradient(135deg,rgba(138,180,248,.25) 0 4px,transparent 4px 8px)}
+  /* Sheet */
+  .scrim{position:absolute;inset:0;background:rgba(0,0,0,.55)}
+  .sheet{position:absolute;left:0;right:0;bottom:0;background:var(--surface);border-radius:28px 28px 0 0;padding:0 0 16px;overflow:hidden}
+  .sheet .stripe{height:6px;background:var(--blau)}
+  .sheet h2{font-size:22px;font-weight:500;margin:10px 20px 4px}
+  .row{display:flex;gap:14px;align-items:flex-start;padding:9px 20px;font-size:14px}
+  .row .ms{color:var(--muted);font-size:20px}
+  .row .s{font-size:12px;color:var(--muted);margin-top:2px}
+  .acts{display:flex;gap:8px;padding:12px 16px 4px;align-items:center}
+  .acts .btn.f{flex:1;justify-content:center}
+  .acts .btn.i{width:44px;padding:0;justify-content:center;flex:none}
+  .btn{height:44px;border-radius:22px;padding:0 16px;display:flex;align-items:center;gap:6px;font-size:13px;font-weight:500;background:var(--surface-highest)}
+  .btn.f{background:var(--accent);color:var(--on-accent)}
+  .btn .ms{font-size:18px}
+  .ck{display:flex;gap:8px;align-items:center;font-size:13px;margin-top:4px}
+  .ck .ms{font-size:18px;color:var(--accent)}
+  /* Editor */
+  .ehead{display:flex;align-items:center;padding:4px 10px 0;gap:8px}
+  .etitle{font-size:26px;font-weight:500;padding:10px 20px 4px;border-bottom:2px solid var(--accent);margin:0 16px}
+  .sugg{display:flex;gap:6px;padding:8px 16px;flex-wrap:wrap}
+  .sugg .c{font-size:12px;padding:6px 10px;border-radius:10px;background:var(--surface-high);display:flex;gap:4px;align-items:center}
+  .sugg .ms{font-size:15px;color:var(--muted)}
+  .frow{display:flex;align-items:center;gap:14px;padding:0 20px;height:44px;font-size:14px}
+  .frow .ms{color:var(--muted);font-size:20px}
+  .sw{margin-left:auto;width:44px;height:26px;border-radius:13px;background:#3a3c42;position:relative}
+  .sw:after{content:"";position:absolute;left:4px;top:4px;width:18px;height:18px;border-radius:9px;background:#8d9097}
+  .chips{display:flex;gap:6px;flex-wrap:wrap}
+  .pc{font-size:12px;padding:6px 10px;border-radius:10px;border:1px solid #3a3c42;color:var(--on-surface)}
+  .pc.on{background:var(--container);border-color:transparent;color:var(--on-container)}
+  .warn{margin:4px 16px;padding:10px 12px;border-radius:14px;background:#3a2f12;color:var(--gelb);font-size:12px;display:flex;gap:8px;align-items:center}
+  .warn .ms{font-size:18px}
+  /* Suche */
+  .sfield{margin:4px 10px 8px;height:52px;border-radius:26px;background:var(--surface-high);display:flex;align-items:center;gap:8px;padding:0 4px 0 2px;font-size:14px;white-space:nowrap}
+  .sfield .cur{border-left:2px solid var(--accent);height:20px;margin-left:-8px}
+  .fchips{display:flex;gap:6px;padding:0 10px 8px;overflow:hidden;white-space:nowrap}
+  .fchips .pc{display:inline-flex;align-items:center;gap:4px}
+  .fchips .ms{font-size:15px}
+  mark{background:rgba(127,211,255,.25);color:var(--accent);border-radius:4px;padding:0 2px}
+  .jump{margin:0 12px 8px;padding:10px 12px;border-radius:16px;background:var(--container);color:var(--on-container);display:flex;gap:10px;align-items:center;font-size:13px}
+  .askida{margin:6px 12px;padding:10px 12px;border-radius:16px;border:1px solid #2c3a44;display:flex;gap:10px;align-items:center;font-size:12px;color:var(--muted)}
+  .face{width:28px;height:22px;border-radius:34%/40%;background:radial-gradient(120% 100% at 50% 25%,#fff 30%,#dfe7f1 100%);position:relative;flex:none;box-shadow:0 0 10px rgba(127,211,255,.4)}
+  .face:before,.face:after{content:"";position:absolute;top:10px;width:4px;height:4px;border-radius:50%;background:#10121c}
+  .face:before{left:8px}.face:after{right:8px}
+  .snack{position:absolute;z-index:3;left:12px;right:12px;bottom:84px;background:#e3e2e6;color:#1b1b1f;border-radius:14px;padding:12px 14px;font-size:13px;display:flex;align-items:center;gap:8px}
+  .snack b{margin-left:auto;color:#00658e}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<!-- 1. Monat + Tag -->
+<div>
+<div class="phone">
+  <div class="status"><span>14:02</span><span><span class="ms">signal_cellular_alt</span> <span class="ms">battery_5_bar</span></span></div>
+  <div class="top"><div class="ib plain"><span class="ms">menu</span></div><div class="title">Oktober 2026<span class="ms">arrow_drop_down</span></div><div class="sp"></div><div class="ib plain"><span class="ms">search</span></div><div class="today"><span class="ms" style="font-size:26px">calendar_today</span><span>29</span></div></div>
+  <div class="wd"><span>Mo</span><span>Di</span><span>Mi</span><span>Do</span><span>Fr</span><span>Sa</span><span>So</span></div>
+  <div class="mg" id="month"></div>
+  <div class="grip"></div>
+  <div class="dayh">Donnerstag, 29. Oktober</div>
+  <div class="ev"><div class="bar4" style="background:var(--tuerkis)"></div><div><div class="tt">Mathe</div><div class="sub">08:00 – 09:30 · R 12</div></div><div class="icons"><span class="ms">repeat</span></div></div>
+  <div class="ev"><div class="bar4" style="background:var(--blau)"></div><div><div class="tt">Zahnarzt</div><div class="sub">15:00 – 16:00 · Praxis Müller</div></div><div class="icons"><span class="chip"><span class="ms">auto_awesome</span>Ida</span></div></div>
+  <div class="ev"><div class="bar4" style="background:var(--gruen)"></div><div><div class="tt">Training</div><div class="sub">18:30 – 20:00</div></div><div class="icons"><span class="ms">notifications</span></div></div>
+  <div class="bar"><div class="tb"><div class="t"><span class="ms">view_agenda</span></div><div class="t"><span class="ms">view_week</span></div><div class="t on"><span class="ms">calendar_view_month</span>Monat</div><div class="t"><span class="ms">more_horiz</span></div></div><div class="fab"><span class="ms">add</span></div></div>
+</div>
+<p class="cap"><b>Monat + Tag</b> (Standard): Punkte statt Text im Raster, Tagesliste darunter, Griff zum Größer- und Kleinerziehen. Unten Floating Toolbar und FAB.</p>
+</div>
+
+<!-- 2. Liste -->
+<div>
+<div class="phone">
+  <div class="status"><span>14:02</span><span><span class="ms">signal_cellular_alt</span> <span class="ms">battery_5_bar</span></span></div>
+  <div class="top"><div class="ib plain"><span class="ms">menu</span></div><div class="title">Oktober 2026<span class="ms">arrow_drop_down</span></div><div class="sp"></div><div class="ib plain"><span class="ms">search</span></div><div class="today"><span class="ms" style="font-size:26px">calendar_today</span><span>29</span></div></div>
+  <div class="lh">HEUTE · DO, 29. OKT.</div>
+  <div class="ev"><div class="bar4" style="background:var(--tuerkis)"></div><div><div class="tt">Mathe</div><div class="sub">08:00 – 09:30 · R 12</div></div><div class="icons"><span class="ms">repeat</span></div></div>
+  <div class="swipe"><span class="ms">delete</span><div class="ev"><div class="bar4" style="background:var(--blau)"></div><div><div class="tt">Zahnarzt</div><div class="sub">15:00 · Praxis Müller</div></div></div></div>
+  <div class="lh m">MORGEN · FR, 30. OKT.</div>
+  <div class="ev"><div class="bar4" style="background:var(--orange)"></div><div><div class="tt">Fahrstunde</div><div class="sub">16:00 – 17:30</div></div><div class="icons"><span class="ms">notifications</span></div></div>
+  <div class="lh m">SA, 31. OKT.</div>
+  <div class="ev"><div class="bar4" style="background:var(--lila)"></div><div><div class="tt">🎂 Anna wird 30</div><div class="sub">ganztägig</div></div></div>
+  <div class="empty">Nichts geplant · 1. – 2. Nov.</div>
+  <div class="banner">November</div>
+  <div class="bar"><div class="tb"><div class="t on"><span class="ms">view_agenda</span>Liste</div><div class="t"><span class="ms">view_week</span></div><div class="t"><span class="ms">calendar_view_month</span></div><div class="t"><span class="ms">more_horiz</span></div></div><div class="fab"><span class="ms">add</span></div></div>
+  <div class="snack">Termin gelöscht <b>Rückgängig</b></div>
+</div>
+<p class="cap"><b>Liste</b>: Kleben­de Tagesköpfe, leere Tage zusammengefasst, Monatsbanner. Nach links wischen löscht, danach Snackbar mit „Rückgängig“.</p>
+</div>
+
+<!-- 3. 3 Tage -->
+<div>
+<div class="phone">
+  <div class="status"><span>14:02</span><span><span class="ms">signal_cellular_alt</span> <span class="ms">battery_5_bar</span></span></div>
+  <div class="top"><div class="ib plain"><span class="ms">menu</span></div><div class="title">Oktober<span class="ms">arrow_drop_down</span></div><div class="sp"></div><div class="ib plain"><span class="ms">search</span></div><div class="today"><span class="ms" style="font-size:26px">calendar_today</span><span>29</span></div></div>
+  <div class="cols"><div></div><div class="h t">Do<b>29</b></div><div class="h">Fr<b>30</b></div><div class="h">Sa<b>31</b></div></div>
+  <div class="allday"><div style="grid-column:3;background:var(--lila)">🎂 Anna wird 30</div></div>
+  <div class="grid" id="grid"></div>
+  <div class="bar"><div class="tb"><div class="t"><span class="ms">view_agenda</span></div><div class="t on"><span class="ms">view_week</span>3 Tage</div><div class="t"><span class="ms">calendar_view_month</span></div><div class="t"><span class="ms">more_horiz</span></div></div><div class="fab"><span class="ms">add</span></div></div>
+</div>
+<p class="cap"><b>3 Tage</b>: Jetzt-Linie, Reisezeit schraffiert, Überschneidungen nebeneinander. Lange drücken und ziehen zieht einen neuen Termin auf (gestrichelt).</p>
+</div>
+
+<!-- 4. Detail-Sheet -->
+<div>
+<div class="phone">
+  <div class="status"><span>14:02</span><span><span class="ms">signal_cellular_alt</span> <span class="ms">battery_5_bar</span></span></div>
+  <div class="top"><div class="ib plain"><span class="ms">menu</span></div><div class="title">Oktober 2026</div></div>
+  <div class="scrim"></div>
+  <div class="sheet">
+    <div class="stripe"></div>
+    <div class="grip"></div>
+    <h2>Zahnarzt</h2>
+    <div style="padding:0 20px 6px;display:flex;gap:6px"><span class="chip"><span class="ms">auto_awesome</span>von Ida</span><span class="chip" style="background:#2a2d33;color:#ddd">in 1 Std.</span></div>
+    <div class="row"><span class="ms">schedule</span><div>Do, 29. Okt. · 15:00 – 16:00<div class="s">1 Std. · 30 Min. Reisezeit</div></div></div>
+    <div class="row"><span class="ms">location_on</span><div>Praxis Müller, Hauptstr. 4<div class="s">Antippen zum Kopieren</div></div></div>
+    <div class="row"><span class="ms">notifications</span><div>30 Min. und 1 Tag vorher</div></div>
+    <div class="row"><span class="ms">event_note</span><div>Privat</div></div>
+    <div class="row"><span class="ms">checklist</span><div>Mitnehmen<div class="ck"><span class="ms">check_box</span>Versichertenkarte</div><div class="ck"><span class="ms" style="color:var(--muted)">check_box_outline_blank</span>Bonusheft</div></div></div>
+    <div class="row"><span class="ms">history</span><div><span class="s" style="margin:0">Von Ida angelegt · vor 2 Std.</span> <span style="color:var(--accent);font-size:12px;font-weight:600">Rückgängig</span></div></div>
+    <div class="acts"><div class="btn f"><span class="ms">edit</span>Bearbeiten</div><div class="btn i"><span class="ms">content_copy</span></div><div class="btn i"><span class="ms">share</span></div><div class="btn i"><span class="ms">delete</span></div></div>
+  </div>
+</div>
+<p class="cap"><b>Termin-Detail</b> als Bottom-Sheet: Chip „von Ida“ mit Rückgängig, Countdown, abhakbare Checkliste, Aktionen in Daumenhöhe.</p>
+</div>
+
+<!-- 5. Editor -->
+<div>
+<div class="phone">
+  <div class="status"><span>14:02</span><span><span class="ms">signal_cellular_alt</span> <span class="ms">battery_5_bar</span></span></div>
+  <div class="ehead"><div class="ib plain"><span class="ms">close</span></div><div class="sp"></div><div class="btn f">Speichern</div></div>
+  <div class="etitle">Zahn<span style="border-left:2px solid var(--accent)"></span></div>
+  <div class="sugg"><div class="c"><span class="ms">history</span>Zahnarzt · 1 Std. · Privat</div><div class="c"><span class="ms">history</span>Zahnreinigung</div></div>
+  <div class="frow"><span class="ms">schedule</span>Ganztägig<div class="sw"></div></div>
+  <div class="frow" style="height:44px"><span class="ms" style="opacity:0">x</span>Do, 29. Okt.<div class="sp"></div>15:00</div>
+  <div class="frow" style="height:44px"><span class="ms" style="opacity:0">x</span>Do, 29. Okt.<div class="sp"></div>16:00</div>
+  <div class="warn"><span class="ms">warning</span>Überschneidet sich mit „Nachhilfe“ (15:30)</div>
+  <div class="frow" style="height:auto;padding-top:10px;padding-bottom:6px;align-items:flex-start"><span class="ms">repeat</span><div class="chips"><span class="pc on">Nie</span><span class="pc">Täglich</span><span class="pc">Wöchentlich am Do</span><span class="pc">Monatlich</span><span class="pc">…</span></div></div>
+  <div class="frow"><span class="ms">event_note</span><span style="display:flex;gap:8px;align-items:center"><i style="width:12px;height:12px;border-radius:6px;background:var(--blau)"></i>Privat</span></div>
+  <div class="frow" style="height:auto;padding-top:6px;padding-bottom:6px;align-items:flex-start"><span class="ms">notifications</span><div class="chips"><span class="pc on">30 Min.</span><span class="pc on">1 Tag</span><span class="pc">+ eigene</span></div></div>
+  <div class="frow"><span class="ms">auto_awesome</span>Ida kümmert sich<div class="sw"></div></div>
+  <div class="frow"><span class="ms">location_on</span><span style="color:var(--muted)">Ort hinzufügen</span></div>
+  <div class="frow" style="color:var(--accent)"><span class="ms" style="color:var(--accent)">expand_more</span>Mehr Optionen</div>
+</div>
+<p class="cap"><b>Editor</b>: Vorschläge aus früheren Terminen beim Tippen, Konflikt-Hinweis live, Wiederholung und Erinnerung als Chips, Schalter „Ida kümmert sich“.</p>
+</div>
+
+<!-- 6. Suche -->
+<div>
+<div class="phone">
+  <div class="status"><span>14:02</span><span><span class="ms">signal_cellular_alt</span> <span class="ms">battery_5_bar</span></span></div>
+  <div class="sfield"><div class="ib plain"><span class="ms">arrow_back</span></div>zahnarzt nächste woche<span class="cur"></span><div class="sp"></div><div class="ib plain"><span class="ms">close</span></div></div>
+  <div class="fchips"><span class="pc on"><span class="ms">date_range</span>2. – 8. Nov. ✕</span><span class="pc">Alle Kalender <span class="ms">arrow_drop_down</span></span><span class="pc"><span class="ms">repeat</span>Serien</span><span class="pc"><span class="ms">auto_awesome</span>von Ida</span></div>
+  <div class="lh">DEMNÄCHST</div>
+  <div class="ev"><div class="bar4" style="background:var(--blau)"></div><div><div class="tt"><mark>Zahnarzt</mark> – Kontrolle</div><div class="sub">Do, 5. Nov. · 15:00 · Praxis Müller</div></div></div>
+  <div class="lh m">OHNE ZEITFILTER AUCH</div>
+  <div class="ev"><div class="bar4" style="background:var(--blau)"></div><div><div class="tt"><mark>Zahnarzt</mark></div><div class="sub">heute · 15:00</div></div></div>
+  <div class="ev"><div class="bar4" style="background:var(--blau)"></div><div><div class="tt"><mark>Zahnarzt</mark>-Rechnung bezahlen</div><div class="sub">Mi, 12. Juni · vergangen</div></div></div>
+  <div class="jump"><span class="ms">event</span>Springe zu Mo, 2. Nov.</div>
+  <div class="askida"><div class="face"></div>Ida fragen: „Wann war ich zuletzt beim Zahnarzt?“</div>
+</div>
+<p class="cap"><b>Suche</b>: „nächste woche“ wird automatisch zum Filter-Chip, Treffer hervorgehoben, Sprung zum Datum und Übergabe an Ida.</p>
+</div>
+
+</div>
+<script>
+  // Monatsraster
+  const m=document.getElementById('month');
+  const colors={2:['--tuerkis'],5:['--tuerkis','--orange'],8:['--blau'],9:['--tuerkis'],12:['--tuerkis','--gruen'],15:['--rot'],16:['--tuerkis'],19:['--tuerkis','--blau','--gruen'],22:['--orange'],23:['--tuerkis'],26:['--tuerkis'],29:['--tuerkis','--blau','--gruen'],30:['--orange'],31:['--lila']};
+  let h='';
+  [28,29,30].forEach(n=>h+=`<div class="d o"><div class="n">${n}</div></div>`);
+  for(let d=1;d<=31;d++){
+    const wd=(d+2)%7; // 1. Okt 2026 = Do
+    const cls=['d', wd>=5?'we':'', d===29?'t':'', d===3?'':'' ].join(' ');
+    const dots=(colors[d]||[]).map(c=>`<i style="background:var(${c})"></i>`).join('');
+    h+=`<div class="${cls}"><div class="n">${d}</div><div class="dots">${dots}</div></div>`;
+  }
+  [1].forEach(n=>h+=`<div class="d o"><div class="n">${n}</div></div>`);
+  m.innerHTML=h;
+  // 3-Tage-Raster: 07–17 Uhr, 42px/h
+  const g=document.getElementById('grid'),H=40,s=7,colW=(320-12-34-6)/3;
+  let r='';
+  for(let i=0;i<=10;i++) r+=`<div class="hr" style="top:${i*H}px"><span>${String(s+i).padStart(2,'0')}</span></div>`;
+  const blk=(col,from,to,c,t,sub,w=1,off=0)=>`<div class="blk" style="left:${34+col*colW+2+off*colW/2}px;width:${colW*w-4}px;top:${(from-s)*H+1}px;height:${(to-from)*H-2}px;background:var(${c})">${t}${sub?`<small>${sub}</small>`:''}</div>`;
+  r+=blk(0,8,9.5,'--tuerkis','Mathe','08:00 · R 12');
+  r+=blk(0,10,11,'--tuerkis','Deutsch','');
+  r+=`<div class="travel" style="left:${34+2}px;width:${colW/2-4}px;top:${(14.5-s)*H}px;height:${.5*H}px"></div>`;
+  r+=blk(0,15,16,'--blau','Zahnarzt','15:00',.5,0);
+  r+=blk(0,15.5,16.5,'--koralle','Nachhilfe','15:30',.5,1);
+  r+=blk(1,9,12,'--gelb','Projekttag','09:00 – 12:00');
+  r+=blk(1,16,17,'--orange','Fahrstunde','16:00');
+  r+=`<div class="ghost" style="left:${34+2*colW+2}px;width:${colW-4}px;top:${(11-s)*H}px;height:${1.5*H}px">Neuer Termin<br>11:00 – 12:30</div>`;
+  r+=`<div class="now" style="top:${(14+2/60-s)*H}px"></div>`;
+  g.innerHTML=r;
+</script>
+</body>
+</html>

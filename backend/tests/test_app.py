@@ -440,7 +440,7 @@ def test_day_plan_shows_marked_items_and_todays_calendar(client):
         assert s["active"]["tool"] == "google_termine_liste" and s["active"]["auto"]  # found automatically
         home = client.get(f"{API}/home").json()
         t = [x["title"] for x in home["timeline"]]
-        assert home["calendar"] == {"on": True, "error": None}
+        assert home["calendar"] == {"on": True, "error": None, "local": False}
         assert "Zahnarzt" in t and "Feiertag" in t and "Morgen-Termin" not in t
         assert next(x for x in home["timeline"] if x["title"] == "Feiertag")["all_day"]
         assert calls[-1]["von"].startswith(str(today)) and calls[-1]["bis"].startswith(str(tomorrow))  # only today is asked for

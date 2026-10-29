@@ -8,7 +8,7 @@ from ..config import get_settings
 from ..db import utcnow
 from ..models import USER, Account, Agent, Connector, Message, Reminder, Routine, RoutineRun, Skill, Tracker
 from ..schemas import HomeCalendar
-from ..services import activity, home_calendar, jobs, providers, settings_store, speech, trackers
+from ..services import activity, home_calendar, jobs, kalender_client, providers, settings_store, speech, trackers
 from ..services import code as code_area
 from ..services.agents import PALETTES
 from ..services.claude.usage import logged_in
@@ -92,14 +92,14 @@ async def home(db: DB):
         cal_error = got["error"]
     timeline.sort(key=lambda x: (not x.get("all_day"), datetime.fromisoformat(x["at"])))
     return {"notices": [ser.message(m) for m in notices], "timeline": timeline,
-            "calendar": {"on": bool(cal), "error": cal_error}}
+            "calendar": {"on": bool(cal), "error": cal_error, "local": bool(cal and cal.get("source") == "kalender")}}
 
 
 @router.get("/api/v1/home-calendar")
 async def calendar_settings(db: DB):
     conns = (await db.scalars(select(Connector).order_by(Connector.name))).all()
     return {"saved": await settings_store.get(db, home_calendar.KEY), "active": await home_calendar.config(db),
-            "candidates": home_calendar.candidates(list(conns))}
+            "candidates": home_calendar.candidates(list(conns)), "local": kalender_client.enabled()}
 
 
 @router.put("/api/v1/home-calendar")
@@ -107,6 +107,10 @@ async def save_calendar(body: HomeCalendar, db: DB):
     """off = no calendar; without connector/tool = automatic; otherwise exactly this tool."""
     if body.off:
         value = {"off": True}
+    elif body.source == "kalender":
+        if not kalender_client.enabled():
+            raise Invalid("Der Kalender-Dienst ist nicht eingerichtet (KALENDER_URL)")
+        value = {"source": "kalender"}
     elif body.connector and body.tool:
         if not await db.get(Connector, body.connector):
             raise Invalid("MCP-Server nicht gefunden")
@@ -121,10 +125,10 @@ async def save_calendar(body: HomeCalendar, db: DB):
 @router.post("/api/v1/home-calendar/test")
 async def test_calendar(body: HomeCalendar, db: DB):
     """Calls the tool once (not cached) and shows what the day plan would get."""
-    cfg = {"connector": body.connector, "tool": body.tool, "args": body.args} if body.connector and body.tool else await home_calendar.config(db)
+    cfg = dict(home_calendar.LOCAL) if body.source == "kalender" else         ({"connector": body.connector, "tool": body.tool, "args": body.args} if body.connector and body.tool else await home_calendar.config(db))
     if not cfg:
         raise Invalid("Kein Kalender-Tool gefunden – wähle einen MCP-Server und ein Tool")
-    return {**await home_calendar.fetch(db, cfg, use_cache=False), "tool": cfg["tool"], "connector": cfg["connector"]}
+    return {**await home_calendar.fetch(db, cfg, use_cache=False), "tool": cfg.get("tool") or "IDA Kalender", "connector": cfg.get("connector")}
 
 
 @router.get("/api/v1/home-calendar/suggest")

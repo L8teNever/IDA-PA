@@ -1,0 +1,49 @@
+/* Gemeinsame Design-Grundlagen von IDA und Kalender: Farben, Kurven, Schrift. */
+  @font-face { font-family: "Google Sans Flex"; font-style: normal; font-weight: 400 600; font-display: swap;
+    src: url(../fonts/GoogleSansFlex-latin-ext.woff2) format("woff2");
+    unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF; }
+  @font-face { font-family: "Google Sans Flex"; font-style: normal; font-weight: 400 600; font-display: swap;
+    src: url(../fonts/GoogleSansFlex-latin.woff2) format("woff2");
+    unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+  /* Alle Icons mit fester Achsen-Einstellung (opsz 24, wght 500, FILL 1) – von hier, nichts von Google */
+  @font-face { font-family: "Material Symbols Rounded"; font-style: normal; font-weight: 500; font-display: block;
+    src: url(../fonts/MaterialSymbolsRounded.woff2) format("woff2"); }
+  :root {
+    --accent: #7fd3ff; --accent-rgb: 127,211,255;
+    --on-accent: #00344a;
+    --container: #0e2a38; --on-container: #c4ecff;
+    --face-top: #ffffff; --face-bottom: #dfe7f1;
+    --glow: rgba(60,170,220,.35);
+    --surface: #121316; --surface-high: #1d1f23; --surface-highest: #282a2f;
+    --on-surface: #e3e2e6; --muted: #9a9ca3;
+    --spring: cubic-bezier(.34,1.56,.64,1);
+    --emph: cubic-bezier(.2,0,0,1);
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: #000; color: var(--on-surface);
+    font-family: "Google Sans Flex","Google Sans",Roboto,system-ui,sans-serif;
+    overflow: hidden;
+    display: flex; flex-direction: column;
+    height: 100dvh;
+  }
+  .ms {
+    font-family: "Material Symbols Rounded"; font-weight: normal; font-style: normal;
+    font-size: 24px; line-height: 1; display: inline-block; white-space: nowrap;
+    font-feature-settings: "liga"; -webkit-font-smoothing: antialiased;
+  }
+  button { font-family: inherit; }
+  /* Terminfarben (Kalender; dieselben Werte liefert der Kalender-Dienst unter /api/v1/meta, ein Test prüft das) */
+  :root { --ev-rot: #f28b82; --evc-rot: #513534; }
+  :root { --ev-koralle: #f6aea9; --evc-koralle: #523e3f; }
+  :root { --ev-orange: #fbbc6e; --evc-orange: #53422f; }
+  :root { --ev-gelb: #fde293; --evc-gelb: #544d39; }
+  :root { --ev-salbei: #b5d6a7; --evc-salbei: #404a3f; }
+  :root { --ev-gruen: #81c995; --evc-gruen: #31463a; }
+  :root { --ev-tuerkis: #78d9ec; --evc-tuerkis: #2f4a52; }
+  :root { --ev-blau: #8ab4f8; --evc-blau: #344055; }
+  :root { --ev-lavendel: #c3b9f5; --evc-lavendel: #444154; }
+  :root { --ev-lila: #d7aefb; --evc-lila: #493e56; }
+  :root { --ev-graphit: #b4b8c0; --evc-graphit: #3f4146; }
+  :root { --ev-on: #1b1b1f; }

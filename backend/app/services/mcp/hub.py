@@ -27,6 +27,7 @@ from ..claude import prompts
 from ..errors import Invalid, NotFound
 from ..code import approvals
 from ..memory import store as memory
+from . import kalender_tools
 from .identity import Identity, get
 
 E = {"type": "string"}
@@ -66,7 +67,7 @@ def _spec(ids: list[str]) -> list[tuple[str, str, str, dict]]:
     mem_type = {"type": "string", "enum": ["fact", "preference", "rule", "event"]}
     mem_exp = {"type": "integer", "minimum": 0, "maximum": 3650, "description": "nur so viele Tage gültig (0 = immer)"}
     obj = lambda props, req=(): {"type": "object", "properties": props, **({"required": list(req)} if req else {})}  # noqa: E731
-    return [
+    tools = [
         (ALL, "agent_list", "Listet alle Agenten mit Aufgabe und Modell.", obj({})),
         (ALL, "agent_send", "Schickt eine Nachricht an einen Agenten. Nur senden, was nötig ist; priority=high nur für Wichtiges.", obj({"to": to, "text": E, "priority": {"type": "string", "enum": ["normal", "high"]}}, ("to", "text"))),
         (ALL, "agent_delegate", "Gibt einem Agenten eine Aufgabe. Sein Ergebnis kommt automatisch als Nachricht zurück (asynchron).", obj({"to": to, "task": E}, ("to", "task"))),
@@ -106,6 +107,9 @@ def _spec(ids: list[str]) -> list[tuple[str, str, str, dict]]:
         (ALL, "memory_update", "Ändert einen Gedächtnis-Eintrag (id aus memory_search/Prompt).", obj({"id": E, "scope": mem_scope, "text": E, "type": mem_type, "pinned": {"type": "boolean"}, "importance": {"type": "integer", "minimum": 1, "maximum": 5}, "expiresInDays": mem_exp}, ("id",))),
         (ALL, "memory_delete", "Löscht einen veralteten oder falschen Eintrag.", obj({"id": E, "scope": mem_scope}, ("id",))),
     ]
+    if kalender_tools.enabled():  # Kalender-Dienst eingerichtet (KALENDER_URL): Ida bedient ihn direkt
+        tools += kalender_tools.spec()
+    return tools
 
 
 def _allowed(who: str, name: str, me: Identity) -> bool:
@@ -221,6 +225,8 @@ async def _call(db: AsyncSession, me: Identity, name: str, a: dict) -> dict:
     if name not in spec or not _allowed(spec[name], name, me):
         return {"error": f"Keine Berechtigung oder unbekanntes Tool: {name}"}
     labels = await prompts.labels(db)
+    if name.startswith("calendar_"):
+        return await kalender_tools.call(db, me, name, a)
 
     async def own_routine(rid: str) -> Routine:
         r = await db.get(Routine, rid)

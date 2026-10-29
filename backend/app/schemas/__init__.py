@@ -173,6 +173,7 @@ class TrackerLinkCreate(BaseModel):
 
 class HomeCalendar(BaseModel):
     off: bool = False  # no calendar on the start page
+    source: str | None = None  # "kalender" = the local IDA calendar service (docs/KALENDER.md)
     connector: str | None = None  # empty = pick automatically
     tool: str | None = None
     args: dict[str, Any] | None = None  # None = fill the date arguments from the tool's schema
