@@ -153,6 +153,26 @@ def test_agent_crud_and_delete_keeps_history(client):
     assert client.delete(f"{API}/agents/ida").status_code == 400
 
 
+def test_agent_profile_picture(client):
+    gif = b"GIF89a\x01\x00\x01\x00\x00\x00\x00;"
+    assert client.post(f"{API}/agents", json={"name": "Bild"}).json()["avatar"] is None
+    up = lambda name, data: client.post(f"{API}/agents/bild/avatar", files={"file": (name, data, "application/octet-stream")})  # noqa: E731
+    assert up("x.txt", b"hallo").status_code == 400  # only pictures
+    assert up("x.gif", b"").status_code == 400
+    assert up("x.gif", gif + b"0" * (2 * 1024 * 1024)).status_code == 400  # too big
+    a = up("x.gif", gif).json()
+    assert a["avatar"].startswith(f"{API}/agents/bild/avatar?v=")
+    assert [x for x in client.get(f"{API}/agents").json() if x["id"] == "bild"][0]["avatar"] == a["avatar"]  # also in the lists
+    r = client.get(a["avatar"])
+    assert r.status_code == 200 and r.headers["content-type"] == "image/gif" and r.content == gif
+    assert up("y.gif", gif).json()["avatar"] != a["avatar"]  # new picture = new address (no stale cache)
+    assert client.delete(f"{API}/agents/bild/avatar").json()["avatar"] is None
+    assert client.get(f"{API}/agents/bild/avatar").status_code == 404
+    up("x.gif", gif)
+    client.delete(f"{API}/agents/bild")
+    assert client.get(f"{API}/agents/bild/avatar").status_code == 404
+
+
 def test_trigger_routine_with_mcp_connector(client, server):
     # a tiny MCP server inside the app is not available, so use the internal hub as "connector":
     # create a token by starting a chat is overkill – instead test validation + the trigger logic directly.

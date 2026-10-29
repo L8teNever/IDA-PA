@@ -15,7 +15,8 @@ def agent(a: Agent, extra: dict | None = None) -> dict:
     return {"id": a.id, "is_main": a.is_main, "name": a.name, "description": a.description, "intro": a.intro, "palette": a.palette,
             "home": a.home, "chips": a.chips, "role": a.role, "personality": a.personality, "instructions": a.instructions,
             "notes": a.notes, "model": a.model, "account_id": a.account_id, "fallback": a.fallback, "memory_enabled": a.memory_enabled,
-            "enabled": a.enabled, "position": a.position, **(extra or {})}
+            "enabled": a.enabled, "position": a.position,
+            "avatar": f"/api/v1/agents/{a.id}/avatar?v={a.avatar}" if a.avatar else None, **(extra or {})}
 
 
 def agent_run(r: AgentRun) -> dict:

@@ -1,7 +1,7 @@
 // "/chats" – all conversations, grouped by day, searchable (?q=).
 import { api } from "../api.js";
 import { setUrl } from "../router.js";
-import { agentOf, colors, mainAgent } from "../store.js";
+import { agentOf, colors, face, mainAgent } from "../store.js";
 import { $, attempt, enableSwipe, esc, fmtRel } from "../ui/dom.js";
 import { setAgent, setView } from "../ui/shell.js";
 
@@ -40,7 +40,7 @@ async function load(q) {
       const a = agentOf(c.agent_id), col = colors(a);
       const last = c.last ? (c.last.role === "user" ? "Du: " : a.name + ": ") + c.last.text.split("\n")[0] : "";
       return `<a class="crow" href="/chat/${c.id}" data-id="${c.id}">
-        <span class="ag-dot" style="background:${col["--container"]};color:${col["--accent"]}">${esc(a.name[0])}</span>
+        <span class="ag-dot" style="background:${col["--container"]};color:${col["--accent"]}">${face(a)}</span>
         <span class="cmain"><span class="ctop"><b>${esc(c.title)}</b><span class="ctime">${fmtRel(c.updated_at)}</span></span>
         <small>${c.running ? `<span class="c-running"><span class="ms spin">progress_activity</span>${esc(a.name)} schreibt gerade …</span>` : esc(last)}</small></span></a>`;
     }).join("")}</div>`).join("");

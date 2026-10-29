@@ -1,5 +1,6 @@
 // App-wide state: data loaded at start (agents, models, accounts, skills) and the current agent.
 import { api } from "./api.js";
+import { esc } from "./ui/dom.js";
 
 // Colour schemes of the agents (from the design). Agents store only the palette name.
 export const PALETTE = {
@@ -42,6 +43,8 @@ export const state = {
 };
 
 export const colors = (a) => PALETTE[a?.palette] || PALETTE.blau;
+// Profile picture of the agent, or its first letter when it has none (inside .dot / .ag-dot / .mdot).
+export const face = (a) => (a?.avatar ? `<img src="${esc(a.avatar)}" alt="">` : esc(a?.name?.[0] || ""));
 export const agents = () => state.boot?.agents || [];
 export const mainAgent = () => agents().find((a) => a.is_main) || agents()[0];
 export const agentById = (id) => agents().find((a) => a.id === id);

@@ -107,7 +107,7 @@
   .dot {
     width: 32px; height: 32px; border-radius: 12px;
     background: var(--accent); color: var(--on-accent);
-    display: grid; place-items: center; font-size: 14px; font-weight: 600;
+    display: grid; place-items: center; font-size: 14px; font-weight: 600; overflow: hidden;
     transition: background .4s var(--emph), color .4s;
   }
   .agent-btn .chev { font-size: 20px; transition: transform .3s var(--emph); color: var(--muted); }
@@ -131,7 +131,7 @@
   }
   .menu button:hover { background: rgba(255,255,255,.06); }
   .menu button.sel { background: rgba(var(--accent-rgb), .16); border-radius: 18px; }
-  .menu .mdot { width: 28px; height: 28px; border-radius: 10px; display: grid; place-items: center; font-size: 13px; font-weight: 600; flex: none; }
+  .menu .mdot { width: 28px; height: 28px; border-radius: 10px; overflow: hidden; display: grid; place-items: center; font-size: 13px; font-weight: 600; flex: none; }
   .menu .meta { flex: 1; }
   .menu small { display: block; color: var(--muted); font-size: 12px; }
   .menu .check { color: var(--accent); font-size: 20px; visibility: hidden; }
@@ -801,7 +801,12 @@
   .ri-row.ok .ms { color: var(--accent); }
   .ag-row { display: flex; align-items: center; gap: 12px; margin-top: 12px; }
   .ag-row:first-child { margin-top: 0; }
-  .ag-dot { width: 32px; height: 32px; border-radius: 11px; display: grid; place-items: center; font-size: 13px; font-weight: 600; flex: none; }
+  .ag-dot { width: 32px; height: 32px; border-radius: 11px; display: grid; place-items: center; font-size: 13px; font-weight: 600; flex: none; overflow: hidden; }
+  .dot img, .ag-dot img, .menu .mdot img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .avatar-edit { display: flex; align-items: center; gap: 12px; margin: 0 0 14px; }
+  .avatar-edit .smain { flex: 1; min-width: 0; }
+  .avatar-edit .smain small { display: block; color: var(--muted); font-size: 12px; margin-top: 2px; }
+  .ag-dot.av-big { width: 56px; height: 56px; border-radius: 18px; font-size: 22px; }
   .ag-main { flex: 1; min-width: 0; }
   .ag-top { display: flex; justify-content: space-between; font-size: 14px; }
   .ag-top span:last-child { color: var(--muted); }

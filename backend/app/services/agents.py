@@ -2,7 +2,9 @@
 import asyncio
 import logging
 import re
+import uuid
 from datetime import timedelta
+from pathlib import Path
 
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -10,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..config import get_settings
 from ..db import session_scope, utcnow
 from ..models import USER, Agent, AgentConnector, AgentRun, Chat, Connector, Message, Routine
-from . import jobs, providers
+from . import files, jobs, providers
 from .claude import prompts
 from .errors import Invalid, NotFound
 from .memory import store as memory
@@ -116,7 +118,39 @@ async def remove(db: AsyncSession, agent_id: str) -> None:
     await db.execute(update(Chat).where(Chat.agent_id == agent_id).values(agent_id=main.id))
     await db.execute(update(Routine).where(Routine.agent_id == agent_id).values(agent_id=main.id, enabled=False))
     await memory.drop_scope(db, agent_id)
+    avatar_path(agent_id).unlink(missing_ok=True)
     await db.delete(a)
+
+
+# ---------------- profile picture ----------------
+MAX_AVATAR = 2 * 1024 * 1024
+
+
+def avatar_path(agent_id: str) -> Path:
+    d = get_settings().data_dir / "avatars"
+    d.mkdir(parents=True, exist_ok=True)
+    return d / agent_id
+
+
+async def set_avatar(db: AsyncSession, agent_id: str, name: str, data: bytes) -> Agent:
+    a = await get(db, agent_id)
+    if not data:
+        raise Invalid("Das Bild ist leer")
+    if len(data) > MAX_AVATAR:
+        raise Invalid(f"Das Bild ist zu groß (höchstens {MAX_AVATAR // (1024 * 1024)} MB)")
+    kind, _ = files.kind_of(name, "", data[:4096])
+    if kind != "image":
+        raise Invalid("Als Profilbild gehen nur Bilder (PNG, JPG, GIF, WebP)")
+    avatar_path(agent_id).write_bytes(data)
+    a.avatar = uuid.uuid4().hex[:8]  # new value = browsers load the new picture despite caching
+    return a
+
+
+async def clear_avatar(db: AsyncSession, agent_id: str) -> Agent:
+    a = await get(db, agent_id)
+    avatar_path(agent_id).unlink(missing_ok=True)
+    a.avatar = None
+    return a
 
 
 async def set_notes(db: AsyncSession, agent_id: str, text: str) -> str:

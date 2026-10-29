@@ -1,7 +1,7 @@
 // App frame: header with agent switcher, side drawer, which area of <main> is visible.
 import { api } from "../api.js";
 import { canGoBack, navigate } from "../router.js";
-import { agents, colors, mainAgent, onChange, state } from "../store.js";
+import { agents, colors, face, mainAgent, onChange, state } from "../store.js";
 import { $, closeSheet, esc } from "./dom.js";
 
 // "home" (main agent: infos + today) | "agent" (start page of another agent) | "page" | "chat"
@@ -33,7 +33,7 @@ export function setAgent(a) {
   localStorage.setItem("agent", a.id);
   for (const [k, v] of Object.entries(colors(a))) document.documentElement.style.setProperty(k, v);
   $("agentName").textContent = a.name;
-  $("agentDot").textContent = a.name[0];
+  $("agentDot").innerHTML = face(a);
   $("input").placeholder = `Schreib ${a.name} was…`;
   $("sideAgent").textContent = a.name;
   renderMenu();
@@ -43,7 +43,7 @@ function renderMenu() {
   $("agentMenu").innerHTML = agents().filter((a) => a.enabled).map((a) => {
     const c = colors(a);
     return `<button role="menuitem" data-id="${a.id}" class="${a.id === state.agent?.id ? "sel" : ""}">
-      <span class="mdot" style="background:${c["--accent"]};color:${c["--on-accent"]}">${esc(a.name[0])}</span>
+      <span class="mdot" style="background:${c["--accent"]};color:${c["--on-accent"]}">${face(a)}</span>
       <span class="meta">${esc(a.name)}<small>${esc(a.description)}</small></span>
       <span class="ms check">check</span></button>`;
   }).join("");

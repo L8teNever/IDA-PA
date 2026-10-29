@@ -1,7 +1,7 @@
 // Einstellungen → Agents (list, wizard for a new agent, edit page per agent with tools/skills/runs).
 import { api } from "../../api.js";
 import { navigate } from "../../router.js";
-import { colors, loadBoot, modelInfo, PALETTE, state } from "../../store.js";
+import { colors, face, loadBoot, modelInfo, PALETTE, state } from "../../store.js";
 import { $, attempt, closeSheet, esc, fmtDateTime, md, openSheet, sw, toast } from "../../ui/dom.js";
 import { subHead } from "./index.js";
 
@@ -16,7 +16,7 @@ export async function render(el, id) {
     <div class="slist">${list.map((a) => {
       const c = colors(a);
       return `<a class="srow ${a.enabled ? "" : "off-row"}" href="${BASE}/${a.id}">
-        <span class="ag-dot" style="width:42px;height:42px;border-radius:14px;background:${c["--container"]};color:${c["--accent"]}">${esc(a.name[0])}</span>
+        <span class="ag-dot" style="width:42px;height:42px;border-radius:14px;background:${c["--container"]};color:${c["--accent"]}">${face(a)}</span>
         <span class="smain"><b>${esc(a.name)}${a.is_main ? " · Haupt-Agent" : ""}</b><small>${esc(a.description)} · ${esc(modelInfo(a.model).name)}</small></span>
         <span class="ms schev">chevron_right</span></a>`;
     }).join("")}</div>`;
@@ -77,6 +77,13 @@ async function edit(el, id) {
   el.innerHTML = subHead(a.name, BASE) + `
     <div class="pcard agent-head" style="--n-acc:${c["--accent"]}">
       <div class="wiz-prev"><div class="face-p" style="background:radial-gradient(120% 100% at 50% 25%, ${c["--face-top"]} 30%, ${c["--face-bottom"]} 100%);box-shadow:0 0 30px ${c["--glow"]}"><i></i><i></i></div></div>
+      <div class="avatar-edit">
+        <span class="ag-dot av-big" style="background:${c["--container"]};color:${c["--accent"]}">${face(a)}</span>
+        <span class="smain"><b>Profilbild</b><small>Erscheint statt des Buchstabens bei Chats und im Agent-Menü</small></span>
+        <input type="file" id="aPicFile" accept="image/png,image/jpeg,image/gif,image/webp" hidden>
+        <button class="icon-btn small" id="aPicPick" aria-label="Bild wählen"><span class="ms">add_photo_alternate</span></button>
+        ${a.avatar ? `<button class="icon-btn small" id="aPicDel" aria-label="Bild entfernen"><span class="ms">delete</span></button>` : ""}
+      </div>
       <div class="colors" id="aCols">${Object.entries(PALETTE).map(([k, p]) => `<button data-c="${k}" class="${a.palette === k ? "on" : ""}" style="background:${p["--accent"]}" aria-label="${k}"></button>`).join("")}</div>
     </div>
     <label class="fld"><span>Name</span><input id="aName" maxlength="40" value="${esc(a.name)}"></label>
@@ -142,6 +149,20 @@ async function edit(el, id) {
       await loadBoot(); toast("Gespeichert"); render(el, id);
     } catch (err) { $("aErr").textContent = err.message; }
   };
+  $("aPicPick").onclick = () => $("aPicFile").click();
+  $("aPicFile").onchange = async (e) => {
+    const f = e.target.files[0];
+    if (!f) return;
+    try {
+      const body = new FormData();
+      body.append("file", await squarePicture(f), "avatar.jpg");
+      await api.post(`/agents/${id}/avatar`, body);
+      await loadBoot(); toast("Profilbild gespeichert"); render(el, id);
+    } catch (err) { $("aErr").textContent = err.message; }
+  };
+  if ($("aPicDel")) $("aPicDel").onclick = async () => {
+    if (await attempt(() => api.del(`/agents/${id}/avatar`), "Profilbild entfernt")) { await loadBoot(); render(el, id); }
+  };
   if ($("aDel")) $("aDel").onclick = async () => {
     if (!confirm(`${a.name} wirklich löschen? Chats und Routinen gehen an den Haupt-Agenten, sein Gedächtnis wird gelöscht.`)) return;
     if (await attempt(() => api.del(`/agents/${id}`), `${a.name} gelöscht`)) { await loadBoot(); navigate(BASE); }
@@ -162,6 +183,16 @@ async function edit(el, id) {
     if (await attempt(() => api.patch(`/skills/${s.id}`, { agents }))) { s.agents = agents; b.classList.toggle("on"); }
   };
   $("aNotesSave").onclick = () => attempt(() => api.put(`/agents/${id}/notes`, { text: $("aNotes").value }), "Notizen gespeichert");
+}
+
+// Cuts the middle square out of the picture and shrinks it to 256 px (small upload, sharp enough for every place).
+async function squarePicture(file, size = 256) {
+  const img = await createImageBitmap(file).catch(() => { throw new Error("Das Bild lässt sich nicht lesen"); });
+  const side = Math.min(img.width, img.height);
+  const cv = document.createElement("canvas");
+  cv.width = cv.height = size;
+  cv.getContext("2d").drawImage(img, (img.width - side) / 2, (img.height - side) / 2, side, side, 0, 0, size, size);
+  return new Promise((ok, no) => cv.toBlob((b) => (b ? ok(b) : no(new Error("Das Bild lässt sich nicht verkleinern"))), "image/jpeg", 0.88));
 }
 
 function toolSheet(a, m, done) {

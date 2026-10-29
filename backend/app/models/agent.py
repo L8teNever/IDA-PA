@@ -21,6 +21,7 @@ class Agent(Timestamps, Base):
     home: Mapped[str] = mapped_column(String(16), default="simple")  # "timeline" | "simple"
     chips: Mapped[list] = mapped_column(Json, default=list)  # quick starts: [[icon, text], …]
     position: Mapped[int] = mapped_column(default=0)
+    avatar: Mapped[str | None] = mapped_column(String(16), default=None)  # version of the profile picture file (None = none)
 
     # prompt parts
     role: Mapped[str] = mapped_column(Text, default="")
