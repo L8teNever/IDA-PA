@@ -1,5 +1,5 @@
 // Ansichten: Monat + Tag, Monat, Zeitraster (Tag/3 Tage/Woche), Liste, Jahr, Mini-Monat, Skelett.
-import { S, queuedIds, visible } from "./store.js";
+import { S, visible } from "./store.js";
 import {
   addDays, daysBetween, dayMonth, hm, isWeekend, isoWeek, longDay, monthGrid, monthName, monthShort, parseYmd, relDay, sameDay, shortDay,
   startOfDay, weekStart, weekdayShort, ymd,
@@ -8,7 +8,7 @@ import { columns } from "./layout.js";
 
 export const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 export const cstyle = (c) => `--c:var(--ev-${c});--cc:var(--evc-${c})`;
-const st = (e) => (e.status === "cancelled" ? " cancelled" : "") + (e.status === "tentative" ? " tentative" : "") + (new Date(e.end) < new Date() ? " past" : "") + (S.flash.has(e.event_id) ? " flash" : "");
+const st = (e) => (e._pending ? (e._pending === "conflict" || e._pending === "error" ? " pend-bad" : " pend") : "") + (e.status === "cancelled" ? " cancelled" : "") + (e.status === "tentative" ? " tentative" : "") + (new Date(e.end) < new Date() ? " past" : "") + (S.flash.has(e.event_id) ? " flash" : "");
 export const byIda = (e) => e.created_by && !["user", "system"].includes(e.created_by);
 const holidayOf = (l) => l.find((e) => e.holiday);
 
@@ -35,7 +35,8 @@ export function card(e, { date = false, mark = (h) => h, more = 0 } = {}) {
   const s = new Date(e.start), en = new Date(e.end);
   const time = e.all_day ? "ganztägig" : `${hm(s)} – ${hm(en)}`;
   const sub = [date ? (e.all_day ? shortDay(parseYmd(e.start)) : shortDay(s)) : "", time, e.location].filter(Boolean).join(" · ");
-  const q = queuedIds().has(e.id) ? '<span class="ms" title="Wird gesendet, sobald du online bist">cloud_upload</span>' : "";
+  const q = e._pending === "conflict" ? '<span class="ms warn" title="Konflikt – bitte ansehen">sync_problem</span>' : e._pending === "error" ? '<span class="ms warn" title="Konnte nicht gespeichert werden">error</span>'
+    : e._pending ? '<span class="ms" title="Noch nicht gespeichert – wird gesendet, sobald du online bist">cloud_upload</span>' : "";
   const done = new Date(e.end) < new Date() && JSON.parse(localStorage.getItem("kal-done") || "[]").includes(e.id);
   return `<div class="card${st(e)}${done ? " done" : ""}" data-id="${esc(e.id)}" style="${cstyle(e.color)}"><div class="bar4"></div>
     <div class="ct"><div class="tt">${mark(esc(e.title))}${e.age ? ` <small>(${e.age})</small>` : ""}</div><div class="sub">${mark(esc(sub))}${more ? ` · + ${more} weitere` : ""}</div></div>

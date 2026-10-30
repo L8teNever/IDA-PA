@@ -1,14 +1,21 @@
 // Lesezugriff auf den lokalen Speicher (db.js). Die Ansichten lesen nur hierüber – online wie offline.
 import * as db from "./db.js";
+import * as outbox from "./outbox.js";
+import * as preview from "./preview.js";
 
 const ymdOf = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 const dayStr = (x) => (typeof x === "string" ? x.slice(0, 10) : ymdOf(x));
 
-/** Vorkommen im Bereich [a, b) (Datum oder JJJJ-MM-TT). */
+/** Vorkommen im Bereich [a, b) (Datum oder JJJJ-MM-TT): gespeicherter Stand + Vorschau der wartenden Änderungen aus der Outbox. */
 export async function range(a, b) {
   const from = dayStr(a), to = dayStr(b);
-  const rows = await db.all("occ", { index: "last", gte: from });
-  return rows.filter((e) => e.day < to).map(({ day, last, ...e }) => e).sort((x, y) => (x.all_day === y.all_day ? (x.start < y.start ? -1 : x.start > y.start ? 1 : 0) : x.all_day ? -1 : 1));
+  let rows = (await db.all("occ", { index: "last", gte: from })).filter((e) => e.day < to).map(({ day, last, ...e }) => e);
+  const ops = await outbox.all();
+  if (ops.length) {
+    const [cals, meta] = await Promise.all([db.get("meta", "cals"), db.get("meta", "meta")]);
+    rows = preview.apply(rows, ops, { a: from, b: to, cals: cals || [], tz: meta?.timezone || "Europe/Berlin" });
+  }
+  return rows.sort((x, y) => (x.all_day === y.all_day ? (x.start < y.start ? -1 : x.start > y.start ? 1 : 0) : x.all_day ? -1 : 1));
 }
 
 /** Wurde schon einmal ein Fenster gespiegelt? (sonst gibt es offline nichts zu zeigen) */

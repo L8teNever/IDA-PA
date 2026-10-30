@@ -2,6 +2,10 @@
 // Updates: ein neuer Worker wartet (kein skipWaiting), bis die Seite „skip“ schickt – die App tut das erst nach dem Abgleich
 // der Offline-Änderungen (js/update.js). Die letzten zwei App-Versionen bleiben im Cache, damit offene Fenster nie ihre Dateien verlieren.
 // Der Server ersetzt __VERSION__ und __SHELL__ (alle Dateien der Hülle) beim Ausliefern.
+// Modul-Worker: dieselbe Abgleich-Logik wie in der App (js/sync.js) – so kann der Browser wartende Änderungen auch bei geschlossener App senden.
+import * as outbox from "/s/__VERSION__/js/outbox.js";
+import * as sync from "/s/__VERSION__/js/sync.js";
+
 const V = "__VERSION__";
 const CACHE = `kal-${V}`;
 const META = "kal-meta";
@@ -29,7 +33,18 @@ self.addEventListener("activate", (e) => {
 self.addEventListener("message", (e) => {
   if (e.data?.type === "skip") self.skipWaiting();
   else if (e.data?.type === "version") e.source?.postMessage({ type: "version", version: V });
+  else if (e.data?.type === "test-sync") e.waitUntil(runSync().catch(() => {}));   // für die Browser-Tests (Chromium löst „sync“ nicht von selbst aus)
 });
+
+// Background Sync (Android/Chrome): sobald wieder Internet da ist, sendet der Browser die Outbox – auch ohne offene App.
+self.addEventListener("sync", (e) => { if (e.tag === "kal-outbox") e.waitUntil(runSync()); });
+
+async function runSync() {
+  const r = await sync.push();                       // null: ein anderes Fenster sendet gerade (die Sperre verhindert Doppeltes)
+  const left = (await outbox.all().catch(() => [])).filter((x) => x.state === "pending");
+  for (const c of await self.clients.matchAll({ type: "window", includeUncontrolled: true })) c.postMessage({ type: "synced", result: r });
+  if (r && (r.stopped === "offline" || r.stopped === "server" || left.length)) throw new Error("später noch einmal");   // der Browser versucht es erneut
+}
 
 self.addEventListener("fetch", (e) => {
   const r = e.request, u = new URL(r.url);

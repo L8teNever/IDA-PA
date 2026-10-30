@@ -4,6 +4,7 @@ Setting "home_calendar":
   missing          -> the local IDA calendar (calendar service, KALENDER_URL) when set up, otherwise automatic:
                       the first enabled connector with a tool like "termine_liste" / "list_events"
   {"source": "kalender"} -> the local IDA calendar
+  {"source": "auto"} -> search the MCP connectors automatically (even when the local calendar is set up)
   {"off": true}    -> no calendar on the start page
   {"connector", "tool", "args"} -> exactly this tool; in args, {heute_start} {heute_ende} {heute} {monat} are filled in
 """

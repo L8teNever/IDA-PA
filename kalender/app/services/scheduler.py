@@ -4,7 +4,7 @@ import logging
 
 from ..config import get_settings
 from ..db import session_scope
-from . import alarms, backup, outbox, store
+from . import alarms, backup, idem, outbox, store
 from .timeutil import local_now
 
 log = logging.getLogger("kalender.scheduler")
@@ -18,6 +18,7 @@ async def maintenance() -> None:
     async with session_scope(write=True) as db:
         n = await store.purge_trash(db, s.trash_days)
         m = await store.purge_changes(db, s.changes_days)
+        await idem.purge(db)
     await alarms.cleanup()
     await backup.run()
     log.info("Pflege: %d Termine aus dem Papierkorb, %d alte Verlaufseinträge entfernt", n, m)

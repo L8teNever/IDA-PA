@@ -2,6 +2,9 @@
 import { api } from "./api.js";
 import { S, calOf, send, writable } from "./store.js";
 import * as repo from "./repo.js";
+import * as outbox from "./outbox.js";
+import * as sync from "./sync.js";
+import { diff } from "./conflict.js";
 import { state as dbState } from "./db.js";
 import * as storage from "./storage.js";
 import { addDays, ago, countdown, dayMonth, durText, hm, longDay, monthName, parseYmd, shortDay, weekdayShort, whenText, ymd } from "./dates.js";
@@ -47,7 +50,7 @@ export function toast(msg, actions = [], { sticky = false } = {}) {
   clearTimeout(tt); if (!sticky) tt = setTimeout(() => el.classList.remove("show"), actions.length ? 6500 : 2800);
 }
 const fail = (e, retry) => toast(e.message || "Fehler", retry ? [{ label: "Erneut versuchen", run: retry }] : []);
-const undoAction = (r) => (r?.change_id ? [{ label: "Rückgängig", run: async () => { try { await api(`/changes/${r.change_id}/undo`, { method: "POST" }); hooks.changed(); } catch (x) { fail(x); } } }] : []);
+const undoAction = (r) => (r?.undo ? [{ label: "Rückgängig", run: async () => { try { await r.undo(); hooks.changed(); } catch (x) { fail(x); } } }] : r?.change_id ? [{ label: "Rückgängig", run: async () => { try { await api(`/changes/${r.change_id}/undo`, { method: "POST" }); hooks.changed(); } catch (x) { fail(x); } } }] : []);
 
 /** Auswahl als Bottom-Sheet; gibt den Wert zurück (oder null). */
 export function choose(title, options, { multi = false, selected = [] } = {}) {
@@ -73,7 +76,7 @@ export async function patchEvent(ev, body, verb = "Verschieben") {
   if (ev.recurring) { scope = await askScope(verb); if (!scope) { hooks.changed(); return; } }
   try {
     const r = await send(`/events/${encodeURIComponent(ev.id)}?scope=${scope}`, { method: "PATCH", body }, ev.id);
-    toast(r.queued ? "Offline – wird später gesendet" : `„${ev.title}“ geändert`, undoAction(r));
+    toast(r.queued ? "Gespeichert – wird gesendet, sobald es geht" : `„${ev.title}“ geändert`, undoAction(r));
   } catch (x) { fail(x); }
   hooks.changed();
 }
@@ -83,7 +86,7 @@ export async function deleteEvent(ev) {
   if (ev.recurring) { scope = await askScope("Löschen"); if (!scope) { hooks.changed(); return; } }
   try {
     const r = await send(`/events/${encodeURIComponent(ev.id)}?scope=${scope}`, { method: "DELETE" }, ev.id);
-    toast(r.queued ? "Offline – wird später gelöscht" : "Termin gelöscht", undoAction(r));
+    toast(r.queued ? "Gelöscht – wird gesendet, sobald es geht" : "Termin gelöscht", undoAction(r));
   } catch (x) { fail(x); }
   hooks.changed();
 }
@@ -103,9 +106,9 @@ const alarmText = (m) => (m === 0 ? "Zum Beginn" : m % 10080 === 0 ? `${m / 1008
 let detailOpen = null;
 
 export async function openDetail(id) {
-  let e;
+  let e = S.events.find((x) => x.id === id && x._pending);       // noch nicht gespeichert: so, wie die Vorschau ihn zeigt
   try {
-    e = await repo.cachedDetail(id);                       // gespeichert → sofort, auch offline
+    if (!e) e = await repo.cachedDetail(id);                       // gespeichert → sofort, auch offline
     if (!e) { e = (await api(`/events/${encodeURIComponent(id)}`)).event; repo.putDetail(id, e); }
   } catch (x) {
     e = x.kind === "offline" || x.kind === "auth" ? await repo.occDetail(id) : null;   // offline: wenigstens das, was die Liste weiß
@@ -131,6 +134,7 @@ export async function openDetail(id) {
       ${row("calendar_month", `<span class="dot" style="${cstyle(cal?.color || e.color)}"></span>${esc(cal?.name || e.calendar)}`)}
       ${e.url ? row("link", `<a href="${esc(e.url)}" target="_blank" rel="noopener">${esc(e.url)}</a>`) : ""}
       ${e.description ? row("notes", `<div class="es-desc">${md(e.description)}</div>`) : ""}
+      ${e._pending ? row(e._pending === "pending" || e._pending === "create" ? "cloud_upload" : "sync_problem", `<span class="s">${e._pending === "conflict" ? "Konflikt – bitte im Abgleich ansehen" : e._pending === "error" ? "Konnte nicht gespeichert werden – siehe Abgleich" : "Noch nicht gespeichert – wird gesendet, sobald du online bist"}</span>`) : ""}
       ${e.partial ? row("cloud_off", '<span class="s">Offline – Beschreibung und weitere Details sind erst mit Internet da</span>') : ""}
       <div id="esFiles"></div>
       <div class="es-hist" id="esHist"></div>
@@ -387,7 +391,7 @@ export function openEditor({ event: ev, start, end, copy, allDay, fromFab } = {}
     try {
       const r = editing ? await send(`/events/${encodeURIComponent(ev.id)}?scope=${scope}`, { method: "PATCH", body }, ev.id) : await send("/events", { method: "POST", body });
       closeTop();
-      toast(r.queued ? "Offline gespeichert – wird später gesendet" : editing ? "Gespeichert" : "Termin angelegt", undoAction(r));
+      toast(r.queued ? "Gespeichert – wird gesendet, sobald es geht" : editing ? "Gespeichert" : "Termin angelegt", undoAction(r));
       const local = st.files.filter((f) => f.file);
       if (local.length && r.event) { for (const f of local) { try { await uploadFile(r.event.id, f.file); } catch (e) { fail(e); } } }
       else if (local.length && r.queued) toast("Anhänge gehen erst mit Verbindung – bitte dann erneut anhängen");
@@ -519,7 +523,7 @@ export function openQuick() {
     if (!q?.title) { toast("Bitte einen Titel dazuschreiben"); return; }
     const cal = S.cals.find((c) => c.name === q.calendar);
     const body = { title: q.title, start: q.start, end: q.end, all_day: q.all_day, location: q.location, alarms: q.alarms, ...(q.rrule ? { rrule: q.rrule } : {}), ...(cal ? { calendar_id: cal.id } : {}) };
-    try { const r = await send("/events", { method: "POST", body }); close(); toast(r.queued ? "Offline gespeichert" : `„${q.title}“ angelegt`, undoAction(r)); hooks.changed(r.event?.event_id); } catch (x) { fail(x); }
+    try { const r = await send("/events", { method: "POST", body }); close(); toast(r.queued ? "Gespeichert – wird gesendet, sobald es geht" : `„${q.title}“ angelegt`, undoAction(r)); hooks.changed(r.event?.event_id); } catch (x) { fail(x); }
   };
   input.onkeydown = (k) => { if (k.key === "Enter") saveNow(); };
   $("#qSave", box).onclick = saveNow;
@@ -854,3 +858,69 @@ export function showAlarm(a) {
 
 export const isDetailOpen = () => !!detailOpen;
 export { alarmText };
+
+// ---------------- Konflikt und Abgleich ----------------
+const fmtVal = (key, v) => {
+  if (v === undefined || v === null || v === "") return "–";
+  if (key === "start" || key === "end") { const d = String(v); return d.length > 10 ? `${new Date(d).toLocaleDateString("de-DE", { weekday: "short", day: "numeric", month: "short" })} ${d.slice(11, 16)}` : new Date(d).toLocaleDateString("de-DE", { weekday: "short", day: "numeric", month: "short" }); }
+  if (key === "alarms") return v.length ? v.map(alarmText).join(", ").replace(/ vorher/g, "") : "keine";
+  if (key === "all_day") return v ? "ja" : "nein";
+  if (key === "calendar_id") return calOf(v)?.name || v;
+  if (key === "repeat") return typeof v === "string" ? v : v?.freq || "–";
+  if (Array.isArray(v)) return v.join(", ");
+  return String(v).length > 120 ? `${String(v).slice(0, 117)}…` : String(v);
+};
+const TYPE_TXT = { create: "Neu angelegt", update: "Geändert", delete: "Gelöscht", restore: "Wiederhergestellt" };
+
+/** „Termin wurde inzwischen geändert“ (bzw. gelöscht): meine Version gegen den Stand des Servers. */
+export async function openConflict(seq) {
+  const e = await outbox.get(seq);
+  if (!e || e.state !== "conflict") return;
+  const rows = e.gone ? [] : diff(e).filter((r) => !r.same);
+  const title = e.title || e.server?.title || "Termin";
+  const { box, close } = overlay(`<div class="handle"></div><h3 class="bs-t">${e.gone ? "Der Termin wurde gelöscht" : "Der Termin wurde inzwischen geändert"}</h3>
+    <p class="hint pad">${e.gone ? `„${esc(title)}“ gibt es nicht mehr, du hattest ihn aber geändert.` : `„${esc(title)}“ wurde geändert, während deine Änderung wartete.`} <span id="cfBy"></span></p>
+    ${rows.map((r) => `<div class="cf-row"><b>${esc(r.label)}</b><div class="cf-c"><small>Meine Version</small><span>${esc(fmtVal(r.key, r.mine))}</span></div><div class="cf-c"><small>Jetzt</small><span>${esc(fmtVal(r.key, r.server))}</span></div></div>`).join("")}
+    <div class="row-btns">${e.gone
+      ? '<button class="tonal" data-c="discard">Verwerfen</button><button class="save" data-c="recreate">Neu anlegen</button>'
+      : '<button class="tonal" data-c="server">Stand behalten</button><button class="save" data-c="mine">Meine übernehmen</button>'}</div>`, "bottom");
+  if (e.server?.event_id && S.net === "online") api(`/changes?event_id=${encodeURIComponent(e.server.event_id)}&limit=1`).then((r) => {
+    const c = r.changes[0]; if (c) $("#cfBy", box).textContent = `Zuletzt: ${c.by === "user" ? "du" : "Ida"} · ${ago(c.at)}`;
+  }).catch(() => {});
+  box.querySelectorAll("[data-c]").forEach((b) => (b.onclick = async () => {
+    await close();
+    await sync.resolve(seq, b.dataset.c);
+    toast({ mine: "Deine Änderung wird gesendet", server: "Der Stand des Servers bleibt", recreate: "Der Termin wird neu angelegt", discard: "Verworfen" }[b.dataset.c]);
+    hooks.changed();
+  }));
+}
+
+/** „Abgleich“: alles, was noch nicht auf dem Server ist, mit Zustand und Knöpfen. */
+export async function openSync() {
+  const { box, close } = overlay("");
+  const draw = async () => {
+    const list = await outbox.all(), st = await storage.info(), last = sync.status.last;
+    const ico = { pending: "cloud_upload", sending: "sync", conflict: "sync_problem", error: "error" };
+    const txt = (e) => ({ pending: e.tries ? `Wartet auf Verbindung (Versuch ${e.tries})` : "Wartet", sending: "Wird gesendet …", conflict: e.gone ? "Der Termin wurde gelöscht" : "Konflikt – bitte ansehen", error: e.error || "Fehler" }[e.state]);
+    box.innerHTML = `<div class="ed-top"><button class="icon-btn plain" data-close><span class="ms">arrow_back</span></button><h2>Abgleich</h2></div>
+      <div class="group list">
+        <div class="li"><span class="ms">${S.net === "online" ? "cloud_done" : S.net === "auth" ? "lock" : "cloud_off"}</span><div class="ct"><span>${{ online: "Online", offline: "Offline", auth: "Anmeldung abgelaufen" }[S.net] || "Online"}</span><small>Zuletzt abgeglichen ${last ? `${hm(new Date(last))} Uhr` : "–"}</small></div></div>
+        <button class="li" id="syNow"><span class="ms">sync</span><div class="ct"><span>Jetzt abgleichen</span></div></button>
+        <div class="li"><span class="ms">sd_storage</span><div class="ct"><span>Offline-Speicher</span><small>${storage.fmtBytes(st.used)} · ${st.persistent ? "dauerhaft ✓" : "nicht dauerhaft ✗"}</small></div></div></div>
+      <div class="gl">${list.length ? `Wartet auf den Server (${list.length})` : "Alles gespeichert"}</div><div class="group list">
+        ${list.map((e) => `<div class="li sy ${e.state}" data-seq="${e.seq}"><span class="ms">${ico[e.state] || "cloud_upload"}</span><div class="ct"><span>${esc(TYPE_TXT[e.type] || e.type)}: ${esc(e.title || "Termin")}</span><small>${esc(txt(e))} · ${ago(new Date(e.createdAt).toISOString())}</small></div>
+          ${e.state === "conflict" ? `<button class="pc" data-act="open">Ansehen</button>` : e.state === "error" ? `<button class="pc" data-act="retry">Erneut</button>` : ""}<button class="icon-btn plain" data-act="drop" title="Verwerfen"><span class="ms">delete</span></button></div>`).join("") || '<div class="li"><div class="ct"><small>Nichts offen. Änderungen ohne Internet werden hier gesammelt und später gesendet.</small></div></div>'}</div>
+      <p class="hint pad">${"SyncManager" in window ? "Auf diesem Handy sendet die App wartende Änderungen auch bei geschlossener App, sobald wieder Internet da ist." : "Dein Browser sendet wartende Änderungen nur, wenn die App offen ist – sie gehen beim nächsten Öffnen raus."}</p>`;
+    box.querySelectorAll("[data-close]").forEach((b) => (b.onclick = closeTop));
+    $("#syNow", box).onclick = async () => { toast("Gleiche ab …"); await sync.syncNow().catch(() => {}); draw(); };
+    box.querySelectorAll("[data-act]").forEach((b) => (b.onclick = async () => {
+      const seq = +b.closest("[data-seq]").dataset.seq, act = b.dataset.act;
+      if (act === "open") { await closeTop(); return openConflict(seq); }
+      if (act === "retry") { await sync.retry(seq).catch(() => {}); return draw(); }
+      if (!confirm("Diese wartende Änderung verwerfen? Sie geht verloren.")) return;
+      await sync.discard(seq); hooks.changed(); draw();
+    }));
+  };
+  await draw();
+  const off = repo.onChange(() => { if (box.isConnected) draw(); else off(); });
+}

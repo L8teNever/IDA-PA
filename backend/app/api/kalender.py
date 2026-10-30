@@ -105,7 +105,7 @@ async def proxy(path: str, request: Request):
     base = get_settings().kalender_url.rstrip("/")
     if not base:
         return JSONResponse({"detail": "Der Kalender ist nicht eingerichtet (KALENDER_URL fehlt)"}, status_code=503)
-    headers = {k: v for k, v in request.headers.items() if k.lower() in ("content-type", "accept", "accept-encoding", "last-event-id", "if-none-match", "range")}
+    headers = {k: v for k, v in request.headers.items() if k.lower() in ("content-type", "accept", "accept-encoding", "last-event-id", "if-none-match", "range", "idempotency-key")}
     headers["x-forwarded-prefix"] = "/kal"
     headers.update(kc._headers("user"))  # noqa: SLF001
     client = httpx.AsyncClient(timeout=httpx.Timeout(10, read=None))

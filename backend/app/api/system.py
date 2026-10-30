@@ -111,6 +111,8 @@ async def save_calendar(body: HomeCalendar, db: DB):
         if not kalender_client.enabled():
             raise Invalid("Der Kalender-Dienst ist nicht eingerichtet (KALENDER_URL)")
         value = {"source": "kalender"}
+    elif body.source == "auto":
+        value = {"source": "auto"}
     elif body.connector and body.tool:
         if not await db.get(Connector, body.connector):
             raise Invalid("MCP-Server nicht gefunden")

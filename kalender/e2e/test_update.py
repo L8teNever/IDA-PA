@@ -5,7 +5,8 @@ from .conftest import open_app, until, version
 
 
 def queue_entry(page, title):
-    page.evaluate("""(title) => localStorage.setItem('kal-queue', JSON.stringify([{ path: '/events', method: 'POST', body: { title, start: '2031-03-03T10:00', duration_min: 30 } }]))""", title)
+    """Eine Änderung, die gerade nicht gesendet werden kann, landet in der Outbox."""
+    page.evaluate("""(title) => window.__kal.write('/events', { method: 'POST', body: { title, start: '2031-03-03T10:00', duration_min: 30 } })""", title)
 
 
 def check_for_update(page):

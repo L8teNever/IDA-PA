@@ -28,7 +28,7 @@ function offer() {
 
 export function start({ scope = "/" } = {}) {
   if (!("serviceWorker" in navigator)) return;
-  navigator.serviceWorker.register("/sw.js", { scope }).then((r) => {
+  navigator.serviceWorker.register("/sw.js", { scope, type: "module" }).then((r) => {
     reg = r;
     const watch = (sw) => sw?.addEventListener("statechange", () => { if (sw.state === "installed" && navigator.serviceWorker.controller) offer(); });
     if (r.waiting && navigator.serviceWorker.controller) offer();
@@ -37,6 +37,7 @@ export function start({ scope = "/" } = {}) {
     addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") check(); });
     setInterval(check, 30 * 60 * 1000);
   }).catch(() => {});
+  navigator.serviceWorker.addEventListener("message", (e) => { if (e.data?.type === "synced") window.dispatchEvent(new CustomEvent("kal:sw-synced", { detail: e.data.result })); });
   addEventListener("kal:net", () => { if (S.net === "online" && waitingForSync) apply(); });
   addEventListener("kal:synced", () => { if (waitingForSync) apply(); });
 }

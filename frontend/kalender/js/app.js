@@ -4,12 +4,12 @@ import { api, live } from "./api.js";
 import * as repo from "./repo.js";
 import * as sync from "./sync.js";
 import { persist } from "./storage.js";
-import { S, cachedEvents, calOf, flushQueue, loadEvents, loadMeta, queued, saveHidden } from "./store.js";
+import { Q, S, cachedEvents, calOf, flushQueue, importLegacy, loadEvents, loadMeta, queued, refreshQ, saveHidden } from "./store.js";
 import { addDays, addMonths, daysBetween, hm, isoWeek, monthName, parseYmd, sameDay, setWeekStart, shortDay, startOfDay, ymd } from "./dates.js";
 import { agenda, cstyle, esc, gridDays, miniMonth, month, monthday, skeleton, timegrid, year } from "./views.js";
 import { bindGrid, bindGrip, bindSwipe, longPress, swallowClick } from "./gestures.js";
 import {
-  choose, deleteEvent, layerOpen, openAsk, openCalendar, openDetail, openEditor, openHistory, openQuick, openSearch, openSettings, openTrash,
+  choose, deleteEvent, layerOpen, openAsk, openCalendar, openConflict, openDetail, openEditor, openHistory, openQuick, openSearch, openSettings, openSync, openTrash,
   patchEvent, popLayer, setApiHref, setHooks, showAlarm, toast,
 } from "./sheets.js";
 
@@ -45,19 +45,29 @@ export async function mount(el, opts = {}) {
     if (document.body.classList.contains("dr-open")) { document.body.classList.remove("dr-open"); drawerWait.splice(0).forEach((r) => r()); return; }
     fromPath(); render();
   });
-  addEventListener("online", async () => { const n = await flushQueue(); if (n) toast(`${n} Offline-Änderung${n > 1 ? "en" : ""} gesendet`); await sync.pull().catch(() => {}); render(true); });
+  addEventListener("online", () => { sync.syncNow().catch(() => {}); });
+  addEventListener("kal:outbox", () => paintOffline());
   repo.onChange(() => render(true));
   addEventListener("kal:net", () => { paintOffline(); if (S.net === "online") render(true); });
-  $("#offline").addEventListener("click", (e) => { if (e.target.closest("[data-login]")) location.reload(); });
+  $("#offline").addEventListener("click", (e) => { if (e.target.closest("[data-login]")) location.reload(); else if (e.target.closest("[data-sync]")) openSync(); });
+  sync.onPushed((sum) => {
+    if (sum.sent && sum.stoppedFromOffline !== true && S.net === "online") toast(`${sum.sent} Offline-Änderung${sum.sent > 1 ? "en" : ""} gespeichert`);
+    if (sum.merged) toast("Mit einer Änderung auf dem Server zusammengeführt");
+    if (sum.conflicts) toast(`${sum.conflicts} Konflikt${sum.conflicts > 1 ? "e" : ""}`, [{ label: "Ansehen", run: () => openSync() }]);
+    else if (sum.errors) toast(`${sum.errors} Änderung${sum.errors > 1 ? "en konnten" : " konnte"} nicht gespeichert werden`, [{ label: "Ansehen", run: () => openSync() }]);
+  });
+  addEventListener("kal:conflict", () => openSync());
+  addEventListener("kal:sw-synced", async () => { await refreshQ().catch(() => {}); sync.pull().catch(() => {}); });   // der Service Worker hat im Hintergrund gesendet
   addEventListener("keydown", keys);
   matchMedia("(prefers-color-scheme: light)").addEventListener?.("change", applyTheme);
   addEventListener("resize", () => { document.body.classList.toggle("wide", innerWidth >= 1000); });
   addEventListener("beforeinstallprompt", (e) => { e.preventDefault(); installEvt = e; document.body.classList.add("can-install"); });
-  live(onLive, (ok) => { if (ok) (queued() ? flushQueue() : Promise.resolve()).then(() => sync.pull()).catch(() => {}); });
+  live(onLive, (ok) => { if (ok) sync.syncNow().catch(() => {}); });
   // sofort aus dem Spiegel zeigen, dann vom Server (nie ein leerer Bildschirm)
   const cached = await cachedEvents();
   if (cached) { S.events = cached; paint(true); } else $("#stage").innerHTML = `<div class="view">${skeleton()}</div>`;
-  await flushQueue();
+  await importLegacy().catch(() => {});
+  await refreshQ().catch(() => {});
   await render(true);
   sync.start();
   persist();
@@ -189,6 +199,7 @@ function drawer() {
     <h3>Mehr</h3>
     <button class="dr-item" id="dHist"><span class="ms">history</span>Was hat Ida geändert?</button>
     <button class="dr-item" id="dTrash"><span class="ms">delete</span><span class="grow">Papierkorb</span><b class="cnt" id="trashCnt"></b></button>
+    <button class="dr-item" id="dSync"><span class="ms">cloud_sync</span><span class="grow">Abgleich</span><b class="cnt" id="syncCnt"></b></button>
     <button class="dr-item" id="dData"><span class="ms">import_export</span>Import und Export</button>
     <button class="dr-item" id="dSet"><span class="ms">settings</span>Einstellungen</button>
     <button class="dr-item install" id="dInst"><span class="ms">install_mobile</span>App installieren</button>
@@ -210,6 +221,8 @@ function drawer() {
   $("#dHist").onclick = async () => { await close(); openHistory(); };
   $("#dTrash").onclick = async () => { await close(); openTrash(); };
   $("#dData").onclick = async () => { await close(); openSettings("data"); };
+  $("#dSync").onclick = async () => { await close(); openSync(); };
+  $("#syncCnt").textContent = Q.count || "";
   $("#dSet").onclick = async () => { await close(); openSettings(); };
   $("#dInst").onclick = async () => { if (installEvt) { installEvt.prompt(); await installEvt.userChoice; installEvt = null; document.body.classList.remove("can-install"); } };
   $("#drIos").hidden = !/iphone|ipad/i.test(navigator.userAgent) || matchMedia("(display-mode: standalone)").matches;
@@ -405,12 +418,18 @@ export async function render(quiet) {
 }
 
 function paintOffline() {
-  const n = queued(), wait = n ? ` · ${n} Änderung${n > 1 ? "en" : ""} warten` : "";
-  const bar = $("#offline");
-  if (S.net === "auth") bar.innerHTML = `Anmeldung abgelaufen${wait} <button type="button" class="link" data-login>Anmelden</button>`;
-  else if (S.net === "offline") bar.textContent = `Offline – Stand ${S.loadedAt ? hm(S.loadedAt) : "?"}${wait}${S.outside ? " · dieser Zeitraum ist nicht gespeichert" : ""}`;
+  const n = Q.count, wait = n ? ` · ${n} Änderung${n > 1 ? "en" : ""} warten` : "", bar = $("#offline");
+  let kind = "";
+  if (S.net === "auth") { bar.innerHTML = `Anmeldung abgelaufen${wait} <button type="button" class="link" data-login>Anmelden</button>`; kind = "auth"; }
+  else if (S.net === "offline") { bar.innerHTML = `Offline – Stand ${S.loadedAt ? hm(S.loadedAt) : "?"}${wait}${S.outside ? " · dieser Zeitraum ist nicht gespeichert" : ""}${Q.conflicts ? ` · <button type="button" class="link" data-sync>${Q.conflicts} Konflikt${Q.conflicts > 1 ? "e" : ""}</button>` : ""}`; kind = "offline"; }
+  else if (Q.conflicts) { bar.innerHTML = `${Q.conflicts} Konflikt${Q.conflicts > 1 ? "e" : ""} <button type="button" class="link" data-sync>Ansehen</button>`; kind = "conflict"; }
+  else if (Q.errors) { bar.innerHTML = `${Q.errors} Änderung${Q.errors > 1 ? "en konnten" : " konnte"} nicht gespeichert werden <button type="button" class="link" data-sync>Ansehen</button>`; kind = "conflict"; }
+  else if (Q.pending) { bar.innerHTML = `${Q.pending} Änderung${Q.pending > 1 ? "en" : ""} werden gesendet <button type="button" class="link" data-sync>Details</button>`; kind = "pending"; }
   else bar.textContent = "";
-  document.body.classList.toggle("show-bar", S.net === "offline" || S.net === "auth");
+  bar.dataset.kind = kind;
+  document.body.classList.toggle("show-bar", !!kind);
+  document.body.classList.toggle("syncing", S.net === "online" && Q.pending > 0 && !Q.conflicts);
+  const c = $("#syncCnt"); if (c) c.textContent = Q.count || "";
 }
 
 function paint(quiet) {

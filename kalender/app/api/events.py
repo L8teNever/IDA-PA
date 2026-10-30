@@ -1,7 +1,7 @@
 """Termine: lesen, anlegen, ändern, löschen, Papierkorb."""
 from datetime import timedelta
 
-from fastapi import APIRouter, Body, Depends, Query
+from fastapi import APIRouter, Body, Depends, Query, Request
 from sqlalchemy import select
 
 from ..auth import Caller, caller, last_change_id
@@ -9,7 +9,7 @@ from ..db import session_scope
 from ..errors import Conflict, Forbidden, Invalid, NotFound
 from ..models import Calendar, Event
 from ..services import holidays as hol
-from ..services import query, search, store
+from ..services import idem, query, search, store
 from ..services import recurrence as rec
 from ..services import settings as cfg
 from ..config import get_settings
@@ -68,38 +68,57 @@ async def get_event(occ_id: str, c: Caller = Depends(caller)):
 
 
 @router.post("/events")
-async def create_event(body: dict = Body(...), c: Caller = Depends(caller)):
+async def create_event(request: Request, body: dict = Body(...), c: Caller = Depends(caller)):
+    """Gibt es schon einen Termin mit dieser `uid` (die App vergibt sie beim Offline-Anlegen), wird er nicht noch einmal angelegt:
+    die Antwort ist dann derselbe Termin mit `existing: true` (und `deleted: true`, wenn er inzwischen im Papierkorb liegt)."""
     async with session_scope(write=True) as db:
-        ev = await store.create_event(db, body, c.by, c.via)
-        return {"event": await _detail(db, ev), "change_id": last_change_id(db), "conflicts": await _warn(db, ev, c.by)}
+        async def go():
+            ev = await store.create_event(db, body, c.by, c.via)
+            existing = bool(getattr(ev, "_existing", False))
+            out = {"event": await _detail(db, ev), "change_id": None if existing else last_change_id(db),
+                   "conflicts": [] if existing else await _warn(db, ev, c.by)}
+            if existing:
+                out.update({"existing": True, "deleted": ev.deleted_at is not None})
+            return out
+        return await idem.run(db, request, go)
 
 
 @router.patch("/events/{occ_id}")
-async def update_event(occ_id: str, body: dict = Body(...), scope: str = "all", c: Caller = Depends(caller)):
+async def update_event(occ_id: str, request: Request, body: dict = Body(...), scope: str = "all", c: Caller = Depends(caller)):
     async with session_scope(write=True) as db:
-        eid, key = rec.split_id(occ_id)
-        if body.get("sequence") is not None:  # Offline-Änderungen: nur, wenn der Termin seitdem nicht geändert wurde
-            cur = await store.get_event(db, eid, c.by, write=True)
-            if int(body["sequence"]) != (cur.sequence or 0):
-                raise Conflict("Der Termin wurde zwischenzeitlich geändert", {"server": await _detail(db, cur)})
-        evs = await store.update_occurrence(db, occ_id, {k: v for k, v in body.items() if k != "sequence"}, scope, c.by, c.via)
-        main = evs[0]
-        return {"event": await _detail(db, main, rec.key_of(rec.local_start(main.start_at, main.tzid)) if main.rrule else None),
-                "change_id": last_change_id(db), "conflicts": await _warn(db, main, c.by)}
+        async def go():
+            eid, key = rec.split_id(occ_id)
+            if body.get("sequence") is not None:  # Offline-Änderungen: nur, wenn der Termin seitdem nicht geändert wurde
+                cur = await store.get_event(db, eid, c.by, write=True)
+                if int(body["sequence"]) != (cur.sequence or 0):
+                    raise Conflict("Der Termin wurde zwischenzeitlich geändert", {"server": await _detail(db, cur)})
+            evs = await store.update_occurrence(db, occ_id, {k: v for k, v in body.items() if k != "sequence"}, scope, c.by, c.via)
+            main = evs[0]
+            return {"event": await _detail(db, main, rec.key_of(rec.local_start(main.start_at, main.tzid)) if main.rrule else None),
+                    "change_id": last_change_id(db), "conflicts": await _warn(db, main, c.by)}
+        return await idem.run(db, request, go)
 
 
 @router.delete("/events/{occ_id}")
-async def delete_event(occ_id: str, scope: str = "all", c: Caller = Depends(caller)):
+async def delete_event(occ_id: str, request: Request, scope: str = "all", sequence: int | None = None, c: Caller = Depends(caller)):
     async with session_scope(write=True) as db:
-        evs = await store.delete_occurrence(db, occ_id, scope, c.by, c.via)
-        return {"ok": True, "title": evs[0].title, "change_id": last_change_id(db)}
+        async def go():
+            if sequence is not None:
+                cur = await store.get_event(db, rec.split_id(occ_id)[0], c.by, write=True)
+                if sequence != (cur.sequence or 0):
+                    raise Conflict("Der Termin wurde zwischenzeitlich geändert", {"server": await _detail(db, cur)})
+            evs = await store.delete_occurrence(db, occ_id, scope, c.by, c.via)
+            return {"ok": True, "title": evs[0].title, "change_id": last_change_id(db)}
+        return await idem.run(db, request, go)
 
 
 @router.post("/events/{event_id}/restore")
-async def restore_event(event_id: str, c: Caller = Depends(caller)):
+async def restore_event(event_id: str, request: Request, c: Caller = Depends(caller)):
     async with session_scope(write=True) as db:
-        ev = await store.restore(db, event_id, c.by, c.via)
-        return {"event": await _detail(db, ev), "change_id": last_change_id(db)}
+        async def go():
+            ev = await store.restore(db, event_id, c.by, c.via)
+            return {"event": await _detail(db, ev), "change_id": last_change_id(db)}
+        return await idem.run(db, request, go)
 
 
 @router.get("/trash")

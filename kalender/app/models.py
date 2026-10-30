@@ -106,3 +106,16 @@ class Outbox(Base):
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
 
     __table_args__ = (Index("ix_outbox_next_try", "next_try"),)
+
+
+class RequestRec(Base):
+    """Bereits ausgeführte Schreibaufrufe mit Idempotency-Key: dieselbe Wiederholung bekommt dieselbe Antwort, die Änderung geschieht nur einmal."""
+    __tablename__ = "requests"
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    method: Mapped[str] = mapped_column(String(8))
+    path: Mapped[str] = mapped_column(String(200))
+    status: Mapped[int] = mapped_column(Integer)
+    response: Mapped[dict] = mapped_column(JSON, default=dict)
+    at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+
+    __table_args__ = (Index("ix_requests_at", "at"),)

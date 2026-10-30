@@ -6,7 +6,7 @@ import { subHead } from "./index.js";
 export async function render(el) {
   const [s, connectors] = await Promise.all([api.get("/home-calendar"), api.get("/connectors")]);
   const saved = s.saved || {};
-  let mode = saved.off ? "off" : saved.source === "kalender" ? "ida" : saved.connector ? "fixed" : s.local ? "ida" : "auto";
+  let mode = saved.off ? "off" : saved.source === "kalender" ? "ida" : saved.source === "auto" ? "auto" : saved.connector ? "fixed" : s.local ? "ida" : "auto";
   const usable = connectors.filter((c) => c.enabled && c.tools.length);
   const f = { connector: saved.connector || s.candidates[0]?.connector || usable[0]?.id || "", tool: saved.tool || s.candidates[0]?.tool || "",
     args: saved.args ? JSON.stringify(saved.args, null, 1) : "" };
@@ -44,7 +44,7 @@ export async function render(el) {
   const body = () => {
     if (mode === "off") return { off: true };
     if (mode === "ida") return { source: "kalender" };
-    if (mode === "auto") return {};
+    if (mode === "auto") return s.local ? { source: "auto" } : {};
     let args = null;
     if (f.args.trim()) {
       try { args = JSON.parse(f.args); } catch { throw new Error("Die Argumente sind kein gültiges JSON"); }

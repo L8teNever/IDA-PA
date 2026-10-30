@@ -80,6 +80,31 @@ jobs:
         if: failure()
         with: { name: e2e-screenshots, path: e2e-artifacts, if-no-files-found: ignore }
 
+  kalender-upgrade:
+    # Das neue Image startet auf den Daten des aktuell veröffentlichten – nichts geht verloren, die API bleibt für alte Clients kompatibel
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Vorgänger-Image holen und neues bauen
+        run: |
+          OWNER=$(echo "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')
+          docker pull "ghcr.io/$OWNER/ida-kalender:latest"
+          docker build -f kalender/Dockerfile -t ida-kalender:new .
+          echo "OLD_IMAGE=ghcr.io/$OWNER/ida-kalender:latest" >> "$GITHUB_ENV"
+      - run: pip install httpx pytest
+      - name: Upgrade-Test
+        env:
+          NEW_IMAGE: ida-kalender:new
+        run: python -m pytest kalender/upgrade -q
+
   image:
     needs: [test, kalender-test, kalender-frontend-test, kalender-e2e]
     if: github.event_name != 'pull_request'

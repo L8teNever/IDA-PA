@@ -251,6 +251,11 @@ def _refresh_series(ev: Event) -> None:
 
 # ---------------- Anlegen ----------------
 async def create_event(db: AsyncSession, data: dict, by: str = "user", via: str = "ui", batch: str | None = None) -> Event:
+    if data.get("uid"):  # die App vergibt die uid beim Offline-Anlegen: dieselbe uid = derselbe Termin, nicht noch einmal anlegen
+        old = await db.scalar(select(Event).where(Event.uid == str(data["uid"])[:120]))
+        if old is not None:
+            old._existing = True  # noqa: SLF001 – die API meldet es als `existing`
+            return old
     cal = await calendar_for(db, data.get("calendar_id") or data.get("calendar"), by, write=True)
     if cal.kind == "birthdays" and not data.get("rrule") and not data.get("repeat"):
         data = {**data, "rrule": "FREQ=YEARLY", "all_day": True}

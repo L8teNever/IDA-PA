@@ -436,6 +436,8 @@ def test_day_plan_shows_marked_items_and_todays_calendar(client):
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     try:
         c = client.post(f"{API}/connectors", json={"name": "Kalender", "url": f"http://127.0.0.1:{srv.server_port}/mcp"}).json()
+        assert client.get(f"{API}/home-calendar").json()["active"]["source"] == "kalender"  # der lokale Kalender hat Vorrang, solange nichts gewählt ist
+        client.put(f"{API}/home-calendar", json={"source": "auto"})  # „Automatisch“: nach einem MCP-Kalender suchen
         s = client.get(f"{API}/home-calendar").json()
         assert s["active"]["tool"] == "google_termine_liste" and s["active"]["auto"]  # found automatically
         home = client.get(f"{API}/home").json()
@@ -813,7 +815,6 @@ def test_chat_answer_goes_on_when_the_page_is_closed(client):
 
 
 def test_kalender_endpoints_need_the_token(client):
-    # ohne KALENDER_IDA_TOKEN (Testumgebung) nimmt IDA nichts vom Kalender an
+    # ohne das richtige Token nimmt IDA nichts vom Kalender an
     assert client.post(f"{API}/ext/kalender", json={"type": "alarm"}).status_code == 401
     assert client.post(f"{API}/ext/kalender/ask", json={"text": "Hallo"}, headers={"Authorization": "Bearer falsch"}).status_code == 401
-    assert client.get("/kal/api/v1/calendars").status_code == 503  # KALENDER_URL fehlt
