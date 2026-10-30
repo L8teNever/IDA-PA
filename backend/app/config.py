@@ -45,14 +45,6 @@ class Settings(BaseSettings):
     github_api_url: str = "https://api.github.com"
     github_url: str = "https://github.com"
 
-    # Wiki (XWiki, see docker-compose.yml): every chat is also written there as a page under Ida › Chats.
-    # Empty wiki_url = off. wiki_url is the internal address (http://xwiki:8080 in the compose stack).
-    wiki_url: str = ""
-    wiki_user: str = ""
-    wiki_password: str = ""
-    # Public addresses, only for links inside the pages (wiki page -> chat in IDA)
-    ida_public_url: str = ""
-
     # Kalender (eigener Dienst, siehe docs/KALENDER.md): Adresse und gemeinsames Geheimnis; leer = Kalender-Funktionen aus
     kalender_url: str = ""
     kalender_ida_token: str = ""

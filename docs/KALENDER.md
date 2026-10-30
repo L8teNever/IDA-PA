@@ -800,7 +800,7 @@ volumes:
 ```
 * Der Dienst ist **immer an**, ohne Profil, „direkt im Stack mit drin“.
 * Kein `depends_on`, in keine Richtung: Beide starten unabhängig. Fehlt der andere Dienst, kommt nur eine klare Fehlermeldung.
-* Der Port `8082` ist frei (8080 ist IDA, 8081 das Wiki).
+* Der Port `8082` ist frei (8080 ist IDA).
 
 ### `.env.example`
 ```
