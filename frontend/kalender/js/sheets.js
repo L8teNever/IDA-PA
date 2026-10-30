@@ -3,6 +3,7 @@ import { api } from "./api.js";
 import { S, calOf, send, writable } from "./store.js";
 import * as repo from "./repo.js";
 import * as outbox from "./outbox.js";
+import * as files from "./files.js";
 import * as sync from "./sync.js";
 import { diff } from "./conflict.js";
 import { state as dbState } from "./db.js";
@@ -154,10 +155,14 @@ export async function openDetail(id) {
     $("#esHist", sh).innerHTML = `<span class="ms">history</span><span>${c.by === "user" ? "von dir" : "von Ida"} ${ACT[c.action] || c.action} · ${ago(c.at)}</span>${c.undone ? "" : `<button class="link" data-undo="${c.id}">Rückgängig</button>`}`;
     $("[data-undo]", sh)?.addEventListener("click", async () => { try { await api(`/changes/${c.id}/undo`, { method: "POST" }); closeTop(); hooks.changed(); } catch (x) { fail(x); } });
   }).catch(() => {});
-  if (!e.id.startsWith("hol_")) api(`/events/${encodeURIComponent(e.id)}/files`).then((r) => {
-    if (!r.files.length) return;
-    $("#esFiles", sh).innerHTML = `<div class="es-row"><span class="ms">attach_file</span><div class="es-c files">${r.files.map((f) => `<a href="${fileHref(e.event_id, f.name)}" target="_blank" rel="noopener"><span class="ms">${fileIcon(f.name)}</span>${esc(f.name)}<small>${kb(f.size)}</small></a>`).join("")}</div></div>`;
-  }).catch(() => {});
+  if (!e.id.startsWith("hol_")) Promise.all([api(`/events/${encodeURIComponent(e.id)}/files`).then((r) => r.files).catch(() => []), files.waiting(outbox.eventOf(e.event_id || e.id)).catch(() => [])]).then(([remote, wait]) => {
+    if (!remote.length && !wait.length) return;
+    $("#esFiles", sh).innerHTML = `<div class="es-row"><span class="ms">attach_file</span><div class="es-c files">${remote.map((f) => `<a href="${fileHref(e.event_id, f.name)}" target="_blank" rel="noopener"><span class="ms">${fileIcon(f.name)}</span>${esc(f.name)}<small>${kb(f.size)}</small></a>`).join("")}${wait.map((f) => `<a href="#" data-local="${f.opId}"><span class="ms">cloud_upload</span>${esc(f.name)}<small>wartet · ${kb(f.size)}</small></a>`).join("")}</div></div>`;
+    sh.querySelectorAll("[data-local]").forEach((a) => (a.onclick = async (ev2) => {   // lokal gespeicherte Datei öffnen
+      ev2.preventDefault(); const f = await files.get(a.dataset.local); if (!f) return;
+      const url = URL.createObjectURL(f.blob); window.open(url, "_blank"); setTimeout(() => URL.revokeObjectURL(url), 60000);
+    }));
+  });
 
   $("[data-copy]", sh)?.addEventListener("click", () => { navigator.clipboard?.writeText(e.location); toast("Ort kopiert"); });
   sh.querySelectorAll(".ckl").forEach((b) => (b.onclick = async () => {
@@ -169,7 +174,7 @@ export async function openDetail(id) {
     try { await send(`/events/${encodeURIComponent(e.event_id)}?scope=all`, { method: "PATCH", body: { description: e.description } }, e.id); } catch (x) { fail(x); }
   }));
   $("[data-more]", sh).onclick = async () => {
-    const v = await choose(e.title, [...(S.meta.ask ? [["ask", "Ida fragen", "auto_awesome"]] : []), ["show", "Im Kalender zeigen", "calendar_view_day"], ["text", "Als Text kopieren", "content_copy"], ["ics", "Als .ics herunterladen", "download"]]);
+    const v = await choose(e.title, [...(S.meta.ask && S.net === "online" ? [["ask", "Ida fragen", "auto_awesome"]] : []), ["show", "Im Kalender zeigen", "calendar_view_day"], ["text", "Als Text kopieren", "content_copy"], ["ics", "Als .ics herunterladen", "download"]]);
     if (v === "ask") { await closeTop(); openAsk("", e); }
     if (v === "show") { await closeTop(); hooks.jump(e); }
     if (v === "text") { navigator.clipboard?.writeText(shareText(e)); toast("Kopiert"); }
@@ -272,7 +277,7 @@ export function openEditor({ event: ev, start, end, copy, allDay, fromFab } = {}
       <div class="frow"><span class="ms">auto_awesome</span><span class="fl">Ida kümmert sich bei der Erinnerung</span><button class="sw${st.agent ? " on" : ""}" id="fAgent"></button></div>
       ${st.agent ? `<div class="frow"><span class="ms"></span><input type="text" id="fTask" placeholder="Was soll Ida dann tun? z. B. „Schick mir die Adresse“" value="${esc(st.task)}"></div>` : ""}
       <div class="frow"><span class="ms">link</span><input type="url" id="fUrl" placeholder="Link" value="${esc(st.url)}"></div>
-      <div class="frow wrap"><span class="ms">attach_file</span><div class="chips">${st.files.map((f, i) => `<span class="pc on file"><span class="ms">${fileIcon(f.name)}</span>${esc(f.name)}<button class="x" data-rmfile="${i}" title="Entfernen"><span class="ms">close</span></button></span>`).join("")}
+      <div class="frow wrap"><span class="ms">attach_file</span><div class="chips">${st.files.map((f, i) => `<span class="pc on file"><span class="ms">${f.pending || f.file ? "cloud_upload" : fileIcon(f.name)}</span>${esc(f.name)}<button class="x" data-rmfile="${i}" title="Entfernen"><span class="ms">close</span></button></span>`).join("")}
         <label class="pc"><span class="ms">add</span>Datei anhängen<input type="file" id="fFile" multiple hidden></label></div></div>` : ""}`;
     bind();
     checkConflicts();
@@ -323,15 +328,22 @@ export function openEditor({ event: ev, start, end, copy, allDay, fromFab } = {}
     $("#fFile", box)?.addEventListener("change", async (x) => {
       read();
       for (const file of x.target.files) {
-        if (file.size > 20 * 1024 * 1024) { toast(`„${file.name}“ ist zu groß (höchstens 20 MB)`); continue; }
-        if (editing) { try { const r = await uploadFile(ev.id, file); st.files = r.files.map((f) => ({ ...f, remote: true })); } catch (e) { fail(e); } }
-        else st.files.push({ name: file.name, file });
+        if (file.size > files.MAX_FILE) { toast(`„${file.name}“ ist zu groß (höchstens 20 MB)`); continue; }
+        if (!editing) { st.files.push({ name: file.name, size: file.size, file }); continue; }
+        try {
+          if (S.net !== "online") throw Object.assign(new Error("offline"), { kind: "offline" });
+          const r = await uploadFile(ev.id, file); st.files = [...r.files.map((f) => ({ ...f, remote: true })), ...st.files.filter((f) => f.pending)];
+        } catch (e) {
+          if (e.kind && e.kind !== "offline" && e.kind !== "server") { fail(e); continue; }
+          try { const opId = await files.stage(ev.id, file); st.files.push({ name: file.name, size: file.size, opId, pending: true }); toast("Anhang wartet auf den Abgleich"); } catch (x) { fail(x); }
+        }
       }
       draw();
     });
     box.querySelectorAll("[data-rmfile]").forEach((b) => (b.onclick = async () => {
       read();
       const f = st.files[+b.dataset.rmfile];
+      if (f.pending) await files.cancel(f.opId);
       if (f.remote) { if (!(await confirmBox(`„${f.name}“ löschen?`, "Löschen"))) return; try { await api(`/files/${ev.event_id}/${encodeURIComponent(f.name)}`, { method: "DELETE" }); } catch (e) { return fail(e); } }
       st.files.splice(+b.dataset.rmfile, 1); draw();
     }));
@@ -392,14 +404,24 @@ export function openEditor({ event: ev, start, end, copy, allDay, fromFab } = {}
       const r = editing ? await send(`/events/${encodeURIComponent(ev.id)}?scope=${scope}`, { method: "PATCH", body }, ev.id) : await send("/events", { method: "POST", body });
       closeTop();
       toast(r.queued ? "Gespeichert – wird gesendet, sobald es geht" : editing ? "Gespeichert" : "Termin angelegt", undoAction(r));
-      const local = st.files.filter((f) => f.file);
-      if (local.length && r.event) { for (const f of local) { try { await uploadFile(r.event.id, f.file); } catch (e) { fail(e); } } }
-      else if (local.length && r.queued) toast("Anhänge gehen erst mit Verbindung – bitte dann erneut anhängen");
+      for (const f of st.files.filter((x) => x.file)) {                    // neue Anhänge: direkt hochladen, sonst für den Abgleich vormerken
+        const target = r.event?.id || r.localId;
+        try {
+          if (!r.event) throw Object.assign(new Error("offline"), { kind: "offline" });
+          await uploadFile(target, f.file);
+        } catch (e) {
+          if (e.kind && e.kind !== "offline" && e.kind !== "server") { fail(e); continue; }
+          try { await files.stage(target || ev.id, f.file); } catch (x) { fail(x); }
+        }
+      }
       hooks.changed(r.event?.event_id);
     } catch (x) { fail(x, save); }
   };
   draw();
-  if (editing) api(`/events/${encodeURIComponent(ev.id)}/files`).then((r) => { if (r.files.length) { read(); st.files = r.files.map((f) => ({ ...f, remote: true })); st.more = true; draw(); } }).catch(() => {});
+  if (editing) Promise.all([api(`/events/${encodeURIComponent(ev.id)}/files`).then((r) => r.files).catch(() => []), files.waiting(outbox.eventOf(ev.event_id || ev.id)).catch(() => [])]).then(([remote, wait]) => {
+    if (!remote.length && !wait.length) return;
+    read(); st.files = [...remote.map((f) => ({ ...f, remote: true })), ...wait.map((f) => ({ ...f, pending: true }))]; st.more = true; draw();
+  });
   if (!editing) setTimeout(() => $("#fTitle", box)?.focus(), 120);
 }
 
@@ -509,7 +531,15 @@ export function openQuick() {
   const preview = async () => {
     const text = input.value.trim();
     if (!text) { q = null; return; }
-    try { q = await api("/quick", { method: "POST", body: { text } }); } catch { q = null; return; }
+    try { q = await api("/quick", { method: "POST", body: { text } }); } catch (e) {
+      if (e.kind !== "offline" && e.kind !== "auth") { q = null; return; }
+      // Der Satz wird auf dem Server erkannt. Ohne Verbindung: Text als Titel, Datum und Uhrzeit stellst du im Editor ein.
+      const s0 = new Date(); s0.setMinutes(0, 0, 0); s0.setHours(s0.getHours() + 1);
+      const f = (d) => `${ymd(d)}T${hm(d)}`;
+      q = { offline: true, title: text, start: f(s0), end: f(new Date(+s0 + (Number(S.settings.default_duration_min) || 60) * 6e4)), all_day: false, location: "", alarms: [], rrule: "", calendar: null, spans: [] };
+      $("#qPrev", box).innerHTML = `<p class="hint pad"><span class="ms" style="font-size:16px;vertical-align:-3px">cloud_off</span> Offline – ich übernehme den Text als Titel. Datum und Uhrzeit stellst du gleich im Editor ein.</p>`;
+      return;
+    }
     const cal = S.cals.find((c) => c.name === q.calendar) || S.cals.find((c) => c.is_default);
     const ev = { title: q.title || "(ohne Titel)", start: q.start, end: q.end, all_day: q.all_day, color: cal?.color || "blau" };
     $("#qPrev", box).innerHTML = `<div class="qmark">${mark(input.value, q.spans || [])}</div>
@@ -521,6 +551,7 @@ export function openQuick() {
   const saveNow = async () => {
     await preview();
     if (!q?.title) { toast("Bitte einen Titel dazuschreiben"); return; }
+    if (q.offline) { await close(); openEditor({ event: asEvent(), copy: true }); return; }
     const cal = S.cals.find((c) => c.name === q.calendar);
     const body = { title: q.title, start: q.start, end: q.end, all_day: q.all_day, location: q.location, alarms: q.alarms, ...(q.rrule ? { rrule: q.rrule } : {}), ...(cal ? { calendar_id: cal.id } : {}) };
     try { const r = await send("/events", { method: "POST", body }); close(); toast(r.queued ? "Gespeichert – wird gesendet, sobald es geht" : `„${q.title}“ angelegt`, undoAction(r)); hooks.changed(r.event?.event_id); } catch (x) { fail(x); }
@@ -605,7 +636,7 @@ export function openSearch() {
       ? (r.upcoming.length ? `<h4>${r.range ? "Treffer" : "Demnächst"}</h4>${group(r.upcoming)}` : "") + (r.past.length ? `<h4>Vergangen</h4>${group(r.past)}` : "")
       : `<div class="empty-state"><div class="face big"></div><p>Nichts gefunden</p>${r.did_you_mean ? `<button class="tonal" data-dym="${esc(r.did_you_mean)}">Meintest du „${esc(r.did_you_mean)}“?</button>` : ""}</div>`)
       + (r.offline ? `<p class="hint pad"><span class="ms" style="font-size:16px;vertical-align:-3px">cloud_off</span> Offline – nur Termine von ${esc(r.offline)}</p>` : "")
-      + (S.meta.ask && f.q ? `<button class="askida" data-ask><div class="face"></div><span>Ida fragen: „${esc(f.q)}“</span><span class="ms">arrow_forward</span></button>` : "");
+      + (S.meta.ask && S.net === "online" && f.q ? `<button class="askida" data-ask><div class="face"></div><span>Ida fragen: „${esc(f.q)}“</span><span class="ms">arrow_forward</span></button>` : "");
     $("[data-dym]", res)?.addEventListener("click", (b) => { input.value = b.currentTarget.dataset.dym; run(); });
     $("[data-ask]", res)?.addEventListener("click", () => openAsk(f.q.endsWith("?") ? f.q : `Was weißt du zu: ${f.q}?`));
     $("[data-jump]", res)?.addEventListener("click", async (b) => { const d = b.currentTarget.dataset.jump; await closeTop(); hooks.jump({ start: d, all_day: true }); });
@@ -760,6 +791,7 @@ export async function openSettings(section) {
     const sel = (k, label, opts) => `<button class="li" data-sel="${k}"><div class="ct"><span>${label}</span><small>${esc((opts.find(([v]) => String(v) === String(s[k])) || ["", "–"])[1])}</small></div><span class="ms">chevron_right</span></button>`;
     const txt = (k, label, ph) => `<div class="li"><div class="ct"><span>${label}</span></div><input type="text" class="li-in" data-t="${k}" value="${esc(s[k] ?? "")}" placeholder="${ph}"></div>`;
     const total = S.cals.reduce((n, c) => n + (c.events || 0), 0);
+    const off = S.net !== "online", gate = off ? " net-off" : "", NEEDS = "braucht Internet";
     const pushOn = await pushState();
     const st = await storage.info();
     const storageText = !dbState.ok ? "Nicht verfügbar – die App zeigt nur mit Internet Termine (privater Modus?)"
@@ -783,7 +815,7 @@ export async function openSettings(section) {
         ${sel("state", "Bundesland für Feiertage", [["", `Standard (${S.meta.state || "NW"})`], ...STATES])}</div>
       <div class="gl">Benachrichtigungen</div><div class="group list">
         <div class="li"><div class="ct"><span>In der App</span><small>${perm === "granted" ? "erlaubt" : perm === "denied" ? "im Browser blockiert" : perm === "unsupported" ? "nicht möglich" : "noch nicht erlaubt"}</small></div>${perm === "default" ? '<button class="pc" id="nPerm">Erlauben</button>' : ""}</div>
-        <div class="li"><div class="ct"><span>Push auf diesem Gerät</span><small>${pushText(pushOn)}</small></div>${pushOn !== null ? `<button class="sw${pushOn ? " on" : ""}" id="pushSw"></button>` : ""}</div>
+        <div class="li${gate}"><div class="ct"><span>Push auf diesem Gerät</span><small>${off ? NEEDS : pushText(pushOn)}</small></div>${pushOn !== null ? `<button class="sw${pushOn ? " on" : ""}" id="pushSw"></button>` : ""}</div>
         ${pushOn ? '<button class="li sub" id="pushTest"><span class="ms">notifications_active</span><div class="ct"><span>Test-Benachrichtigung schicken</span></div></button>' : ""}
         ${txt("quiet_hours", "Ruhezeiten", "22:00-07:00")}
         <div class="li"><div class="ct"><span>Erinnerungen bei geschlossener App</span><small>${S.meta.ida ? "kommen über IDA als Info" : "über das Abo in einer Kalender-App (ICSx⁵/DAVx⁵) – dann erinnert das Handy selbst"}</small></div></div></div>
@@ -792,11 +824,11 @@ export async function openSettings(section) {
         ${sw("agent_context", "Termine der nächsten 24 Std. im Gedächtnis", "Ida kennt deinen Tag, ohne nachzuschauen")}
         ${sw("highlight_agent", "Änderungen von Ida hervorheben")}</div>
       <div class="gl" data-sec="data">Daten</div><div class="group list">
-        <a class="li" href="${apiHref("/export.ics")}" download="kalender.ics"><span class="ms">download</span><div class="ct"><span>Alles als .ics exportieren</span></div></a>
-        <label class="li"><span class="ms">upload</span><div class="ct"><span>.ics importieren</span><small>Doppelte Termine werden erkannt</small></div><input type="file" id="sImp" accept=".ics,text/calendar" hidden></label>
+        <a class="li${gate}" href="${apiHref("/export.ics")}" download="kalender.ics"><span class="ms">download</span><div class="ct"><span>Alles als .ics exportieren</span>${off ? `<small>${NEEDS}</small>` : ""}</div></a>
+        <label class="li${gate}"><span class="ms">upload</span><div class="ct"><span>.ics importieren</span><small>${off ? NEEDS : "Doppelte Termine werden erkannt"}</small></div><input type="file" id="sImp" accept=".ics,text/calendar" hidden></label>
         ${feed ? `<div class="li col"><div class="ct"><span>Abo-Link</span><small>nur lesen – z. B. für ICSx⁵ am Handy</small></div><div class="feed"><input type="text" readonly value="${esc(feed.url)}"><button class="icon-btn plain" id="fCopy" title="Kopieren"><span class="ms">content_copy</span></button><button class="icon-btn plain" id="fRot" title="Neuen Link erzeugen"><span class="ms">autorenew</span></button><button class="icon-btn plain" id="fQr" title="QR-Code"><span class="ms">qr_code_2</span></button></div><div class="qr" id="qrBox" hidden><img alt="QR-Code des Abo-Links" src="${apiHref("/feed/qr.svg")}?v=${Date.now()}"><small>Mit dem Handy scannen und in ICSx⁵ öffnen</small></div></div>` : ""}
         <div class="li"><span class="ms">sd_storage</span><div class="ct"><span>Offline-Speicher</span><small>${storageText}</small></div></div>
-        <button class="li" id="sBak"><span class="ms">backup</span><div class="ct"><span>Backup jetzt anlegen</span><small>${backups.backups.length} Stände, nächtlich automatisch (${backups.keep || 14} werden behalten)</small></div></button>
+        <button class="li${gate}" id="sBak"><span class="ms">backup</span><div class="ct"><span>Backup jetzt anlegen</span><small>${off ? NEEDS : `${backups.backups.length} Stände, nächtlich automatisch (${backups.keep || 14} werden behalten)`}</small></div></button>
         ${backups.backups.slice(0, 5).map((b) => `<a class="li sub" href="${apiHref(`/backups/${encodeURIComponent(b.name || b)}`)}" download><span class="ms">description</span><div class="ct"><span>${esc(b.name || b)}</span>${b.size ? `<small>${Math.round(b.size / 1024)} KB</small>` : ""}</div></a>`).join("")}
         <button class="li" data-trash><span class="ms">delete</span><div class="ct"><span>Papierkorb</span></div></button></div>
       <div class="gl">Über</div><div class="group list">
@@ -870,7 +902,7 @@ const fmtVal = (key, v) => {
   if (Array.isArray(v)) return v.join(", ");
   return String(v).length > 120 ? `${String(v).slice(0, 117)}…` : String(v);
 };
-const TYPE_TXT = { create: "Neu angelegt", update: "Geändert", delete: "Gelöscht", restore: "Wiederhergestellt" };
+const TYPE_TXT = { create: "Neu angelegt", update: "Geändert", delete: "Gelöscht", restore: "Wiederhergestellt", upload: "Anhang" };
 
 /** „Termin wurde inzwischen geändert“ (bzw. gelöscht): meine Version gegen den Stand des Servers. */
 export async function openConflict(seq) {

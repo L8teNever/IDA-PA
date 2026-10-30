@@ -22,6 +22,16 @@ export function coalesce(list, n) {
   const last = idx.length ? idx[idx.length - 1] : -1;
   const e = last >= 0 ? list[last] : null;
   const out = list.slice();
+  // Termin noch gar nicht auf dem Server (lokale ID, Anlegen wartet): Änderungen und Löschen betreffen nur diesen Eintrag – auch wenn Anhänge dahinter stehen
+  const mine = idx.map((i) => list[i]);
+  const born = mine.find((x) => x.type === "create" && isLocal(x.target) && x.state === "pending");
+  if (born && mine.every((x) => x.state === "pending") && n.type !== "upload") {
+    if (n.type === "delete" && (n.scope || "all") === "all") return out.filter((x) => eventOf(x.target) !== ev);
+    if (n.type === "update" && !String(n.target).includes("_")) {
+      const i = out.indexOf(born);
+      out[i] = { ...born, body: { ...born.body, ...n.body }, title: n.body?.title || born.title }; return out;
+    }
+  }
   if (!e || e.state !== "pending") return [...out, n];
   const same = e.target === n.target && (e.scope || "all") === (n.scope || "all");
   if (e.type === "create" && isLocal(e.target)) {
@@ -41,6 +51,18 @@ export function coalesce(list, n) {
 // ---------------- Speicher ----------------
 export const all = async () => (await db.all("outbox")).sort((a, b) => a.seq - b.seq);
 export const pending = async (now = Date.now()) => (await all()).filter((e) => e.state === "pending" && (e.nextTry || 0) <= now);
+/** Nächster Eintrag, der gesendet werden darf: je Termin immer der erste in der Reihe. Wartet dieser noch (Wartezeit nach einem Fehler)
+ *  oder hängt in einem Konflikt/Fehler, warten auch alle späteren Einträge desselben Termins – sonst käme z. B. ein Anhang vor dem Anlegen an. */
+export async function nextDue(skip = new Set(), now = Date.now()) {
+  const seen = new Set(skip);
+  for (const e of await all()) {
+    const ev = eventOf(e.target);
+    if (seen.has(ev)) continue;
+    if (e.state === "pending" && (e.nextTry || 0) <= now) return e;
+    seen.add(ev);
+  }
+  return null;
+}
 export const count = async () => (await db.count("outbox"));
 export const countOpen = async () => (await all()).filter((e) => e.state !== "done").length;
 export const get = (seq) => db.get("outbox", seq);
@@ -52,7 +74,7 @@ export async function add(op) {
   const after = coalesce(before, entry);
   const kept = new Set(after.map((e) => e.seq).filter((s) => s !== undefined));
   const ops = [];
-  for (const e of before) if (!kept.has(e.seq)) ops.push({ op: "del", store: "outbox", key: e.seq });
+  for (const e of before) if (!kept.has(e.seq)) { ops.push({ op: "del", store: "outbox", key: e.seq }); if (e.type === "upload") ops.push({ op: "del", store: "files", key: e.opId }); }
   for (const e of after) {
     if (e.seq === undefined) ops.push({ op: "put", store: "outbox", value: e });
     else { const old = before.find((x) => x.seq === e.seq); if (JSON.stringify(old) !== JSON.stringify(e)) ops.push({ op: "put", store: "outbox", value: e }); }
@@ -74,6 +96,7 @@ export const remove = (seq) => db.del("outbox", seq);
 /** Nach dem Anlegen auf dem Server: lokale ID → echte ID in allen wartenden Einträgen (auch in Vorkommen-IDs von Serien). */
 export async function remap(localId, realId, sequence = 0) {
   const ops = [];
+  for (const f of await db.all("files")) if (eventOf(f.target) === localId) ops.push({ op: "put", store: "files", value: { ...f, target: String(f.target).replace(localId, realId) } });
   for (const e of await all()) {
     if (eventOf(e.target) !== localId) continue;
     ops.push({ op: "put", store: "outbox", value: { ...e, target: String(e.target).replace(localId, realId), baseSequence: e.type === "create" ? e.baseSequence : sequence } });

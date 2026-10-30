@@ -9,13 +9,14 @@
 //          kv      Schema 1 (alter Spiegel) – wird nach der Übernahme nicht mehr benutzt und in Schema 3 gelöscht
 // Regeln für künftige Migrationen: outbox nie löschen, nur umformen; occ/events sind Zwischenspeicher und dürfen geleert werden.
 
-export const SCHEMA = 2;
+export const SCHEMA = 3;   // 3: Store `files` (Anhänge, die noch auf den Abgleich warten)
 export const DB_NAME = "ida-kalender";
 export const STORES = {
   occ: { keyPath: "id", indexes: { day: "day", last: "last", event_id: "event_id" } },
   events: { keyPath: "event_id" },
   outbox: { keyPath: "seq", autoIncrement: true, indexes: { target: "target", state: "state" } },
   meta: {},
+  files: { keyPath: "opId" },
   kv: {},
 };
 
@@ -168,7 +169,7 @@ export async function migrate(be) {
   const ops = [];
   let occ = 0;
   let win = null, cals, settings;
-  try { [win, cals, settings] = await Promise.all([be.get("kv", "window"), be.get("kv", "cals"), be.get("kv", "settings")]); } catch { /* kein kv-Store: neue Installation */ }
+  if (done === undefined) try { [win, cals, settings] = await Promise.all([be.get("kv", "window"), be.get("kv", "cals"), be.get("kv", "settings")]); } catch { /* kein kv-Store: neue Installation */ }
   if (win?.events) {
     for (const e of win.events) if (e?.start && e?.end) { ops.push({ op: "put", store: "occ", value: normOcc(e) }); occ++; }
     ops.push({ op: "put", store: "meta", key: "window", value: { at: win.at, from: win.from, to: win.to } });

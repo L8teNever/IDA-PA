@@ -105,6 +105,7 @@ export function requestFor(e) {
   if (e.type === "create") return ["/events", { method: "POST", body: e.body, headers }];
   if (e.type === "update") return [`/events/${enc(e.target)}?scope=${scope}`, { method: "PATCH", body: seq == null ? e.body : { ...e.body, sequence: seq }, headers }];
   if (e.type === "delete") return [`/events/${enc(e.target)}?scope=${scope}${seq == null ? "" : `&sequence=${seq}`}`, { method: "DELETE", headers }];
+  if (e.type === "upload") return [`/events/${enc(outbox.eventOf(e.target))}/files`, { method: "POST", form: "file", headers }];
   if (e.type === "restore") return [`/events/${enc(outbox.eventOf(e.target))}/restore`, { method: "POST", headers }];
   throw new Error(`Unbekannte Art: ${e.type}`);
 }
@@ -117,12 +118,19 @@ export async function push() {
     for (const e of await outbox.all()) if (e.state === "sending") await outbox.mark(e.seq, { state: "pending" });   // vorheriger Durchlauf abgestürzt: Idempotenz macht Wiederholen sicher
     const blocked = new Set();
     for (let guard = 0; guard < 5000; guard++) {
-      const e = (await outbox.pending()).find((x) => !blocked.has(outbox.eventOf(x.target)));
+      const e = await outbox.nextDue(blocked);
       if (!e) break;
       await outbox.mark(e.seq, { state: "sending" });
       try {
         const [path, opts] = requestFor(e);
-        const res = await api(path, { ...opts, timeout: 15000 });
+        if (opts.form === "file") {                                       // Anhang: Datei aus dem lokalen Speicher
+          const f = await db.get("files", e.opId);
+          if (!f) { await outbox.remove(e.seq); continue; }                // Datei gibt es nicht mehr – nichts zu senden
+          const fd = new FormData(); fd.append("file", f.blob, f.name);
+          delete opts.form; opts.form = fd;
+        }
+        const res = await api(path, { ...opts, timeout: opts.form ? 60000 : 15000 });
+        if (e.type === "upload") await db.del("files", e.opId);
         if (e.type === "create" && res.existing && res.deleted) {
           await outbox.mark(e.seq, { state: "conflict", gone: true, tries: 0, error: "Dieser Termin wurde inzwischen gelöscht." });
           blocked.add(outbox.eventOf(e.target)); sum.conflicts++; continue;

@@ -117,3 +117,22 @@ describe("Lokale ID → echte ID", () => {
     assert.deepEqual([...(await ob.protectedEvents())].sort(), ["a1", "b2"]);
   });
 });
+
+describe("Reihenfolge beim Senden (nextDue)", () => {
+  test("wartet das Anlegen noch (Wartezeit), kommt der Anhang dahinter nicht vor", async () => {
+    const id = ob.newLocalId();
+    const c = await ob.add(op("create", id, { title: "A" }));
+    await ob.add(op("upload", id, {}, { opId: "up1" }));
+    await ob.mark(c.seq, { nextTry: Date.now() + 60000 });
+    assert.equal(await ob.nextDue(), null);
+    await ob.mark(c.seq, { nextTry: 0 });
+    assert.equal((await ob.nextDue()).type, "create");
+  });
+  test("ein Konflikt hält nur die Einträge desselben Termins auf", async () => {
+    const a = (await ob.add(op("update", "t1", { title: "x" }))).seq;
+    await ob.add(op("upload", "t1", {}, { opId: "u" }));
+    await ob.add(op("update", "t2", { title: "y" }));
+    await ob.mark(a, { state: "conflict" });
+    assert.equal((await ob.nextDue()).target, "t2");
+  });
+});

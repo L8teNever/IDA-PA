@@ -553,3 +553,8 @@ body.syncing::before { content: ""; position: fixed; left: 0; right: 0; top: 0; 
 .blk.pend-bad::after, .pill.pend-bad::after { content: "sync_problem"; color: #8c1d18; opacity: 1; }
 .pill { position: relative; }
 .card.pend::after, .card.pend-bad::after { display: none; }
+
+/* ---------- Offline: Funktionen, die Internet brauchen ---------- */
+.net-off { opacity: .45; pointer-events: none; }
+.net-off small { color: var(--ev-orange) !important; }
+.card .icons .ms.cloud { color: var(--ev-orange); }

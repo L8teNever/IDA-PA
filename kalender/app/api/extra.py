@@ -4,14 +4,14 @@ import re
 from pathlib import Path
 
 import httpx
-from fastapi import APIRouter, Body, Depends, File, UploadFile
+from fastapi import APIRouter, Body, Depends, File, Request, UploadFile
 from fastapi.responses import FileResponse, Response
 
 from ..auth import Caller, caller
 from ..config import get_settings
 from ..db import session_scope
 from ..errors import Forbidden, Invalid, NotFound
-from ..services import push, store
+from ..services import idem, push, store
 from ..services import recurrence as rec
 from ..services import settings as cfg
 
@@ -50,21 +50,25 @@ async def list_files(occ_id: str, c: Caller = Depends(caller)):
 
 
 @router.post("/events/{occ_id}/files")
-async def upload(occ_id: str, file: UploadFile = File(...), c: Caller = Depends(caller)):
-    async with session_scope() as db:
-        ev = await _event(db, occ_id, c.by, write=True)
+async def upload(occ_id: str, request: Request, file: UploadFile = File(...), c: Caller = Depends(caller)):
+    """Mit `Idempotency-Key` (Offline-Abgleich) wirkt dieselbe Anfrage nur einmal – ein erneutes Senden legt keine zweite Datei an."""
     data = await file.read(MAX_FILE + 1)
     if len(data) > MAX_FILE:
         raise Invalid("Die Datei ist zu groß (höchstens 20 MB)")
-    d = _dir(ev.id)
-    d.mkdir(parents=True, exist_ok=True)
-    name = _safe(file.filename)
-    stem, suf, i = Path(name).stem, Path(name).suffix, 1
-    while (d / name).exists():
-        i += 1
-        name = f"{stem} ({i}){suf}"
-    (d / name).write_bytes(data)
-    return {"files": _listing(d), "name": name}
+    async with session_scope(write=True) as db:
+        ev = await _event(db, occ_id, c.by, write=True)
+
+        async def go():
+            d = _dir(ev.id)
+            d.mkdir(parents=True, exist_ok=True)
+            name = _safe(file.filename)
+            stem, suf, i = Path(name).stem, Path(name).suffix, 1
+            while (d / name).exists():
+                i += 1
+                name = f"{stem} ({i}){suf}"
+            (d / name).write_bytes(data)
+            return {"files": _listing(d), "name": name}
+        return await idem.run(db, request, go)
 
 
 @router.get("/files/{event_id}/{name}")

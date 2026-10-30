@@ -2,6 +2,8 @@
 // Routing, Blättern mit dem Finger, Tastenkürzel, Live-Updates (auch von Ida), Erinnerungen.
 import { api, live } from "./api.js";
 import * as repo from "./repo.js";
+import * as files from "./files.js";
+import * as alarms from "./alarms.js";
 import * as sync from "./sync.js";
 import { persist } from "./storage.js";
 import { Q, S, cachedEvents, calOf, flushQueue, importLegacy, loadEvents, loadMeta, queued, refreshQ, saveHidden } from "./store.js";
@@ -67,6 +69,7 @@ export async function mount(el, opts = {}) {
   const cached = await cachedEvents();
   if (cached) { S.events = cached; paint(true); } else $("#stage").innerHTML = `<div class="view">${skeleton()}</div>`;
   await importLegacy().catch(() => {});
+  await files.prune().catch(() => {});
   await refreshQ().catch(() => {});
   await render(true);
   sync.start();
@@ -74,10 +77,35 @@ export async function mount(el, opts = {}) {
   const q = new URLSearchParams(location.search);
   if (q.get("neu")) openEditor();
   if (q.get("neu") || q.get("heute")) history.replaceState(history.state, "", location.pathname);
-  setInterval(tick, 60000);
+  setInterval(tick, 30000);
+  tick();
+}
+
+/** Ohne Verbindung: Erinnerungen selbst auslösen (aus dem lokalen Speicher). Online macht das der Server – beide merken sich, was schon gezeigt wurde. */
+export async function localAlarms() {
+  if (S.net === "online") return;
+  const now = new Date();
+  const shown = (await repo.loadMeta("alarmsShown")) || {};
+  const list = alarms.due(await repo.range(addDays(now, -1), addDays(now, 2)), now, shown);
+  if (!list.length) return;
+  await repo.saveMeta("alarmsShown", alarms.remember(shown, list.map((x) => x.key), now));
+  if (inQuiet()) return;
+  for (const a of list) fireAlarm(a);
+}
+async function rememberAlarm(evt) {
+  const shown = (await repo.loadMeta("alarmsShown")) || {};
+  await repo.saveMeta("alarmsShown", alarms.remember(shown, [alarms.keyOf(evt.occurrence_id, evt.minutes)], new Date()));
+}
+function fireAlarm(evt) {
+  showAlarm(evt);
+  if ("Notification" in window && Notification.permission === "granted" && document.hidden) {
+    navigator.serviceWorker?.ready.then((r) => r.showNotification(evt.title, { body: `${evt.all_day ? "Heute" : hm(new Date(evt.start))}${evt.location ? ` · ${evt.location}` : ""}`, tag: evt.occurrence_id, icon: `${base}/manifest.webmanifest` }))
+      .catch(() => new Notification(evt.title));
+  }
 }
 
 function tick() {
+  localAlarms().catch(() => {});
   const n = $("#nowLine"), d = new Date();
   if (n) n.style.top = `${(d.getHours() * 60 + d.getMinutes()) / 60 * S.hh}px`;
   $("#todayNum").textContent = d.getDate();
@@ -144,7 +172,7 @@ function fabMenu(open) {
   if (!open) { m.innerHTML = ""; return; }
   const items = [["event", "Termin", () => openEditor({ start: defaultStart(), fromFab: true })], ["bolt", "Schnelleingabe", openQuick],
     ["today", "Ganztägig", () => openEditor({ start: new Date(S.sel), allDay: true, fromFab: true })], ["content_copy", "Aus Vorlage", fromTemplate],
-    ...(S.meta.ask ? [["auto_awesome", "Ida fragen", () => openAsk()]] : [])];
+    ...(S.meta.ask && S.net === "online" ? [["auto_awesome", "Ida fragen", () => openAsk()]] : [])];
   m.innerHTML = items.map(([ic, l], i) => `<button data-i="${i}" style="--i:${i}"><span class="ms">${ic}</span>${l}</button>`).join("");
   const acts = items.map((x) => x[2]);
   m.querySelectorAll("button").forEach((b) => (b.onclick = () => { fabMenu(false); acts[+b.dataset.i](); }));
@@ -382,12 +410,9 @@ function inQuiet() {
 const VERB = { create: "angelegt", update: "geändert", delete: "gelöscht", restore: "wiederhergestellt", undo: "zurückgenommen", move: "verschoben" };
 function onLive(evt) {
   if (evt.type === "alarm") {
+    rememberAlarm(evt).catch(() => {});
     if (inQuiet()) return;
-    showAlarm(evt);
-    if ("Notification" in window && Notification.permission === "granted" && document.hidden) {
-      navigator.serviceWorker?.ready.then((r) => r.showNotification(evt.title, { body: `${evt.all_day ? "Heute" : hm(new Date(evt.start))}${evt.location ? ` · ${evt.location}` : ""}`, tag: evt.occurrence_id, icon: `${base}/manifest.webmanifest` }))
-        .catch(() => new Notification(evt.title));
-    }
+    fireAlarm(evt);
     return;
   }
   if (evt.type !== "changed") return;

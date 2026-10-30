@@ -5,7 +5,13 @@ Ziel: Am Handy (installierte PWA) sind die Termine **immer da**, auch ohne Netz.
 ohne Datenverlust** abgeglichen. Das muss auch **nach App-Updates** weiter funktionieren
 (offene Änderungen dürfen ein Update nie überleben „müssen“, sondern werden mitgenommen).
 
-Stand: Plan, noch nicht umgesetzt. Ergänzt `docs/KALENDER.md` §11 (PWA) und §7.12 (Zustände).
+Stand: **umgesetzt** (Phase 1–4). Ergänzt `docs/KALENDER.md` §11 (PWA) und §7.12 (Zustände).
+Das *Wie* je Arbeitspaket steht in `docs/KALENDER-OFFLINE-AUFGABEN.md`; die Tests dazu liegen in
+`frontend/kalender/test/` (Logik, `node --test`), `kalender/e2e/` (Browser, Playwright), `kalender/tests/` (Server) und
+`kalender/upgrade/` (neues Image auf den Daten des veröffentlichten, nur in CI).
+
+Was zusätzlich zum Plan dazugekommen ist: Je Termin wird immer der erste Eintrag der Reihe gesendet – wartet er noch
+(Wartezeit nach einem Fehler) oder hängt er im Konflikt, warten auch Anhänge und Änderungen dahinter (`outbox.nextDue`).
 
 ---
 
@@ -187,7 +193,7 @@ Jeder Eintrag:
   Solange die App offen ist, prüft sie zusätzlich lokal (aus `occ`) und zeigt die Erinnerung selbst.
   Zuverlässig ohne Netz geht es nur über das Abo/CalDAV in der Handy-Kalender-App (DAVx⁵) – bleibt optional.
 * **Komplexe Serienregeln** werden offline nur angenähert angezeigt (§4), gespeichert wird korrekt.
-* **Anhänge offline** erst in Phase 4 (Blob in IndexedDB, Upload nach dem Termin).
+* **Anhänge offline** liegen als Blob in IndexedDB (Store `files`, höchstens 20 MB je Datei und 100 MB gesamt) und werden nach dem Termin hochgeladen – mit Idempotency-Key, also nie doppelt.
 * Ida-Tools arbeiten direkt am Server; Ida sieht Offline-Änderungen erst nach dem Abgleich.
 
 ---

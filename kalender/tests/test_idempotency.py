@@ -123,3 +123,12 @@ def test_old_requests_are_cleaned_up(client):
     assert client.post(f"{API}/_test/maintenance").status_code == 200   # frische Einträge bleiben
     again = client.post(f"{API}/events", json={"title": "Aufräumen", "start": "2035-04-05T10:00"}, headers=h)
     assert again.headers.get("idempotent-replay") == "1"
+
+
+def test_upload_with_the_same_key_creates_one_file(client):
+    ev = mk(client, "Anhang-Idem", "2033-03-01T10:00")["event"]
+    h = {"Idempotency-Key": "upload-key-0001"}
+    one = client.post(f"{API}/events/{ev['id']}/files", files={"file": ("Plan.pdf", b"eins", "application/pdf")}, headers=h)
+    two = client.post(f"{API}/events/{ev['id']}/files", files={"file": ("Plan.pdf", b"eins", "application/pdf")}, headers=h)
+    assert one.status_code == two.status_code == 200 and two.headers.get("idempotent-replay") == "1"
+    assert one.json() == two.json() and len(client.get(f"{API}/events/{ev['id']}/files").json()["files"]) == 1

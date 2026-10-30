@@ -123,8 +123,11 @@ def test_lost_response_does_not_create_a_duplicate(server, ctx, page):
 
     def handler(route):
         if route.request.method == "POST" and state["drop"]:
-            route.fetch()                       # der Server bekommt die Anfrage und speichert
-            route.abort("connectionfailed")     # der Browser erfährt es nicht
+            try:
+                route.fetch()                   # der Server bekommt die Anfrage und speichert
+                route.abort("connectionfailed") # der Browser erfährt es nicht
+            except Exception:                   # Frist der App schon abgelaufen: die Anfrage ist bereits abgebrochen – auch gut
+                pass
         else:
             route.continue_()
     page.route("**/api/v1/events", handler)

@@ -738,6 +738,7 @@ frontend/js/pages/calendar.js            IDA-Seite: import("/kal/s/<v>/js/app.js
 * **Service Worker:**
   * Die App-Hülle (versionierte `/s/<v>/…`-Dateien) wird beim Installieren gecacht.
   * Termine von ±3 Monaten liegen in **IndexedDB** und sind offline lesbar, mit dem Hinweis „Offline – Stand 14:02“.
+* **Offline schreiben (umgesetzt, Details in `docs/KALENDER-OFFLINE.md`):** Änderungen landen in einer Outbox in IndexedDB, sind sofort sichtbar (Wolken-Symbol) und werden beim nächsten Internet der Reihe nach, nie doppelt und ohne Datenverlust gesendet; bei Konflikten fragt ein Dialog nach. Die ältere Beschreibung darunter bleibt als Hintergrund stehen:
 * **Offline schreiben:**
   * Änderungen kommen in eine Warteschlange und werden beim Wiederverbinden gesendet.
   * Bei einem Konflikt (`updated_at` ist neuer) erscheint ein Dialog: „Meine Version / Server-Version“.
