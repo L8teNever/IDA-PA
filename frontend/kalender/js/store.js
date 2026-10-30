@@ -2,11 +2,12 @@
 import { api, ApiError, onNet } from "./api.js";
 import { addDays, addMonths, monthGrid, startOfDay, weekStart, ymd } from "./dates.js";
 import * as repo from "./repo.js";
+import * as sync from "./sync.js";
 
 const hiddenKey = "kal-hidden";
 export const S = {
   view: "monthday", date: startOfDay(new Date()), sel: startOfDay(new Date()),
-  events: [], cals: [], settings: {}, meta: {}, loadedAt: null, loaded: false,
+  events: [], cals: [], settings: {}, meta: {}, loadedAt: null, loaded: false, outside: false,
   net: navigator.onLine === false ? "offline" : "online",   // online | offline | auth (Anmeldung abgelaufen) | syncing
   get offline() { return this.net === "offline" || this.net === "auth"; },
   agFrom: startOfDay(new Date()), agTo: addDays(startOfDay(new Date()), 60),
@@ -55,27 +56,25 @@ export async function cachedEvents() {
   return (await repo.windowInfo()) ? repo.range(a, b) : null;
 }
 
+/** Die Ansichten lesen aus dem lokalen Speicher (sofort, online wie offline); der Abgleich (sync.js) hält ihn aktuell.
+ *  Nur beim allerersten Start ohne gespeicherte Daten muss das Netz einmal direkt gefragt werden. */
 export async function loadEvents() {
   const [a, b] = rangeOf();
-  try {
+  const win = await repo.windowInfo();
+  S.outside = false;
+  if (!win) {
     const r = await api(`/events?from=${ymd(a)}&to=${ymd(b)}`);
     S.events = r.events; S.loadedAt = new Date();
-  } catch (e) {
-    if (!(e instanceof ApiError) || (e.kind !== "offline" && e.kind !== "auth")) throw e;
-    const win = await repo.windowInfo();
+    sync.pull({ full: true }).catch(() => {});
+  } else {
+    if (!(await sync.covers(a, b))) {
+      if (S.net === "online") await sync.extend(a, b).catch(() => {});
+      S.outside = !(await sync.covers(a, b));
+    }
     S.events = await repo.range(a, b);
-    S.loadedAt = win ? new Date(win.at) : null;
+    S.loadedAt = new Date(Math.max(win.at || 0, sync.status.last || 0));
   }
   S.loaded = true;
-}
-
-/** ±3 Monate im Hintergrund spiegeln, damit der Kalender offline lesbar bleibt. */
-export async function mirror() {
-  try {
-    const a = addMonths(new Date(), -3), b = addMonths(new Date(), 4);
-    const r = await api(`/events?from=${ymd(a)}&to=${ymd(b)}`);
-    await repo.saveRange(r.events, a, b);
-  } catch { /* offline */ }
 }
 
 export const visible = () => S.events.filter((e) => !S.hidden.has(e.calendar_id) && (S.settings.show_holidays !== false || !e.holiday));

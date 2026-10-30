@@ -34,6 +34,14 @@ async def get_all(db: AsyncSession) -> dict:
     return {**DEFAULTS, **{k: v for k, v in rows.items() if k in DEFAULTS}}
 
 
+async def touch(db: AsyncSession, name: str) -> str:
+    """Merkt, wann sich „calendars“ bzw. „settings“ zuletzt geändert haben (der Abgleich schickt sie dann mit)."""
+    from ..db import utcnow
+    ts = utcnow().isoformat(timespec="microseconds")
+    await put(db, f"{name}_changed_at", ts)
+    return ts
+
+
 async def get(db: AsyncSession, key: str):
     s = await db.get(Setting, key)
     return s.value if s else DEFAULTS.get(key)
@@ -55,6 +63,7 @@ async def update(db: AsyncSession, patch: dict) -> dict:
         if not isinstance(v, want) and not (want is int and isinstance(v, bool)) and not (want is bool and isinstance(v, bool)):
             raise Invalid(f"Einstellung {k}: falscher Typ")
         await put(db, k, v)
+    await touch(db, "settings")
     await db.flush()
     return await get_all(db)
 

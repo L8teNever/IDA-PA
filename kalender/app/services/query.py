@@ -32,7 +32,8 @@ def occ_view(ev: Event, occ: rec.Occ, cal: Calendar) -> dict:
          "start": start, "end": end, "all_day": ev.all_day, "location": ev.location, "color": ev.color or cal.color,
          "recurring": bool(ev.rrule) or bool(ev.recurrence_parent_id), "recurrence_text": rec.describe(ev.rrule) if ev.rrule else "",
          "alarms": ev.alarms, "status": ev.status, "transparency": ev.transparency, "travel_min": ev.travel_min,
-         "created_by": ev.created_by, "updated_by": ev.updated_by, "read_only": cal.kind == "holidays", "has_description": bool(ev.description)}
+         "created_by": ev.created_by, "updated_by": ev.updated_by, "read_only": cal.kind == "holidays", "has_description": bool(ev.description),
+         "sequence": ev.sequence or 0, "updated_at": iso(ev.updated_at)}
     if ev.birth_year:
         v["age"] = int(_day_str(occ.start, ev.tzid)[:4]) - ev.birth_year
     return v

@@ -14,7 +14,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import db, seed
-from .api import calendars, events, extra, ics, misc
+from .api import calendars, events, extra, ics, misc, sync
 from .config import get_settings
 from .errors import Conflict, Forbidden, Invalid, NotFound
 from .services import alarms, outbox, scheduler
@@ -85,11 +85,11 @@ def create_app() -> FastAPI:
     for exc, code in ((Invalid, 400), (NotFound, 404), (Forbidden, 403), (Conflict, 409)):
         def make(code):
             async def handler(_: Request, e):
-                return JSONResponse({"detail": str(e)}, status_code=code)
+                return JSONResponse({"detail": str(e), **getattr(e, "extra", {})}, status_code=code)
             return handler
         app.add_exception_handler(exc, make(code))
 
-    for r in (calendars, events, extra, misc, ics):
+    for r in (calendars, events, extra, misc, ics, sync):
         app.include_router(r.router)
 
     if s.kalender_testing:

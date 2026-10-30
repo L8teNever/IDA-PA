@@ -81,7 +81,7 @@ async def update_event(occ_id: str, body: dict = Body(...), scope: str = "all", 
         if body.get("sequence") is not None:  # Offline-Änderungen: nur, wenn der Termin seitdem nicht geändert wurde
             cur = await store.get_event(db, eid, c.by, write=True)
             if int(body["sequence"]) != (cur.sequence or 0):
-                raise Conflict("Der Termin wurde zwischenzeitlich geändert")
+                raise Conflict("Der Termin wurde zwischenzeitlich geändert", {"server": await _detail(db, cur)})
         evs = await store.update_occurrence(db, occ_id, {k: v for k, v in body.items() if k != "sequence"}, scope, c.by, c.via)
         main = evs[0]
         return {"event": await _detail(db, main, rec.key_of(rec.local_start(main.start_at, main.tzid)) if main.rrule else None),

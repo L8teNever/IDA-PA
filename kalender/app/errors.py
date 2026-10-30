@@ -14,4 +14,8 @@ class Forbidden(Exception):
 
 
 class Conflict(Exception):
-    """409 – der Termin wurde zwischenzeitlich geändert."""
+    """409 – der Termin wurde zwischenzeitlich geändert. `extra` (z. B. {"server": <aktueller Termin>}) kommt mit in die Antwort."""
+
+    def __init__(self, msg: str, extra: dict | None = None):
+        super().__init__(msg)
+        self.extra = extra or {}

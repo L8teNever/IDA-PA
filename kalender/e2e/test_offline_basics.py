@@ -30,7 +30,7 @@ def test_schema_1_data_is_taken_over_offline(server, ctx, page):
     go_offline(ctx)
     # alte Datenbank von Hand herstellen: Version 1, ein Store "kv" mit dem Spiegel
     page.evaluate("""async () => {
-      await new Promise((res) => { const r = indexedDB.deleteDatabase('ida-kalender'); r.onsuccess = res; r.onerror = res; r.onblocked = res; });
+      await new Promise((res) => { const r = indexedDB.deleteDatabase('ida-kalender'); r.onsuccess = res; r.onerror = res; });  // onblocked: die App schliesst ihre Verbindung bei versionchange, danach kommt onsuccess
       const d = new Date(); d.setHours(10, 0, 0, 0); const e = new Date(d.getTime() + 3600000);
       const ev = { id: 'alt1', event_id: 'alt1', title: 'Alter Handy-Termin', start: d.toISOString().slice(0,19) + '+00:00', end: e.toISOString().slice(0,19) + '+00:00',
                    all_day: false, calendar_id: 'x', calendar: 'Privat', color: 'blau', location: '', alarms: [], recurring: false, status: 'confirmed', transparency: 'busy', created_by: 'user', updated_by: 'user' };

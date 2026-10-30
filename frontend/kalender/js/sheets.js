@@ -104,7 +104,13 @@ let detailOpen = null;
 
 export async function openDetail(id) {
   let e;
-  try { e = (await api(`/events/${encodeURIComponent(id)}`)).event; } catch (x) { return fail(x); }
+  try {
+    e = await repo.cachedDetail(id);                       // gespeichert → sofort, auch offline
+    if (!e) { e = (await api(`/events/${encodeURIComponent(id)}`)).event; repo.putDetail(id, e); }
+  } catch (x) {
+    e = x.kind === "offline" || x.kind === "auth" ? await repo.occDetail(id) : null;   // offline: wenigstens das, was die Liste weiß
+    if (!e) return fail(x);
+  }
   const ro = e.read_only, cal = calOf(e.calendar_id);
   const sc = document.createElement("div"); sc.className = "ev-scrim";
   const sh = document.createElement("div"); sh.className = "ev-sheet";
@@ -125,6 +131,7 @@ export async function openDetail(id) {
       ${row("calendar_month", `<span class="dot" style="${cstyle(cal?.color || e.color)}"></span>${esc(cal?.name || e.calendar)}`)}
       ${e.url ? row("link", `<a href="${esc(e.url)}" target="_blank" rel="noopener">${esc(e.url)}</a>`) : ""}
       ${e.description ? row("notes", `<div class="es-desc">${md(e.description)}</div>`) : ""}
+      ${e.partial ? row("cloud_off", '<span class="s">Offline – Beschreibung und weitere Details sind erst mit Internet da</span>') : ""}
       <div id="esFiles"></div>
       <div class="es-hist" id="esHist"></div>
     </div>

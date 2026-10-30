@@ -1,8 +1,10 @@
 // Hülle: Top-Bar mit Mini-Monat, Floating Toolbar + FAB (am Tablet/PC Navigation Rail), Drawer/Seitenleiste,
 // Routing, Blättern mit dem Finger, Tastenkürzel, Live-Updates (auch von Ida), Erinnerungen.
 import { api, live } from "./api.js";
+import * as repo from "./repo.js";
+import * as sync from "./sync.js";
 import { persist } from "./storage.js";
-import { S, cachedEvents, calOf, flushQueue, loadEvents, loadMeta, mirror, queued, saveHidden } from "./store.js";
+import { S, cachedEvents, calOf, flushQueue, loadEvents, loadMeta, queued, saveHidden } from "./store.js";
 import { addDays, addMonths, daysBetween, hm, isoWeek, monthName, parseYmd, sameDay, setWeekStart, shortDay, startOfDay, ymd } from "./dates.js";
 import { agenda, cstyle, esc, gridDays, miniMonth, month, monthday, skeleton, timegrid, year } from "./views.js";
 import { bindGrid, bindGrip, bindSwipe, longPress, swallowClick } from "./gestures.js";
@@ -34,7 +36,7 @@ export async function mount(el, opts = {}) {
   fromPath();
   shell();
   setHooks({
-    changed: async (metaToo) => { if (metaToo === true) { await loadMeta(); setWeekStart(S.settings.week_start ?? 1); drawer(); } else if (metaToo) flash([metaToo]); render(true); },
+    changed: async (metaToo) => { if (metaToo === true) { await loadMeta(); setWeekStart(S.settings.week_start ?? 1); drawer(); } else if (metaToo) flash([metaToo]); await sync.pull().catch(() => {}); render(true); },
     jump: (e) => { const d = e.all_day ? parseYmd(e.start) : startOfDay(new Date(e.start)); S.date = S.sel = d; setView("day"); },
     only: (id) => { S.hidden = new Set(S.cals.map((c) => c.id).filter((x) => x !== id)); saveHidden(); drawer(); paint(true); },
   });
@@ -43,20 +45,21 @@ export async function mount(el, opts = {}) {
     if (document.body.classList.contains("dr-open")) { document.body.classList.remove("dr-open"); drawerWait.splice(0).forEach((r) => r()); return; }
     fromPath(); render();
   });
-  addEventListener("online", async () => { const n = await flushQueue(); if (n) toast(`${n} Offline-Änderung${n > 1 ? "en" : ""} gesendet`); render(true); });
+  addEventListener("online", async () => { const n = await flushQueue(); if (n) toast(`${n} Offline-Änderung${n > 1 ? "en" : ""} gesendet`); await sync.pull().catch(() => {}); render(true); });
+  repo.onChange(() => render(true));
   addEventListener("kal:net", () => { paintOffline(); if (S.net === "online") render(true); });
   $("#offline").addEventListener("click", (e) => { if (e.target.closest("[data-login]")) location.reload(); });
   addEventListener("keydown", keys);
   matchMedia("(prefers-color-scheme: light)").addEventListener?.("change", applyTheme);
   addEventListener("resize", () => { document.body.classList.toggle("wide", innerWidth >= 1000); });
   addEventListener("beforeinstallprompt", (e) => { e.preventDefault(); installEvt = e; document.body.classList.add("can-install"); });
-  live(onLive, (ok) => { if (ok && queued()) flushQueue().then(() => render(true)); });
+  live(onLive, (ok) => { if (ok) (queued() ? flushQueue() : Promise.resolve()).then(() => sync.pull()).catch(() => {}); });
   // sofort aus dem Spiegel zeigen, dann vom Server (nie ein leerer Bildschirm)
   const cached = await cachedEvents();
   if (cached) { S.events = cached; paint(true); } else $("#stage").innerHTML = `<div class="view">${skeleton()}</div>`;
   await flushQueue();
   await render(true);
-  mirror();
+  sync.start();
   persist();
   const q = new URLSearchParams(location.search);
   if (q.get("neu")) openEditor();
@@ -379,10 +382,10 @@ function onLive(evt) {
   if (agent && S.settings.highlight_agent !== false) {
     flash(evt.ids || []);
     const acts = evt.action !== "delete" && evt.ids?.[0] ? [{ label: "Ansehen", run: () => openDetail(evt.ids[0]) }] : [];
-    if (evt.change_id) acts.push({ label: "Rückgängig", run: async () => { try { await api(`/changes/${evt.change_id}/undo`, { method: "POST" }); render(true); } catch (x) { toast(x.message); } } });
+    if (evt.change_id) acts.push({ label: "Rückgängig", run: async () => { try { await api(`/changes/${evt.change_id}/undo`, { method: "POST" }); await sync.pull(); } catch (x) { toast(x.message); } } });
     toast(`Ida hat „${evt.title || "einen Termin"}“ ${VERB[evt.action] || "geändert"}`, acts);
   }
-  render(true);
+  sync.pull().catch(() => {});
 }
 
 // ---------------- Zeichnen ----------------
@@ -405,7 +408,7 @@ function paintOffline() {
   const n = queued(), wait = n ? ` · ${n} Änderung${n > 1 ? "en" : ""} warten` : "";
   const bar = $("#offline");
   if (S.net === "auth") bar.innerHTML = `Anmeldung abgelaufen${wait} <button type="button" class="link" data-login>Anmelden</button>`;
-  else if (S.net === "offline") bar.textContent = `Offline – Stand ${S.loadedAt ? hm(S.loadedAt) : "?"}${wait}`;
+  else if (S.net === "offline") bar.textContent = `Offline – Stand ${S.loadedAt ? hm(S.loadedAt) : "?"}${wait}${S.outside ? " · dieser Zeitraum ist nicht gespeichert" : ""}`;
   else bar.textContent = "";
   document.body.classList.toggle("show-bar", S.net === "offline" || S.net === "auth");
 }

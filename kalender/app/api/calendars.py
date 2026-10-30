@@ -8,6 +8,7 @@ from ..db import session_scope
 from ..errors import Forbidden, Invalid, NotFound
 from ..models import Calendar, Event
 from ..services import search, store
+from ..services import settings as cfg
 
 router = APIRouter(prefix="/api/v1", tags=["calendars"])
 ACCESS = ("write", "read", "none")
@@ -48,12 +49,16 @@ def _check(body: dict, c: Caller, creating: bool) -> dict:
     return out
 
 
+async def payload(db, by: str) -> list[dict]:
+    rows = (await db.scalars(select(Calendar).order_by(Calendar.position, Calendar.name))).all()
+    counts = dict((await db.execute(select(Event.calendar_id, func.count()).where(Event.deleted_at.is_(None)).group_by(Event.calendar_id))).all())
+    return [{**view(r), "events": counts.get(r.id, 0)} for r in rows if store.readable(r, by)]
+
+
 @router.get("/calendars")
 async def list_calendars(c: Caller = Depends(caller)):
     async with session_scope() as db:
-        rows = (await db.scalars(select(Calendar).order_by(Calendar.position, Calendar.name))).all()
-        counts = dict((await db.execute(select(Event.calendar_id, func.count()).where(Event.deleted_at.is_(None)).group_by(Event.calendar_id))).all())
-        return {"calendars": [{**view(r), "events": counts.get(r.id, 0)} for r in rows if store.readable(r, c.by)]}
+        return {"calendars": await payload(db, c.by)}
 
 
 @router.post("/calendars")
@@ -66,6 +71,7 @@ async def create_calendar(body: dict = Body(...), c: Caller = Depends(caller)):
         cal = Calendar(**{"color": "blau", "position": min(n + 1, 8), "agent_access": "write", "default_alarms": [], **f})
         db.add(cal)
         await db.flush()
+        await cfg.touch(db, "calendars")
         return view(cal)
 
 
@@ -85,6 +91,7 @@ async def update_calendar(cid: str, body: dict = Body(...), c: Caller = Depends(
                 o.is_default = False
             cal.is_default = True
         await db.flush()
+        await cfg.touch(db, "calendars")
         return view(cal)
 
 
@@ -104,4 +111,5 @@ async def delete_calendar(cid: str, c: Caller = Depends(caller)):
             await search.unindex(db, eid)
         n = await db.scalar(select(func.count()).select_from(Event).where(Event.calendar_id == cid))
         await db.delete(cal)
+        await cfg.touch(db, "calendars")
         return {"ok": True, "deleted_events": n}

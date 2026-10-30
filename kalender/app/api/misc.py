@@ -19,6 +19,7 @@ from ..services import recurrence as rec
 from ..services.timeutil import UTC, iso, local_now, parse_input, range_from, zone
 
 router = APIRouter(prefix="/api/v1", tags=["misc"])
+API_LEVEL = 2  # 2: sequence an jedem Vorkommen, /sync, 409 mit Server-Stand
 
 
 # ---------------- Verlauf / Rückgängig ----------------
@@ -251,4 +252,4 @@ async def meta(request: Request):
     s = get_settings()
     return {"name": "IDA Kalender", "version": getattr(request.app.state, "version", ""), "timezone": s.timezone, "palette": palette.palette(),
             "ida": bool(s.ida_webhook_url), "ask": bool(s.ida_internal_url and s.kalender_ida_token), "public_url": s.kalender_public_url, "mcp": bool(s.kalender_mcp_token),
-            "state": s.kalender_state}
+            "state": s.kalender_state, "api": API_LEVEL, "min_client": ""}

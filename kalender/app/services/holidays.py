@@ -29,6 +29,6 @@ def occurrences(start: datetime, end: datetime, state: str, cal: Calendar) -> li
             out.append({"id": f"hol_{d:%Y%m%d}", "event_id": f"hol_{d:%Y%m%d}", "calendar_id": cal.id, "calendar": cal.name, "title": name.split(" (")[0],
                         "start": d.isoformat(), "end": (d + timedelta(days=1)).isoformat(), "all_day": True, "location": "", "color": cal.color,
                         "recurring": False, "recurrence_text": "", "alarms": [], "status": "confirmed", "transparency": "free", "travel_min": 0,
-                        "created_by": "system", "updated_by": "system", "read_only": True, "has_description": False, "holiday": True})
+                        "created_by": "system", "updated_by": "system", "read_only": True, "has_description": False, "holiday": True, "sequence": 0, "updated_at": ""})
         d += timedelta(days=1)
     return out
