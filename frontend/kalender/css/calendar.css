@@ -16,13 +16,24 @@ mark { background: rgba(var(--accent-rgb), .22); color: var(--accent); border-ra
 button.link { border: 0; background: none; color: var(--accent); font: inherit; font-weight: 600; cursor: pointer; padding: 4px 6px; }
 
 /* ---------- Top-Bar (64 px) ---------- */
-.top { height: calc(64px + env(safe-area-inset-top)); padding: env(safe-area-inset-top) 6px 0; display: flex; align-items: center; gap: 2px; flex: none; z-index: 6; transition: background .25s; }
-.top.scrolled { background: var(--surface); }
-.title { border: 0; background: none; color: var(--on-surface); font: inherit; font-size: 1.375rem; font-weight: 500; display: flex; align-items: center; gap: 2px; padding: 8px 6px 8px 8px; border-radius: 16px; cursor: pointer; white-space: nowrap; min-width: 0; overflow: hidden; }
-.title small { font-size: .8125rem; color: var(--muted); font-weight: 400; margin-left: 8px; }
-.title .caret { font-size: 22px; color: var(--muted); transition: transform .3s var(--spring); }
+/* Kopfzeile wie die untere Leiste: links ein weiches Quadrat (wie der Plus-Knopf), daneben eine schwebende Pille */
+.top { padding: calc(env(safe-area-inset-top) + 10px) 12px 10px; display: flex; align-items: center; gap: 12px; flex: none; z-index: 6; }
+.hq { width: var(--bar-h); height: var(--bar-h); flex: none; border: 0; border-radius: 18px; cursor: pointer; display: grid; place-items: center;
+  background: var(--surface-highest); color: var(--on-surface); box-shadow: 0 4px 16px rgba(0,0,0,.6); transition: border-radius .3s var(--spring), transform .2s var(--spring); }
+.hq:active { border-radius: 28px; transform: scale(.94); }
+.hpill { flex: 1; min-width: 0; height: var(--bar-h); border-radius: 28px; background: var(--surface-highest); box-shadow: 0 4px 16px rgba(0,0,0,.6);
+  display: flex; align-items: center; gap: 2px; padding: 0 4px; }
+.hpill .icon-btn.plain { flex: none; }
+.title { flex: 1; height: 48px; border: 0; background: none; color: var(--on-surface); font: inherit; font-size: 1.25rem; font-weight: 500; letter-spacing: -.2px;
+  display: flex; align-items: center; gap: 8px; padding: 0 6px 0 14px; border-radius: 24px; cursor: pointer; white-space: nowrap; min-width: 0; overflow: hidden; transition: background .2s; }
+.title:active { background: rgba(255,255,255,.06); }
+.title .tx { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.kw { flex: none; font-size: .75rem; font-weight: 600; background: var(--container); color: var(--on-container); border-radius: 10px; padding: 3px 8px; letter-spacing: 0; }
+.title .caret { font-size: 22px; color: var(--muted); margin-left: -4px; flex: none; transition: transform .3s var(--spring); }
 .title.open .caret { transform: rotate(180deg); }
 .today-btn { position: relative; }
+.hpill .today-btn { background: var(--container); color: var(--on-container); }
+.hpill .today-btn b { color: var(--on-container); }
 .today-btn .ms { font-size: 26px; }
 .today-btn b { position: absolute; left: 50%; top: 57%; transform: translate(-50%, -50%); font-size: .5625rem; font-weight: 700; color: var(--on-surface); }
 .today-btn.pulse { animation: pulse 1.6s var(--emph) 2; }
@@ -533,6 +544,8 @@ body.light .askida { border-color: #cfd4dc; }
 body.light .scrim, body.light .ed-scrim, body.light .bs-scrim { background: rgba(0,0,0,.3); }
 body.light .now-line { border-top-color: #ba1a1a; } body.light .now-line::before { background: #ba1a1a; }
 body.light .today-btn b { color: var(--on-surface); }
+body.light .hpill .today-btn b { color: var(--on-container); }
+body.light .hq, body.light .hpill { box-shadow: 0 4px 16px rgba(0,0,0,.12); }
 body.light .yd.band { background: color-mix(in srgb, var(--c) 30%, #fff); color: #1b1b1f; }
 
 /* Abgleich, Konflikte, Leiste */

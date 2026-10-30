@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="de"><head><meta charset="utf-8"><title>IDA Kalender – Header-Entwürfe</title>
+<link rel="stylesheet" href="../../frontend/css/tokens.css"><link rel="stylesheet" href="../../frontend/css/components.css">
+<style>
+ body{overflow:auto;height:auto;display:block;padding:24px;background:#0b0b0d}
+ h2{font:500 14px "Google Sans Flex";color:#9a9ca3;margin:0 0 10px;height:36px}
+ .row{display:flex;gap:28px;align-items:flex-start}
+ .col{width:412px;flex:none}
+ .phone{position:relative;width:412px;height:540px;background:#000;border-radius:28px;overflow:hidden;border:1px solid #222}
+ .ms{font-size:24px}
+ .days{display:grid;grid-template-columns:repeat(3,1fr);padding-left:40px;margin-right:6px;text-align:center;color:var(--muted);font-size:11px}
+ .days b{display:grid;place-items:center;width:32px;height:32px;margin:2px auto 0;font-size:18px;font-weight:500;color:var(--on-surface);border-radius:50%}
+ .days .t b{background:var(--accent);color:var(--on-accent);font-size:15px}
+ .grid{position:absolute;left:40px;right:6px;top:var(--gt);bottom:0;border-left:1px solid #1d1f23;background-image:linear-gradient(#1d1f23 1px,transparent 1px);background-size:100% 64px}
+ .grid::before,.grid::after{content:"";position:absolute;top:0;bottom:0;width:1px;background:#1d1f23}.grid::before{left:33%}.grid::after{left:66%}
+ .bar{position:absolute;left:12px;right:12px;bottom:14px;display:flex;justify-content:space-between;gap:12px;align-items:center}
+ .bar::before{content:"";position:absolute;left:-12px;right:-12px;bottom:-14px;height:110px;background:linear-gradient(to top,#000 45%,rgba(0,0,0,0));z-index:-1}
+ .tb{height:56px;border-radius:28px;background:var(--surface-highest);display:flex;align-items:center;padding:0 4px;box-shadow:0 4px 16px rgba(0,0,0,.6)}
+ .tb .t{height:48px;width:44px;border-radius:24px;display:grid;place-items:center;color:var(--muted);position:relative}
+ .tb .t.on{width:auto;padding:0 14px 0 10px;display:flex;gap:6px;align-items:center;background:var(--container);color:var(--on-container);font-size:13px;font-weight:600}
+ .fab{width:56px;height:56px;border-radius:18px;background:var(--accent);color:var(--on-accent);display:grid;place-items:center;box-shadow:0 4px 16px rgba(var(--accent-rgb),.3);flex:none}
+ .pill{background:var(--surface-highest);box-shadow:0 4px 16px rgba(0,0,0,.6);display:flex;align-items:center}
+ .ib{width:48px;height:48px;border-radius:24px;display:grid;place-items:center;color:var(--on-surface);flex:none}
+ .sq{border-radius:18px}
+ .ttl{font-size:20px;font-weight:500;letter-spacing:-.2px;color:var(--on-surface);display:flex;align-items:center;gap:8px;white-space:nowrap}
+ .kw{font-size:12px;font-weight:600;background:var(--container);color:var(--on-container);border-radius:10px;padding:3px 8px}
+ .today{position:relative}.today b{position:absolute;left:50%;top:57%;transform:translate(-50%,-50%);font-size:9px;font-weight:700;color:var(--on-surface)}
+ .cont{background:var(--container)}.cont .ms,.cont b{color:var(--on-container) !important}
+</style></head><body>
+
+<div class="row">
+<div class="col"><h2>Heute (zum Vergleich)</h2><div class="phone" style="--gt:150px">
+  <div style="height:64px;display:flex;align-items:center;gap:2px;padding:0 6px;margin-top:20px">
+    <div class="ib"><span class="ms">menu</span></div>
+    <div class="ttl" style="font-size:22px;padding:0 8px;flex:1;gap:0">Oktober 2026<span style="font-size:13px;color:var(--muted);font-weight:400;margin-left:8px">KW 44</span><span class="ms" style="color:var(--muted)">arrow_drop_down</span></div>
+    <div class="ib"><span class="ms">search</span></div><div class="ib today"><span class="ms">calendar_today</span><b>30</b></div></div>
+  <div class="days" style="margin-top:6px"><div class="t">Fr<b>30</b></div><div>Sa<b>31</b></div><div>So<b>1</b></div></div>
+  <div class="grid"></div>
+  <div class="bar"><div class="tb"><div class="t"><span class="ms">view_agenda</span></div><div class="t on"><span class="ms">view_week</span>3 Tage</div><div class="t"><span class="ms">grid_view</span></div><div class="t"><span class="ms">more_horiz</span></div></div><div class="fab"><span class="ms" style="font-size:28px">add</span></div></div>
+</div></div>
+
+<div class="col"><h2>A · Eine schwebende Pille – genau wie die untere Leiste</h2><div class="phone" style="--gt:158px">
+  <div style="margin:28px 12px 0"><div class="pill" style="height:56px;border-radius:28px;padding:0 4px;gap:2px">
+    <div class="ib"><span class="ms">menu</span></div>
+    <div class="ttl" style="flex:1;padding-left:4px">Oktober 2026 <span class="kw">KW 44</span></div>
+    <div class="ib"><span class="ms">search</span></div>
+    <div class="ib today cont"><span class="ms">calendar_today</span><b>30</b></div>
+  </div></div>
+  <div class="days" style="margin-top:12px"><div class="t">Fr<b>30</b></div><div>Sa<b>31</b></div><div>So<b>1</b></div></div>
+  <div class="grid"></div>
+  <div class="bar"><div class="tb"><div class="t"><span class="ms">view_agenda</span></div><div class="t on"><span class="ms">view_week</span>3 Tage</div><div class="t"><span class="ms">grid_view</span></div><div class="t"><span class="ms">more_horiz</span></div></div><div class="fab"><span class="ms" style="font-size:28px">add</span></div></div>
+</div></div>
+
+<div class="col"><h2>B · Quadrat + Pille – spiegelt Leiste und Plus-Knopf</h2><div class="phone" style="--gt:158px">
+  <div style="margin:28px 12px 0;display:flex;gap:12px;align-items:center">
+    <div class="fab" style="background:var(--surface-highest);color:var(--on-surface);box-shadow:0 4px 16px rgba(0,0,0,.6)"><span class="ms">menu</span></div>
+    <div class="pill" style="height:56px;border-radius:28px;padding:0 4px 0 18px;flex:1;gap:2px;min-width:0">
+      <div class="ttl" style="flex:1">Okt. 2026 <span class="kw">KW 44</span></div>
+      <div class="ib"><span class="ms">search</span></div>
+      <div class="ib today cont"><span class="ms">calendar_today</span><b>30</b></div>
+    </div>
+  </div>
+  <div class="days" style="margin-top:12px"><div class="t">Fr<b>30</b></div><div>Sa<b>31</b></div><div>So<b>1</b></div></div>
+  <div class="grid"></div>
+  <div class="bar"><div class="tb"><div class="t"><span class="ms">view_agenda</span></div><div class="t on"><span class="ms">view_week</span>3 Tage</div><div class="t"><span class="ms">grid_view</span></div><div class="t"><span class="ms">more_horiz</span></div></div><div class="fab"><span class="ms" style="font-size:28px">add</span></div></div>
+</div></div>
+</div>
+
+<div class="row" style="margin-top:36px">
+<div class="col"><h2>C · Große Titelzeile (klappt beim Scrollen zusammen)</h2><div class="phone" style="--gt:236px">
+  <div style="margin:26px 12px 0;display:flex;justify-content:space-between;align-items:center">
+    <div class="fab" style="width:48px;height:48px;border-radius:16px;background:var(--surface-highest);color:var(--on-surface);box-shadow:none"><span class="ms">menu</span></div>
+    <div class="pill" style="height:48px;border-radius:24px;padding:0 4px;box-shadow:none"><div class="ib" style="width:44px"><span class="ms">search</span></div><div class="ib today cont" style="width:44px"><span class="ms">calendar_today</span><b>30</b></div></div>
+  </div>
+  <div style="padding:14px 20px 0"><div style="font-size:40px;font-weight:500;letter-spacing:-1px;line-height:1.05">Oktober</div>
+   <div style="display:flex;gap:8px;align-items:center;margin-top:6px"><span style="font-size:17px;color:var(--muted)">2026</span><span class="kw">KW 44</span><span style="font-size:13px;color:var(--muted)">· heute Fr, 30.</span></div></div>
+  <div class="days" style="margin-top:12px"><div class="t">Fr<b>30</b></div><div>Sa<b>31</b></div><div>So<b>1</b></div></div>
+  <div class="grid"></div>
+  <div class="bar"><div class="tb"><div class="t"><span class="ms">view_agenda</span></div><div class="t on"><span class="ms">view_week</span>3 Tage</div><div class="t"><span class="ms">grid_view</span></div><div class="t"><span class="ms">more_horiz</span></div></div><div class="fab"><span class="ms" style="font-size:28px">add</span></div></div>
+</div></div>
+
+<div class="col"><h2>D · Titel mit Blätter-Pfeilen in einer Pille, Menü und Heute als Quadrate</h2><div class="phone" style="--gt:158px">
+  <div style="margin:28px 12px 0;display:flex;gap:8px;align-items:center">
+    <div class="ib sq" style="background:var(--surface-highest);width:56px;height:56px;box-shadow:0 4px 16px rgba(0,0,0,.6)"><span class="ms">menu</span></div>
+    <div class="pill" style="height:56px;border-radius:28px;padding:0 4px;flex:1;justify-content:space-between;min-width:0">
+      <div class="ib" style="width:40px;color:var(--muted)"><span class="ms">chevron_left</span></div>
+      <div class="ttl" style="font-size:18px;flex-direction:column;gap:0;line-height:1.15"><span>Oktober 2026</span><span style="font-size:11px;color:var(--muted);font-weight:500">KW 44 · Fr, 30.</span></div>
+      <div class="ib" style="width:40px;color:var(--muted)"><span class="ms">chevron_right</span></div>
+    </div>
+    <div class="ib sq today cont" style="width:56px;height:56px"><span class="ms">calendar_today</span><b>30</b></div>
+  </div>
+  <div class="days" style="margin-top:12px"><div class="t">Fr<b>30</b></div><div>Sa<b>31</b></div><div>So<b>1</b></div></div>
+  <div class="grid"></div>
+  <div class="bar"><div class="tb"><div class="t"><span class="ms">view_agenda</span></div><div class="t on"><span class="ms">view_week</span>3 Tage</div><div class="t"><span class="ms">grid_view</span></div><div class="t"><span class="ms">more_horiz</span></div></div><div class="fab"><span class="ms" style="font-size:28px">add</span></div></div>
+</div></div>
+
+<div class="col"><h2>E · Header ganz schlank – Heute wandert in die untere Leiste</h2><div class="phone" style="--gt:150px">
+  <div style="margin:28px 12px 0;display:flex;gap:12px;align-items:center">
+    <div class="ib sq" style="background:var(--surface-highest);width:48px;height:48px;border-radius:16px"><span class="ms">menu</span></div>
+    <div class="ttl" style="flex:1;font-size:22px">Oktober 2026 <span class="kw">KW 44</span></div>
+    <div class="ib" style="background:var(--surface-highest)"><span class="ms">search</span></div>
+  </div>
+  <div class="days" style="margin-top:12px"><div class="t">Fr<b>30</b></div><div>Sa<b>31</b></div><div>So<b>1</b></div></div>
+  <div class="grid"></div>
+  <div class="bar"><div class="tb"><div class="t"><span class="ms">view_agenda</span></div><div class="t on"><span class="ms">view_week</span>3 Tage</div><div class="t"><span class="ms">grid_view</span></div><div class="t today"><span class="ms">calendar_today</span><b>30</b></div></div><div class="fab"><span class="ms" style="font-size:28px">add</span></div></div>
+</div></div>
+</div>
+</body></html>

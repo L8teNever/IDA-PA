@@ -7,7 +7,7 @@ import * as alarms from "./alarms.js";
 import * as sync from "./sync.js";
 import { persist } from "./storage.js";
 import { Q, S, cachedEvents, calOf, flushQueue, importLegacy, loadEvents, loadMeta, queued, refreshQ, saveHidden } from "./store.js";
-import { addDays, addMonths, daysBetween, hm, isoWeek, monthName, parseYmd, sameDay, setWeekStart, shortDay, startOfDay, ymd } from "./dates.js";
+import { addDays, addMonths, daysBetween, hm, isoWeek, monthName, monthShort, parseYmd, sameDay, setWeekStart, shortDay, startOfDay, ymd } from "./dates.js";
 import { agenda, cstyle, esc, gridDays, miniMonth, month, monthday, skeleton, timegrid, year } from "./views.js";
 import { bindGrid, bindGrip, bindSwipe, longPress, swallowClick } from "./gestures.js";
 import {
@@ -130,11 +130,13 @@ function shell() {
   document.body.classList.toggle("wide", innerWidth >= 1000);
   root.innerHTML = `<div class="scrim" id="scrim"></div><aside class="drawer" id="drawer"></aside>
     <div class="shell"><header class="top" id="top">
-        <button class="icon-btn plain menu-btn" id="menu" aria-label="Menü"><span class="ms">menu</span></button>
-        <button class="title" id="title"></button><div class="sp"></div>
-        <button class="icon-btn plain" id="search" aria-label="Suche"><span class="ms">search</span></button>
-        <button class="icon-btn plain today-btn" id="today" aria-label="Heute"><span class="ms">calendar_today</span><b id="todayNum">${new Date().getDate()}</b></button>
-        <div class="pc-nav"><button class="icon-btn plain" id="prev"><span class="ms">chevron_left</span></button><button class="icon-btn plain" id="next"><span class="ms">chevron_right</span></button></div>
+        <button class="hq menu-btn" id="menu" aria-label="Menü"><span class="ms">menu</span></button>
+        <div class="hpill">
+          <button class="title" id="title"></button>
+          <div class="pc-nav"><button class="icon-btn plain" id="prev" aria-label="Zurück"><span class="ms">chevron_left</span></button><button class="icon-btn plain" id="next" aria-label="Weiter"><span class="ms">chevron_right</span></button></div>
+          <button class="icon-btn plain" id="search" aria-label="Suche"><span class="ms">search</span></button>
+          <button class="icon-btn plain today-btn" id="today" aria-label="Heute"><span class="ms">calendar_today</span><b id="todayNum">${new Date().getDate()}</b></button>
+        </div>
       </header>
       <div class="minidrop" id="minidrop"></div>
       <div class="offline" id="offline"></div>
@@ -429,11 +431,13 @@ function onLive(evt) {
 
 // ---------------- Zeichnen ----------------
 function titleText() {
-  const d = S.date;
-  if (S.view === "year") return `${d.getFullYear()}`;
-  if (S.view === "day") return `${shortDay(d)}`;
-  if (S.view === "week" || S.view === "days3") { const g = gridDays(); return `${monthName(g[0])} ${g[0].getFullYear()}<small>KW ${isoWeek(g[0])}</small>`; }
-  return `${monthName(d)} ${d.getFullYear()}`;
+  const d = S.date, short = innerWidth < 440;   // schmal: „Okt. 2026“, damit KW-Chip, Suche und Heute in die Pille passen
+  const mon = (x) => (short ? monthShort(x) : monthName(x));
+  const kw = (x) => `<span class="kw">KW ${isoWeek(x)}</span>`;
+  if (S.view === "year") return `<span class="tx">${d.getFullYear()}</span>`;
+  if (S.view === "day") return `<span class="tx">${shortDay(d)}</span>${kw(d)}`;
+  if (S.view === "week" || S.view === "days3") { const g = gridDays(); return `<span class="tx">${mon(g[0])} ${g[0].getFullYear()}</span>${kw(g[0])}`; }
+  return `<span class="tx">${mon(d)} ${d.getFullYear()}</span>`;
 }
 
 export async function render(quiet) {
