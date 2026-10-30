@@ -29,6 +29,7 @@ const closeDrawer = () => new Promise((r) => { if (!document.body.classList.cont
 let root, base = "", installEvt = null, rendering = 0, dir = 0, prevView = null, miniOpen = false, miniDate = null;
 
 export async function mount(el, opts = {}) {
+  noAutofill();
   root = el; base = opts.pathBase || "";
   setApiHref(`${base}/api/v1`);
   await loadMeta();
@@ -508,4 +509,20 @@ function paint(quiet) {
   }, { passive: true });
   document.body.classList.remove("bar-hidden");
   drawMini();
+}
+
+/** Keine Autofill-Leiste (Passwörter, Karten, Adressen) über der Tastatur: alle Eingabefelder bekommen „autocomplete=off“ – auch später geöffnete. */
+function noAutofill() {
+  const fix = (n) => {
+    if (!(n instanceof Element)) return;
+    for (const f of n.matches("input,textarea") ? [n, ...n.querySelectorAll("input,textarea")] : n.querySelectorAll("input,textarea")) {
+      if (f.type === "file" || f.type === "checkbox") continue;
+      f.setAttribute("autocomplete", "off");
+      f.setAttribute("data-lpignore", "true");      // Passwortmanager
+      f.setAttribute("data-form-type", "other");
+      if (!f.name) f.name = `kal-${f.id || f.placeholder?.toLowerCase().replace(/\W+/g, "-") || "feld"}`;   // kein Name wie „city“ oder „address“, der Adress-Autofill auslöst
+    }
+  };
+  fix(document.body);
+  new MutationObserver((list) => list.forEach((m) => m.addedNodes.forEach(fix))).observe(document.body, { childList: true, subtree: true });
 }

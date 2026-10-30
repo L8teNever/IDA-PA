@@ -272,7 +272,7 @@ body.can-install .install { display: flex; }
 .ev-scrim { z-index: 47; }
 .ev-sheet { z-index: 48; padding: 0 0 calc(env(safe-area-inset-bottom) + 12px); max-height: 62dvh; display: flex; flex-direction: column; overflow: hidden; transition: transform .45s var(--spring), max-height .45s var(--spring); }
 body.ev-full .ev-sheet { max-height: 94dvh; }
-.ev-sheet .handle { position: absolute; left: 50%; top: 6px; margin: 0; transform: translateX(-50%); }
+.ev-sheet .handle { position: static; margin: 8px auto 0; transform: none; }   /* unter dem Farbstreifen, nicht darauf */
 .es-stripe { height: 6px; background: var(--c); flex: none; }
 .es-head { display: flex; align-items: flex-start; gap: 2px; padding: 14px 6px 0 20px; touch-action: none; }
 .es-ttl { flex: 1; min-width: 0; }
@@ -312,12 +312,13 @@ body.ev-full .ev-sheet { max-height: 94dvh; }
 .warn { margin: 4px 16px; padding: 10px 12px; border-radius: 14px; background: #3a2f12; color: var(--ev-gelb); font-size: .75rem; display: flex; gap: 8px; align-items: center; }
 .warn .ms { font-size: 18px; }
 .frow { display: flex; align-items: center; gap: 14px; padding: 0 16px 0 20px; min-height: 56px; font-size: .875rem; }
-.frow.wrap, .frow.top { padding-top: 8px; padding-bottom: 8px; align-items: flex-start; }
-.frow.wrap > .ms, .frow.top > .ms { margin-top: 8px; }
+.frow.wrap, .frow.tall { padding-top: 8px; padding-bottom: 8px; align-items: flex-start; }
+.frow.wrap > .ms, .frow.tall > .ms { margin-top: 8px; }
 .frow > .ms { color: var(--muted); font-size: 20px; flex: none; width: 20px; }
 .frow .fl { flex: 1; }
 .frow input[type=text], .frow input[type=url], .frow textarea, .li-in, .qin, .feed input { flex: 1; min-width: 0; background: var(--surface-high); border: 0; border-radius: 14px; color: var(--on-surface); padding: 12px 14px; font: inherit; font-size: .875rem; outline: none; color-scheme: dark; }
-.frow textarea { resize: vertical; min-height: 72px; }
+.frow textarea { resize: none; height: 96px; display: block; }   /* feste Höhe: sonst rechnet die Zeile (Flex) mit der kleineren „rows“-Höhe und das Textfeld ragt in den Knopf darunter */
+.more-btn { margin-top: 6px; }
 .frow input:focus, .frow textarea:focus, .li-in:focus, .qin:focus { box-shadow: inset 0 0 0 2px var(--accent); }
 .num { width: 64px; background: var(--surface-high); border: 0; border-radius: 12px; color: var(--on-surface); padding: 10px; font: inherit; text-align: center; color-scheme: dark; }
 .frow.dt { min-height: 48px; }
