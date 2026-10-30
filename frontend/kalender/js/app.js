@@ -1,6 +1,7 @@
 // Hülle: Top-Bar mit Mini-Monat, Floating Toolbar + FAB (am Tablet/PC Navigation Rail), Drawer/Seitenleiste,
 // Routing, Blättern mit dem Finger, Tastenkürzel, Live-Updates (auch von Ida), Erinnerungen.
 import { api, live } from "./api.js";
+import { persist } from "./storage.js";
 import { S, cachedEvents, calOf, flushQueue, loadEvents, loadMeta, mirror, queued, saveHidden } from "./store.js";
 import { addDays, addMonths, daysBetween, hm, isoWeek, monthName, parseYmd, sameDay, setWeekStart, shortDay, startOfDay, ymd } from "./dates.js";
 import { agenda, cstyle, esc, gridDays, miniMonth, month, monthday, skeleton, timegrid, year } from "./views.js";
@@ -43,7 +44,8 @@ export async function mount(el, opts = {}) {
     fromPath(); render();
   });
   addEventListener("online", async () => { const n = await flushQueue(); if (n) toast(`${n} Offline-Änderung${n > 1 ? "en" : ""} gesendet`); render(true); });
-  addEventListener("offline", () => { document.body.classList.add("is-offline"); paintOffline(); });
+  addEventListener("kal:net", () => { paintOffline(); if (S.net === "online") render(true); });
+  $("#offline").addEventListener("click", (e) => { if (e.target.closest("[data-login]")) location.reload(); });
   addEventListener("keydown", keys);
   matchMedia("(prefers-color-scheme: light)").addEventListener?.("change", applyTheme);
   addEventListener("resize", () => { document.body.classList.toggle("wide", innerWidth >= 1000); });
@@ -55,6 +57,7 @@ export async function mount(el, opts = {}) {
   await flushQueue();
   await render(true);
   mirror();
+  persist();
   const q = new URLSearchParams(location.search);
   if (q.get("neu")) openEditor();
   if (q.get("neu") || q.get("heute")) history.replaceState(history.state, "", location.pathname);
@@ -399,7 +402,12 @@ export async function render(quiet) {
 }
 
 function paintOffline() {
-  $("#offline").textContent = S.offline || !navigator.onLine ? `Offline – Stand ${S.loadedAt ? hm(S.loadedAt) : "?"}${queued() ? ` · ${queued()} Änderung${queued() > 1 ? "en" : ""} warten` : ""}` : "";
+  const n = queued(), wait = n ? ` · ${n} Änderung${n > 1 ? "en" : ""} warten` : "";
+  const bar = $("#offline");
+  if (S.net === "auth") bar.innerHTML = `Anmeldung abgelaufen${wait} <button type="button" class="link" data-login>Anmelden</button>`;
+  else if (S.net === "offline") bar.textContent = `Offline – Stand ${S.loadedAt ? hm(S.loadedAt) : "?"}${wait}`;
+  else bar.textContent = "";
+  document.body.classList.toggle("show-bar", S.net === "offline" || S.net === "auth");
 }
 
 function paint(quiet) {

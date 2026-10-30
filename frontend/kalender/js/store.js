@@ -1,30 +1,35 @@
-// Zustand, Laden der Termine, Offline-Spiegel (IndexedDB) und Warteschlange für Offline-Änderungen.
-import { api, ApiError } from "./api.js";
+// Zustand, Laden der Termine, Offline-Spiegel (IndexedDB über repo.js) und Warteschlange für Offline-Änderungen.
+import { api, ApiError, onNet } from "./api.js";
 import { addDays, addMonths, monthGrid, startOfDay, weekStart, ymd } from "./dates.js";
+import * as repo from "./repo.js";
 
 const hiddenKey = "kal-hidden";
 export const S = {
   view: "monthday", date: startOfDay(new Date()), sel: startOfDay(new Date()),
-  events: [], cals: [], settings: {}, meta: {}, offline: false, loadedAt: null, loaded: false,
+  events: [], cals: [], settings: {}, meta: {}, loadedAt: null, loaded: false,
+  net: navigator.onLine === false ? "offline" : "online",   // online | offline | auth (Anmeldung abgelaufen) | syncing
+  get offline() { return this.net === "offline" || this.net === "auth"; },
   agFrom: startOfDay(new Date()), agTo: addDays(startOfDay(new Date()), 60),
   mdMode: localStorage.getItem("kal-md") || "month", // Monat + Tag: week | month | full
   hh: Number(localStorage.getItem("kal-hh")) || 64,   // Stundenhöhe im Zeitraster (Pinch)
   hidden: new Set(JSON.parse(localStorage.getItem(hiddenKey) || "[]")),
   flash: new Set(),                                   // gerade von Ida geänderte Termine (blinken einmal)
 };
+/** Netzzustand setzen (kommt aus api.js bei jedem Aufruf, aus dem Browser bei online/offline) und die Oberfläche benachrichtigen. */
+export function setNet(state) {
+  if (S.net === state) return;
+  S.net = state;
+  document.body.classList.toggle("is-offline", state === "offline");
+  document.body.classList.toggle("needs-login", state === "auth");
+  dispatchEvent(new CustomEvent("kal:net", { detail: state }));
+}
+onNet(setNet);
+addEventListener("offline", () => setNet("offline"));
+addEventListener("online", () => { if (S.net === "offline") setNet("online"); });
+
 export const saveHidden = () => localStorage.setItem(hiddenKey, JSON.stringify([...S.hidden]));
 export const calOf = (id) => S.cals.find((c) => c.id === id);
 export const writable = () => S.cals.filter((c) => !c.read_only && c.kind !== "holidays");
-
-// ---- IndexedDB (ein Store, Schlüssel → Wert) ----
-let dbp;
-const idb = () => dbp ||= new Promise((res, rej) => {
-  const r = indexedDB.open("ida-kalender", 1);
-  r.onupgradeneeded = () => r.result.createObjectStore("kv");
-  r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
-});
-export async function kvGet(k) { try { const d = await idb(); return await new Promise((res) => { const q = d.transaction("kv").objectStore("kv").get(k); q.onsuccess = () => res(q.result); q.onerror = () => res(undefined); }); } catch { return undefined; } }
-export async function kvSet(k, v) { try { const d = await idb(); d.transaction("kv", "readwrite").objectStore("kv").put(v, k); } catch { /* privater Modus */ } }
 
 /** Sichtbarer Bereich der Ansicht [von, bis) */
 export function rangeOf(view = S.view, d = S.date) {
@@ -36,34 +41,30 @@ export function rangeOf(view = S.view, d = S.date) {
   return [S.agFrom, S.agTo];
 }
 
-const inRange = (e, a, b) => new Date(e.end) > a && new Date(e.start) < b;
-
 export async function loadMeta() {
   const [cals, settings, meta] = await Promise.allSettled([api("/calendars"), api("/settings"), api("/meta")]);
-  if (cals.status === "fulfilled") { S.cals = cals.value.calendars; kvSet("cals", S.cals); } else S.cals = (await kvGet("cals")) || [];
-  if (settings.status === "fulfilled") { S.settings = settings.value; kvSet("settings", S.settings); } else S.settings = (await kvGet("settings")) || {};
-  S.meta = meta.status === "fulfilled" ? meta.value : {};
+  if (cals.status === "fulfilled") { S.cals = cals.value.calendars; repo.saveMeta("cals", S.cals); } else S.cals = (await repo.loadMeta("cals")) || [];
+  if (settings.status === "fulfilled") { S.settings = settings.value; repo.saveMeta("settings", S.settings); } else S.settings = (await repo.loadMeta("settings")) || {};
+  S.meta = meta.status === "fulfilled" ? meta.value : ((await repo.loadMeta("meta")) || {});
+  if (meta.status === "fulfilled") repo.saveMeta("meta", S.meta);
 }
 
-/** Erst sofort aus dem Spiegel (kein leerer Bildschirm), dann vom Server. */
+/** Erst sofort aus dem Speicher (kein leerer Bildschirm), dann vom Server. */
 export async function cachedEvents() {
   const [a, b] = rangeOf();
-  const win = await kvGet("window");
-  return win ? win.events.filter((x) => inRange(x, a, b)) : null;
+  return (await repo.windowInfo()) ? repo.range(a, b) : null;
 }
 
 export async function loadEvents() {
   const [a, b] = rangeOf();
   try {
     const r = await api(`/events?from=${ymd(a)}&to=${ymd(b)}`);
-    S.events = r.events; S.offline = false; S.loadedAt = new Date();
-    document.body.classList.remove("is-offline");
+    S.events = r.events; S.loadedAt = new Date();
   } catch (e) {
-    if (!(e instanceof ApiError) || e.status !== 0) throw e;
-    const win = await kvGet("window");
-    S.events = (win?.events || []).filter((x) => inRange(x, a, b));
-    S.offline = true; S.loadedAt = win ? new Date(win.at) : null;
-    document.body.classList.add("is-offline");
+    if (!(e instanceof ApiError) || (e.kind !== "offline" && e.kind !== "auth")) throw e;
+    const win = await repo.windowInfo();
+    S.events = await repo.range(a, b);
+    S.loadedAt = win ? new Date(win.at) : null;
   }
   S.loaded = true;
 }
@@ -73,35 +74,45 @@ export async function mirror() {
   try {
     const a = addMonths(new Date(), -3), b = addMonths(new Date(), 4);
     const r = await api(`/events?from=${ymd(a)}&to=${ymd(b)}`);
-    await kvSet("window", { at: Date.now(), from: ymd(a), to: ymd(b), events: r.events });
+    await repo.saveRange(r.events, a, b);
   } catch { /* offline */ }
 }
 
 export const visible = () => S.events.filter((e) => !S.hidden.has(e.calendar_id) && (S.settings.show_holidays !== false || !e.holiday));
 
-// ---- Offline-Warteschlange ----
+// ---- Offline-Warteschlange (bis zur Outbox, siehe docs/KALENDER-OFFLINE-AUFGABEN.md Paket 11) ----
 const qKey = "kal-queue";
 const queue = () => JSON.parse(localStorage.getItem(qKey) || "[]");
+const saveQueue = (q) => localStorage.setItem(qKey, JSON.stringify(q));
 export const queued = () => queue().length;
 export const queuedIds = () => new Set(queue().map((q) => q.id).filter(Boolean));
+const uid = () => (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random());
 
 /** Senden; ohne Verbindung wird die Änderung gemerkt und später nachgeholt. */
 export async function send(path, opts, id) {
   try { return await api(path, opts); } catch (e) {
-    if (e instanceof ApiError && e.status === 0) {
-      localStorage.setItem(qKey, JSON.stringify([...queue(), { path, id, ...opts }]));
+    if (e instanceof ApiError && (e.kind === "offline" || e.kind === "auth")) {
+      saveQueue([...queue(), { path, id, qid: uid(), ...opts }]);
       return { queued: true };
     }
     throw e;
   }
 }
 
-export async function flushQueue() {
-  const q = queue(); if (!q.length) return 0;
-  const rest = []; let done = 0;
-  for (const it of q) {
-    try { await api(it.path, it); done++; } catch (e) { if (e instanceof ApiError && e.status === 0) rest.push(it); else done++; /* Konflikt/Fehler: verwerfen */ }
-  }
-  localStorage.setItem(qKey, JSON.stringify(rest));
-  return done;
+let flushing = null;
+/** Wartende Änderungen senden. Nur ein Durchlauf gleichzeitig (sonst käme alles doppelt an); jede gesendete Änderung wird sofort
+ *  aus der Warteschlange genommen, auch wenn die App mittendrin schließt; neue Einträge während des Sendens bleiben erhalten. */
+export function flushQueue() {
+  return flushing ||= (async () => {
+    let done = 0;
+    for (const it of queue()) {
+      try { await api(it.path, it); done++; } catch (e) {
+        if (e instanceof ApiError && (e.kind === "offline" || e.kind === "auth")) continue; // bleibt in der Warteschlange
+        done++; // Konflikt/Fehler: verwerfen
+      }
+      saveQueue(queue().filter((x) => (it.qid ? x.qid !== it.qid : JSON.stringify(x) !== JSON.stringify(it))));
+    }
+    if (!queue().length) dispatchEvent(new Event("kal:synced")); // alles gesendet (auch für wartende App-Updates)
+    return done;
+  })().finally(() => { flushing = null; });
 }

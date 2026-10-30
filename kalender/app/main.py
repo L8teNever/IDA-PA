@@ -1,6 +1,7 @@
 """Kalender-Dienst: eigene App mit eigener Datenbank, API, Oberfläche und PWA (docs/KALENDER.md)."""
 import asyncio
 import hashlib
+import json
 import logging
 from contextlib import asynccontextmanager
 from datetime import datetime
@@ -40,10 +41,23 @@ def frontend_version(*dirs: Path) -> str:
     """Kurzer Hash über alle Dateien der Oberfläche: ändert sich genau dann, wenn sich eine Datei ändert."""
     h = hashlib.sha1()
     for d in dirs:
-        for f in sorted(p for p in d.rglob("*") if p.is_file()):
+        for f in sorted(p for p in d.rglob("*") if p.is_file() and "test" not in p.relative_to(d).parts[:1]):  # Tests gehören nicht zur App-Version
             h.update(str(f.relative_to(d)).encode())
             h.update(f.read_bytes())
     return h.hexdigest()[:10]
+
+
+def shell_files(own: Path, css: Path, fonts: Path, version: str) -> list[str]:
+    """Alle Dateien, die die App offline braucht (der Service Worker legt sie beim Installieren in den Cache)."""
+    out = ["/", "/manifest.webmanifest"]
+    skip = {"sw.js", "index.html"}
+    for d, prefix, only in ((own, f"/s/{version}", None), (css, f"/s/{version}/shared/css", None), (fonts, f"/s/{version}/shared/fonts", ".woff2")):
+        for f in sorted(p for p in d.rglob("*") if p.is_file()):
+            rel = f.relative_to(d).as_posix()
+            if f.name in skip and d == own and "/" not in rel or rel.startswith("test/") or (only and f.suffix != only) or f.name == "LICENSE.txt":
+                continue
+            out.append(f"{prefix}/{rel}")
+    return out
 
 
 def migrate() -> None:
@@ -103,6 +117,7 @@ def create_app() -> FastAPI:
         app.mount(f"/s/{version}/shared/css", Static(directory=css, cache=imm), name="shared-css")
         app.mount(f"/s/{version}/shared/fonts", Static(directory=fonts, cache=imm), name="shared-fonts")
         app.mount(f"/s/{version}", Static(directory=own, cache=imm), name="assets")
+        shell_json = json.dumps(shell_files(own, css, fonts, version))
         index = (own / "index.html").read_text(encoding="utf8") if (own / "index.html").exists() else "<h1>IDA Kalender</h1>"
         index_html = index.replace('"/static/', f'"/s/{version}/')
 
@@ -115,7 +130,7 @@ def create_app() -> FastAPI:
             sw = own / "sw.js"
             if not sw.exists():
                 return JSONResponse({"detail": "Nicht gefunden"}, status_code=404)
-            body = sw.read_text(encoding="utf8").replace("__VERSION__", version)
+            body = sw.read_text(encoding="utf8").replace("__VERSION__", version).replace("__SHELL__", shell_json)
             return HTMLResponse(body, media_type="text/javascript", headers={"cache-control": "no-cache", "service-worker-allowed": "/"})
 
         @app.get("/{path:path}", include_in_schema=False)

@@ -1,10 +1,18 @@
 import { setBase } from "./api.js";
 import { mount } from "./app.js";
+import * as db from "./db.js";
+import * as repo from "./repo.js";
+import { S, flushQueue, queued } from "./store.js";
+import * as update from "./update.js";
 
 const base = document.querySelector('meta[name="kal-base"]')?.content || "";
 setBase(base + "/api/v1");
 mount(document.getElementById("app"), { pathBase: base, embedded: new URLSearchParams(location.search).has("eingebettet") });
 
-if ("serviceWorker" in navigator && !base) {
-  addEventListener("load", () => navigator.serviceWorker.register("/sw.js", { scope: "/" }).catch(() => {}));
+// Hinter dem IDA-Proxy (/kal) gibt es keinen eigenen Service Worker – der gehört der Kalender-App unter eigener Adresse.
+if (!base) addEventListener("load", () => update.start());
+
+// Test-Hook für die Browser-Tests: nur sichtbar, wenn localStorage.kalTest === "1"
+if (localStorage.getItem("kalTest") === "1") {
+  window.__kal = { outboxCount: () => queued(), syncNow: () => flushQueue(), net: () => S.net, mirrored: () => repo.windowInfo().then(Boolean), stored: () => db.count("occ"), storage: () => ({ ...db.state }), version: document.querySelector('script[src*="/s/"]')?.src.match(/\/s\/([^/]+)\//)?.[1] || "" };
 }

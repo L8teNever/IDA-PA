@@ -1,28 +1,46 @@
-// Service Worker: App-Hülle offline (versionierte Dateien unter /s/<version>/), Daten kommen aus der API bzw. IndexedDB der App.
+// Service Worker: App-Hülle offline (versionierte Dateien unter /s/<version>/), Daten kommen aus der API bzw. dem lokalen Speicher der App.
+// Updates: ein neuer Worker wartet (kein skipWaiting), bis die Seite „skip“ schickt – die App tut das erst nach dem Abgleich
+// der Offline-Änderungen (js/update.js). Die letzten zwei App-Versionen bleiben im Cache, damit offene Fenster nie ihre Dateien verlieren.
+// Der Server ersetzt __VERSION__ und __SHELL__ (alle Dateien der Hülle) beim Ausliefern.
 const V = "__VERSION__";
 const CACHE = `kal-${V}`;
-const SHELL = ["/", "/manifest.webmanifest",
-  `/s/${V}/shared/css/tokens.css`, `/s/${V}/shared/css/components.css`, `/s/${V}/css/calendar.css`,
-  `/s/${V}/js/main.js`, `/s/${V}/js/app.js`, `/s/${V}/js/api.js`, `/s/${V}/js/store.js`, `/s/${V}/js/dates.js`, `/s/${V}/js/layout.js`,
-  `/s/${V}/js/views.js`, `/s/${V}/js/sheets.js`, `/s/${V}/js/gestures.js`, `/s/${V}/js/pickers.js`,
-  `/s/${V}/shared/fonts/GoogleSansFlex-latin.woff2`, `/s/${V}/shared/fonts/GoogleSansFlex-latin-ext.woff2`, `/s/${V}/shared/fonts/MaterialSymbolsRounded.woff2`,
-  `/s/${V}/icons/icon-192.png`];
+const META = "kal-meta";
+const SHELL = __SHELL__;
 
 self.addEventListener("install", (e) => {
-  e.waitUntil(caches.open(CACHE).then((c) => Promise.all(SHELL.map((u) => c.add(u).catch(() => {})))).then(() => self.skipWaiting()));
+  // alles oder nichts: fehlt eine Datei, wird dieser Worker nicht aktiv und der bisherige bleibt
+  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)));
 });
+
 self.addEventListener("activate", (e) => {
-  e.waitUntil(caches.keys().then((ks) => Promise.all(ks.filter((k) => k !== CACHE).map((k) => caches.delete(k)))).then(() => self.clients.claim()));
+  e.waitUntil((async () => {
+    const meta = await caches.open(META);
+    const hit = await meta.match("versions");
+    let list = hit ? await hit.json() : [];
+    if (!list.includes(V)) list.push(V);
+    list = list.slice(-2);
+    await meta.put("versions", new Response(JSON.stringify(list)));
+    const keep = new Set([META, ...list.map((v) => `kal-${v}`)]);
+    for (const k of await caches.keys()) if (k.startsWith("kal-") && !keep.has(k)) await caches.delete(k);
+    await self.clients.claim();
+  })());
 });
+
+self.addEventListener("message", (e) => {
+  if (e.data?.type === "skip") self.skipWaiting();
+  else if (e.data?.type === "version") e.source?.postMessage({ type: "version", version: V });
+});
+
 self.addEventListener("fetch", (e) => {
   const r = e.request, u = new URL(r.url);
   if (r.method !== "GET" || u.origin !== location.origin || u.pathname.startsWith("/api/") || u.pathname.startsWith("/ics/")) return;
-  if (u.pathname.startsWith("/s/")) { // unveränderlich → Cache zuerst
-    e.respondWith(caches.match(r).then((hit) => hit || fetch(r).then((res) => { const c = res.clone(); caches.open(CACHE).then((x) => x.put(r, c)); return res; })));
+  if (u.pathname.startsWith("/s/")) { // unveränderlich → Cache zuerst (jede Version, auch die vorige)
+    e.respondWith(caches.match(r).then((hit) => hit || fetch(r).then((res) => { if (res.ok) { const c = res.clone(); caches.open(CACHE).then((x) => x.put(r, c)); } return res; })));
     return;
   }
-  if (r.mode === "navigate") { // Seite: Netz zuerst, offline die gemerkte Hülle
-    e.respondWith(fetch(r).then((res) => { const c = res.clone(); caches.open(CACHE).then((x) => x.put("/", c)); return res; }).catch(() => caches.match("/")));
+  if (r.mode === "navigate") { // Seite: Netz zuerst, offline die gemerkte Hülle (für jeden Pfad: /monat/…, /termin/…)
+    e.respondWith(fetch(r).then((res) => { if (res.ok) { const c = res.clone(); caches.open(CACHE).then((x) => x.put("/", c)); } return res; })
+      .catch(async () => (await (await caches.open(CACHE)).match("/")) || (await caches.match("/")) || new Response("Offline", { status: 503 })));
   }
 });
 

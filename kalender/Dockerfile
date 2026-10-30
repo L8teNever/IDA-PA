@@ -17,6 +17,7 @@ RUN pip install -r requirements.txt
 COPY kalender/ /app/kalender/
 # Oberfläche + die gemeinsamen Design-Dateien und Schriften von IDA (kein Zugriff auf irgendetwas sonst aus IDA)
 COPY frontend/kalender/ /app/frontend/kalender/
+RUN rm -rf /app/frontend/kalender/test
 COPY frontend/css/tokens.css frontend/css/components.css /app/frontend/css/
 COPY frontend/fonts/ /app/frontend/fonts/
 

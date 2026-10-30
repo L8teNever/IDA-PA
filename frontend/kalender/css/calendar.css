@@ -44,8 +44,9 @@ body.mini-open .minidrop { max-height: 360px; }
 .mini-g button i { position: absolute; left: 50%; bottom: 3px; width: 4px; height: 4px; border-radius: 50%; background: var(--muted); transform: translateX(-50%); }
 .mini-g.big button { height: 42px; width: 42px; font-size: .9375rem; }
 
+.offline .link { border: 0; background: none; color: inherit; font: inherit; font-weight: 600; text-decoration: underline; cursor: pointer; padding: 0 0 0 6px; }
 .offline { flex: none; margin: 0 12px; font-size: .75rem; color: var(--ev-orange); background: var(--evc-orange); border-radius: 10px; padding: 0 12px; max-height: 0; overflow: hidden; transition: max-height .3s, padding .3s, margin .3s; }
-body.is-offline .offline:not(:empty) { max-height: 40px; padding: 6px 12px; margin-bottom: 6px; }
+body.show-bar .offline:not(:empty) { max-height: 40px; padding: 6px 12px; margin-bottom: 6px; }
 
 /* ---------- Inhalt ---------- */
 .stage { flex: 1; min-height: 0; overflow: hidden; position: relative; }

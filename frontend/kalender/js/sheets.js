@@ -1,6 +1,9 @@
 // Detail-Sheet, Editor, Serien-Rückfrage, Schnelleingabe, Suche, Papierkorb, Verlauf, Einstellungen, Kalender-Einstellungen, Erinnerung.
 import { api } from "./api.js";
-import { S, calOf, kvGet, send, writable } from "./store.js";
+import { S, calOf, send, writable } from "./store.js";
+import * as repo from "./repo.js";
+import { state as dbState } from "./db.js";
+import * as storage from "./storage.js";
 import { addDays, ago, countdown, dayMonth, durText, hm, longDay, monthName, parseYmd, shortDay, weekdayShort, whenText, ymd } from "./dates.js";
 import { byIda, card, cstyle, esc } from "./views.js";
 import { pickDate, pickTime } from "./pickers.js";
@@ -35,13 +38,13 @@ function overlay(html, kind = "full") {
 
 // ---------------- Snackbar ----------------
 let tt;
-export function toast(msg, actions = []) {
+export function toast(msg, actions = [], { sticky = false } = {}) {
   const el = $("#toast");
   el.innerHTML = `<span>${esc(msg)}</span>${actions.map((a, i) => `<button data-i="${i}">${esc(a.label)}</button>`).join("")}`;
   el.classList.toggle("act", actions.length > 0);
   el.classList.add("show");
   el.querySelectorAll("button").forEach((b) => (b.onclick = () => { el.classList.remove("show"); actions[+b.dataset.i].run(); }));
-  clearTimeout(tt); tt = setTimeout(() => el.classList.remove("show"), actions.length ? 6500 : 2800);
+  clearTimeout(tt); if (!sticky) tt = setTimeout(() => el.classList.remove("show"), actions.length ? 6500 : 2800);
 }
 const fail = (e, retry) => toast(e.message || "Fehler", retry ? [{ label: "Erneut versuchen", run: retry }] : []);
 const undoAction = (r) => (r?.change_id ? [{ label: "Rückgängig", run: async () => { try { await api(`/changes/${r.change_id}/undo`, { method: "POST" }); hooks.changed(); } catch (x) { fail(x); } } }] : []);
@@ -598,11 +601,11 @@ export function openSearch() {
     bindHits();
   };
   const offlineSearch = async () => {
-    const win = await kvGet("window");
+    const { events: stored, window: win } = await repo.everything();
     const ws = f.q.toLowerCase().split(/\s+/).filter(Boolean);
     const norm = (t) => t.toLowerCase().replace(/ä/g, "ae").replace(/ö/g, "oe").replace(/ü/g, "ue").replace(/ß/g, "ss");
     const now = new Date(), seen = new Set(), up = [], past = [];
-    for (const e of win?.events || []) {
+    for (const e of stored) {
       if (e.holiday || (f.cals.length && !f.cals.includes(e.calendar_id))) continue;
       const hay = norm(`${e.title} ${e.location} ${e.calendar}`);
       if (!ws.every((w) => (w.startsWith("-") ? !hay.includes(norm(w.slice(1))) : hay.includes(norm(w))))) continue;
@@ -747,6 +750,9 @@ export async function openSettings(section) {
     const txt = (k, label, ph) => `<div class="li"><div class="ct"><span>${label}</span></div><input type="text" class="li-in" data-t="${k}" value="${esc(s[k] ?? "")}" placeholder="${ph}"></div>`;
     const total = S.cals.reduce((n, c) => n + (c.events || 0), 0);
     const pushOn = await pushState();
+    const st = await storage.info();
+    const storageText = !dbState.ok ? "Nicht verfügbar – die App zeigt nur mit Internet Termine (privater Modus?)"
+      : `${storage.fmtBytes(st.used)}${st.quota ? ` von ${storage.fmtBytes(st.quota)}` : ""} · ${st.persistent ? "dauerhaft ✓" : "nicht dauerhaft ✗ – installiere die App, damit das Handy die Daten behält"}`;
     const perm = "Notification" in window ? Notification.permission : "unsupported";
     box.innerHTML = `<div class="ed-top"><button class="icon-btn plain" data-close><span class="ms">arrow_back</span></button><h2>Einstellungen</h2></div>
       <div class="gl">Allgemein</div><div class="group list">
@@ -778,6 +784,7 @@ export async function openSettings(section) {
         <a class="li" href="${apiHref("/export.ics")}" download="kalender.ics"><span class="ms">download</span><div class="ct"><span>Alles als .ics exportieren</span></div></a>
         <label class="li"><span class="ms">upload</span><div class="ct"><span>.ics importieren</span><small>Doppelte Termine werden erkannt</small></div><input type="file" id="sImp" accept=".ics,text/calendar" hidden></label>
         ${feed ? `<div class="li col"><div class="ct"><span>Abo-Link</span><small>nur lesen – z. B. für ICSx⁵ am Handy</small></div><div class="feed"><input type="text" readonly value="${esc(feed.url)}"><button class="icon-btn plain" id="fCopy" title="Kopieren"><span class="ms">content_copy</span></button><button class="icon-btn plain" id="fRot" title="Neuen Link erzeugen"><span class="ms">autorenew</span></button><button class="icon-btn plain" id="fQr" title="QR-Code"><span class="ms">qr_code_2</span></button></div><div class="qr" id="qrBox" hidden><img alt="QR-Code des Abo-Links" src="${apiHref("/feed/qr.svg")}?v=${Date.now()}"><small>Mit dem Handy scannen und in ICSx⁵ öffnen</small></div></div>` : ""}
+        <div class="li"><span class="ms">sd_storage</span><div class="ct"><span>Offline-Speicher</span><small>${storageText}</small></div></div>
         <button class="li" id="sBak"><span class="ms">backup</span><div class="ct"><span>Backup jetzt anlegen</span><small>${backups.backups.length} Stände, nächtlich automatisch (${backups.keep || 14} werden behalten)</small></div></button>
         ${backups.backups.slice(0, 5).map((b) => `<a class="li sub" href="${apiHref(`/backups/${encodeURIComponent(b.name || b)}`)}" download><span class="ms">description</span><div class="ct"><span>${esc(b.name || b)}</span>${b.size ? `<small>${Math.round(b.size / 1024)} KB</small>` : ""}</div></a>`).join("")}
         <button class="li" data-trash><span class="ms">delete</span><div class="ct"><span>Papierkorb</span></div></button></div>
