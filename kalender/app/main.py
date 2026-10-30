@@ -13,7 +13,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import db, seed
-from .api import calendars, events, ics, misc
+from .api import calendars, events, extra, ics, misc
 from .config import get_settings
 from .errors import Conflict, Forbidden, Invalid, NotFound
 from .services import alarms, outbox, scheduler
@@ -75,7 +75,7 @@ def create_app() -> FastAPI:
             return handler
         app.add_exception_handler(exc, make(code))
 
-    for r in (calendars, events, misc, ics):
+    for r in (calendars, events, extra, misc, ics):
         app.include_router(r.router)
 
     if s.kalender_testing:

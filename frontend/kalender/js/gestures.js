@@ -16,7 +16,7 @@ function blockScroll(on) {
   v.style.overflowY = on ? "hidden" : "";
 }
 
-/** Zeitraster: cb = { create(start, end), move(id, start, end), repaint() } */
+/** Zeitraster: cb = { create(start, end), move(ev, start, end, edge), repaint(), shift: Tage pro Zeitraum } */
 export function bindGrid(view, cb) {
   const body = view.querySelector(".tg-body");
   if (!body) return;
@@ -59,8 +59,15 @@ export function bindGrid(view, cb) {
     };
     if (touch) timer = setTimeout(begin, 380);
 
+    let lastX = x0;
     const move = (m) => {
       const dx = m.clientX - x0, dy = m.clientY - y0;
+      lastX = m.clientX;
+      if (mode === "move") {
+        const r = view.getBoundingClientRect();
+        view.classList.toggle("edge-l", m.clientX < r.left + 28);
+        view.classList.toggle("edge-r", m.clientX > r.right - 28);
+      }
       if (!mode) {
         if (touch) { if (Math.hypot(dx, dy) > 8) cleanup(); return; }
         if (Math.hypot(dx, dy) < 5) return;
@@ -94,8 +101,14 @@ export function bindGrid(view, cb) {
         if (blk.dataset.end) cb.move(ev, dateAt(col, startMin), dateAt(col, +blk.dataset.end)); else cb.repaint();
       } else {
         const s = blk.dataset.start != null ? +blk.dataset.start : startMin;
+        const r = view.getBoundingClientRect(), edge = lastX < r.left + 28 ? -1 : lastX > r.right - 28 ? 1 : 0;
+        const a = dateAt(origCol, s);
+        if (edge) { // über den Bildschirmrand: in den vorigen/nächsten Zeitraum
+          a.setDate(a.getDate() + edge * (cb.shift || 1));
+          return cb.move(ev, a, new Date(a.getTime() + durMin * 6e4), edge);
+        }
         if (origCol === col && s === startMin) return cb.repaint();
-        cb.move(ev, dateAt(origCol, s), dateAt(origCol, s + durMin));
+        cb.move(ev, a, dateAt(origCol, s + durMin));
       }
     };
     const cleanup = () => {
@@ -104,6 +117,7 @@ export function bindGrid(view, cb) {
       removeEventListener("pointerup", up);
       removeEventListener("pointercancel", up);
       blockScroll(false);
+      view.classList.remove("edge-l", "edge-r");
       blk?.classList.remove("lift");
       if (mode === null && ghost) ghost.remove();
       mode = null;
@@ -153,22 +167,23 @@ export function bindGrip(view, onChange) {
   });
 }
 
-/** Liste: Karte nach links wischen = löschen (mit Rückgängig). */
-export function bindSwipe(view, onDelete) {
+/** Liste: Karte nach links wischen = löschen (mit Rückgängig), nach rechts = Erinnerung (künftig) bzw. erledigt (vorbei). */
+export function bindSwipe(view, onDelete, onRight) {
   view.addEventListener("pointerdown", (e) => {
     const card = e.target.closest(".swipe-wrap .card");
     if (!card || e.button !== 0) return;
     const x0 = e.clientX, y0 = e.clientY, w = card.offsetWidth;
     let dragging = false, dx = 0;
     const move = (m) => {
-      dx = Math.min(0, m.clientX - x0);
+      dx = m.clientX - x0;
       if (!dragging) {
         if (Math.abs(m.clientY - y0) > 10) return cleanup();
         if (Math.abs(dx) < 12) return;
         dragging = true; card.parentElement.classList.add("swiping");
       }
       card.style.transition = "none"; card.style.transform = `translateX(${dx}px)`;
-      card.parentElement.classList.toggle("armed", -dx > w * 0.35);
+      card.parentElement.classList.toggle("right", dx > 0);
+      card.parentElement.classList.toggle("armed", Math.abs(dx) > w * 0.35);
     };
     const up = () => {
       cleanup();
@@ -176,7 +191,10 @@ export function bindSwipe(view, onDelete) {
       suppressClick = Date.now();
       card.style.transition = "";
       if (-dx > w * 0.35) { card.style.transform = "translateX(-110%)"; haptic(); setTimeout(() => onDelete(card.dataset.id), 180); }
-      else { card.style.transform = ""; card.parentElement.classList.remove("swiping", "armed"); }
+      else {
+        if (dx > w * 0.35) { haptic(); onRight(card.dataset.id); }
+        card.style.transform = ""; card.parentElement.classList.remove("swiping", "armed", "right");
+      }
     };
     const cleanup = () => { removeEventListener("pointermove", move); removeEventListener("pointerup", up); removeEventListener("pointercancel", up); };
     addEventListener("pointermove", move); addEventListener("pointerup", up); addEventListener("pointercancel", up);

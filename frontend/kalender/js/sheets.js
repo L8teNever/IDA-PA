@@ -1,6 +1,6 @@
 // Detail-Sheet, Editor, Serien-Rückfrage, Schnelleingabe, Suche, Papierkorb, Verlauf, Einstellungen, Kalender-Einstellungen, Erinnerung.
 import { api } from "./api.js";
-import { S, calOf, send, writable } from "./store.js";
+import { S, calOf, kvGet, send, writable } from "./store.js";
 import { addDays, ago, countdown, dayMonth, durText, hm, longDay, monthName, parseYmd, shortDay, weekdayShort, whenText, ymd } from "./dates.js";
 import { byIda, card, cstyle, esc } from "./views.js";
 import { pickDate, pickTime } from "./pickers.js";
@@ -122,6 +122,7 @@ export async function openDetail(id) {
       ${row("calendar_month", `<span class="dot" style="${cstyle(cal?.color || e.color)}"></span>${esc(cal?.name || e.calendar)}`)}
       ${e.url ? row("link", `<a href="${esc(e.url)}" target="_blank" rel="noopener">${esc(e.url)}</a>`) : ""}
       ${e.description ? row("notes", `<div class="es-desc">${md(e.description)}</div>`) : ""}
+      <div id="esFiles"></div>
       <div class="es-hist" id="esHist"></div>
     </div>
     ${ro ? "" : `<div class="es-actions"><button class="btn f" data-edit><span class="ms">edit</span>Bearbeiten</button><button class="btn i" data-dup title="Duplizieren"><span class="ms">content_copy</span></button><button class="btn i" data-share title="Teilen"><span class="ms">share</span></button><button class="btn i danger" data-del title="Löschen"><span class="ms">delete</span></button></div>`}`;
@@ -139,6 +140,10 @@ export async function openDetail(id) {
     $("#esHist", sh).innerHTML = `<span class="ms">history</span><span>${c.by === "user" ? "von dir" : "von Ida"} ${ACT[c.action] || c.action} · ${ago(c.at)}</span>${c.undone ? "" : `<button class="link" data-undo="${c.id}">Rückgängig</button>`}`;
     $("[data-undo]", sh)?.addEventListener("click", async () => { try { await api(`/changes/${c.id}/undo`, { method: "POST" }); closeTop(); hooks.changed(); } catch (x) { fail(x); } });
   }).catch(() => {});
+  if (!e.id.startsWith("hol_")) api(`/events/${encodeURIComponent(e.id)}/files`).then((r) => {
+    if (!r.files.length) return;
+    $("#esFiles", sh).innerHTML = `<div class="es-row"><span class="ms">attach_file</span><div class="es-c files">${r.files.map((f) => `<a href="${fileHref(e.event_id, f.name)}" target="_blank" rel="noopener"><span class="ms">${fileIcon(f.name)}</span>${esc(f.name)}<small>${kb(f.size)}</small></a>`).join("")}</div></div>`;
+  }).catch(() => {});
 
   $("[data-copy]", sh)?.addEventListener("click", () => { navigator.clipboard?.writeText(e.location); toast("Ort kopiert"); });
   sh.querySelectorAll(".ckl").forEach((b) => (b.onclick = async () => {
@@ -150,7 +155,8 @@ export async function openDetail(id) {
     try { await send(`/events/${encodeURIComponent(e.event_id)}?scope=all`, { method: "PATCH", body: { description: e.description } }, e.id); } catch (x) { fail(x); }
   }));
   $("[data-more]", sh).onclick = async () => {
-    const v = await choose(e.title, [["show", "Im Kalender zeigen", "calendar_view_day"], ["text", "Als Text kopieren", "content_copy"], ["ics", "Als .ics herunterladen", "download"]]);
+    const v = await choose(e.title, [...(S.meta.ask ? [["ask", "Ida fragen", "auto_awesome"]] : []), ["show", "Im Kalender zeigen", "calendar_view_day"], ["text", "Als Text kopieren", "content_copy"], ["ics", "Als .ics herunterladen", "download"]]);
+    if (v === "ask") { await closeTop(); openAsk("", e); }
     if (v === "show") { await closeTop(); hooks.jump(e); }
     if (v === "text") { navigator.clipboard?.writeText(shareText(e)); toast("Kopiert"); }
     if (v === "ics") downloadIcs(e);
@@ -204,7 +210,7 @@ const presetOf = (r) => {
   return "custom";
 };
 
-export function openEditor({ event: ev, start, end, copy, allDay } = {}) {
+export function openEditor({ event: ev, start, end, copy, allDay, fromFab } = {}) {
   const editing = !!(ev && ev.id) && !copy;
   const dur = Number(S.settings.default_duration_min) || 60;
   const nextHour = () => { const n = new Date(); n.setHours(n.getHours() + 1, 0, 0, 0); return n; };
@@ -220,9 +226,11 @@ export function openEditor({ event: ev, start, end, copy, allDay } = {}) {
     status: ev?.status === "tentative" ? "tentative" : (ev?.transparency || "busy") === "free" ? "free" : "busy",
     travel: ev?.travel_min || 0, agent: ev?.alarm_action === "agent", task: ev?.alarm_task || "",
     more: !!(ev && (ev.url || ev.travel_min || ev.status === "tentative" || ev.alarm_action === "agent")),
+    files: [], // { name, size, remote } oder { name, file } (wird nach dem Speichern hochgeladen)
   };
   const snapshot = JSON.stringify(st);
   const { box } = overlay("");
+  if (fromFab) box.classList.add("morph");
   let conflictTimer, suggTimer, sugg = [];
   const dt = () => (st.all_day ? [parseYmd(st.sd), addDays(parseYmd(st.ed), 1)] : [new Date(`${st.sd}T${st.stime}`), new Date(`${st.ed}T${st.etime}`)]);
   const wd = () => parseYmd(st.sd).getDay(), wdIdx = () => (wd() + 6) % 7;
@@ -249,7 +257,9 @@ export function openEditor({ event: ev, start, end, copy, allDay } = {}) {
       <div class="frow wrap"><span class="ms">directions_car</span><div class="chips">${[0, 15, 30, 60].map((m) => `<button class="pc${st.travel === m ? " on" : ""}" data-travel="${m}">${m ? `${m} Min.` : "Keine Reisezeit"}</button>`).join("")}</div></div>
       <div class="frow"><span class="ms">auto_awesome</span><span class="fl">Ida kümmert sich bei der Erinnerung</span><button class="sw${st.agent ? " on" : ""}" id="fAgent"></button></div>
       ${st.agent ? `<div class="frow"><span class="ms"></span><input type="text" id="fTask" placeholder="Was soll Ida dann tun? z. B. „Schick mir die Adresse“" value="${esc(st.task)}"></div>` : ""}
-      <div class="frow"><span class="ms">link</span><input type="url" id="fUrl" placeholder="Link" value="${esc(st.url)}"></div>` : ""}`;
+      <div class="frow"><span class="ms">link</span><input type="url" id="fUrl" placeholder="Link" value="${esc(st.url)}"></div>
+      <div class="frow wrap"><span class="ms">attach_file</span><div class="chips">${st.files.map((f, i) => `<span class="pc on file"><span class="ms">${fileIcon(f.name)}</span>${esc(f.name)}<button class="x" data-rmfile="${i}" title="Entfernen"><span class="ms">close</span></button></span>`).join("")}
+        <label class="pc"><span class="ms">add</span>Datei anhängen<input type="file" id="fFile" multiple hidden></label></div></div>` : ""}`;
     bind();
     checkConflicts();
   };
@@ -296,6 +306,21 @@ export function openEditor({ event: ev, start, end, copy, allDay } = {}) {
     box.querySelectorAll("[data-status]").forEach((b) => (b.onclick = () => { read(); st.status = b.dataset.status; draw(); }));
     box.querySelectorAll("[data-travel]").forEach((b) => (b.onclick = () => { read(); st.travel = +b.dataset.travel; draw(); }));
     $("#fAgent", box)?.addEventListener("click", () => { read(); st.agent = !st.agent; draw(); });
+    $("#fFile", box)?.addEventListener("change", async (x) => {
+      read();
+      for (const file of x.target.files) {
+        if (file.size > 20 * 1024 * 1024) { toast(`„${file.name}“ ist zu groß (höchstens 20 MB)`); continue; }
+        if (editing) { try { const r = await uploadFile(ev.id, file); st.files = r.files.map((f) => ({ ...f, remote: true })); } catch (e) { fail(e); } }
+        else st.files.push({ name: file.name, file });
+      }
+      draw();
+    });
+    box.querySelectorAll("[data-rmfile]").forEach((b) => (b.onclick = async () => {
+      read();
+      const f = st.files[+b.dataset.rmfile];
+      if (f.remote) { if (!(await confirmBox(`„${f.name}“ löschen?`, "Löschen"))) return; try { await api(`/files/${ev.event_id}/${encodeURIComponent(f.name)}`, { method: "DELETE" }); } catch (e) { return fail(e); } }
+      st.files.splice(+b.dataset.rmfile, 1); draw();
+    }));
     const t = $("#fTitle", box);
     t.oninput = () => { clearTimeout(suggTimer); suggTimer = setTimeout(loadSugg, 180); };
     t.onkeydown = (k) => { if (k.key === "Enter") $("[data-save]", box).click(); };
@@ -353,11 +378,50 @@ export function openEditor({ event: ev, start, end, copy, allDay } = {}) {
       const r = editing ? await send(`/events/${encodeURIComponent(ev.id)}?scope=${scope}`, { method: "PATCH", body }, ev.id) : await send("/events", { method: "POST", body });
       closeTop();
       toast(r.queued ? "Offline gespeichert – wird später gesendet" : editing ? "Gespeichert" : "Termin angelegt", undoAction(r));
+      const local = st.files.filter((f) => f.file);
+      if (local.length && r.event) { for (const f of local) { try { await uploadFile(r.event.id, f.file); } catch (e) { fail(e); } } }
+      else if (local.length && r.queued) toast("Anhänge gehen erst mit Verbindung – bitte dann erneut anhängen");
       hooks.changed(r.event?.event_id);
     } catch (x) { fail(x, save); }
   };
   draw();
+  if (editing) api(`/events/${encodeURIComponent(ev.id)}/files`).then((r) => { if (r.files.length) { read(); st.files = r.files.map((f) => ({ ...f, remote: true })); st.more = true; draw(); } }).catch(() => {});
   if (!editing) setTimeout(() => $("#fTitle", box)?.focus(), 120);
+}
+
+// ---------------- Anhänge ----------------
+async function uploadFile(id, file) {
+  const fd = new FormData(); fd.append("file", file, file.name);
+  return api(`/events/${encodeURIComponent(id)}/files`, { method: "POST", form: fd });
+}
+const fileHref = (eid, name) => apiHref(`/files/${eid}/${encodeURIComponent(name)}`);
+const kb = (n) => (n > 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`);
+function fileIcon(name) {
+  const x = name.split(".").pop().toLowerCase();
+  return /^(png|jpe?g|gif|webp|heic|svg)$/.test(x) ? "image" : x === "pdf" ? "picture_as_pdf" : /^(mp3|m4a|wav|ogg)$/.test(x) ? "audio_file" : /^(mp4|mov|webm)$/.test(x) ? "movie" : "description";
+}
+
+// ---------------- Ida fragen (über IDA; Ida antwortet mit den calendar_*-Tools) ----------------
+export function openAsk(question = "", ev = null) {
+  const { box } = overlay(`<div class="handle"></div><div class="ask-h"><div class="face"></div><h3 class="bs-t">Ida fragen</h3></div>
+    ${ev ? `<div class="chips pad"><span class="pc on"><span class="ms">event</span>${esc(ev.title)}</span></div>` : ""}
+    <div class="ask-a" id="askA"><p class="hint">${ev ? "Was soll Ida mit dem Termin machen oder dazu wissen?" : "z. B. „Wann war ich zuletzt beim Zahnarzt?“ oder „Leg mir für Freitag 2 Stunden Lernen an“."}</p></div>
+    <div class="ask-in"><input type="text" class="qin" id="askIn" placeholder="Frag Ida …" value="${esc(question)}" autocomplete="off" enterkeyhint="send"><button class="fab sm" id="askGo" aria-label="Senden"><span class="ms">send</span></button></div>`, "bottom");
+  const input = $("#askIn", box), out = $("#askA", box);
+  const go = async () => {
+    const text = input.value.trim(); if (!text) return;
+    out.innerHTML = `<div class="ask-q">${esc(text)}</div><div class="ask-wait"><div class="face big"></div><p>Ida denkt nach …</p></div>`;
+    input.value = ""; input.disabled = true;
+    try {
+      const r = await api("/ask", { method: "POST", body: { text, event_id: ev?.id } });
+      out.innerHTML = `<div class="ask-q">${esc(text)}</div><div class="ask-r">${md(r.text || "")}</div>`;
+      hooks.changed();
+    } catch (e) { out.innerHTML = `<div class="ask-q">${esc(text)}</div><p class="hint">${esc(e.message)}</p>`; }
+    input.disabled = false; input.focus();
+  };
+  $("#askGo", box).onclick = go;
+  input.onkeydown = (k) => { if (k.key === "Enter") go(); };
+  if (question) go(); else setTimeout(() => input.focus(), 120);
 }
 
 // ---------------- Benutzerdefinierte Wiederholung ----------------
@@ -517,14 +581,38 @@ export function openSearch() {
     if (!f.q && !f.flags.size && !f.cals.length && !f.range) return empty();
     let r;
     try { r = await api(`/search?q=${encodeURIComponent(f.q)}${f.cals.length ? `&calendars=${f.cals.join(",")}` : ""}${f.flags.size ? `&flags=${[...f.flags].join(",")}` : ""}${rangeParams()}`); }
-    catch (x) { res.innerHTML = `<p class="hint pad">${esc(x.status === 0 ? "Offline – die Suche braucht gerade eine Verbindung." : x.message)}</p>`; return; }
+    catch (x) {
+      if (x.status !== 0) { res.innerHTML = `<p class="hint pad">${esc(x.message)}</p>`; return; }
+      r = await offlineSearch(f);  // ohne Verbindung: über den Spiegel der App (±3 Monate)
+    }
     const jump = r.range && !r.query.trim() ? `<button class="jump" data-jump="${r.range.from.slice(0, 10)}"><span class="ms">event</span>Springe zu ${esc(shortDay(new Date(r.range.from)))}</button>` : "";
     const rangeChip = r.range && r.range.label !== "Zeitraum" ? `<div class="chips pad"><span class="pc on"><span class="ms">date_range</span>${esc(r.range.label)}</span></div>` : "";
     res.innerHTML = jump + rangeChip + (r.total
       ? (r.upcoming.length ? `<h4>${r.range ? "Treffer" : "Demnächst"}</h4>${group(r.upcoming)}` : "") + (r.past.length ? `<h4>Vergangen</h4>${group(r.past)}` : "")
-      : `<div class="empty-state"><div class="face big"></div><p>Nichts gefunden</p></div>`);
+      : `<div class="empty-state"><div class="face big"></div><p>Nichts gefunden</p>${r.did_you_mean ? `<button class="tonal" data-dym="${esc(r.did_you_mean)}">Meintest du „${esc(r.did_you_mean)}“?</button>` : ""}</div>`)
+      + (r.offline ? `<p class="hint pad"><span class="ms" style="font-size:16px;vertical-align:-3px">cloud_off</span> Offline – nur Termine von ${esc(r.offline)}</p>` : "")
+      + (S.meta.ask && f.q ? `<button class="askida" data-ask><div class="face"></div><span>Ida fragen: „${esc(f.q)}“</span><span class="ms">arrow_forward</span></button>` : "");
+    $("[data-dym]", res)?.addEventListener("click", (b) => { input.value = b.currentTarget.dataset.dym; run(); });
+    $("[data-ask]", res)?.addEventListener("click", () => openAsk(f.q.endsWith("?") ? f.q : `Was weißt du zu: ${f.q}?`));
     $("[data-jump]", res)?.addEventListener("click", async (b) => { const d = b.currentTarget.dataset.jump; await closeTop(); hooks.jump({ start: d, all_day: true }); });
     bindHits();
+  };
+  const offlineSearch = async () => {
+    const win = await kvGet("window");
+    const ws = f.q.toLowerCase().split(/\s+/).filter(Boolean);
+    const norm = (t) => t.toLowerCase().replace(/ä/g, "ae").replace(/ö/g, "oe").replace(/ü/g, "ue").replace(/ß/g, "ss");
+    const now = new Date(), seen = new Set(), up = [], past = [];
+    for (const e of win?.events || []) {
+      if (e.holiday || (f.cals.length && !f.cals.includes(e.calendar_id))) continue;
+      const hay = norm(`${e.title} ${e.location} ${e.calendar}`);
+      if (!ws.every((w) => (w.startsWith("-") ? !hay.includes(norm(w.slice(1))) : hay.includes(norm(w))))) continue;
+      if (f.flags.has("recurring") && !e.recurring || f.flags.has("alarm") && !e.alarms?.length || f.flags.has("by_agent") && !byIda(e) || f.flags.has("all_day") && !e.all_day) continue;
+      const key = e.event_id;
+      if (new Date(e.end) >= now) { if (!seen.has(key)) { seen.add(key); up.push(e); } } else past.push(e);
+    }
+    past.reverse();
+    const span = win ? `${monthName(new Date(win.from || now)).slice(0, 4)}. bis ${monthName(new Date(win.to || now)).slice(0, 4)}.` : "–";
+    return { query: f.q, range: null, upcoming: up.slice(0, 60), past: past.filter((e) => !seen.has(e.event_id)).slice(0, 60), total: up.length + past.length, offline: span };
   };
   const bindHits = () => res.querySelectorAll(".card[data-id]").forEach((n) => (n.onclick = () => {
     if (f.q) localStorage.setItem("kal-recent", JSON.stringify([f.q, ...JSON.parse(localStorage.getItem("kal-recent") || "[]").filter((x) => x !== f.q)].slice(0, 8)));
@@ -619,6 +707,31 @@ let apiBase = "/api/v1";
 export const setApiHref = (b) => { apiBase = b; };
 const apiHref = (p) => apiBase + p;
 
+// ---------------- Web Push (Opt-in; läuft über den Push-Dienst des Browsers, Inhalt verschlüsselt) ----------------
+const THEMES = [["dark", "Dunkel"], ["light", "Hell"], ["system", "Wie das System"]];
+const pushText = (on) => (on === null ? ("PushManager" in window ? "braucht HTTPS und die installierte App" : "kann dieser Browser nicht")
+  : on ? "an – Erinnerungen kommen auch bei geschlossener App (über den Push-Dienst des Browsers, verschlüsselt)" : "aus – Erinnerungen nur bei offener App");
+async function swReg() { return "serviceWorker" in navigator ? navigator.serviceWorker.getRegistration() : null; }
+/** null = nicht möglich, true/false = an/aus */
+async function pushState() {
+  if (!("PushManager" in window) || !isSecureContext) return null;
+  const reg = await swReg(); if (!reg) return null;
+  return !!(await reg.pushManager.getSubscription());
+}
+function b64ToBytes(s) { const b = atob(s.replace(/-/g, "+").replace(/_/g, "/") + "===".slice((s.length + 3) % 4)); return Uint8Array.from(b, (c) => c.charCodeAt(0)); }
+async function pushOnNow() {
+  if (Notification.permission !== "granted" && (await Notification.requestPermission()) !== "granted") throw new Error("Benachrichtigungen sind im Browser nicht erlaubt");
+  const reg = await swReg(), { public_key: key } = await api("/push");
+  const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToBytes(key) });
+  await api("/push/subscribe", { method: "POST", body: { subscription: sub.toJSON(), label: /android/i.test(navigator.userAgent) ? "Android" : /iphone|ipad/i.test(navigator.userAgent) ? "iPhone" : "Browser" } });
+  toast("Push ist an");
+}
+async function pushOff() {
+  const reg = await swReg(), sub = await reg?.pushManager.getSubscription();
+  if (sub) { await api("/push/unsubscribe", { method: "POST", body: { endpoint: sub.endpoint } }).catch(() => {}); await sub.unsubscribe(); }
+  toast("Push ist aus");
+}
+
 // ---------------- Einstellungen (gruppierte Listen im Android-17-Stil) ----------------
 const VIEWS = [["monthday", "Monat + Tag"], ["agenda", "Liste"], ["day", "Tag"], ["days3", "3 Tage"], ["week", "Woche"], ["month", "Monat"], ["year", "Jahr"]];
 const STATES = [["BW", "Baden-Württemberg"], ["BY", "Bayern"], ["BE", "Berlin"], ["BB", "Brandenburg"], ["HB", "Bremen"], ["HH", "Hamburg"], ["HE", "Hessen"], ["MV", "Mecklenburg-Vorpommern"], ["NI", "Niedersachsen"], ["NW", "Nordrhein-Westfalen"], ["RP", "Rheinland-Pfalz"], ["SL", "Saarland"], ["SN", "Sachsen"], ["ST", "Sachsen-Anhalt"], ["SH", "Schleswig-Holstein"], ["TH", "Thüringen"]];
@@ -633,9 +746,11 @@ export async function openSettings(section) {
     const sel = (k, label, opts) => `<button class="li" data-sel="${k}"><div class="ct"><span>${label}</span><small>${esc((opts.find(([v]) => String(v) === String(s[k])) || ["", "–"])[1])}</small></div><span class="ms">chevron_right</span></button>`;
     const txt = (k, label, ph) => `<div class="li"><div class="ct"><span>${label}</span></div><input type="text" class="li-in" data-t="${k}" value="${esc(s[k] ?? "")}" placeholder="${ph}"></div>`;
     const total = S.cals.reduce((n, c) => n + (c.events || 0), 0);
+    const pushOn = await pushState();
     const perm = "Notification" in window ? Notification.permission : "unsupported";
     box.innerHTML = `<div class="ed-top"><button class="icon-btn plain" data-close><span class="ms">arrow_back</span></button><h2>Einstellungen</h2></div>
       <div class="gl">Allgemein</div><div class="group list">
+        ${sel("theme", "Design", THEMES)}
         ${sel("week_start", "Wochenstart", [[1, "Montag"], [0, "Sonntag"]])}
         ${sel("default_view", "Standardansicht am Handy", VIEWS)}
         ${sel("default_view_desktop", "Standardansicht am PC", VIEWS)}
@@ -651,6 +766,8 @@ export async function openSettings(section) {
         ${sel("state", "Bundesland für Feiertage", [["", `Standard (${S.meta.state || "NW"})`], ...STATES])}</div>
       <div class="gl">Benachrichtigungen</div><div class="group list">
         <div class="li"><div class="ct"><span>In der App</span><small>${perm === "granted" ? "erlaubt" : perm === "denied" ? "im Browser blockiert" : perm === "unsupported" ? "nicht möglich" : "noch nicht erlaubt"}</small></div>${perm === "default" ? '<button class="pc" id="nPerm">Erlauben</button>' : ""}</div>
+        <div class="li"><div class="ct"><span>Push auf diesem Gerät</span><small>${pushText(pushOn)}</small></div>${pushOn !== null ? `<button class="sw${pushOn ? " on" : ""}" id="pushSw"></button>` : ""}</div>
+        ${pushOn ? '<button class="li sub" id="pushTest"><span class="ms">notifications_active</span><div class="ct"><span>Test-Benachrichtigung schicken</span></div></button>' : ""}
         ${txt("quiet_hours", "Ruhezeiten", "22:00-07:00")}
         <div class="li"><div class="ct"><span>Erinnerungen bei geschlossener App</span><small>${S.meta.ida ? "kommen über IDA als Info" : "über das Abo in einer Kalender-App (ICSx⁵/DAVx⁵) – dann erinnert das Handy selbst"}</small></div></div></div>
       <div class="gl">Ida</div><div class="group list">
@@ -660,7 +777,7 @@ export async function openSettings(section) {
       <div class="gl" data-sec="data">Daten</div><div class="group list">
         <a class="li" href="${apiHref("/export.ics")}" download="kalender.ics"><span class="ms">download</span><div class="ct"><span>Alles als .ics exportieren</span></div></a>
         <label class="li"><span class="ms">upload</span><div class="ct"><span>.ics importieren</span><small>Doppelte Termine werden erkannt</small></div><input type="file" id="sImp" accept=".ics,text/calendar" hidden></label>
-        ${feed ? `<div class="li col"><div class="ct"><span>Abo-Link</span><small>nur lesen – z. B. für ICSx⁵ am Handy</small></div><div class="feed"><input type="text" readonly value="${esc(feed.url)}"><button class="icon-btn plain" id="fCopy" title="Kopieren"><span class="ms">content_copy</span></button><button class="icon-btn plain" id="fRot" title="Neuen Link erzeugen"><span class="ms">autorenew</span></button></div></div>` : ""}
+        ${feed ? `<div class="li col"><div class="ct"><span>Abo-Link</span><small>nur lesen – z. B. für ICSx⁵ am Handy</small></div><div class="feed"><input type="text" readonly value="${esc(feed.url)}"><button class="icon-btn plain" id="fCopy" title="Kopieren"><span class="ms">content_copy</span></button><button class="icon-btn plain" id="fRot" title="Neuen Link erzeugen"><span class="ms">autorenew</span></button><button class="icon-btn plain" id="fQr" title="QR-Code"><span class="ms">qr_code_2</span></button></div><div class="qr" id="qrBox" hidden><img alt="QR-Code des Abo-Links" src="${apiHref("/feed/qr.svg")}?v=${Date.now()}"><small>Mit dem Handy scannen und in ICSx⁵ öffnen</small></div></div>` : ""}
         <button class="li" id="sBak"><span class="ms">backup</span><div class="ct"><span>Backup jetzt anlegen</span><small>${backups.backups.length} Stände, nächtlich automatisch (${backups.keep || 14} werden behalten)</small></div></button>
         ${backups.backups.slice(0, 5).map((b) => `<a class="li sub" href="${apiHref(`/backups/${encodeURIComponent(b.name || b)}`)}" download><span class="ms">description</span><div class="ct"><span>${esc(b.name || b)}</span>${b.size ? `<small>${Math.round(b.size / 1024)} KB</small>` : ""}</div></a>`).join("")}
         <button class="li" data-trash><span class="ms">delete</span><div class="ct"><span>Papierkorb</span></div></button></div>
@@ -671,7 +788,7 @@ export async function openSettings(section) {
     box.querySelectorAll("[data-t]").forEach((i) => (i.onchange = () => put({ [i.dataset.t]: i.value.trim() })));
     box.querySelectorAll("[data-sel]").forEach((b) => (b.onclick = async () => {
       const k = b.dataset.sel;
-      const opts = { week_start: [[1, "Montag"], [0, "Sonntag"]], default_view: VIEWS, default_view_desktop: VIEWS, default_duration_min: [[15, "15 Min."], [30, "30 Min."], [45, "45 Min."], [60, "1 Std."], [90, "1,5 Std."], [120, "2 Std."]], state: [["", "Standard"], ...STATES] }[k];
+      const opts = { theme: THEMES, week_start: [[1, "Montag"], [0, "Sonntag"]], default_view: VIEWS, default_view_desktop: VIEWS, default_duration_min: [[15, "15 Min."], [30, "30 Min."], [45, "45 Min."], [60, "1 Std."], [90, "1,5 Std."], [120, "2 Std."]], state: [["", "Standard"], ...STATES] }[k];
       const v = await choose(b.querySelector("span").textContent, opts.map(([x, l]) => [String(x), l]), { selected: [String(s[k])] });
       if (v != null) put({ [k]: ["week_start", "default_duration_min"].includes(k) ? +v : v });
     }));
@@ -696,6 +813,12 @@ export async function openSettings(section) {
     };
     $("#fCopy", box)?.addEventListener("click", () => { navigator.clipboard?.writeText(feed.url); toast("Abo-Link kopiert"); });
     $("#fRot", box)?.addEventListener("click", async () => { if (await confirmBox("Neuen Abo-Link erzeugen? Der alte hört sofort auf zu funktionieren.", "Neuen Link erzeugen")) { await api("/feed/rotate", { method: "POST" }); draw(); } });
+    $("#fQr", box)?.addEventListener("click", () => { $("#qrBox", box).hidden = !$("#qrBox", box).hidden; });
+    $("#pushSw", box)?.addEventListener("click", async () => {
+      try { if (pushOn) await pushOff(); else await pushOnNow(); } catch (e) { fail(e); }
+      draw();
+    });
+    $("#pushTest", box)?.addEventListener("click", async () => { try { const r = await api("/push/test", { method: "POST" }); toast(r.sent ? "Test geschickt" : "Kein Gerät hat die Nachricht angenommen"); } catch (e) { fail(e); } });
     $("#sBak", box).onclick = async () => { try { await api("/backups", { method: "POST" }); toast("Backup angelegt"); draw(); } catch (x) { fail(x); } };
     $("[data-trash]", box).onclick = () => openTrash();
     if (section) { box.querySelector(`[data-sec="${section}"]`)?.scrollIntoView(); section = null; }

@@ -810,3 +810,10 @@ def test_chat_answer_goes_on_when_the_page_is_closed(client):
     with client.stream("GET", f"{API}/chats/{cid}/live?after=1") as r:
         assert json.loads(list(r.iter_lines())[-1])["done"]["ok"]
     assert client.get(f"{API}/chats/gibtsnicht/live").status_code == 404
+
+
+def test_kalender_endpoints_need_the_token(client):
+    # ohne KALENDER_IDA_TOKEN (Testumgebung) nimmt IDA nichts vom Kalender an
+    assert client.post(f"{API}/ext/kalender", json={"type": "alarm"}).status_code == 401
+    assert client.post(f"{API}/ext/kalender/ask", json={"text": "Hallo"}, headers={"Authorization": "Bearer falsch"}).status_code == 401
+    assert client.get("/kal/api/v1/calendars").status_code == 503  # KALENDER_URL fehlt

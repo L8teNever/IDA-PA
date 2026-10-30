@@ -24,7 +24,7 @@ def payload(ev: Event, occ: rec.Occ, cal: Calendar, minutes: int) -> dict:
 async def tick(now: datetime | None = None) -> int:
     """Löst alle fälligen Erinnerungen aus. Der Primärschlüssel von alarms_sent verhindert doppeltes Auslösen. → Anzahl."""
     now = now or utcnow()
-    fired = 0
+    fired, sent = 0, []
     hook = bool(get_settings().ida_webhook_url)
     async with session_scope(write=True) as db:
         cals = {c.id: c for c in (await db.scalars(select(Calendar))).all()}
@@ -48,11 +48,14 @@ async def tick(now: datetime | None = None) -> int:
                     db.add(AlarmSent(event_id=ev.id, occurrence_start=occ.key, minutes=m))
                     p = payload(ev, occ, cal, m)
                     pending(db).append(p)
+                    sent.append(p)
                     if hook:
                         db.add(Outbox(kind="alarm", payload=p))
                     fired += 1
     if fired:
         log.info("%d Erinnerung(en) ausgelöst", fired)
+        from . import push  # Opt-in: nur angemeldete Geräte
+        await push.send(sent)
     return fired
 
 

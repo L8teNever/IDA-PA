@@ -6,7 +6,7 @@ import { addDays, addMonths, daysBetween, hm, isoWeek, monthName, parseYmd, same
 import { agenda, cstyle, esc, gridDays, miniMonth, month, monthday, skeleton, timegrid, year } from "./views.js";
 import { bindGrid, bindGrip, bindSwipe, longPress, swallowClick } from "./gestures.js";
 import {
-  choose, deleteEvent, layerOpen, openCalendar, openDetail, openEditor, openHistory, openQuick, openSearch, openSettings, openTrash,
+  choose, deleteEvent, layerOpen, openAsk, openCalendar, openDetail, openEditor, openHistory, openQuick, openSearch, openSettings, openTrash,
   patchEvent, popLayer, setApiHref, setHooks, showAlarm, toast,
 } from "./sheets.js";
 
@@ -45,6 +45,7 @@ export async function mount(el, opts = {}) {
   addEventListener("online", async () => { const n = await flushQueue(); if (n) toast(`${n} Offline-Änderung${n > 1 ? "en" : ""} gesendet`); render(true); });
   addEventListener("offline", () => { document.body.classList.add("is-offline"); paintOffline(); });
   addEventListener("keydown", keys);
+  matchMedia("(prefers-color-scheme: light)").addEventListener?.("change", applyTheme);
   addEventListener("resize", () => { document.body.classList.toggle("wide", innerWidth >= 1000); });
   addEventListener("beforeinstallprompt", (e) => { e.preventDefault(); installEvt = e; document.body.classList.add("can-install"); });
   live(onLive, (ok) => { if (ok && queued()) flushQueue().then(() => render(true)); });
@@ -113,7 +114,7 @@ function shell() {
   fab.addEventListener("pointerup", () => clearTimeout(t));
   fab.addEventListener("pointerleave", () => clearTimeout(t));
   fab.addEventListener("contextmenu", (e) => e.preventDefault());
-  fab.onclick = () => { if (held) return; if (document.body.classList.contains("fab-open")) return fabMenu(false); openEditor({ start: defaultStart() }); };
+  fab.onclick = () => { if (held) return; if (document.body.classList.contains("fab-open")) return fabMenu(false); openEditor({ start: defaultStart(), fromFab: true }); };
   $("#stage").addEventListener("click", stageClick);
   $("#stage").addEventListener("contextmenu", rightClick);
   longPress($("#stage"), ".m-cell", (c) => { const d = parseYmd(c.dataset.day); S.sel = d; openEditor({ start: defaultStart(d) }); });
@@ -125,11 +126,36 @@ function fabMenu(open) {
   document.body.classList.toggle("fab-open", open);
   const m = $("#fabMenu");
   if (!open) { m.innerHTML = ""; return; }
-  m.innerHTML = [["event", "Termin", () => openEditor({ start: defaultStart() })], ["bolt", "Schnelleingabe", openQuick], ["today", "Ganztägig", () => openEditor({ start: S.sel, allDay: true })]]
-    .map(([ic, l], i) => `<button data-i="${i}" style="--i:${i}"><span class="ms">${ic}</span>${l}</button>`).join("");
-  const acts = [() => openEditor({ start: defaultStart() }), openQuick, () => openEditor({ start: new Date(S.sel), allDay: true })];
+  const items = [["event", "Termin", () => openEditor({ start: defaultStart(), fromFab: true })], ["bolt", "Schnelleingabe", openQuick],
+    ["today", "Ganztägig", () => openEditor({ start: new Date(S.sel), allDay: true, fromFab: true })], ["content_copy", "Aus Vorlage", fromTemplate],
+    ...(S.meta.ask ? [["auto_awesome", "Ida fragen", () => openAsk()]] : [])];
+  m.innerHTML = items.map(([ic, l], i) => `<button data-i="${i}" style="--i:${i}"><span class="ms">${ic}</span>${l}</button>`).join("");
+  const acts = items.map((x) => x[2]);
   m.querySelectorAll("button").forEach((b) => (b.onclick = () => { fabMenu(false); acts[+b.dataset.i](); }));
   setTimeout(() => addEventListener("pointerdown", function off(e) { if (!e.target.closest("#fabMenu,#fab")) { fabMenu(false); removeEventListener("pointerdown", off); } }), 0);
+}
+
+/** „Aus Vorlage“: ein früherer Termin als Vorlage (Titel, Dauer, Ort, Kalender, Erinnerungen) – nur Datum und Zeit sind neu. */
+async function fromTemplate() {
+  const seen = new Map();
+  for (const e of [...S.events].reverse()) if (!e.holiday && !e.read_only && !seen.has(e.title.toLowerCase())) seen.set(e.title.toLowerCase(), e);
+  const list = [...seen.values()].slice(0, 12);
+  if (!list.length) return toast("Noch keine Termine als Vorlage – leg erst einen an");
+  const id = await choose("Vorlage wählen", list.map((e) => [e.id, `${e.title}${e.location ? ` · ${e.location}` : ""}`, "event", cstyle(e.color)]));
+  const t = list.find((e) => e.id === id); if (!t) return;
+  const s = defaultStart(), dur = new Date(t.end) - new Date(t.start);
+  openEditor({ event: { ...t, start: t.all_day ? ymd(s) : s.toISOString(), end: t.all_day ? ymd(addDays(s, 1)) : new Date(s.getTime() + dur).toISOString(), rrule: "", recurring: false }, copy: true });
+}
+const doneKey = "kal-done";
+const doneSet = () => new Set(JSON.parse(localStorage.getItem(doneKey) || "[]"));
+const isDone = (id) => doneSet().has(id);
+function toggleDone(id) { const s = doneSet(); s.has(id) ? s.delete(id) : s.add(id); localStorage.setItem(doneKey, JSON.stringify([...s].slice(-500))); }
+
+function applyTheme() {
+  const t = S.settings.theme || "dark";
+  const light = t === "light" || (t === "system" && matchMedia("(prefers-color-scheme: light)").matches);
+  document.body.classList.toggle("light", light);
+  document.querySelector('meta[name="theme-color"]')?.setAttribute("content", light ? "#f8f9ff" : "#000000");
 }
 
 function defaultStart(day = S.sel) {
@@ -382,6 +408,7 @@ function paint(quiet) {
   $("#drawer").querySelectorAll("[data-view]").forEach((b) => b.classList.toggle("act", b.dataset.view === S.view));
   $("#today").classList.toggle("pulse", Math.abs(daysBetween(new Date(), S.date)) > 40);
   document.body.dataset.view = S.view;
+  applyTheme();
   paintOffline();
   const stage = $("#stage"), old = stage.firstElementChild, keep = quiet && prevView === S.view ? old?.scrollTop : null;
   const html = { monthday, month, agenda, year }[S.view]?.() ?? timegrid();
@@ -399,13 +426,20 @@ function paint(quiet) {
     v.scrollTop = keep ?? Math.max(0, ((show ? now.getHours() : wh ? +wh[1] : 8) - 1) * S.hh);
     bindGrid(v, {
       create: (s, e) => openEditor({ start: s, end: e }),
-      move: (ev, s, e) => patchEvent(ev, ev.all_day ? {} : { start: `${ymd(s)}T${hm(s)}`, end: `${ymd(e)}T${hm(e)}` }),
+      move: async (ev, s, e, edge) => { await patchEvent(ev, ev.all_day ? {} : { start: `${ymd(s)}T${hm(s)}`, end: `${ymd(e)}T${hm(e)}` }); if (edge) nav(edge); },
       repaint: () => paint(true),
+      shift: { week: 7, days3: 3, day: 1 }[S.view],
     });
   } else if (keep) v.scrollTop = keep;
   if (S.view === "monthday") bindGrip(v, () => paint(true));
   if (S.view === "agenda") {
-    bindSwipe(v, (id) => { const ev = S.events.find((x) => x.id === id); if (ev) deleteEvent(ev); });
+    bindSwipe(v, (id) => { const ev = S.events.find((x) => x.id === id); if (ev) deleteEvent(ev); }, async (id) => {
+      const ev = S.events.find((x) => x.id === id); if (!ev) return;
+      if (new Date(ev.end) < new Date()) { toggleDone(ev.id); paint(true); toast(isDone(ev.id) ? `„${ev.title}“ erledigt` : "Wieder offen"); return; }
+      if (ev.read_only) return;
+      const m = await choose(`Erinnerung für „${ev.title}“`, [["10", "10 Min. vorher"], ["60", "1 Std. vorher"], ["1440", "1 Tag vorher"], ["0", "Zum Beginn"]]);
+      if (m != null) patchEvent(ev, { alarms: [...new Set([...(ev.alarms || []), +m])] }, "Erinnerung");
+    });
     if (!quiet) { const t = v.querySelector(`.lh[data-day="${ymd(S.agFrom)}"]`); if (t) v.scrollTop = 0; }
     const end = v.querySelector("#agEnd");
     if (end) new IntersectionObserver(async (en, o) => { if (en[0].isIntersecting) { o.disconnect(); S.agTo = addDays(S.agTo, 45); const t0 = $(".view").scrollTop; await render(true); $(".view").scrollTop = t0; } }, { root: v, rootMargin: "400px" }).observe(end);

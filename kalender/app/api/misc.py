@@ -1,5 +1,6 @@
 """Verlauf, freie Zeit, Suche, Schnelleingabe, Einstellungen, Live-Stream, Backups, Meta."""
 import asyncio
+import difflib
 import json
 from datetime import datetime, timedelta
 
@@ -125,7 +126,18 @@ async def do_search(q: str = "", calendars: str | None = None, frm: str | None =
                     past.append(query.occ_view(ev, occs[-1], cals[ev.calendar_id]) | {"more": 0})
         up.sort(key=lambda v: v["start"])
         past.sort(key=lambda v: v["start"], reverse=True)
-        return {"query": rest, "range": None, "upcoming": up[:limit], "past": past[:limit], "total": len(up) + len(past)}
+        dym = None
+        if not up and not past and rest.strip():  # Tippfehler? „Meintest du ‚Zahnarzt‘?“
+            titles = list({t for t in (await db.scalars(select(Event.title).where(Event.deleted_at.is_(None)).limit(5000))).all()})
+            low = {t.lower(): t for t in titles}
+            words = [w for w in rest.lower().split() if not w.startswith("-")]
+            hit = difflib.get_close_matches(" ".join(words), list(low), n=1, cutoff=0.6)
+            if not hit:  # einzelne Wörter gegen einzelne Wörter der Titel
+                vocab = {w: t for t in low for w in t.split() if len(w) > 2}
+                m = [difflib.get_close_matches(w, list(vocab), n=1, cutoff=0.7) for w in words]
+                hit = [vocab[x[0]] for x in m if x][:1]
+            dym = low[hit[0]] if hit else None
+        return {"query": rest, "range": None, "upcoming": up[:limit], "past": past[:limit], "total": len(up) + len(past), "did_you_mean": dym}
 
 
 def _ok(ev: Event, want: set[str]) -> bool:
@@ -238,5 +250,5 @@ async def health():
 async def meta(request: Request):
     s = get_settings()
     return {"name": "IDA Kalender", "version": getattr(request.app.state, "version", ""), "timezone": s.timezone, "palette": palette.palette(),
-            "ida": bool(s.ida_webhook_url), "public_url": s.kalender_public_url, "mcp": bool(s.kalender_mcp_token),
+            "ida": bool(s.ida_webhook_url), "ask": bool(s.ida_internal_url and s.kalender_ida_token), "public_url": s.kalender_public_url, "mcp": bool(s.kalender_mcp_token),
             "state": s.kalender_state}

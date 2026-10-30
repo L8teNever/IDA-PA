@@ -25,3 +25,23 @@ self.addEventListener("fetch", (e) => {
     e.respondWith(fetch(r).then((res) => { const c = res.clone(); caches.open(CACHE).then((x) => x.put("/", c)); return res; }).catch(() => caches.match("/")));
   }
 });
+
+// Web Push (Opt-in in den Einstellungen): Erinnerung auch bei geschlossener App
+self.addEventListener("push", (e) => {
+  let p = {};
+  try { p = e.data ? e.data.json() : {}; } catch { p = { title: e.data?.text() }; }
+  const when = p.all_day ? "Heute" : p.start ? new Date(p.start).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" }) : "";
+  const body = p.body || [when, p.location].filter(Boolean).join(" · ");
+  e.waitUntil(self.registration.showNotification(p.title || "IDA Kalender", {
+    body, tag: p.occurrence_id || "kalender", icon: `/s/${V}/icons/icon-192.png`, badge: `/s/${V}/icons/maskable-192.png`,
+    data: { url: p.occurrence_id ? `/termin/${encodeURIComponent(p.occurrence_id)}` : "/" }, vibrate: [80, 40, 80],
+  }));
+});
+self.addEventListener("notificationclick", (e) => {
+  e.notification.close();
+  const url = e.notification.data?.url || "/";
+  e.waitUntil(self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((list) => {
+    const c = list.find((w) => new URL(w.url).origin === location.origin);
+    return c ? c.navigate(url).then((w) => w?.focus()) : self.clients.openWindow(url);
+  }));
+});

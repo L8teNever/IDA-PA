@@ -45,11 +45,16 @@ def alarm_text(p: dict) -> str:
     return " · ".join(parts) + f" ({_in(int(p.get('minutes') or 0))})"
 
 
+def _authorized(request: Request) -> bool:
+    tok = get_settings().kalender_ida_token
+    h = request.headers.get("authorization", "")
+    got = h[7:].strip() if h.lower().startswith("bearer ") else ""
+    return bool(tok) and hmac.compare_digest(got.encode(), tok.encode())
+
+
 @router.post("/api/v1/ext/kalender")
 async def webhook(request: Request):
-    tok = get_settings().kalender_ida_token
-    got = request.headers.get("authorization", "")[7:].strip() if request.headers.get("authorization", "").lower().startswith("bearer ") else ""
-    if not tok or not hmac.compare_digest(got.encode(), tok.encode()):
+    if not _authorized(request):
         return JSONResponse({"detail": "Nicht erlaubt"}, status_code=401)
     p = await request.json()
     if p.get("type") != "alarm":
@@ -68,6 +73,29 @@ async def webhook(request: Request):
         await reminders._notify(main.id, f"📅 {title}", alarm_text(p))  # noqa: SLF001 – zählt nicht gegen das Nachrichten-Limit
     kc.invalidate()
     return {"ok": True}
+
+
+# ---------------- „Ida fragen“ aus dem Kalender ----------------
+@router.post("/api/v1/ext/kalender/ask")
+async def ask(request: Request):
+    """Der Kalender reicht eine Frage weiter; der Haupt-Agent beantwortet sie (mit den calendar_*-Tools) und die Antwort geht zurück."""
+    if not _authorized(request):
+        return JSONResponse({"detail": "Nicht erlaubt"}, status_code=401)
+    p = await request.json()
+    text = str(p.get("text") or "").strip()[:2000]
+    if not text:
+        return JSONResponse({"detail": "Frage fehlt"}, status_code=400)
+    async with session_scope() as db:
+        main = await db.scalar(select(Agent).where(Agent.is_main.is_(True)))
+    if not main:
+        return JSONResponse({"detail": "Kein Haupt-Agent"}, status_code=409)
+    from ..services import runs
+    ctx = str(p.get("context") or "")[:500]
+    prompt = (f"Der Nutzer fragt dich aus seinem IDA Kalender heraus: {text}\n{ctx}\n"
+              "Nutze die calendar_*-Tools (lesen, anlegen, ändern), wenn es um Termine geht. Antworte kurz und direkt auf Deutsch.")
+    r = await runs.run_agent(main.id, prompt)
+    kc.invalidate()
+    return {"ok": r.ok, "text": r.text or ("Ich konnte gerade nicht antworten." if not r.ok else "")}
 
 
 # ---------------- Proxy ----------------

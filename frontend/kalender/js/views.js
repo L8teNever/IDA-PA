@@ -36,9 +36,10 @@ export function card(e, { date = false, mark = (h) => h, more = 0 } = {}) {
   const time = e.all_day ? "ganztägig" : `${hm(s)} – ${hm(en)}`;
   const sub = [date ? (e.all_day ? shortDay(parseYmd(e.start)) : shortDay(s)) : "", time, e.location].filter(Boolean).join(" · ");
   const q = queuedIds().has(e.id) ? '<span class="ms" title="Wird gesendet, sobald du online bist">cloud_upload</span>' : "";
-  return `<div class="card${st(e)}" data-id="${esc(e.id)}" style="${cstyle(e.color)}"><div class="bar4"></div>
+  const done = new Date(e.end) < new Date() && JSON.parse(localStorage.getItem("kal-done") || "[]").includes(e.id);
+  return `<div class="card${st(e)}${done ? " done" : ""}" data-id="${esc(e.id)}" style="${cstyle(e.color)}"><div class="bar4"></div>
     <div class="ct"><div class="tt">${mark(esc(e.title))}${e.age ? ` <small>(${e.age})</small>` : ""}</div><div class="sub">${mark(esc(sub))}${more ? ` · + ${more} weitere` : ""}</div></div>
-    <div class="icons">${q}${e.recurring ? '<span class="ms">repeat</span>' : ""}${e.alarms?.length ? '<span class="ms">notifications</span>' : ""}${byIda(e) ? '<span class="chip-ida"><span class="ms">auto_awesome</span>Ida</span>' : ""}</div></div>`;
+    <div class="icons">${done ? '<span class="ms ok">check_circle</span>' : ""}${q}${e.recurring ? '<span class="ms">repeat</span>' : ""}${e.alarms?.length ? '<span class="ms">notifications</span>' : ""}${byIda(e) ? '<span class="chip-ida"><span class="ms">auto_awesome</span>Ida</span>' : ""}</div></div>`;
 }
 
 export const emptyBox = (t = "Nichts geplant", btn = true) => `<div class="empty-state"><div class="face big"></div><p>${t}</p>${btn ? '<button class="tonal" data-new><span class="ms">add</span>Termin anlegen</button>' : ""}</div>`;
@@ -170,7 +171,7 @@ export function agenda() {
     flushGap(d);
     const rel = relDay(d);
     h += `<div class="lh${rel === "Heute" ? "" : " m"}" data-day="${ymd(d)}">${rel ? `${rel.toUpperCase()} · ` : ""}${shortDay(d).toUpperCase()}</div>`;
-    h += l ? l.map((e) => `<div class="swipe-wrap"><div class="swipe-bg"><span class="ms">delete</span></div>${card(e)}</div>`).join("") : '<div class="gap">Heute nichts geplant</div>';
+    h += l ? l.map((e) => `<div class="swipe-wrap"><div class="swipe-bg"><span class="ms l">${new Date(e.end) < new Date() ? "task_alt" : "alarm_add"}</span><span class="ms r">delete</span></div>${card(e)}</div>`).join("") : '<div class="gap">Heute nichts geplant</div>';
   }
   flushGap(b);
   return h + '<div id="agEnd" class="ag-end"></div>';
