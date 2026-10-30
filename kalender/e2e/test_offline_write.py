@@ -46,8 +46,9 @@ def test_create_in_the_editor_offline_is_visible_at_once_and_arrives_once(server
     page.click("#fab")
     page.fill("#fTitle", "Offline angelegt")
     page.click("[data-save]")
+    until(page, "window.__kal.outboxCount().then((n) => n === 1)")      # erst wenn es sicher gespeichert ist, die Seite wechseln
     agenda(page)
-    page.wait_for_selector("text=Offline angelegt")
+    page.wait_for_selector("text=Offline angelegt", timeout=30000)
     assert cloud(page) >= 1, "Wolke: noch nicht gespeichert"
     assert pending(page) == 1 and titles(server, "offline angelegt") == []
     go_online(ctx)
