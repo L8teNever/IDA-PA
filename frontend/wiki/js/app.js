@@ -198,6 +198,36 @@ export async function startWikiApp(rootEl) {
     }
   }
 
+  // Schmale Leiste links neben der Seitenleiste (wie im Kalender): Neu, Bereiche, Graph/Verlauf und unten die Einstellungen
+  function renderRail() {
+    const btn = (attrs, active, icon, label) => `
+      <button type="button" class="rail-btn ${active ? "active" : ""}" ${attrs}>
+        <span class="rail-ic"><span class="ms">${icon}</span></span>
+        <span class="rail-lbl">${label}</span>
+      </button>`;
+    return `
+      <nav class="wk-rail" aria-label="Navigation">
+        <button type="button" class="rail-fab" data-act="new" title="Neue Seite" aria-label="Neue Seite"><span class="ms">add</span></button>
+        <div class="rail-group">
+          ${Object.entries(SPACE_META)
+            .map(([key, info]) => btn(`data-switch-space="${key}"`, state.space === key && state.view === "page", info.icon, info.label === "KI & Chats" ? "KI &amp; Chats" : info.label))
+            .join("")}
+        </div>
+        <div class="rail-group">
+          ${btn(`data-switch-view="graph"`, state.view === "graph", "hub", "Wissensgraph")}
+          ${btn(`data-switch-view="history"`, state.view === "history", "history", "Verlauf")}
+        </div>
+        <div class="rail-spacer"></div>
+        ${btn(`data-act="settings" title="Einstellungen &amp; MCP"`, false, "settings", "Einstellungen")}
+      </nav>
+    `;
+  }
+
+  // Suche ganz rechts in jeder Kopfzeile
+  function searchBtn() {
+    return `<button type="button" class="icon-btn" data-act="search" title="Suchen (Strg+K)" aria-label="Suchen"><span class="ms">search</span></button>`;
+  }
+
   function renderSidebar() {
     const spPages = state.pages.filter((p) => p.space === state.space);
     const spFolders = state.folders.filter((f) => f.startsWith(`${state.space}/`) && f !== state.space);
@@ -246,32 +276,10 @@ export async function startWikiApp(rootEl) {
             <span class="brand-dot"></span>
             <strong>IDA Wiki</strong>
           </div>
-          <div class="brand-actions">
-            <button type="button" class="icon-btn" id="wkBtnSearch" title="Suchen (Strg+K)"><span class="ms">search</span></button>
-            <button type="button" class="icon-btn" id="wkBtnNew" title="Neue Seite"><span class="ms">add</span></button>
-            <button type="button" class="icon-btn" id="wkBtnSettings" title="Einstellungen &amp; MCP"><span class="ms">settings</span></button>
+          <div class="brand-actions mobile-only">
+            <button type="button" class="icon-btn" data-act="new" title="Neue Seite"><span class="ms">add</span></button>
+            <button type="button" class="icon-btn" data-act="settings" title="Einstellungen &amp; MCP"><span class="ms">settings</span></button>
           </div>
-        </div>
-
-        <div class="space-tabs" role="tablist">
-          ${Object.entries(SPACE_META)
-            .map(
-              ([key, info]) => `
-            <button type="button" class="space-tab ${state.space === key && state.view === "page" ? "active" : ""}" data-switch-space="${key}">
-              <span class="ms">${info.icon}</span>
-              <span>${info.label}</span>
-            </button>`,
-            )
-            .join("")}
-        </div>
-
-        <div class="nav-Global-modes">
-          <button type="button" class="mode-pill ${state.view === "graph" ? "active" : ""}" data-switch-view="graph">
-            <span class="ms">hub</span> Wissensgraph
-          </button>
-          <button type="button" class="mode-pill ${state.view === "history" ? "active" : ""}" data-switch-view="history">
-            <span class="ms">history</span> Verlauf
-          </button>
         </div>
 
         ${
@@ -363,13 +371,19 @@ export async function startWikiApp(rootEl) {
             ${idaLink ? `<a class="btn-tonal sm" href="${esc(idaLink)}" target="_blank" rel="noopener"><span class="ms">open_in_new</span> In IDA</a>` : ""}
             <button type="button" class="btn-tonal sm" id="wkAskIdaBtn" title="Ida zu dieser Seite fragen"><span class="ms">auto_awesome</span> <span class="hide-xs">Ida fragen</span></button>
             ${
-              !isReadOnlyKi
+              !isReadOnlyKi && state.editing
                 ? `
                   <label class="icon-btn" title="Datei oder Bild anhängen">
                     <span class="ms">attach_file</span>
                     <input type="file" id="wkFileInput" multiple hidden>
                   </label>
                   <button type="button" class="icon-btn" id="wkMoveBtn" title="Verschieben / Umbenennen"><span class="ms">alt_route</span></button>
+                `
+                : ""
+            }
+            ${
+              !isReadOnlyKi
+                ? `
                   <button type="button" class="btn-primary sm" id="wkToggleEdit">
                     <span class="ms">${state.editing ? "visibility" : "edit"}</span>
                     <span>${state.editing ? "Fertig" : "Bearbeiten"}</span>
@@ -377,7 +391,8 @@ export async function startWikiApp(rootEl) {
                 `
                 : ""
             }
-            ${!isReadOnlyKi ? `<button type="button" class="icon-btn" id="wkDeletePageBtn" title="In den Papierkorb"><span class="ms">delete</span></button>` : ""}
+            ${!isReadOnlyKi && state.editing ? `<button type="button" class="icon-btn" id="wkDeletePageBtn" title="In den Papierkorb"><span class="ms">delete</span></button>` : ""}
+            ${searchBtn()}
           </div>
         </header>
 
@@ -503,7 +518,9 @@ export async function startWikiApp(rootEl) {
         <header class="stage-topbar">
           <div class="topbar-left">
             <button type="button" class="icon-btn mobile-only" id="wkOpenDrawer"><span class="ms">menu</span></button>
-            <h2><span class="ms">hub</span> Wissensgraph</h2>
+            <h2><span class="ms">hub</span> <span class="tb-title">Wissensgraph</span></h2>
+          </div>
+          <div class="topbar-sub">
             <div class="filter-row inline-filters" id="wkGraphSpaceChips">
               <button type="button" class="chip ${!state.graphFilterSpace ? "active" : ""}" data-gsp="">Alle</button>
               <button type="button" class="chip ${state.graphFilterSpace === "privat" ? "active" : ""}" data-gsp="privat">Privat</button>
@@ -514,11 +531,12 @@ export async function startWikiApp(rootEl) {
           <div class="topbar-actions">
             ${
               state.graphLocalCenter
-                ? `<button type="button" class="chip active" id="wkClearLocalGraph">Fokus: ${esc(state.graphLocalCenter.split("/").pop())} ×</button>`
+                ? `<button type="button" class="chip active tb-focus" id="wkClearLocalGraph">Fokus: ${esc(state.graphLocalCenter.split("/").pop())} ×</button>`
                 : ""
             }
-            <input type="search" id="wkGraphSearch" class="wk-input sm-input" placeholder="Knoten hervorheben …">
-            <button type="button" class="icon-btn" id="wkGraphReset" title="Ansicht zentrieren"><span class="ms">restart_alt</span></button>
+            <input type="search" id="wkGraphSearch" class="wk-input sm-input graph-find" placeholder="Knoten hervorheben …">
+            <button type="button" class="icon-btn tb-reset" id="wkGraphReset" title="Ansicht zentrieren"><span class="ms">restart_alt</span></button>
+            ${searchBtn()}
           </div>
         </header>
         <div class="graph-canvas-wrap">
@@ -540,9 +558,9 @@ export async function startWikiApp(rootEl) {
         <header class="stage-topbar">
           <div class="topbar-left">
             <button type="button" class="icon-btn mobile-only" id="wkOpenDrawer"><span class="ms">menu</span></button>
-            <h2><span class="ms">history</span> Wiki-Verlauf &amp; Wiederherstellung</h2>
+            <h2><span class="ms">history</span> <span class="tb-title">Wiki-Verlauf &amp; Wiederherstellung</span></h2>
           </div>
-          <div class="topbar-actions">
+          <div class="topbar-sub">
             <div class="filter-row inline-filters" id="wkHistFilters">
               <button type="button" class="chip ${!state.historySpace && !state.historyOnlyAi ? "active" : ""}" data-hsp="">Alle</button>
               <button type="button" class="chip ${state.historySpace === "privat" ? "active" : ""}" data-hsp="privat">Privat</button>
@@ -551,6 +569,7 @@ export async function startWikiApp(rootEl) {
               <button type="button" class="chip ${state.historyOnlyAi ? "active" : ""}" id="wkHistOnlyAi"><span class="ms">auto_awesome</span> Nur KI</button>
             </div>
           </div>
+          <div class="topbar-actions">${searchBtn()}</div>
         </header>
         <div class="history-split">
           <div class="history-list" id="wkHistTimeline"><div class="empty-hint">Lade Versionsverlauf …</div></div>
@@ -587,7 +606,7 @@ export async function startWikiApp(rootEl) {
           ? renderHistoryStage()
           : renderPageStage();
 
-    rootEl.innerHTML = `<div class="wk-shell">${renderSidebar()}${stage}${renderBottomBar()}</div>`;
+    rootEl.innerHTML = `<div class="wk-shell">${renderRail()}${renderSidebar()}${stage}${renderBottomBar()}</div>`;
     watchFloatingBars();
     bindStageHydration();
   }
@@ -925,12 +944,12 @@ export async function startWikiApp(rootEl) {
       return;
     }
 
-    if (e.target.closest("#wkBtnSearch")) {
+    if (e.target.closest('[data-act="search"]')) {
       openSearchSheet({ onNavigate: (p) => loadPage(p) });
       return;
     }
 
-    if (e.target.closest("#wkBtnNew")) {
+    if (e.target.closest('[data-act="new"]')) {
       openNewPageSheet({
         defaultSpace: state.space,
         defaultFolder: state.currentPage?.folder || "",
@@ -959,7 +978,7 @@ export async function startWikiApp(rootEl) {
       return;
     }
 
-    if (e.target.closest("#wkBtnSettings")) {
+    if (e.target.closest('[data-act="settings"]')) {
       await openSettingsSheet({
         meta: state.meta,
         installPrompt: state.installPrompt,

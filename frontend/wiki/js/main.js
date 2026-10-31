@@ -1,8 +1,10 @@
 // Einstiegspunkt der IDA Wiki PWA: startet die Oberfläche und registriert den Offline-Service-Worker.
 import { basePrefix } from "./api.js";
 import { startWikiApp } from "./app.js";
+import { initSelects } from "./select.js";
 import * as sync from "./sync.js";
 
+initSelects();
 const root = document.getElementById("app");
 startWikiApp(root);
 
