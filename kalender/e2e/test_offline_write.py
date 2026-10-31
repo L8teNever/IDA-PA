@@ -176,6 +176,11 @@ def test_old_queue_from_the_previous_app_version_is_sent(server, ctx, page):
     page.evaluate("(q) => localStorage.setItem('kal-queue', q)", json.dumps(q))
     page.reload()
     page.wait_for_selector("#title")
+    until(page, "localStorage.getItem('kal-queue') === null")  # erst wenn die alte Warteschlange übernommen ist, ist DONE aussagekräftig
     until(page, DONE)
+    for _ in range(40):
+        if titles(server, "aus der alten warteschlange"):
+            break
+        page.wait_for_timeout(250)
     assert titles(server, "aus der alten warteschlange") == ["Aus der alten Warteschlange"]
     assert page.evaluate("localStorage.getItem('kal-queue')") is None
