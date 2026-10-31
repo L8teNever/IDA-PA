@@ -48,12 +48,26 @@
   flex-shrink: 0;
   background: var(--surface);
   border-radius: 28px;
-  display: flex;
-  flex-direction: column;
-  padding: 14px 12px;
-  gap: 10px;
+  position: relative;
+  overflow: hidden;
   z-index: 30;
 }
+
+/* Kopf und Fuß der Seitenleiste schweben; die Liste läuft über die volle Höhe und scrollt darunter durch */
+.sidebar-head {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 12px 18px;
+  background: linear-gradient(to bottom, var(--surface) calc(100% - 18px), transparent);
+  pointer-events: none;
+}
+.sidebar-head > * { pointer-events: auto; }
 
 .brand-row {
   display: flex;
@@ -175,12 +189,14 @@
 }
 
 .tree-scroll {
-  flex: 1;
+  position: absolute;
+  inset: 0;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: 2px;
-  padding-right: 2px;
+  padding: calc(var(--sh, 160px) - 8px) 14px calc(var(--sf, 50px) + 4px) 12px;
+  scroll-padding: var(--sh, 160px) 0 var(--sf, 50px);
 }
 
 .space-caption {
@@ -234,8 +250,13 @@
 .tag-cloud { display: flex; flex-wrap: wrap; gap: 5px; padding: 4px 6px; }
 
 .sidebar-foot {
-  border-top: 1px solid var(--border-subtle);
-  padding-top: 10px;
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 2;
+  padding: 18px 12px 14px;
+  background: linear-gradient(to top, var(--surface) calc(100% - 18px), transparent);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -253,17 +274,26 @@
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 12px;
   background: transparent;
   overflow: hidden;
+  position: relative;
+  --tbo: 0px; /* Abstand der Kopfzeile von oben */
+  --under-bar: calc(var(--tbo) + var(--tb, 56px) + 12px); /* so viel Luft braucht der Inhalt oben */
 }
 
+/* Die Kopfzeile schwebt über dem Inhalt (halb durchsichtig), der Inhalt scrollt darunter durch */
 .stage-topbar {
-  flex: none;
+  position: absolute;
+  top: var(--tbo);
+  left: 0;
+  right: 0;
+  z-index: 10;
   min-height: 56px;
   padding: 6px 8px 6px 18px;
   border-radius: 28px;
-  background: var(--surface-highest);
+  background: color-mix(in srgb, var(--surface-highest) 78%, transparent);
+  -webkit-backdrop-filter: blur(18px) saturate(1.4);
+  backdrop-filter: blur(18px) saturate(1.4);
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.6);
   display: flex;
   align-items: center;
@@ -350,7 +380,8 @@
 .page-scroll {
   flex: 1;
   overflow-y: auto;
-  padding: 6px 16px 40px;
+  padding: var(--under-bar) 16px 40px;
+  scroll-padding-top: var(--under-bar);
 }
 
 .page-content-grid {
@@ -532,7 +563,7 @@
 .backlink-card p { margin: 6px 0 0; font-size: 12.5px; color: var(--muted); }
 
 /* Context Rail */
-.page-context-rail { display: flex; flex-direction: column; gap: 14px; position: sticky; top: 0; }
+.page-context-rail { display: flex; flex-direction: column; gap: 14px; position: sticky; top: 0; align-self: start; } /* top zählt ab der Innenkante (nach dem Polster für die Kopfzeile) */
 .rail-card {
   background: var(--surface);
   border: 1px solid var(--border-subtle);
@@ -557,7 +588,7 @@
 .toc-link.lvl-3 { padding-left: 12px; }
 
 /* Live Split Editor */
-.editor-workspace { flex: 1; display: grid; grid-template-columns: 1fr 1fr; min-height: 0; }
+.editor-workspace { flex: 1; display: grid; grid-template-columns: 1fr 1fr; min-height: 0; padding-top: var(--under-bar); }
 .editor-pane { display: flex; flex-direction: column; border-right: 1px solid var(--border-subtle); min-height: 0; }
 .editor-toolbar {
   display: flex;
@@ -645,8 +676,8 @@
 
 /* History & Diffs */
 .history-split { flex: 1; display: grid; grid-template-columns: 380px 1fr; min-height: 0; }
-.history-list { border-right: 1px solid var(--border-subtle); overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 8px; }
-.history-inspector { overflow-y: auto; padding: 20px 24px; }
+.history-list { border-right: 1px solid var(--border-subtle); overflow-y: auto; padding: var(--under-bar) 12px 12px; display: flex; flex-direction: column; gap: 8px; }
+.history-inspector { overflow-y: auto; padding: var(--under-bar) 24px 20px; }
 .hist-card {
   border: 1px solid var(--border-subtle);
   background: var(--surface);
@@ -746,6 +777,7 @@
 .sheet-hint { margin: 0; font-size: 13px; color: var(--muted); line-height: 1.5; }
 .muted-path { font-size: 12px; color: var(--muted); }
 .empty-hint, .empty-stage { padding: 28px; text-align: center; color: var(--muted); }
+.empty-stage { padding-top: calc(var(--under-bar) + 28px); }
 
 .search-bar-modal {
   flex: 1;
@@ -831,7 +863,8 @@
   #wkDropZone #wkToggleEdit { width: 40px; height: 40px; padding: 0; border-radius: 50%; justify-content: center; margin-left: 2px; }
   #wkDropZone #wkToggleEdit span:last-child { display: none; }
   .wk-shell { gap: 0; }
-  .wk-stage { gap: 10px; padding: calc(env(safe-area-inset-top) + 10px) 12px 0; }
+  .wk-stage { padding: 0 12px; --tbo: calc(env(safe-area-inset-top) + 10px); }
+  .stage-topbar { left: 12px; right: 12px; }
   .wk-sidebar {
     position: fixed;
     inset: calc(env(safe-area-inset-top) + 10px) auto 10px 10px;
@@ -844,7 +877,8 @@
   .page-content-grid { grid-template-columns: 1fr; }
   .editor-workspace { grid-template-columns: 1fr; }
   .history-split { grid-template-columns: 1fr; }
-  .page-scroll { padding: 2px 0 96px; }
+  .history-inspector { padding-top: 20px; }
+  .page-scroll { padding: var(--under-bar) 0 96px; }
   .page-article { padding: 18px 16px; }
   .wk-bottom-nav {
     position: fixed;

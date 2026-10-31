@@ -240,6 +240,7 @@ export async function startWikiApp(rootEl) {
 
     return `
       <aside class="wk-sidebar ${state.drawerOpen ? "open" : ""}">
+        <div class="sidebar-head">
         <div class="brand-row">
           <div class="brand-title">
             <span class="brand-dot"></span>
@@ -281,6 +282,7 @@ export async function startWikiApp(rootEl) {
               </button>`
             : ""
         }
+        </div>
 
         <div class="tree-scroll">
           <div class="space-caption">${esc(SPACE_META[state.space].desc)}</div>
@@ -586,7 +588,24 @@ export async function startWikiApp(rootEl) {
           : renderPageStage();
 
     rootEl.innerHTML = `<div class="wk-shell">${renderSidebar()}${stage}${renderBottomBar()}</div>`;
+    watchFloatingBars();
     bindStageHydration();
+  }
+
+  // Kopfzeile und Seitenleisten-Kopf schweben über dem Inhalt; der Inhalt bekommt oben genau so viel Luft, wie sie hoch sind,
+  // und scrollt dann darunter durch (wie im Kalender)
+  let barObserver = null;
+  function watchFloatingBars() {
+    barObserver?.disconnect();
+    const pairs = [
+      [rootEl.querySelector(".stage-topbar"), rootEl.querySelector(".wk-stage"), "--tb"],
+      [rootEl.querySelector(".sidebar-head"), rootEl.querySelector(".wk-sidebar"), "--sh"],
+      [rootEl.querySelector(".sidebar-foot"), rootEl.querySelector(".wk-sidebar"), "--sf"],
+    ].filter(([bar, host]) => bar && host);
+    const apply = () => pairs.forEach(([bar, host, prop]) => host.style.setProperty(prop, `${bar.offsetHeight}px`));
+    apply();
+    barObserver = new ResizeObserver(apply);
+    pairs.forEach(([bar]) => barObserver.observe(bar));
   }
 
   async function bindStageHydration() {
