@@ -11,7 +11,7 @@ import { addDays, addMonths, daysBetween, hm, isoWeek, monthName, monthShort, pa
 import { agenda, cstyle, esc, gridDays, miniMonth, month, monthday, skeleton, timegrid, year } from "./views.js";
 import { bindGrid, bindGrip, bindSwipe, longPress, swallowClick } from "./gestures.js";
 import {
-  choose, deleteEvent, layerOpen, openAsk, openCalendar, openConflict, openDetail, openEditor, openHistory, openQuick, openSearch, openSettings, openSync, openTrash,
+  choose, deleteEvent, layerOpen, openAsk, openCalendar, openConflict, openDetail, openEditor, openQuick, openSearch, openSettings, openSync,
   patchEvent, popLayer, setApiHref, setHooks, showAlarm, toast,
 } from "./sheets.js";
 
@@ -228,11 +228,7 @@ function drawer() {
     <button class="dr-item" id="dNew"><span class="ms">add</span>Neuer Kalender</button>
     <div class="dr-item"><span class="ms">celebration</span><span class="grow">Feiertage</span><button class="sw${S.settings.show_holidays !== false ? " on" : ""}" id="dHol"></button></div>
     <h3>Mehr</h3>
-    <button class="dr-item" id="dHist"><span class="ms">history</span>Was hat Ida geändert?</button>
-    <button class="dr-item" id="dTrash"><span class="ms">delete</span><span class="grow">Papierkorb</span><b class="cnt" id="trashCnt"></b></button>
-    <button class="dr-item" id="dSync"><span class="ms">cloud_sync</span><span class="grow">Abgleich</span><b class="cnt" id="syncCnt"></b></button>
-    <button class="dr-item" id="dData"><span class="ms">import_export</span>Import und Export</button>
-    <button class="dr-item" id="dSet"><span class="ms">settings</span>Einstellungen</button>
+    <button class="dr-item" id="dSet"><span class="ms">settings</span><span class="grow">Einstellungen</span><b class="cnt" id="syncCnt" title="Änderungen, die noch auf den Abgleich warten"></b></button>
     <button class="dr-item install" id="dInst"><span class="ms">install_mobile</span>App installieren</button>
     <p class="dr-ios" id="drIos" hidden>Am iPhone: Teilen → „Zum Home-Bildschirm“.</p>`;
   const d = $("#drawer"), close = closeDrawer;
@@ -249,15 +245,10 @@ function drawer() {
   d.querySelectorAll("[data-view]").forEach((b) => (b.onclick = async () => { await close(); setView(b.dataset.view); }));
   $("#dNew").onclick = async () => { await close(); openCalendar(null); };
   $("#dHol").onclick = async () => { S.settings = await api("/settings", { method: "PUT", body: { show_holidays: S.settings.show_holidays === false } }); drawer(); paint(true); };
-  $("#dHist").onclick = async () => { await close(); openHistory(); };
-  $("#dTrash").onclick = async () => { await close(); openTrash(); };
-  $("#dData").onclick = async () => { await close(); openSettings("data"); };
-  $("#dSync").onclick = async () => { await close(); openSync(); };
   $("#syncCnt").textContent = Q.count || "";
   $("#dSet").onclick = async () => { await close(); openSettings(); };
   $("#dInst").onclick = async () => { if (installEvt) { installEvt.prompt(); await installEvt.userChoice; installEvt = null; document.body.classList.remove("can-install"); } };
   $("#drIos").hidden = !/iphone|ipad/i.test(navigator.userAgent) || matchMedia("(display-mode: standalone)").matches;
-  api("/trash").then((t) => { $("#trashCnt").textContent = t.events.length || ""; }).catch(() => {});
   drawMini();
 }
 

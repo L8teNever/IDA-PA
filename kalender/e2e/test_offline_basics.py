@@ -79,7 +79,8 @@ def test_server_error_is_not_offline(server, ctx, page):
 def test_settings_show_offline_storage(server, ctx, page):
     open_app(page)
     page.click("#menu")
-    page.click("#dData")
+    page.click("#dSet")
+    page.click("#sData")
     page.wait_for_selector("text=Offline-Speicher")
     txt = page.inner_text("text=Offline-Speicher >> xpath=..")
     assert "dauerhaft" in txt and ("MB" in txt or "KB" in txt)

@@ -797,7 +797,16 @@ export async function openSettings(section) {
     const storageText = !dbState.ok ? "Nicht verfügbar – die App zeigt nur mit Internet Termine (privater Modus?)"
       : `${storage.fmtBytes(st.used)}${st.quota ? ` von ${storage.fmtBytes(st.quota)}` : ""} · ${st.persistent ? "dauerhaft ✓" : "nicht dauerhaft ✗ – installiere die App, damit das Handy die Daten behält"}`;
     const perm = "Notification" in window ? Notification.permission : "unsupported";
+    const q = await outbox.summary();
+    let trashN = null;
+    try { trashN = (await api("/trash")).events.length; } catch { /* offline */ }
+    const syncText = q.conflict ? `${q.conflict} Konflikt${q.conflict > 1 ? "e" : ""}` : q.error ? `${q.error} nicht gespeichert` : q.pending ? `${q.pending} Änderung${q.pending > 1 ? "en warten" : " wartet"}` : "Alles gespeichert";
     box.innerHTML = `<div class="ed-top"><button class="icon-btn plain" data-close><span class="ms">arrow_back</span></button><h2>Einstellungen</h2></div>
+      <div class="group list">
+        <button class="li" id="sHist"><span class="ms">history</span><div class="ct"><span>Was hat Ida geändert?</span></div><span class="ms">chevron_right</span></button>
+        <button class="li" data-trash><span class="ms">delete</span><div class="ct"><span>Papierkorb</span>${trashN ? `<small>${trashN} Termin${trashN > 1 ? "e" : ""}</small>` : ""}</div><span class="ms">chevron_right</span></button>
+        <button class="li" id="sSync"><span class="ms">cloud_sync</span><div class="ct"><span>Abgleich</span><small>${syncText}</small></div><span class="ms">chevron_right</span></button>
+        <button class="li" id="sData"><span class="ms">import_export</span><div class="ct"><span>Import und Export</span></div><span class="ms">chevron_right</span></button></div>
       <div class="gl">Allgemein</div><div class="group list">
         ${sel("theme", "Design", THEMES)}
         ${sel("week_start", "Wochenstart", [[1, "Montag"], [0, "Sonntag"]])}
@@ -829,8 +838,7 @@ export async function openSettings(section) {
         ${feed ? `<div class="li col"><div class="ct"><span>Abo-Link</span><small>nur lesen – z. B. für ICSx⁵ am Handy</small></div><div class="feed"><input type="text" readonly value="${esc(feed.url)}"><button class="icon-btn plain" id="fCopy" title="Kopieren"><span class="ms">content_copy</span></button><button class="icon-btn plain" id="fRot" title="Neuen Link erzeugen"><span class="ms">autorenew</span></button><button class="icon-btn plain" id="fQr" title="QR-Code"><span class="ms">qr_code_2</span></button></div><div class="qr" id="qrBox" hidden><img alt="QR-Code des Abo-Links" src="${apiHref("/feed/qr.svg")}?v=${Date.now()}"><small>Mit dem Handy scannen und in ICSx⁵ öffnen</small></div></div>` : ""}
         <div class="li"><span class="ms">sd_storage</span><div class="ct"><span>Offline-Speicher</span><small>${storageText}</small></div></div>
         <button class="li${gate}" id="sBak"><span class="ms">backup</span><div class="ct"><span>Backup jetzt anlegen</span><small>${off ? NEEDS : `${backups.backups.length} Stände, nächtlich automatisch (${backups.keep || 14} werden behalten)`}</small></div></button>
-        ${backups.backups.slice(0, 5).map((b) => `<a class="li sub" href="${apiHref(`/backups/${encodeURIComponent(b.name || b)}`)}" download><span class="ms">description</span><div class="ct"><span>${esc(b.name || b)}</span>${b.size ? `<small>${Math.round(b.size / 1024)} KB</small>` : ""}</div></a>`).join("")}
-        <button class="li" data-trash><span class="ms">delete</span><div class="ct"><span>Papierkorb</span></div></button></div>
+        ${backups.backups.slice(0, 5).map((b) => `<a class="li sub" href="${apiHref(`/backups/${encodeURIComponent(b.name || b)}`)}" download><span class="ms">description</span><div class="ct"><span>${esc(b.name || b)}</span>${b.size ? `<small>${Math.round(b.size / 1024)} KB</small>` : ""}</div></a>`).join("")}</div>
       <div class="gl">Über</div><div class="group list">
         <div class="li"><div class="ct"><span>IDA Kalender</span><small>Version ${esc(S.meta.version || "?")} · ${total} Termine in ${S.cals.length} Kalendern · Zeitzone ${esc(S.meta.timezone || "")}</small></div></div></div>`;
     box.querySelectorAll("[data-close]").forEach((b) => (b.onclick = closeTop));
@@ -871,6 +879,9 @@ export async function openSettings(section) {
     $("#pushTest", box)?.addEventListener("click", async () => { try { const r = await api("/push/test", { method: "POST" }); toast(r.sent ? "Test geschickt" : "Kein Gerät hat die Nachricht angenommen"); } catch (e) { fail(e); } });
     $("#sBak", box).onclick = async () => { try { await api("/backups", { method: "POST" }); toast("Backup angelegt"); draw(); } catch (x) { fail(x); } };
     $("[data-trash]", box).onclick = () => openTrash();
+    $("#sHist", box).onclick = () => openHistory();
+    $("#sSync", box).onclick = () => openSync();
+    $("#sData", box).onclick = () => box.querySelector('[data-sec="data"]')?.scrollIntoView({ behavior: "smooth" });
     if (section) { box.querySelector(`[data-sec="${section}"]`)?.scrollIntoView(); section = null; }
   };
   draw();
