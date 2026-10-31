@@ -94,8 +94,8 @@ function drawRail() {
   const btn = (attrs, active, icon, label, disabled = false) => `<button type="button" class="rail-btn ${active ? "active" : ""}" ${attrs} ${disabled ? "disabled" : ""}>
     <span class="rail-ic"><span class="ms">${icon}</span></span><span class="rail-lbl">${label}</span></button>`;
   const fabTitle = route.project ? "Neuer Thread" : "Projekt hinzufügen";
-  // App-Icon oben in der freien Ecke (wie Kalender und Wiki)
-  $("rail").innerHTML = `<img class="rail-logo" src="${esc(document.querySelector('link[rel="icon"]')?.href || "")}" alt="">
+  // das kleine Ida-Gesicht oben in der freien Ecke (wie in IDA, auch in Kalender und Wiki)
+  $("rail").innerHTML = `<span class="rail-logo ida-mini" aria-hidden="true"><i></i><i></i></span>
     <button type="button" class="rail-fab" data-act="new" title="${fabTitle}" aria-label="${fabTitle}"><span class="ms">${route.project ? "edit_square" : "add"}</span></button>
     <div class="rail-group">${btn('data-act="home"', route.view === "home", "folder_code", "Projekte")}</div>
     <div class="rail-group">

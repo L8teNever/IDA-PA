@@ -207,7 +207,7 @@ export async function startWikiApp(rootEl) {
       </button>`;
     return `
       <nav class="wk-rail" aria-label="Navigation">
-        <img class="rail-logo" src="${esc(document.querySelector('link[rel="icon"]')?.href || "")}" alt="">
+        <span class="rail-logo ida-mini" aria-hidden="true"><i></i><i></i></span>
         <button type="button" class="rail-fab" data-act="new" title="Neue Seite" aria-label="Neue Seite"><span class="ms">add</span></button>
         <div class="rail-group">
           ${Object.entries(SPACE_META)
