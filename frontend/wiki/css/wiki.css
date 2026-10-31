@@ -13,16 +13,30 @@
   --radius-md: 12px;
 }
 
+/* Scrollbars im IDA-Stil überall: dünn, ohne Pfeile (keine grauen Windows-Balken) */
+* { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,.18) transparent; }
+*:hover { scrollbar-color: rgba(255,255,255,.3) transparent; }
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(255,255,255,.18); border-radius: 8px; border: 2px solid transparent; background-clip: padding-box; }
+::-webkit-scrollbar-thumb:hover { background-color: rgba(255,255,255,.32); }
+::-webkit-scrollbar-button { display: none; height: 0; width: 0; }
+::-webkit-scrollbar-corner { background: transparent; }
+
+/* Schwebende Flächen wie in IDA und im Kalender: schwarzer Grund, Seitenleiste und Kopfzeile als abgerundete Inseln mit Abstand */
 #app {
   height: 100dvh;
   width: 100%;
   display: flex;
+  gap: 12px;
+  padding: 12px;
   overflow: hidden;
-  background: #07080a;
+  background: #000;
 }
 
 .wk-shell {
   display: flex;
+  gap: 12px;
   width: 100%;
   height: 100%;
   overflow: hidden;
@@ -33,7 +47,7 @@
   width: 300px;
   flex-shrink: 0;
   background: var(--surface);
-  border-right: 1px solid var(--border-subtle);
+  border-radius: 28px;
   display: flex;
   flex-direction: column;
   padding: 14px 12px;
@@ -239,16 +253,18 @@
   min-width: 0;
   display: flex;
   flex-direction: column;
-  background: #0b0c0f;
+  gap: 12px;
+  background: transparent;
   overflow: hidden;
 }
 
 .stage-topbar {
-  min-height: 58px;
-  padding: 8px 18px;
-  border-bottom: 1px solid var(--border-subtle);
-  background: rgba(18, 19, 22, 0.86);
-  backdrop-filter: blur(14px);
+  flex: none;
+  min-height: 56px;
+  padding: 6px 8px 6px 18px;
+  border-radius: 28px;
+  background: var(--surface-highest);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.6);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -334,7 +350,7 @@
 .page-scroll {
   flex: 1;
   overflow-y: auto;
-  padding: 24px 28px 60px;
+  padding: 6px 16px 40px;
 }
 
 .page-content-grid {
@@ -805,10 +821,22 @@
 @media (max-width: 960px) {
   .mobile-only { display: inline-flex; }
   .hide-mobile, .hide-xs { display: none !important; }
+  #app { padding: 0; }
+  /* Seiten-Kopfzeile am Handy einzeilig: kompakte Knöpfe, „Bearbeiten“ nur als Symbol */
+  #wkDropZone .stage-topbar { flex-wrap: nowrap; padding: 6px 8px 6px 8px; }
+  #wkDropZone .topbar-left { flex: 1; min-width: 0; }
+  #wkDropZone .breadcrumbs { min-width: 0; }
+  #wkDropZone .topbar-actions { flex: none; gap: 0; }
+  #wkDropZone .topbar-actions .icon-btn, #wkDropZone .topbar-actions .btn-tonal { width: 36px; height: 36px; padding: 0; justify-content: center; }
+  #wkDropZone #wkToggleEdit { width: 40px; height: 40px; padding: 0; border-radius: 50%; justify-content: center; margin-left: 2px; }
+  #wkDropZone #wkToggleEdit span:last-child { display: none; }
+  .wk-shell { gap: 0; }
+  .wk-stage { gap: 10px; padding: calc(env(safe-area-inset-top) + 10px) 12px 0; }
   .wk-sidebar {
     position: fixed;
-    inset: 0 auto 0 0;
-    transform: translateX(-102%);
+    inset: calc(env(safe-area-inset-top) + 10px) auto 10px 10px;
+    width: min(320px, calc(100vw - 20px));
+    transform: translateX(-110%);
     transition: transform 0.24s var(--emph);
   }
   .wk-sidebar.open { transform: translateX(0); }
@@ -816,18 +844,17 @@
   .page-content-grid { grid-template-columns: 1fr; }
   .editor-workspace { grid-template-columns: 1fr; }
   .history-split { grid-template-columns: 1fr; }
-  .page-scroll { padding: 14px 12px 86px; }
+  .page-scroll { padding: 2px 0 96px; }
   .page-article { padding: 18px 16px; }
   .wk-bottom-nav {
     position: fixed;
-    inset: auto 0 0 0;
-    height: 64px;
-    background: rgba(18, 19, 22, 0.94);
-    backdrop-filter: blur(14px);
-    border-top: 1px solid var(--border-subtle);
+    inset: auto 12px calc(env(safe-area-inset-bottom) + 12px) 12px;
+    height: 60px;
+    border-radius: 28px;
+    background: var(--surface-highest);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.6);
     display: grid;
     grid-template-columns: repeat(5, 1fr);
-    padding-bottom: env(safe-area-inset-bottom);
     z-index: 20;
   }
   .bnav-btn {
@@ -842,5 +869,5 @@
     font-size: 11px;
   }
   .bnav-btn.active { color: var(--accent); }
-  .toast { bottom: 76px; }
+  .toast { bottom: calc(env(safe-area-inset-bottom) + 84px); }
 }

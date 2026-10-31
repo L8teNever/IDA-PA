@@ -373,9 +373,8 @@ export async function startWikiApp(rootEl) {
                     <span>${state.editing ? "Fertig" : "Bearbeiten"}</span>
                   </button>
                 `
-                : `<span class="chip readonly-chip"><span class="ms">sync</span> Live aus IDA gespiegelt</span>`
+                : ""
             }
-            <button type="button" class="icon-btn ${state.pageRevsOpen ? "active" : ""}" id="wkPageHistBtn" title="Versionen dieser Seite (${p.revisions_count || 1})"><span class="ms">history</span></button>
             ${!isReadOnlyKi ? `<button type="button" class="icon-btn" id="wkDeletePageBtn" title="In den Papierkorb"><span class="ms">delete</span></button>` : ""}
           </div>
         </header>
