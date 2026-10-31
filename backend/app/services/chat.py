@@ -20,6 +20,7 @@ import logging
 import time
 from collections.abc import AsyncIterator
 from contextlib import aclosing
+from pathlib import Path
 
 from sqlalchemy import select
 
@@ -249,6 +250,8 @@ async def _prepare(*, chat_id, agent_id, text, model, account_id, skill_id, file
             raise Invalid(f"Skill /{skill_id} gibt es nicht oder er ist aus")
         history = list((await db.scalars(select(ChatMessage).where(ChatMessage.chat_id == chat.id).order_by(ChatMessage.at))).all()) if chat_id else []
         fs = await file_svc.take(db, file_ids, chat.id)
+        if not code and any(f.kind == "file" for f in fs):
+            raise Invalid("Diese Datei kann das Modell hier nicht lesen – beliebige Dateien gehen nur in Code-Threads")
         if fs and not chat_id and not text:
             chat.title = fs[0].name[:60]
         meta = {**({"skill": skill_id} if skill_id else {}), **({"files": [file_svc.info(f) for f in fs]} if fs else {})}
@@ -264,9 +267,13 @@ async def _prepare(*, chat_id, agent_id, text, model, account_id, skill_id, file
     for f in fs:
         if f.kind == "text":
             prompt += f"\n\n<datei name=\"{f.name}\">\n{file_svc.as_text(f)}\n</datei>"
+        elif f.kind == "file":  # any other format: it lies in the project, Claude opens it with its tools
+            rel = file_svc.place_in_project(f, Path(code["path"]))
+            prompt += (f"\n\n<anhang name=\"{f.name}\" pfad=\"{rel}\" bytes=\"{f.size}\">Angehängte Datei im Projektordner "
+                       "(nicht im Git) – bei Bedarf mit deinen Werkzeugen öffnen.</anhang>")
     if fs and not text:
         prompt = ("(Siehe Anhang.)" + prompt) if not skill_id else prompt.strip()
-    attachments = [{"kind": f.kind, "mime": f.mime, "path": str(file_svc.path(f)), "name": f.name} for f in fs if f.kind != "text"]
+    attachments = [{"kind": f.kind, "mime": f.mime, "path": str(file_svc.path(f)), "name": f.name} for f in fs if f.kind in ("image", "pdf")]
     return state, order, prompt.strip(), skill_id, attachments, info
 
 

@@ -153,18 +153,21 @@ async function shrink(file) {
   const blob = await new Promise((res) => c.toBlob(res, "image/jpeg", 0.85));
   return blob ? new File([blob], file.name.replace(/\.\w+$/, "") + ".jpg", { type: "image/jpeg" }) : file;
 }
+const MAX_FILE = 100 * 1024 * 1024; // so viel nimmt Ida (und Cloudflare) pro Datei
+const FILE_ICON = { pdf: "picture_as_pdf", text: "description", file: "draft" };
 async function addFiles(list) {
   for (const raw of [...list]) {
     if (files.length >= 10) { toast("Höchstens 10 Dateien pro Nachricht"); break; }
+    if (raw.size > MAX_FILE) { toast(`„${raw.name}“ ist zu groß (höchstens 100 MB)`); continue; }
     const image = raw.type.startsWith("image/");
-    const it = { key: ++seq, name: raw.name || (image ? "bild.png" : "datei"), kind: image ? "image" : /pdf/.test(raw.type) ? "pdf" : "text", url: image ? URL.createObjectURL(raw) : null, state: "up" };
+    const it = { key: ++seq, name: raw.name || (image ? "bild.png" : "datei"), kind: image ? "image" : /pdf/.test(raw.type) ? "pdf" : "file", url: image ? URL.createObjectURL(raw) : null, state: "up" };
     files.push(it);
     renderFiles();
     try {
       const f = await shrink(raw);
       const fd = new FormData();
       fd.append("file", f, f.name || it.name);
-      const r = await api.post("/uploads", fd);
+      const r = await api.post("/uploads?any=true", fd); // jedes Format: Ida legt es Claude in den Projektordner
       if (!files.includes(it)) { api.del(`/uploads/${r.id}`).catch(() => {}); continue; }
       Object.assign(it, { id: r.id, name: r.name, kind: r.kind, state: "ok" });
     } catch (e) {
@@ -179,7 +182,7 @@ function renderFiles() {
   if (!box) return;
   box.hidden = !files.length;
   box.innerHTML = files.map((x) => `<span class="att ${x.state === "up" ? "up" : ""}" title="${esc(x.name)}">
-    ${x.url ? `<img src="${x.url}" alt="">` : `<span class="ms">${x.kind === "pdf" ? "picture_as_pdf" : "description"}</span><span class="att-name">${esc(x.name)}</span>`}
+    ${x.url ? `<img src="${x.url}" alt="">` : `<span class="ms">${FILE_ICON[x.kind] || "draft"}</span><span class="att-name">${esc(x.name)}</span>`}
     <button type="button" data-rm="${x.key}" aria-label="${esc(x.name)} entfernen"><span class="ms">close</span></button></span>`).join("");
   updateSend();
 }

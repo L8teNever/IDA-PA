@@ -1,7 +1,8 @@
 """Files and pictures for chats: uploaded first, sent with a message, given to the model.
 
 Pictures and PDFs go to the model as they are (Claude: image/document blocks), text files are put into the
-message as text. Other kinds (Word, ZIP …) are refused – the model could not read them.
+message as text. Other kinds (Word, ZIP …) are only taken for code threads ("file"): they are put into the project
+folder (.ida/anhaenge/, ignored by git) and Claude opens them with its tools. In normal chats they are refused.
 """
 import shutil
 from datetime import timedelta
@@ -19,6 +20,8 @@ IMAGES = {"image/png", "image/jpeg", "image/gif", "image/webp"}
 TEXT_EXT = {".txt", ".md", ".csv", ".tsv", ".json", ".xml", ".yaml", ".yml", ".log", ".ini", ".toml", ".html", ".htm", ".css",
             ".js", ".ts", ".py", ".java", ".c", ".h", ".cpp", ".cs", ".go", ".rs", ".sh", ".sql", ".ics", ".vcf", ".srt"}
 LIMITS = {"image": 5 * 1024 * 1024, "pdf": 25 * 1024 * 1024, "text": 1024 * 1024}  # what the model accepts
+ANY_LIMIT = 100 * 1024 * 1024  # any other file (code threads); Cloudflare takes at most 100 MB per request
+ATTACH_DIR = ".ida/anhaenge"  # where code threads find such files in the project
 MAX_PER_MESSAGE = 10
 KEEP_UNSENT = timedelta(days=1)
 
@@ -33,8 +36,8 @@ def path(f: ChatFile) -> Path:
     return folder() / f.id
 
 
-def kind_of(name: str, mime: str, head: bytes) -> tuple[str, str]:
-    """(kind, mime) from the content where possible – the browser's type is only a hint."""
+def kind_of(name: str, mime: str, head: bytes, any_file: bool = False) -> tuple[str, str]:
+    """(kind, mime) from the content where possible – the browser's type is only a hint. any_file: unknown kinds become "file"."""
     if head.startswith(b"\x89PNG"):
         return "image", "image/png"
     if head.startswith(b"\xff\xd8\xff"):
@@ -50,17 +53,26 @@ def kind_of(name: str, mime: str, head: bytes) -> tuple[str, str]:
             head.decode("utf-8")
         except UnicodeDecodeError as e:
             if len(head) - e.start > 4:  # not just a character cut off at the end of the sample
+                if any_file:
+                    return "file", "application/octet-stream"
                 raise Invalid(f"„{name}“ ist keine lesbare Textdatei (UTF-8)") from e
         return "text", "text/plain"
+    if any_file:
+        return "file", mime or "application/octet-stream"
     raise Invalid(f"„{name}“: dieser Dateityp geht nicht – nur Bilder (PNG, JPG, GIF, WebP), PDFs und Textdateien")
 
 
-async def save(db: AsyncSession, name: str, mime: str, data: bytes) -> ChatFile:
+async def save(db: AsyncSession, name: str, mime: str, data: bytes, any_file: bool = False) -> ChatFile:
+    """any_file (code threads): every format goes; too big for the model as it is → handed over as a file in the project."""
     name = (Path(name or "datei").name or "datei")[:200]
     if not data:
         raise Invalid(f"„{name}“ ist leer")
-    kind, mime = kind_of(name, mime or "", data[:4096])
-    if len(data) > LIMITS[kind]:
+    kind, mime = kind_of(name, mime or "", data[:4096], any_file)
+    if any_file and (kind == "file" or len(data) > LIMITS[kind]):
+        if len(data) > ANY_LIMIT:
+            raise Invalid(f"„{name}“ ist zu groß (höchstens {ANY_LIMIT // (1024 * 1024)} MB)")
+        kind = "file"
+    elif len(data) > LIMITS[kind]:
         raise Invalid(f"„{name}“ ist zu groß (höchstens {LIMITS[kind] // (1024 * 1024)} MB für {'Bilder' if kind == 'image' else 'PDFs' if kind == 'pdf' else 'Textdateien'})")
     f = ChatFile(name=name, mime=mime, kind=kind, size=len(data))
     db.add(f)
@@ -100,6 +112,24 @@ async def take(db: AsyncSession, ids: list[str], chat_id: str) -> list[ChatFile]
 
 def info(f: ChatFile) -> dict:
     return {"id": f.id, "name": f.name, "mime": f.mime, "kind": f.kind, "size": f.size}
+
+
+def place_in_project(f: ChatFile, project: Path) -> str:
+    """Copies a "file" attachment into the project (.ida/anhaenge/, kept out of git); returns the path for Claude."""
+    folder_ = project / ATTACH_DIR
+    folder_.mkdir(parents=True, exist_ok=True)
+    target = folder_ / f.name
+    if target.exists() and target.read_bytes() != path(f).read_bytes():
+        target = folder_ / f"{Path(f.name).stem}-{f.id[:6]}{Path(f.name).suffix}"
+    shutil.copyfile(path(f), target)
+    if (project / ".git").is_dir():  # keep the attachments out of commits
+        exclude = project / ".git" / "info" / "exclude"
+        exclude.parent.mkdir(exist_ok=True)
+        lines = exclude.read_text(encoding="utf-8", errors="replace").splitlines() if exclude.exists() else []
+        if ".ida/" not in lines:
+            with exclude.open("a", encoding="utf-8") as fh:
+                fh.write("\n.ida/\n")
+    return target.relative_to(project).as_posix()
 
 
 def as_text(f: ChatFile) -> str:

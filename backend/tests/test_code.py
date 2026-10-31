@@ -134,6 +134,31 @@ def test_code_thread_runs_in_the_project_with_real_tools(client, code_on, github
     client.put(f"{API}/code/settings", json={"enabled": True})
 
 
+def test_code_thread_takes_any_file(client, code_on, github):
+    """Code app (any=true): every format goes; Claude finds it in the project under .ida/anhaenge/, kept out of git."""
+    p = _project(client, github)
+    up = lambda name, data, q="?any=true": client.post(f"{API}/uploads{q}", files={"file": (name, data, "application/octet-stream")})  # noqa: E731
+    z = up("daten.zip", b"PK\x03\x04 irgendwas")
+    assert z.status_code == 201 and z.json()["kind"] == "file"
+    raw = up("bild.bin", bytes(range(256)) * 8).json()  # binary with a text ending is not refused either
+    assert raw["kind"] == "file"
+    assert up("doc.docx", b"PK\x03\x04 word", q="").status_code == 400  # without any=true as before
+    ev = chat(client, project_id=p["id"], text="Pack das aus", files=[z.json()["id"], raw["id"]], permission_mode="full")
+    out = text(ev)
+    assert '<anhang name="daten.zip" pfad=".ida/anhaenge/daten.zip"' in out and 'pfad=".ida/anhaenge/bild.bin"' in out
+    from app.services.code import projects
+    folder = projects.root() / p["id"]
+    assert (folder / ".ida/anhaenge/daten.zip").read_bytes() == b"PK\x03\x04 irgendwas"
+    assert ".ida/" in (folder / ".git/info/exclude").read_text().splitlines()
+    assert ".ida" not in subprocess.run(["git", "status", "--porcelain"], cwd=folder, capture_output=True, text=True).stdout
+    # only as a download, never shown in the page
+    r = client.get(f"{API}/files/{z.json()['id']}")
+    assert r.headers["content-type"] == "application/octet-stream" and r.headers["content-disposition"].startswith("attachment")
+    # a normal chat cannot use such a file (the model there has no tools to open it)
+    other = up("noch.zip", b"PK\x03\x04 x").json()
+    assert client.post(f"{API}/chat", json={"text": "x", "files": [other["id"]]}).status_code == 400
+
+
 def _start(client, body):
     """Starts an answer and leaves (like a browser that goes away); returns the chat id."""
     with client.stream("POST", f"{API}/chat", json=body) as r:

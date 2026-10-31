@@ -57,12 +57,12 @@ function row(role) {
   return r;
 }
 
-const FILE_ICON = { pdf: "picture_as_pdf", text: "description", image: "image" };
+const FILE_ICON = { pdf: "picture_as_pdf", text: "description", image: "image", file: "draft" };
 function filesHtml(files) {
   if (!files?.length) return "";
   return `<div class="msg-files">${files.map((f) => f.kind === "image"
     ? `<a class="mf-pic" href="/api/v1/files/${esc(f.id)}" target="_blank" rel="noopener" title="${esc(f.name)}"><img src="/api/v1/files/${esc(f.id)}" alt="${esc(f.name)}" loading="lazy"></a>`
-    : `<a class="mf-file" href="/api/v1/files/${esc(f.id)}" target="_blank" rel="noopener"><span class="ms">${FILE_ICON[f.kind] || "description"}</span><span>${esc(f.name)}</span></a>`).join("")}</div>`;
+    : `<a class="mf-file" href="/api/v1/files/${esc(f.id)}" ${f.kind === "file" ? `download="${esc(f.name)}"` : `target="_blank" rel="noopener"`}><span class="ms">${FILE_ICON[f.kind] || "description"}</span><span>${esc(f.name)}</span></a>`).join("")}</div>`;
 }
 
 function addUser(text, files) {
