@@ -264,7 +264,16 @@ textarea.autogrow { resize: none; overflow-y: auto; min-height: 84px; max-height
 /* composer: there is no attach button, so the text needs its own inner spacing */
 .field { padding-left: 18px; padding-right: 8px; }
 .field-tools { margin-left: -8px; }
-#input { padding: 15px 0 13px; line-height: 1.45; overflow-y: auto; scrollbar-width: thin; }
+/* Feld und Senden-Knopf sind einzeilig gleich hoch (--cbar); die Zeile im Feld ist 24px, der Rest ist Innenabstand */
+.composer { --cbar: 56px; }
+.field { min-height: var(--cbar); }
+.field-row { min-height: calc(var(--cbar) - 8px); }
+.field-row .mic-btn { margin-bottom: calc((var(--cbar) - 56px) / 2 + 4px); }
+.send { width: var(--cbar); height: var(--cbar); }
+#input { line-height: 24px; padding: calc((var(--cbar) - 32px) / 2) 0; overflow-y: auto; scrollbar-width: thin; }
+@media (max-height: 520px) { .composer { --cbar: 48px; } }
+.model-menu { border-bottom-width: 0; }  /* geschlossen soll das Menü keinen Pixel im Feld belegen */
+body.model-open .model-menu { border-bottom-width: 1px; }
 @media (min-width: 900px) {
   header { padding-inline: clamp(20px, 3.5vw, 64px); }
 }
@@ -283,11 +292,6 @@ textarea.autogrow { resize: none; overflow-y: auto; min-height: 84px; max-height
 
 @media (min-width: 1600px) {
   header, #home, #page, .messages, .composer { padding-inline: clamp(32px, 5vw, 96px); }
-}
-
-/* Chat und Eingabeleiste am PC: feste Lesebreite, mittig (statt über das ganze Fenster); Code-Threads haben ihre eigene Breite */
-@media (min-width: 900px) {
-  body:not(.code-thread) .messages, body:not(.code-thread) .composer { padding-inline: max(24px, calc((100% - 980px) / 2)); }
 }
 
 /* routine form: one-time date + time */
@@ -550,6 +554,7 @@ body.tap-view #appHeader { display: none; }
 
 /* chat files: waiting in the composer … */
 .att-list { display: flex; flex-wrap: wrap; gap: 8px; padding: 10px 12px 2px; }
+.att-list[hidden] { display: none; }
 .att { position: relative; display: inline-flex; align-items: center; gap: 6px; height: 56px; max-width: 220px; padding: 0 30px 0 12px;
   border-radius: 14px; background: var(--surface-highest); font-size: 13px; }
 .att.pic { width: 56px; padding: 0; overflow: hidden; }
