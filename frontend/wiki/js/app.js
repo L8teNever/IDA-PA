@@ -273,10 +273,7 @@ export async function startWikiApp(rootEl) {
       <aside class="wk-sidebar ${state.drawerOpen ? "open" : ""}">
         <div class="sidebar-head">
         <div class="brand-row">
-          <div class="brand-title">
-            <span class="brand-dot"></span>
-            <strong>IDA Wiki</strong>
-          </div>
+          <div class="brand-title">IDA Wiki</div>
           <div class="brand-actions mobile-only">
             <button type="button" class="icon-btn" data-act="new" title="Neue Seite"><span class="ms">add</span></button>
             <button type="button" class="icon-btn" data-act="settings" title="Einstellungen &amp; MCP"><span class="ms">settings</span></button>

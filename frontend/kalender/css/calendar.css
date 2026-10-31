@@ -480,7 +480,8 @@ body.pk-open .pk-scrim { opacity: 1; }
 @media (min-width: 1000px) {
   .menu-btn { display: none; }
   .drawer { position: static; transform: none; border-radius: 28px; margin: 12px 0 12px 100px; width: 300px; flex: none; z-index: 1; padding-top: 12px; }
-  .dr-head { padding-top: 5px; padding-bottom: 15px; } /* Titelmitte auf Höhe der Kopfzeile (40 px) wie in Code und Wiki */
+  .dr-head { padding: 5px 4px 15px; } /* Titel wie in Code und Wiki: Mitte auf Höhe der Kopfzeile, Text bei x 116 */
+  .dr-head .face { display: none; } /* das Ida-Gesicht steht oben in der Leiste */
   .shell { padding-left: 0; }
   .scrim { display: none; }
   .dr-mini { display: block; margin: 0 -2px 6px; }

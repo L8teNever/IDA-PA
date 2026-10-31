@@ -25,7 +25,7 @@ export async function startApp(root) {
       <nav class="cd-rail" id="rail" aria-label="Navigation"></nav>
       <aside class="cd-sidebar" id="side">
         <div class="sidebar-head" id="sideHead">
-          <div class="brand-row"><span class="brand-title"><span class="brand-dot"></span>IDA Code</span>
+          <div class="brand-row"><span class="brand-title">IDA Code</span>
             <span class="brand-actions">
               <button type="button" class="icon-btn mobile-only" data-act="settings" title="Einstellungen" aria-label="Einstellungen"><span class="ms">settings</span></button>
               <button type="button" class="icon-btn mobile-only" data-act="drawer-close" aria-label="Schließen"><span class="ms">close</span></button></span></div>

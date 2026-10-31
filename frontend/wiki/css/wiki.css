@@ -76,20 +76,12 @@
   padding: 2px 4px;
 }
 
+/* wie der Titel in Code und Kalender */
 .brand-title {
   display: flex;
   align-items: center;
-  gap: 9px;
   font-size: 18px;
-  letter-spacing: -0.01em;
-}
-
-.brand-dot {
-  width: 11px;
-  height: 11px;
-  border-radius: 50%;
-  background: var(--accent);
-  box-shadow: 0 0 14px var(--glow);
+  font-weight: 500;
 }
 
 .brand-actions {
@@ -205,10 +197,11 @@
   scroll-padding: var(--sh, 160px) 0 var(--sf, 50px);
 }
 
+/* Zwischenüberschrift wie „Meine Kalender“ im Kalender */
 .space-caption {
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
   color: var(--muted);
   padding: 8px 8px 4px;
 }

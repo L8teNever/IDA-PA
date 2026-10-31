@@ -95,8 +95,7 @@ a { color: inherit; }
 .sidebar-head { position: absolute; top: 0; left: 0; right: 0; z-index: 2; display: flex; flex-direction: column; gap: 10px; padding: 8px 12px 18px;
   background: linear-gradient(to bottom, var(--surface) calc(100% - 18px), transparent); }
 .brand-row { display: flex; align-items: center; justify-content: space-between; padding: 2px 4px; min-height: 40px; }
-.brand-title { display: flex; align-items: center; gap: 9px; font-size: 18px; letter-spacing: -0.01em; }
-.brand-dot { width: 11px; height: 11px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 14px var(--glow); }
+.brand-title { display: flex; align-items: center; font-size: 18px; font-weight: 500; } /* wie der Titel in Kalender und Wiki */
 .brand-actions { display: flex; gap: 2px; }
 .side-search { display: flex; align-items: center; gap: 8px; height: 44px; padding: 0 14px; border-radius: 22px; background: var(--surface-high); color: var(--muted); }
 .side-search .ms { font-size: 20px; }
