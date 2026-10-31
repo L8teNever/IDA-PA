@@ -285,7 +285,23 @@ export function renderMarkdown(markdown, ctx = {}) {
 
     // GFM-Tabelle
     if (ln.includes("|") && i + 1 < lines.length && /^\s*\|?[\s:-]+\|[\s|:-]*$/.test(lines[i + 1])) {
-      const parseRow = (r) => r.trim().replace(/^\||\|$/g, "").split("|").map((c) => c.trim());
+      // Zellen nur an „echten“ Trennstrichen teilen: nicht innerhalb von [[Pfad|Name]], `Code` oder bei \|
+      const parseRow = (r) => {
+        const s = r.trim().replace(/^\|/, "").replace(/(?<!\\)\|$/, "");
+        const cells = [];
+        let cur = "", link = 0, code = false;
+        for (let k = 0; k < s.length; k++) {
+          const ch = s[k];
+          if (ch === "\\" && s[k + 1] === "|") { cur += "|"; k++; continue; }
+          if (!code && ch === "[" && s[k + 1] === "[") { link++; cur += "[["; k++; continue; }
+          if (!code && link && ch === "]" && s[k + 1] === "]") { link--; cur += "]]"; k++; continue; }
+          if (ch === "`") code = !code;
+          if (ch === "|" && !link && !code) { cells.push(cur.trim()); cur = ""; continue; }
+          cur += ch;
+        }
+        cells.push(cur.trim());
+        return cells;
+      };
       const headers = parseRow(ln);
       i += 2;
       const rows = [];

@@ -593,6 +593,25 @@ export async function startWikiApp(rootEl) {
     `;
   }
 
+  // Nach Hintergrund-Abgleich: im Wissensgraph nur die Seitenleiste auffrischen – ein komplettes Neuzeichnen würde
+  // den Graphen neu aufbauen und Zoom/Ausschnitt zurücksetzen
+  function refreshAfterSync() {
+    if (state.view !== "graph" || !rootEl.querySelector("#wkMainGraph")) {
+      render();
+      return;
+    }
+    const old = rootEl.querySelector(".wk-sidebar");
+    if (!old) return;
+    const scrollTop = old.querySelector(".tree-scroll")?.scrollTop || 0;
+    const tpl = document.createElement("template");
+    tpl.innerHTML = renderSidebar();
+    const fresh = tpl.content.querySelector(".wk-sidebar");
+    old.replaceWith(fresh);
+    const tree = fresh.querySelector(".tree-scroll");
+    if (tree) tree.scrollTop = scrollTop;
+    watchFloatingBars();
+  }
+
   function render() {
     activeGraphCtrl?.destroy();
     activeGraphCtrl = null;
@@ -606,7 +625,7 @@ export async function startWikiApp(rootEl) {
           ? renderHistoryStage()
           : renderPageStage();
 
-    rootEl.innerHTML = `<div class="wk-shell">${renderRail()}${renderSidebar()}${stage}${renderBottomBar()}</div>`;
+    rootEl.innerHTML = `<div class="wk-shell view-${state.view}">${renderRail()}${renderSidebar()}${stage}${renderBottomBar()}</div>`;
     watchFloatingBars();
     bindStageHydration();
   }
@@ -660,6 +679,7 @@ export async function startWikiApp(rootEl) {
           if (!canvas.isConnected) return;
           activeGraphCtrl = mountGraph(canvas, g, {
             onSelectNode: (node) => handleGraphNodeClick(node),
+            inset: graphInset,
           });
         } catch (err) {
           toast(err.message);
@@ -668,6 +688,21 @@ export async function startWikiApp(rootEl) {
     } else if (state.view === "history") {
       await loadGlobalHistory();
     }
+  }
+
+  // Der große Graph liegt hinter Leiste, Seitenleiste und Kopfzeile – eingepasst wird in den frei sichtbaren Bereich
+  function graphInset() {
+    const desktop = matchMedia("(min-width: 961px)").matches;
+    const side = rootEl.querySelector(".wk-sidebar");
+    const top = rootEl.querySelector(".graph-stage .stage-topbar");
+    const bnav = rootEl.querySelector(".wk-bottom-nav");
+    const legend = rootEl.querySelector(".graph-legend");
+    const bottomEl = !desktop && bnav ? bnav : legend;
+    return {
+      left: desktop && side ? side.getBoundingClientRect().right : 0,
+      top: top ? top.getBoundingClientRect().bottom : 0,
+      bottom: bottomEl ? Math.max(0, innerHeight - bottomEl.getBoundingClientRect().top) : 0,
+    };
   }
 
   function handleGraphNodeClick(node) {
@@ -1261,11 +1296,11 @@ export async function startWikiApp(rootEl) {
 
   window.addEventListener("online", () => {
     state.online = true;
-    sync.syncAll().then(refreshLocalState).then(render).catch(() => {});
+    sync.syncAll().then(refreshLocalState).then(refreshAfterSync).catch(() => {});
   });
   window.addEventListener("offline", () => {
     state.online = false;
-    render();
+    refreshAfterSync();
   });
 
   sync.onChange(async (evt) => {
@@ -1274,7 +1309,7 @@ export async function startWikiApp(rootEl) {
     if (evt.type === "changed" && state.currentPage && evt.page_id === state.currentPage.id && !state.editing) {
       state.currentPage = (await getPage(state.currentPage.id)) || state.currentPage;
     }
-    if (!state.editing) render();
+    if (!state.editing) refreshAfterSync();
   });
 
   // Start: zuerst sofort aus lokalem IndexedDB-Cache zeichnen, dann Server-Sync + Live-SSE starten

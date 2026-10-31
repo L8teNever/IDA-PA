@@ -70,7 +70,8 @@ function mass(q) {
   if (q.m) { q.cx /= q.m; q.cy /= q.m; }
 }
 
-export function mountGraph(canvas, data, { onSelectNode, highlightQuery = "" } = {}) {
+// inset(): freie Ränder (z. B. unter Seitenleiste/Kopfzeile), damit der Graph mittig im sichtbaren Bereich landet
+export function mountGraph(canvas, data, { onSelectNode, highlightQuery = "", inset = null } = {}) {
   const ctx = canvas.getContext("2d");
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
 
@@ -159,9 +160,12 @@ export function mountGraph(canvas, data, { onSelectNode, highlightQuery = "" } =
     if (!nodes.length) return;
     const b = bounds();
     const pad = 36;
-    const s = Math.max(0.04, Math.min(big ? 1.6 : 1.3, Math.min((width - pad * 2) / Math.max(1, b.x1 - b.x0), (height - pad * 2) / Math.max(1, b.y1 - b.y0))));
-    const cx = -((b.x0 + b.x1) / 2) * s;
-    const cy = -((b.y0 + b.y1) / 2) * s;
+    const ins = { left: 0, top: 0, right: 0, bottom: 0, ...(inset?.() || {}) };
+    const w = Math.max(120, width - ins.left - ins.right);
+    const h = Math.max(120, height - ins.top - ins.bottom);
+    const s = Math.max(0.04, Math.min(big ? 1.6 : 1.3, Math.min((w - pad * 2) / Math.max(1, b.x1 - b.x0), (h - pad * 2) / Math.max(1, b.y1 - b.y0))));
+    const cx = -((b.x0 + b.x1) / 2) * s + (ins.left - ins.right) / 2;
+    const cy = -((b.y0 + b.y1) / 2) * s + (ins.top - ins.bottom) / 2;
     const k = smooth ? 0.12 : 1;
     scale += (s - scale) * k;
     camX += (cx - camX) * k;

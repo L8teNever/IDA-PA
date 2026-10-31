@@ -1024,3 +1024,13 @@
 .set-view .created-tok { margin-top: 10px; }
 .set-view .created-tok pre { white-space: pre-wrap; word-break: break-all; margin: 8px 0 0; }
 @media (prefers-reduced-motion: reduce) { .set-view.fwd, .set-view.back { animation: none; } }
+
+/* Wissensgraph über die ganze Fläche: läuft hinter Leiste, Seitenleiste und Kopfzeile weiter */
+.wk-shell.view-graph .graph-canvas-wrap { position: fixed; inset: 0; z-index: 0; margin: 0; border-radius: 0; }
+.wk-shell.view-graph .wk-rail { position: relative; z-index: 31; }
+.wk-shell.view-graph .wk-sidebar { box-shadow: 0 4px 24px rgba(0, 0, 0, 0.55); }
+.wk-shell.view-graph .graph-legend { left: 436px; bottom: 24px; }
+@media (max-width: 960px) {
+  .wk-shell.view-graph .graph-stage .graph-canvas-wrap { margin: 0; }
+  .wk-shell.view-graph .graph-legend { left: 12px; right: 12px; bottom: calc(env(safe-area-inset-bottom) + 84px); }
+}
