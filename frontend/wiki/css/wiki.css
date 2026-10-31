@@ -118,6 +118,7 @@
 
 /* Schmale Leiste links (wie im Kalender): Neu-Knopf oben, Bereiche, Graph/Verlauf, unten Einstellungen */
 .wk-rail {
+  position: relative;
   width: 76px;
   flex-shrink: 0;
   display: flex;
@@ -130,6 +131,8 @@
   scrollbar-width: none;
 }
 .wk-rail::-webkit-scrollbar { display: none; }
+/* App-Icon oben in der freien Ecke über dem Plus-Knopf (auf Höhe der Kopfzeile) */
+.rail-logo { position: absolute; top: 22px; left: 50%; width: 36px; height: 36px; margin-left: -18px; border-radius: 10px; pointer-events: none; user-select: none; }
 .rail-fab {
   flex: none;
   width: 56px;

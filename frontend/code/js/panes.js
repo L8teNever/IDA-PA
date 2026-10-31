@@ -1,10 +1,9 @@
-// Rechter Bereich eines Projekts: Dateien (Explorer + Ansicht), Änderungen (Diff, Commit, Push, Branch, PR), Vorschau.
+// Rechter Bereich eines Projekts: Dateien (Explorer + Ansicht), Änderungen (Diff, Commit, Push, Branch, PR).
 // Am PC als eigene Insel rechts, am Handy/Tablet als großer Dialog mit denselben Tabs.
 import { api, rawUrl } from "./api.js";
 import { esc, fmtBytes, fmtRel, formDialog, md, openModal, popMenu, toast } from "./ui.js";
 
-export const TABS = [["files", "folder_open", "Dateien"], ["changes", "difference", "Änderungen"], ["preview", "visibility", "Vorschau"]];
-let lastHtml = null; // { projectId, path } – zuletzt geöffnete HTML-Datei (für die Vorschau)
+export const TABS = [["files", "folder_open", "Dateien"], ["changes", "difference", "Änderungen"]];
 
 export function tabsHtml(tab, extra = "") {
   return `<div class="pane-tabs" role="tablist">${TABS.map(([k, ic, t]) => `<button type="button" role="tab" data-pane-tab="${k}" class="${tab === k ? "on" : ""}">
@@ -16,8 +15,7 @@ export function fillTab(el, projectId, tab, { onChange } = {}) {
   const token = (el.dataset.tok = String(Math.random()));
   const isCurrent = () => el.isConnected && el.dataset.tok === token;
   if (tab === "files") mountFiles(el, projectId, isCurrent);
-  else if (tab === "changes") renderChanges(el, projectId, { onChange, isCurrent });
-  else drawPreview(el, projectId, isCurrent);
+  else renderChanges(el, projectId, { onChange, isCurrent });
 }
 
 // ---- Dateien ----
@@ -91,7 +89,6 @@ function mountFiles(el, projectId, isCurrent) {
     const isMd = [".md", ".markdown"].includes(data.ext);
     const isImg = [".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".ico"].includes(data.ext);
     const raw = rawUrl(projectId, data.path);
-    if (isHtml) lastHtml = { projectId, path: data.path };
     const seg = (key, val, opts) => `<div class="seg-mini">${opts.map(([v, ic, t]) => `<button type="button" class="${val === v ? "on" : ""}" data-${key}="${v}"><span class="ms">${ic}</span>${t}</button>`).join("")}</div>`;
     let tools = "";
     if (isHtml) {
@@ -122,25 +119,6 @@ function mountFiles(el, projectId, isCurrent) {
   };
 
   loadDir("");
-}
-
-// ---- Vorschau: die zuletzt geöffnete HTML-Datei oder index.html ----
-async function drawPreview(el, projectId, isCurrent) {
-  let path = lastHtml?.projectId === projectId ? lastHtml.path : null;
-  if (!path) {
-    try {
-      const d = await api.get(`/code/projects/${projectId}/files?path=`);
-      path = d.entries.find((e) => !e.is_dir && e.name.toLowerCase() === "index.html")?.path || d.entries.find((e) => !e.is_dir && /\.html?$/i.test(e.name))?.path;
-    } catch { /* unten */ }
-  }
-  if (!isCurrent()) return;
-  if (!path) { el.innerHTML = `<div class="pane-empty"><span class="ms big">web_asset_off</span>Keine HTML-Datei im Projekt.<br><small>Öffne unter „Dateien“ eine HTML-Datei, dann erscheint sie hier.</small></div>`; return; }
-  const src = rawUrl(projectId, path);
-  el.innerHTML = `<div class="pane-box file-mode"><div class="fv-head"><span class="ms muted">language</span><div class="fv-meta"><b>${esc(path)}</b><small>Vorschau</small></div>
-      <button type="button" class="icon-btn sm" data-pv-reload title="Neu laden"><span class="ms">refresh</span></button>
-      <a class="icon-btn sm" href="${src}" target="_blank" rel="noopener" title="In neuem Tab öffnen"><span class="ms">open_in_new</span></a></div>
-    <div class="fv-body"><div class="pv-frame-wrap dev-full"><iframe class="pv-frame" src="${src}" sandbox="allow-scripts allow-forms allow-popups"></iframe></div></div></div>`;
-  el.querySelector("[data-pv-reload]").onclick = () => { el.querySelector("iframe").src = `${src}?_r=${Date.now()}`; };
 }
 
 // ---- Änderungen ----

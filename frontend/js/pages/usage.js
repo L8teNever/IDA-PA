@@ -8,7 +8,7 @@ function resetText(iso) {
   if (!iso) return "";
   const ms = new Date(iso) - Date.now();
   if (ms <= 0) return "setzt sich gleich zurück";
-  const h = Math.floor(ms / 3600000), m = Math.round((ms % 3600000) / 60000);
+  const min = Math.round(ms / 60000), h = Math.floor(min / 60), m = min % 60; // erst runden, sonst „23 Std 60 Min“
   if (h >= 24) return "Reset " + new Date(iso).toLocaleDateString("de-DE", { weekday: "long", hour: "2-digit", minute: "2-digit" });
   return `setzt sich in ${h ? h + " Std " : ""}${m} Min zurück`;
 }

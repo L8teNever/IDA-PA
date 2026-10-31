@@ -141,7 +141,7 @@ function shell() {
       <div class="minidrop" id="minidrop"></div>
       <div class="offline" id="offline"></div>
       <div class="stage" id="stage"></div></div>
-    <nav class="bar" id="bar"><div class="tb" id="tb"></div><button class="fab" id="fab" aria-label="Neuer Termin"><span class="ms">add</span></button></nav>
+    <nav class="bar" id="bar"><img class="rail-logo" src="${esc(document.querySelector('link[rel="icon"]')?.href || "")}" alt=""><div class="tb" id="tb"></div><button class="fab" id="fab" aria-label="Neuer Termin"><span class="ms">add</span></button></nav>
     <div class="fab-menu" id="fabMenu"></div>`;
   $("#menu").onclick = () => { document.body.classList.add("dr-open"); history.pushState({ ...history.state, drawer: 1 }, ""); };
   $("#scrim").onclick = () => history.back();

@@ -1,10 +1,11 @@
 // IDA Code – Aufbau wie Kalender und Wiki: schmale Leiste links, Seitenleiste mit Projekten und Threads,
-// schwebende Kopfzeile, Inhalt darunter; rechts (am PC) Dateien / Änderungen / Vorschau des Projekts.
+// schwebende Kopfzeile, Inhalt darunter; rechts (am PC) Dateien / Änderungen des Projekts.
 import { api } from "./api.js";
 import { ctx, detach, mountNew, mountThread } from "./chat.js";
 import { bindComposer, composerHtml, dropFiles, refreshChip } from "./composer.js";
 import { fillTab, openPaneModal, tabsHtml } from "./panes.js";
 import { navigate, parse, setUrl, startRouter, urlOf } from "./router.js";
+import { openLimits } from "./limits.js";
 import { openSettings } from "./settings.js";
 import { MODES, codeEnabled, loadBoot, loadTree, loadUsage, mainAgent, modeOf, onChange, projectById, repoName, state } from "./store.js";
 import { $, attempt, confirmDialog, esc, fmtRel, formDialog, openModal, popMenu, sheetHead, toast } from "./ui.js";
@@ -13,7 +14,7 @@ let route = { view: "home" };
 let cur = null;           // aktuelles Projekt (mit git-Status), falls route.project
 let thread = null;        // geöffneter Thread (Titel usw.)
 let q = "";               // Suche in der Seitenleiste
-let paneTab = localStorage.getItem("code-pane") || null; // offener Tab rechts (PC), null = zu
+let paneTab = ["files", "changes"].includes(localStorage.getItem("code-pane")) ? localStorage.getItem("code-pane") : null; // offener Tab rechts (PC), null = zu
 const open = new Set();   // aufgeklappte Projekte in der Seitenleiste
 const wide = () => matchMedia("(min-width: 1200px)").matches;
 const desktop = () => matchMedia("(min-width: 961px)").matches;
@@ -93,14 +94,16 @@ function drawRail() {
   const btn = (attrs, active, icon, label, disabled = false) => `<button type="button" class="rail-btn ${active ? "active" : ""}" ${attrs} ${disabled ? "disabled" : ""}>
     <span class="rail-ic"><span class="ms">${icon}</span></span><span class="rail-lbl">${label}</span></button>`;
   const fabTitle = route.project ? "Neuer Thread" : "Projekt hinzufügen";
-  $("rail").innerHTML = `<button type="button" class="rail-fab" data-act="new" title="${fabTitle}" aria-label="${fabTitle}"><span class="ms">${route.project ? "edit_square" : "add"}</span></button>
+  // App-Icon oben in der freien Ecke (wie Kalender und Wiki)
+  $("rail").innerHTML = `<img class="rail-logo" src="${esc(document.querySelector('link[rel="icon"]')?.href || "")}" alt="">
+    <button type="button" class="rail-fab" data-act="new" title="${fabTitle}" aria-label="${fabTitle}"><span class="ms">${route.project ? "edit_square" : "add"}</span></button>
     <div class="rail-group">${btn('data-act="home"', route.view === "home", "folder_code", "Projekte")}</div>
     <div class="rail-group">
       ${btn('data-pane="files"', paneTab === "files" && wide() && ready, "folder_open", "Dateien", !ready)}
       ${btn('data-pane="changes"', paneTab === "changes" && wide() && ready, "difference", "Änderungen", !ready)}
-      ${btn('data-pane="preview"', paneTab === "preview" && wide() && ready, "visibility", "Vorschau", !ready)}
     </div>
     <div class="rail-spacer"></div>
+    ${btn('data-act="limits" title="KI-Limits"', false, "data_usage", "Limits")}
     ${btn('data-act="settings" title="Einstellungen"', false, "settings", "Einstellungen")}`;
   const changes = (cur?.git?.files || []).length;
   const chBadge = $("rail").querySelector('[data-pane="changes"] .rail-ic');
@@ -399,7 +402,6 @@ function drawProjectInfo() {
     ${ready ? `<div class="btn-row">
       <button type="button" class="${files ? "btn-primary" : "btn-tonal"}" data-pane="changes"><span class="ms">difference</span>${files ? "Änderungen ansehen" : "Git & Verlauf"}</button>
       <button type="button" class="btn-tonal" data-pane="files"><span class="ms">folder_open</span>Dateien</button>
-      <button type="button" class="btn-tonal" data-pane="preview"><span class="ms">visibility</span>Vorschau</button>
       ${!p.repo_url ? `<button type="button" class="btn-tonal" data-act="publish"><span class="ms">publish</span>Auf GitHub veröffentlichen</button>` : ""}</div>` : ""}`;
 }
 
@@ -494,7 +496,7 @@ function drawTopbarChips() {
   const m = modeOf(ctx.mode);
   box.innerHTML = `<button type="button" class="chip mode-chip mode-${m[0]}" data-act="mode" title="${esc(m[3])}"><span class="ms">${m[1]}</span><span class="hide-xs">${m[2]}</span></button>
     <button type="button" class="chip ${files ? "has" : ""}" data-pane="changes" title="Änderungen, Commit, Push, Pull Request"><span class="ms">difference</span><span class="hide-xs">${files ? `${files} Änderung${files === 1 ? "" : "en"}` : "Änderungen"}</span>${files ? `<b class="chip-n mobile-only">${files}</b>` : ""}</button>
-    <button type="button" class="icon-btn" data-pane="files" title="Dateien & Vorschau (Strg+.)" aria-label="Dateien"><span class="ms">folder_open</span></button>
+    <button type="button" class="icon-btn" data-pane="files" title="Dateien (Strg+.)" aria-label="Dateien"><span class="ms">folder_open</span></button>
     ${ctx.id ? `<button type="button" class="icon-btn" data-act="thread-menu" title="Thread" aria-label="Thread-Menü"><span class="ms">more_vert</span></button>` : ""}`;
   const b = $("thBranch");
   if (b) b.textContent = cur.git?.branch || cur.default_branch;
@@ -557,6 +559,7 @@ async function onClick(e) {
     case "new": return route.project ? (cur?.status === "ready" ? navigate(urlOf({ project: route.project, thread: null })) : toast("Das Projekt ist noch nicht bereit")) : addProject();
     case "add-project": return addProject();
     case "settings": closeDrawer(); return openSettings();
+    case "limits": closeDrawer(); return openLimits();
     case "github": closeDrawer(); return openSettings("github");
     case "drawer": return openDrawer();
     case "drawer-close": return closeDrawer();

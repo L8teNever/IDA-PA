@@ -31,8 +31,9 @@ a { color: inherit; }
 .cd-shell { display: flex; gap: 12px; width: 100%; height: 100%; overflow: hidden; }
 
 /* ---------- Leiste links (wie im Kalender) ---------- */
-.cd-rail { width: 76px; flex-shrink: 0; display: flex; flex-direction: column; align-items: center; gap: 18px; padding: 64px 0 4px; overflow-y: auto; scrollbar-width: none; }
+.cd-rail { position: relative; width: 76px; flex-shrink: 0; display: flex; flex-direction: column; align-items: center; gap: 18px; padding: 64px 0 4px; overflow-y: auto; scrollbar-width: none; }
 .cd-rail::-webkit-scrollbar { display: none; }
+.rail-logo { position: absolute; top: 22px; left: 50%; width: 36px; height: 36px; margin-left: -18px; border-radius: 10px; pointer-events: none; user-select: none; }
 .rail-fab { flex: none; width: 56px; height: 56px; border: 0; border-radius: 18px; background: var(--accent); color: var(--on-accent); display: grid; place-items: center; cursor: pointer;
   box-shadow: 0 4px 16px rgba(var(--accent-rgb), 0.3); transition: border-radius 0.3s var(--spring), transform 0.2s var(--spring); }
 .rail-fab .ms { font-size: 26px; }
@@ -471,6 +472,25 @@ a { color: inherit; }
 .set-li .ct > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .set-li .ct small { color: var(--muted); font-size: 12px; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .home-wrap .set-gl { padding-left: 8px; }
+
+/* KI-Limits (js/limits.js) */
+.lim-card { display: flex; flex-direction: column; gap: 2px; }
+.lim-row { background: var(--surface-high); border-radius: 6px; padding: 12px 16px; display: flex; flex-direction: column; gap: 8px; }
+.lim-row:first-child { border-radius: 22px 22px 6px 6px; }
+.lim-row:last-child { border-radius: 6px 6px 22px 22px; }
+.lim-row:only-child { border-radius: 22px; }
+.lim-row.muted { opacity: 0.6; }
+.lim-row small { color: var(--muted); font-size: 12px; }
+.lim-row small:empty { display: none; }
+.lim-head { display: flex; justify-content: space-between; gap: 12px; font-size: 14px; }
+.lim-head b { font-weight: 500; }
+.lim-head span { color: var(--muted); font-variant-numeric: tabular-nums; }
+.lim-bar { height: 8px; border-radius: 99px; background: var(--surface-highest); overflow: hidden; }
+.lim-bar > div { height: 100%; border-radius: inherit; background: var(--accent); transition: width 0.4s var(--emph); }
+.lim-bar.warn > div { background: var(--warn); }
+.lim-models { display: flex; flex-wrap: wrap; gap: 4px; }
+.lim-models span { font-size: 11px; padding: 2px 8px; border-radius: 99px; background: var(--surface-highest); color: var(--muted); }
+.lim-tag { font-size: 11px; font-weight: 500; padding: 1px 8px; margin-left: 6px; border-radius: 99px; background: var(--container); color: var(--on-container); vertical-align: 1px; }
 
 /* Eigene Auswahlmenüs (js/select.js) */
 .dd { display: block; position: relative; }

@@ -1,6 +1,7 @@
 // Einstellungen wie im Kalender und Wiki: Übersicht mit Unterseiten (Code-Bereich, GitHub, App).
 import { api } from "./api.js";
 import { loadBoot, loadTree, state } from "./store.js";
+import { openLimits } from "./limits.js";
 import { attempt, esc, openModal, toast } from "./ui.js";
 
 let installPrompt = null;
@@ -28,6 +29,7 @@ export function openSettings(start = "home") {
           ${item("github", "account_circle", "GitHub", gh?.connected ? `Angemeldet als ${gh.login}` : "Nicht verbunden")}
         </div>
         <div class="set-gl">KI</div><div class="set-list">
+          ${item("limits", "data_usage", "KI-Limits", "Wie viel von Sitzung und Woche schon verbraucht ist")}
           ${item("", "psychology", "Modelle & Accounts", `${(state.boot?.accounts || []).length} Account${(state.boot?.accounts || []).length === 1 ? "" : "s"} aus IDA · im Thread unten wählbar`, "")}
         </div>
         <div class="set-gl">App</div><div class="set-list">
@@ -90,6 +92,7 @@ export function openSettings(start = "home") {
     if (go === "github") return show("github", "fwd");
     if (go === "install" && installPrompt) { installPrompt.prompt(); installPrompt = null; return show("home"); }
     if (go === "reload") { location.reload(); return; }
+    if (go === "limits") return openLimits(); // eigener Dialog (ersetzt die Einstellungen)
     const t = e.target;
     if (t.closest("#setEnabled")) {
       const on = !state.boot?.code_enabled;
