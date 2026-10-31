@@ -63,7 +63,7 @@
   display: flex;
   flex-direction: column;
   gap: 10px;
-  padding: 14px 12px 18px;
+  padding: 15px 12px 18px;
   background: linear-gradient(to bottom, var(--surface) calc(100% - 18px), transparent);
   pointer-events: none;
 }
