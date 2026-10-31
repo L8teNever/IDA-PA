@@ -285,6 +285,11 @@ textarea.autogrow { resize: none; overflow-y: auto; min-height: 84px; max-height
   header, #home, #page, .messages, .composer { padding-inline: clamp(32px, 5vw, 96px); }
 }
 
+/* Chat und Eingabeleiste am PC: feste Lesebreite, mittig (statt über das ganze Fenster); Code-Threads haben ihre eigene Breite */
+@media (min-width: 900px) {
+  body:not(.code-thread) .messages, body:not(.code-thread) .composer { padding-inline: max(24px, calc((100% - 980px) / 2)); }
+}
+
 /* routine form: one-time date + time */
 .once-date { position: relative; display: inline-flex; align-items: center; gap: 6px; padding: 0 12px; cursor: pointer; overflow: hidden; }
 .once-date input { position: absolute; inset: 0; opacity: 0; pointer-events: none; color-scheme: dark; }
