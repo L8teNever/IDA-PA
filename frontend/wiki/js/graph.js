@@ -14,16 +14,19 @@ export function mountGraph(canvas, data, { onSelectNode, highlightQuery = "" } =
   const ctx = canvas.getContext("2d");
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
 
+  const total = (data.nodes || []).length;
+  const big = total > 120; // große Graphen: ruhiger zeichnen (weniger Beschriftungen, blassere Kanten, Kamera passt sich an)
   const nodes = (data.nodes || []).map((n, idx) => {
-    const angle = (idx / Math.max(1, data.nodes.length)) * Math.PI * 2;
-    const radius = n.center ? 0 : 70 + (idx % 7) * 28;
+    // Sonnenblumen-Spirale: gleichmäßig verteilt, der Platz wächst mit der Knotenzahl
+    const angle = idx * 2.399963;
+    const radius = n.center ? 0 : 28 * Math.sqrt(idx + 1) + 40;
     return {
       ...n,
       x: Math.cos(angle) * radius,
       y: Math.sin(angle) * radius,
       vx: 0,
       vy: 0,
-      r: n.center ? 11 : Math.min(13, 5.2 + Math.sqrt(n.degree || 0) * 1.9),
+      r: n.center ? 11 : big ? Math.min(8, 3 + Math.sqrt(n.degree || 0) * 0.6) : Math.min(13, 5.2 + Math.sqrt(n.degree || 0) * 1.9),
     };
   });
   const byId = new Map(nodes.map((n) => [n.id, n]));
@@ -37,6 +40,8 @@ export function mountGraph(canvas, data, { onSelectNode, highlightQuery = "" } =
     neighbors.get(e.target.id).add(e.source.id);
   }
 
+  const MAX_STEP = 18;
+  let touched = false;
   let width = 600;
   let height = 400;
   let camX = 0;
@@ -58,7 +63,21 @@ export function mountGraph(canvas, data, { onSelectNode, highlightQuery = "" } =
     height = Math.max(180, rect.height || 360);
     canvas.width = Math.round(width * dpr);
     canvas.height = Math.round(height * dpr);
-    alpha = Math.max(alpha, 0.25);
+    if (big) { if (!touched) fit(); } else alpha = Math.max(alpha, 0.25); // große Graphen nicht neu aufheizen: nur einpassen, solange niemand gezoomt/verschoben hat
+  }
+
+  function fit() {
+    if (!nodes.length) return;
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (const n of nodes) {
+      x0 = Math.min(x0, n.x); x1 = Math.max(x1, n.x);
+      y0 = Math.min(y0, n.y); y1 = Math.max(y1, n.y);
+    }
+    const bw = Math.max(1, x1 - x0) + 80;
+    const bh = Math.max(1, y1 - y0) + 80;
+    scale = Math.max(0.06, Math.min(1.4, Math.min(width / bw, height / bh)));
+    camX = -((x0 + x1) / 2) * scale;
+    camY = -((y0 + y1) / 2) * scale;
   }
 
   function screenToWorld(sx, sy) {
@@ -131,8 +150,11 @@ export function mountGraph(canvas, data, { onSelectNode, highlightQuery = "" } =
       }
       n.vx *= 0.82;
       n.vy *= 0.82;
+      const sp = Math.hypot(n.vx, n.vy);
+      if (sp > MAX_STEP) { n.vx *= MAX_STEP / sp; n.vy *= MAX_STEP / sp; } // Stöße bei dichten Haufen dürfen Knoten nicht aus dem Bild schleudern
       n.x += n.vx;
       n.y += n.vy;
+      if (!Number.isFinite(n.x) || !Number.isFinite(n.y)) { n.x = 0; n.y = 0; n.vx = 0; n.vy = 0; }
     }
     alpha *= 0.975;
   }
@@ -156,8 +178,8 @@ export function mountGraph(canvas, data, { onSelectNode, highlightQuery = "" } =
       ctx.moveTo(e.source.x, e.source.y);
       ctx.lineTo(e.target.x, e.target.y);
       ctx.strokeStyle = active
-        ? (hovered ? "rgba(127,211,255,0.62)" : "rgba(255,255,255,0.16)")
-        : "rgba(255,255,255,0.04)";
+        ? (hovered ? "rgba(127,211,255,0.62)" : `rgba(255,255,255,${edges.length > 500 ? 0.07 : 0.16})`)
+        : "rgba(255,255,255,0.03)";
       ctx.lineWidth = (hovered && active ? 1.8 : 1.1) / Math.sqrt(scale);
       ctx.stroke();
     }
@@ -199,7 +221,8 @@ export function mountGraph(canvas, data, { onSelectNode, highlightQuery = "" } =
         ctx.fill();
       }
 
-      if (scale > 0.52 || n.center || n === hovered || (n.degree || 0) >= 3) {
+      const labelled = big ? scale > 1.3 || (n.degree || 0) >= 25 : scale > 0.52 || (n.degree || 0) >= 3;
+      if (labelled || n.center || n === hovered || (query && matchesQuery)) {
         ctx.fillStyle = n === hovered || n.center ? "#ffffff" : "#cfd2da";
         ctx.fillText(n.label.slice(0, 34), n.x, n.y + n.r + 4);
       }
@@ -222,6 +245,7 @@ export function mountGraph(canvas, data, { onSelectNode, highlightQuery = "" } =
   }
 
   const onDown = (ev) => {
+    touched = true;
     const p = pointerCoords(ev);
     moved = false;
     const hit = findNodeAt(p.x, p.y);
@@ -267,10 +291,11 @@ export function mountGraph(canvas, data, { onSelectNode, highlightQuery = "" } =
 
   const onWheel = (ev) => {
     ev.preventDefault();
+    touched = true;
     const p = pointerCoords(ev);
     const before = screenToWorld(p.x, p.y);
     const factor = ev.deltaY < 0 ? 1.12 : 0.89;
-    scale = Math.max(0.28, Math.min(3.5, scale * factor));
+    scale = Math.max(0.05, Math.min(3.5, scale * factor));
     camX = p.x - width / 2 - before.x * scale;
     camY = p.y - height / 2 - before.y * scale;
   };
@@ -278,6 +303,11 @@ export function mountGraph(canvas, data, { onSelectNode, highlightQuery = "" } =
   const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(resize) : null;
   ro?.observe(canvas);
   resize();
+  if (big) {
+    // große Graphen vorab einschwingen lassen, dann alles ins Bild setzen (sonst sieht man erst Sekunden lang ein Gewimmel)
+    for (let i = 0; i < Math.min(240, 80 + Math.floor(total / 3)); i++) stepPhysics();
+    fit();
+  }
 
   canvas.addEventListener("pointerdown", onDown);
   canvas.addEventListener("pointermove", onMove);
@@ -290,9 +320,9 @@ export function mountGraph(canvas, data, { onSelectNode, highlightQuery = "" } =
       query = String(q || "").trim().toLowerCase();
     },
     resetView() {
-      camX = 0;
-      camY = 0;
-      scale = 1;
+      touched = false;
+      if (big) fit();
+      else { camX = 0; camY = 0; scale = 1; }
       alpha = 0.5;
     },
     destroy() {
