@@ -25,6 +25,7 @@ async def run() -> dict:
     s = get_settings()
     stamp = local_now().strftime("%Y%m%d-%H%M%S")
     db_file = s.backup_dir / f"kalender-{stamp}.db"
+    db_file.unlink(missing_ok=True)  # zwei Backups in derselben Sekunde: das neuere ersetzt das ältere (VACUUM INTO kennt kein Überschreiben)
     await asyncio.to_thread(_vacuum, str(s.db_path), str(db_file))
     async with session_scope() as db:
         data = await ics.export(db)
