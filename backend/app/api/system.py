@@ -54,6 +54,7 @@ async def bootstrap(db: DB):
         "skills": [{"id": k.id, "name": k.name, "icon": k.icon, "description": k.description} for k in skills],
         "unread": unread_user or 0, "jobs": jobs.status(), "code_enabled": await code_area.enabled(db),
         "wiki_url": s.wiki_public_url or "",
+        "kalender_url": s.kalender_public_url or "",
     }
 
 

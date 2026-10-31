@@ -48,6 +48,7 @@ class Settings(BaseSettings):
     # Kalender (eigener Dienst, siehe docs/KALENDER.md): Adresse und gemeinsames Geheimnis; leer = Kalender-Funktionen aus
     kalender_url: str = ""
     kalender_ida_token: str = ""
+    kalender_public_url: str = ""  # öffentliche Adresse der Kalender-App (Seitenleiste, Termin-Links); leer = Eintrag versteckt
 
     # Wiki (eigener Dienst, siehe docs/WIKI.md): Adresse, Geheimnis und öffentliche URL; leer = Wiki-Funktionen aus
     wiki_url: str = ""

@@ -82,6 +82,7 @@ def server():
         "KALENDER_URL": _kalender.url, "KALENDER_IDA_TOKEN": "test-kalender-token-123456",
         "WIKI_URL": _wiki.url, "WIKI_IDA_TOKEN": "test-wiki-token-123456",
         "WIKI_PUBLIC_URL": "https://wiki.example.test",
+        "KALENDER_PUBLIC_URL": "https://kalender.example.test",
         "GITHUB_API_URL": _github.url, "GITHUB_URL": _github.url, "GITHUB_CLIENT_ID": "",
         "DATA_DIR": str(tmp / "data"), "CLAUDE_BIN": _fake_bin(tmp), "SCHEDULER_ENABLED": "false", "WHISPER_PRELOAD": "false",
         "AGY_RUNTIME_DIR": _fake_acp(tmp),

@@ -176,3 +176,7 @@ def test_home_calendar_settings_offer_the_local_calendar(client):
     t = client.post(f"{API}/home-calendar/test", json={"source": "kalender"}).json()
     assert t["tool"] == "IDA Kalender" and t["events"][0]["title"] == "Fake-Termin"
     client.put(f"{API}/home-calendar", json={})                      # zurück auf automatisch
+
+
+def test_bootstrap_exposes_kalender_url_for_the_sidebar(client):
+    assert client.get(f"{API}/bootstrap").json().get("kalender_url") == "https://kalender.example.test"

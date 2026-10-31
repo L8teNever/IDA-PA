@@ -1,6 +1,7 @@
 // Einstellungen → Startseite: which calendar tool fills the day plan (called by the server itself, no AI).
 import { api } from "../../api.js";
 import { $, attempt, esc, fmtTime, toast } from "../../ui/dom.js";
+import { kalenderUrl } from "../../store.js";
 import { subHead } from "./index.js";
 
 export async function render(el) {
@@ -17,9 +18,9 @@ export async function render(el) {
     const tools = [...(conn?.tools || [])].sort((a, b) => calTools.has(b) - calTools.has(a));
     const auto = s.candidates[0];
     el.innerHTML = subHead("Startseite", "/einstellungen") + `
-      <p class="sub-intro">Im <b>Tagesplan</b> auf der Startseite stehen deine Termine von heute – <b>ohne KI, kostet kein Limit</b>.${s.local ? " Am besten aus deinem eigenen <a href=\"/kalender\">IDA Kalender</a> (lokal, immer aktuell); alternativ holt IDA sie über einen MCP-Server, höchstens alle 5 Minuten neu." : " IDA holt sie direkt über einen MCP-Server, höchstens alle 5 Minuten neu."}</p>
+      <p class="sub-intro">Im <b>Tagesplan</b> auf der Startseite stehen deine Termine von heute – <b>ohne KI, kostet kein Limit</b>.${s.local ? " Am besten aus deinem eigenen <a href=\"${kalenderUrl() || '#'}\" target=\"_blank\" rel=\"noopener\">IDA Kalender</a> (lokal, immer aktuell); alternativ holt IDA sie über einen MCP-Server, höchstens alle 5 Minuten neu." : " IDA holt sie direkt über einen MCP-Server, höchstens alle 5 Minuten neu."}</p>
       <div class="seg" id="hMode">${s.local ? `<button type="button" data-m="ida" class="${mode === "ida" ? "on" : ""}">IDA Kalender</button>` : ""}<button type="button" data-m="auto" class="${mode === "auto" ? "on" : ""}">Automatisch</button><button type="button" data-m="fixed" class="${mode === "fixed" ? "on" : ""}">Selbst wählen</button><button type="button" data-m="off" class="${mode === "off" ? "on" : ""}">Aus</button></div>
-      ${mode === "ida" ? `<div class="rf-sum"><span class="ms">calendar_month</span><span>Die Termine kommen direkt aus deinem lokalen <a href="/kalender">IDA Kalender</a> – sofort aktuell, nichts geht nach außen. Ein Tipp auf einen Termin öffnet ihn dort.</span></div>`
+      ${mode === "ida" ? `<div class="rf-sum"><span class="ms">calendar_month</span><span>Die Termine kommen direkt aus deinem lokalen <a href="${kalenderUrl() || '#'}" target="_blank" rel="noopener">IDA Kalender</a> – sofort aktuell, nichts geht nach außen. Ein Tipp auf einen Termin öffnet ihn dort.</span></div>`
       : mode === "auto" ? `<div class="rf-sum"><span class="ms">info</span><span>${auto
         ? `Nimmt <b class="mono">${esc(auto.tool)}</b> von <b>${esc(auto.connector_name)}</b> und fragt nur den heutigen Tag ab.`
         : "Kein Kalender-Tool gefunden. Verbinde unter <a href=\"/einstellungen/mcp\">MCP-Server</a> einen Server mit einem Tool wie „termine_liste“ oder „list_events“."}</span></div>`

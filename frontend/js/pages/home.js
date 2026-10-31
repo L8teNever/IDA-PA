@@ -1,7 +1,7 @@
 // "/" – start page of the main agent (infos = unread notifications, today = calendar events + marked routines/reminders) and "/a/:id".
 import { api } from "../api.js";
 import { navigate } from "../router.js";
-import { agentById, agentOf, colors, mainAgent, setUnread } from "../store.js";
+import { agentById, agentOf, colors, kalenderUrl, mainAgent, setUnread } from "../store.js";
 import { $, attempt, enableSwipe, esc, fmtTime } from "../ui/dom.js";
 import { setAgent, setView } from "../ui/shell.js";
 import { newChat, send } from "./chat.js";
@@ -103,10 +103,10 @@ function renderTimeline(all) {
     if (x.kind === "event") {
       const span = x.all_day ? "" : x.end ? `${fmtTime(x.at)}–${fmtTime(x.end)}` : fmtTime(x.at);
       const sub = [x.all_day ? "ganztägig" : span, x.location].filter(Boolean).join(" · ");
-      const own = x.event_id && !x.holiday; // Termin aus dem IDA-Kalender: antippen öffnet ihn dort
-      return `<div class="ev event ${i < nowIdx ? "past" : i === nowIdx ? "now" : ""}" ${own ? `data-href="/kalender/termin/${esc(x.event_id)}"` : ""} ${x.color ? `data-color style="--evc:var(--ev-${esc(x.color)})"` : ""}>
+      const own = x.event_id && !x.holiday && kalenderUrl(); // Termin aus dem IDA-Kalender: antippen öffnet ihn in der Kalender-App
+      return `<${own ? "a" : "div"} class="ev event ${i < nowIdx ? "past" : i === nowIdx ? "now" : ""}" ${own ? `href="${esc(kalenderUrl())}/termin/${esc(x.event_id)}" target="_blank" rel="noopener"` : ""} ${x.color ? `data-color style="--evc:var(--ev-${esc(x.color)})"` : ""}>
         <span class="time">${x.all_day ? `<span class="ms">${x.holiday ? "celebration" : "event"}</span>` : fmtTime(x.at)}</span>
-        <span class="evtxt"><b>${esc(x.title)}</b><small>${esc(sub)}</small></span>${own ? `<span class="ms evchev">chevron_right</span>` : ""}</div>`;
+        <span class="evtxt"><b>${esc(x.title)}</b><small>${esc(sub)}</small></span>${own ? `<span class="ms evchev">open_in_new</span>` : ""}</${own ? "a" : "div"}>`;
     }
     if (x.kind === "tracker") {
       const by = x.by === "link" ? " · per NFC" : x.by && x.by !== "user" ? ` · von ${agentOf(x.by).name}` : "";
