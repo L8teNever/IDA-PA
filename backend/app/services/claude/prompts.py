@@ -3,7 +3,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...models import Agent, AgentSkill, Skill
-from ..mcp import kalender_tools
+from ..mcp import kalender_tools, wiki_tools
 
 
 async def labels(db: AsyncSession) -> dict[str, str]:
@@ -60,6 +60,9 @@ def team_section(a: Agent, main_id: str, unread: int, interactive: bool) -> str:
             f"Mit notify_user hinterlaesst du dem Nutzer eine Benachrichtigung. Ungelesene Nachrichten in deinem Postfach: {unread}"
             + (" (lies sie mit inbox_read und erwaehne sie)." if unread else ".")
             + (" Termine des Nutzers liegen im lokalen IDA Kalender: lege sie mit den calendar_*-Tools an, aendere und suche sie (keine Erinnerung dafuer)." if kalender_tools.enabled() else "")
+            + (" Dauerhaftes Wissen liegt im lokalen IDA Wiki: memory/ mit wiki_search/wiki_read/wiki_memory_save/wiki_memory_patch pflegen; "
+               "privat/ nur lesen bzw. mit wiki_private_write vorschlagen (Nutzer muss freigeben); ki/ ist der Chat-/Code-Spiegel (nur lesen)."
+               if wiki_tools.enabled() else "")
             + ("" if interactive else " Dies ist ein Lauf im Hintergrund: niemand antwortet live, erledige die Aufgabe selbststaendig und gib am Ende ein kurzes Ergebnis aus.")
             + "\n"
         )

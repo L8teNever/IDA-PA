@@ -175,6 +175,11 @@ async def start_chat(*, chat_id: str | None, agent_id: str | None, text: str, mo
             await live.finish()
             if _stops.get(state["chat_id"]) is stopped:
                 del _stops[state["chat_id"]]
+            try:
+                from . import wiki_sync
+                wiki_sync.enqueue_chat(state["chat_id"])
+            except Exception:
+                pass
             asyncio.get_running_loop().call_later(KEEP_FINISHED, lambda: _live.pop(state["chat_id"], None) if _live.get(state["chat_id"]) is live else None)
 
     task = asyncio.create_task(drive())

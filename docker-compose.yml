@@ -15,6 +15,9 @@ services:
       OLLAMA_URL: ${OLLAMA_URL:-http://host.docker.internal:11434}
       KALENDER_URL: http://kalender:8000          # Kalender-Dienst (siehe unten); leer = Kalender-Funktionen aus
       KALENDER_IDA_TOKEN: ${KALENDER_IDA_TOKEN:-}
+      WIKI_URL: http://wiki:8000                  # Wiki-Dienst (siehe unten); leer = Wiki-Funktionen aus
+      WIKI_IDA_TOKEN: ${WIKI_IDA_TOKEN:-}
+      WIKI_PUBLIC_URL: ${WIKI_PUBLIC_URL:-https://wiki.kulbarts.com}
     ports:
       - "${IDA_PORT:-8080}:8000"
     volumes:
@@ -63,6 +66,25 @@ services:
     labels:
       com.centurylinklabs.watchtower.enable: "true"
 
+  # Wiki – eigener Dienst mit Markdown-Vault + SQLite (Volume wiki-data), eigener Port, eigene PWA.
+  # Läuft auch ohne IDA. Ida liest/schreibt über wiki_*-Tools; Chats/Agents spiegeln nach ki/. Siehe docs/WIKI.md
+  wiki:
+    image: ${WIKI_IMAGE:-ghcr.io/l8tenever/ida-wiki:latest}
+    pull_policy: always
+    restart: unless-stopped
+    environment:
+      TIMEZONE: ${TIMEZONE:-Europe/Berlin}
+      WIKI_IDA_TOKEN: ${WIKI_IDA_TOKEN:-}
+      WIKI_MCP_TOKEN: ${WIKI_MCP_TOKEN:-}
+      WIKI_PUBLIC_URL: ${WIKI_PUBLIC_URL:-https://wiki.kulbarts.com}
+      OLLAMA_URL: ${OLLAMA_URL:-}
+    ports:
+      - "${WIKI_PORT:-8083}:8000"
+    volumes:
+      - wiki-data:/data       # wiki.db, vault/, files/, backups/
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"
+
   # optional: holt neue Images von GitHub automatisch (alle 10 Minuten) und startet die App neu
   watchtower:
     image: containrrr/watchtower
@@ -77,3 +99,4 @@ volumes:
   ida-data:
   ida-db:
   kalender-data:
+  wiki-data:

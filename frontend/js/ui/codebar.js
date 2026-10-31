@@ -63,6 +63,17 @@ const rel = (f) => String(f).replace(/^.*[\\/]projects[\\/][0-9a-f]{12}[\\/]/, "
 function approvalBody(a) {
   const i = a.input || {};
   if (i.command) return `<pre class="ap-cmd">${esc(i.command)}</pre>${i.description ? `<small>${esc(i.description)}</small>` : ""}`;
+  // Wiki privat/-Freigabe: Unified Diff aus dem Wiki-Proposal
+  if (i.diff_preview || (a.tool === "wiki_private_write" && i.path)) {
+    const head = `<div class="ap-file">${esc(i.summary || i.action || "Wiki")}: ${esc(i.path || "")}</div>`;
+    const diff = String(i.diff_preview || "");
+    if (!diff) return head;
+    return head + `<pre class="diff">${diff.split("\n").slice(0, 80).map((l) => {
+      if (l.startsWith("+") && !l.startsWith("+++")) return `<i class="add">${esc(l)}</i>`;
+      if (l.startsWith("-") && !l.startsWith("---")) return `<i class="del">${esc(l)}</i>`;
+      return esc(l);
+    }).join("\n")}</pre>`;
+  }
   const raw = i.file_path || i.path || i.notebook_path;
   const file = raw && rel(raw);
   if (file && (i.old_string !== undefined || i.new_string !== undefined)) {

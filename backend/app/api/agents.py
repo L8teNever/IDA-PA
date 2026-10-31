@@ -35,18 +35,33 @@ async def get_agent(agent_id: str, db: DB):
 @router.post("", status_code=201)
 async def create(body: AgentCreate, db: DB):
     a = await svc.create(db, body.model_dump())
+    try:
+        from ..services import wiki_sync
+        wiki_sync.enqueue_agent(a.id)
+    except Exception:
+        pass
     return await _detail(db, a)
 
 
 @router.patch("/{agent_id}")
 async def update(agent_id: str, body: AgentUpdate, db: DB):
     a = await svc.update_agent(db, agent_id, body.model_dump(exclude_unset=True))
+    try:
+        from ..services import wiki_sync
+        wiki_sync.enqueue_agent(a.id)
+    except Exception:
+        pass
     return await _detail(db, a)
 
 
 @router.delete("/{agent_id}")
 async def delete(agent_id: str, db: DB):
     await svc.remove(db, agent_id)
+    try:
+        from ..services import wiki_sync
+        wiki_sync.enqueue_agent_delete(agent_id)
+    except Exception:
+        pass
     return {"ok": True}
 
 

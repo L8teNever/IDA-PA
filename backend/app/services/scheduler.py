@@ -17,6 +17,7 @@ _task: asyncio.Task | None = None
 
 async def _loop() -> None:
     last_upkeep = 0.0
+    last_wiki = 0.0
     while True:
         try:
             await routines.schedule_tick()
@@ -24,12 +25,20 @@ async def _loop() -> None:
             await trackers.schedule_tick()
             await terminal.reap()
             antigravity.reap()
-            if time.monotonic() - last_upkeep > 300:
-                last_upkeep = time.monotonic()
+            now = time.monotonic()
+            if now - last_upkeep > 300:
+                last_upkeep = now
                 async with session_scope() as db:
                     await memory.purge(db)
                     await files.purge(db)
                 await embeddings.backfill()
+            if now - last_wiki > 900:  # Wiki-Spiegel alle 15 Min. nachziehen
+                last_wiki = now
+                try:
+                    from . import wiki_sync
+                    wiki_sync.enqueue_reconcile()
+                except Exception:
+                    pass
         except asyncio.CancelledError:
             raise
         except Exception:  # keep the loop alive whatever happens

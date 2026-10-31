@@ -49,6 +49,11 @@ class Settings(BaseSettings):
     kalender_url: str = ""
     kalender_ida_token: str = ""
 
+    # Wiki (eigener Dienst, siehe docs/WIKI.md): Adresse, Geheimnis und öffentliche URL; leer = Wiki-Funktionen aus
+    wiki_url: str = ""
+    wiki_ida_token: str = ""
+    wiki_public_url: str = ""
+
     @property
     def model_list(self) -> list[str]:
         return [m.strip() for m in self.models.split(",") if m.strip()]

@@ -79,6 +79,13 @@ async def prepare(db: AsyncSession, agent: Agent, prompt: str, *, model: str | N
     system += prompts.skills_section(await prompts.skills_for(db, agent.id), forced_skill)
     if memory_on:
         system += "\n" + await memory.block(db, agent.id, agent.is_main, prompt, labels)
+        try:
+            from . import wiki_client
+            wiki_ctx = await wiki_client.memory_context(agent.id, prompt)
+            if wiki_ctx:
+                system += "\n\n--- Wiki-Gedächtnis (memory/) ---\n" + wiki_ctx + "\n"
+        except Exception:
+            pass
     if agent.notes and not interactive:
         system += f"\nDeine Notizen aus frueheren Laeufen:\n{agent.notes}\n"
     if extra:

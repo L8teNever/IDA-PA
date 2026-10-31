@@ -27,7 +27,7 @@ from ..claude import prompts
 from ..errors import Invalid, NotFound
 from ..code import approvals
 from ..memory import store as memory
-from . import kalender_tools
+from . import kalender_tools, wiki_tools
 from .identity import Identity, get
 
 E = {"type": "string"}
@@ -109,6 +109,8 @@ def _spec(ids: list[str]) -> list[tuple[str, str, str, dict]]:
     ]
     if kalender_tools.enabled():  # Kalender-Dienst eingerichtet (KALENDER_URL): Ida bedient ihn direkt
         tools += kalender_tools.spec()
+    if wiki_tools.enabled():  # Wiki-Dienst eingerichtet (WIKI_URL): Gedächtnis, Suche, Privat-Freigaben
+        tools += wiki_tools.spec()
     return tools
 
 
@@ -227,6 +229,8 @@ async def _call(db: AsyncSession, me: Identity, name: str, a: dict) -> dict:
     labels = await prompts.labels(db)
     if name.startswith("calendar_"):
         return await kalender_tools.call(db, me, name, a)
+    if name.startswith("wiki_"):
+        return await wiki_tools.call(db, me, name, a)
 
     async def own_routine(rid: str) -> Routine:
         r = await db.get(Routine, rid)

@@ -58,11 +58,14 @@ async def lifespan(app: FastAPI):
     jobs.start()
     if get_settings().scheduler_enabled:
         scheduler.start()
+    from .services import wiki_sync
+    wiki_sync.start()
     if get_settings().whisper_preload:
         from .services import speech
         speech.warm_up()
     log.info("IDA bereit")
     yield
+    await wiki_sync.stop()
     await scheduler.stop()
     await jobs.stop()
     await db.dispose()

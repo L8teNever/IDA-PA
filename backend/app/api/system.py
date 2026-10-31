@@ -53,6 +53,7 @@ async def bootstrap(db: DB):
         "accounts": [ser.account(a, providers.logged_in(a)) for a in accounts],
         "skills": [{"id": k.id, "name": k.name, "icon": k.icon, "description": k.description} for k in skills],
         "unread": unread_user or 0, "jobs": jobs.status(), "code_enabled": await code_area.enabled(db),
+        "wiki_url": s.wiki_public_url or "",
     }
 
 

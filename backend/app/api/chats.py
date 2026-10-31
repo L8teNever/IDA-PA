@@ -53,6 +53,11 @@ async def rename(chat_id: str, body: ChatUpdate, db: DB):
     if not t:
         raise Invalid("Titel fehlt")
     c.title = t[:120]
+    try:
+        from ..services import wiki_sync
+        wiki_sync.enqueue_chat(chat_id)
+    except Exception:
+        pass
     return ser.chat(c)
 
 
@@ -65,6 +70,11 @@ async def delete(chat_id: str, db: DB):
     approvals.forget(chat_id)
     await file_svc.delete_for_chat(db, chat_id)
     await db.delete(c)
+    try:
+        from ..services import wiki_sync
+        wiki_sync.enqueue_chat_delete(chat_id)
+    except Exception:
+        pass
     return {"ok": True}
 
 

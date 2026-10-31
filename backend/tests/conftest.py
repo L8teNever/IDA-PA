@@ -46,12 +46,19 @@ def _fake_acp(tmp: Path) -> str:
 
 _github = None
 _kalender = None
+_wiki = None
 
 
 @pytest.fixture(scope="session")
 def kalender(server):
     """Der Ersatz für den Kalender-Dienst (zeichnet auf, was IDA ihm schickt)."""
     return _kalender
+
+
+@pytest.fixture(scope="session")
+def wiki(server):
+    """Der Ersatz für den Wiki-Dienst (zeichnet auf, was IDA ihm schickt)."""
+    return _wiki
 
 
 @pytest.fixture(scope="session")
@@ -62,15 +69,19 @@ def github(server):
 
 @pytest.fixture(scope="session")
 def server():
-    global _github, _kalender
+    global _github, _kalender, _wiki
     from .fake_github import FakeGitHub
     from .fake_kalender import FakeKalender
+    from .fake_wiki import FakeWiki
     tmp = Path(tempfile.mkdtemp(prefix="ida-test-"))
     port = _free_port()
     _github = FakeGitHub(tmp / "github")
     _kalender = FakeKalender()
+    _wiki = FakeWiki()
     os.environ.update({
         "KALENDER_URL": _kalender.url, "KALENDER_IDA_TOKEN": "test-kalender-token-123456",
+        "WIKI_URL": _wiki.url, "WIKI_IDA_TOKEN": "test-wiki-token-123456",
+        "WIKI_PUBLIC_URL": "https://wiki.example.test",
         "GITHUB_API_URL": _github.url, "GITHUB_URL": _github.url, "GITHUB_CLIENT_ID": "",
         "DATA_DIR": str(tmp / "data"), "CLAUDE_BIN": _fake_bin(tmp), "SCHEDULER_ENABLED": "false", "WHISPER_PRELOAD": "false",
         "AGY_RUNTIME_DIR": _fake_acp(tmp),

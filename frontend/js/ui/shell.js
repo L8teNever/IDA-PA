@@ -90,5 +90,11 @@ export function initShell() {
     $("navBadge").textContent = n;
     const code = document.querySelector('#sideNav [data-nav="code"]');
     if (code) code.hidden = !state.boot?.code_enabled; // the code area is off until switched on in the settings
+    const wiki = $("navWiki");
+    if (wiki) {
+      const url = state.boot?.wiki_url || "";
+      wiki.hidden = !url;
+      if (url) wiki.href = url;
+    }
   });
 }

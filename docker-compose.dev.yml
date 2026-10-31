@@ -11,3 +11,9 @@ services:
     build:
       context: .
       dockerfile: kalender/Dockerfile
+  wiki:
+    image: ida-wiki:dev
+    pull_policy: build
+    build:
+      context: .
+      dockerfile: wiki/Dockerfile

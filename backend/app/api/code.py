@@ -46,6 +46,11 @@ async def create_project(body: ProjectCreate, db: DB):
         repo = await github.create_repo(db, body.new_repo.name, private=body.new_repo.private, description=body.new_repo.description)
         url, name = repo["clone_url"], name or repo["name"]
     p = await projects.create(db, name, url)
+    try:
+        from ..services import wiki_sync
+        wiki_sync.enqueue_project(p.id)
+    except Exception:
+        pass
     return ser.code_project(p, 0, 0)
 
 
@@ -74,6 +79,11 @@ async def rename_project(pid: str, body: ProjectUpdate, db: DB):
     if not body.name.strip():
         raise Invalid("Name fehlt")
     p.name = body.name.strip()[:80]
+    try:
+        from ..services import wiki_sync
+        wiki_sync.enqueue_project(p.id)
+    except Exception:
+        pass
     return ser.code_project(p)
 
 
@@ -81,6 +91,11 @@ async def rename_project(pid: str, body: ProjectUpdate, db: DB):
 async def delete_project(pid: str, db: DB):
     await code_area.require(db)
     await projects.delete(db, pid)
+    try:
+        from ..services import wiki_sync
+        wiki_sync.enqueue_project_delete(pid)
+    except Exception:
+        pass
     return {"ok": True}
 
 

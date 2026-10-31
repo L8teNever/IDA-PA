@@ -1,5 +1,5 @@
-# Tests (IDA: SQLite + PostgreSQL, Kalender: SQLite), dann beide Images bauen und nach GHCR pushen
-# (ghcr.io/<owner>/<repo>:latest und ghcr.io/<owner>/ida-kalender:latest).
+# Tests (IDA: SQLite + PostgreSQL, Kalender/Wiki: SQLite), dann Images bauen und nach GHCR pushen
+# (ghcr.io/<owner>/<repo>:latest, ida-kalender:latest, ida-wiki:latest).
 name: Test & Docker-Image
 
 on:
@@ -105,8 +105,21 @@ jobs:
           NEW_IMAGE: ida-kalender:new
         run: python -m pytest kalender/upgrade -q
 
+  wiki-test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: wiki
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12", cache: pip, cache-dependency-path: wiki/requirements*.txt }
+      - run: pip install -r requirements-dev.txt
+      - name: pytest
+        run: python -m pytest
+
   image:
-    needs: [test, kalender-test, kalender-frontend-test, kalender-e2e]
+    needs: [test, kalender-test, kalender-frontend-test, kalender-e2e, wiki-test]
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     strategy:
@@ -114,6 +127,7 @@ jobs:
         include:
           - { name: ida, dockerfile: Dockerfile, image: "ghcr.io/${{ github.repository }}" }
           - { name: kalender, dockerfile: kalender/Dockerfile, image: "ghcr.io/${{ github.repository_owner }}/ida-kalender" }
+          - { name: wiki, dockerfile: wiki/Dockerfile, image: "ghcr.io/${{ github.repository_owner }}/ida-wiki" }
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3
