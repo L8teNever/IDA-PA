@@ -55,6 +55,7 @@ async def bootstrap(db: DB):
         "unread": unread_user or 0, "jobs": jobs.status(), "code_enabled": await code_area.enabled(db),
         "wiki_url": s.wiki_public_url or "",
         "kalender_url": s.kalender_public_url or "",
+        "code_url": s.code_public_url or "",
     }
 
 

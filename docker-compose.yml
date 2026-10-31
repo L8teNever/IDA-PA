@@ -18,6 +18,7 @@ services:
       WIKI_URL: http://wiki:8000                  # Wiki-Dienst (siehe unten); leer = Wiki-Funktionen aus
       WIKI_IDA_TOKEN: ${WIKI_IDA_TOKEN:-}
       WIKI_PUBLIC_URL: ${WIKI_PUBLIC_URL:-https://wiki.kulbarts.com}
+      CODE_PUBLIC_URL: ${CODE_PUBLIC_URL:-}         # Code-App (siehe unten); leer = Code-Bereich bleibt in IDA unter /code
     ports:
       - "${IDA_PORT:-8080}:8000"
     volumes:
@@ -82,6 +83,23 @@ services:
       - "${WIKI_PORT:-8083}:8000"
     volumes:
       - wiki-data:/data       # wiki.db, vault/, files/, backups/
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"
+
+  # Code – eigene App (eigener Port, eigene PWA) für Projekte und Threads. Hat keine eigenen Daten: KI, Projekte, Git und
+  # GitHub laufen weiter in IDA, die App reicht die Aufrufe intern an IDA weiter. Siehe docs/CODE.md
+  code:
+    image: ${CODE_IMAGE:-ghcr.io/l8tenever/ida-code:latest}
+    pull_policy: always
+    restart: unless-stopped
+    environment:
+      IDA_INTERNAL_URL: http://app:8000
+      CODE_PUBLIC_URL: ${CODE_PUBLIC_URL:-}
+      IDA_PUBLIC_URL: ${IDA_PUBLIC_URL:-}
+    ports:
+      - "${CODE_PORT:-8084}:8000"
+    depends_on:
+      - app
     labels:
       com.centurylinklabs.watchtower.enable: "true"
 

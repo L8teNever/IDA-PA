@@ -19,7 +19,7 @@ import { usagePage } from "./pages/usage.js";
 import { remindersPage } from "./pages/reminders.js";
 import { codePage, projectPage, threadPage } from "./pages/code.js";
 import { trackerPage } from "./pages/tracker.js";
-import { kalenderUrl } from "./store.js";
+import { codeUrl, kalenderUrl } from "./store.js";
 import { tapPage, timerPage } from "./pages/tap.js";
 
 router.add("/", homePage);
@@ -40,9 +40,12 @@ router.add("/tracker", trackerPage);
 router.add("/tracker/:id/timer", timerPage);
 router.add("/tracker/:id", trackerPage); // also /tracker/neu
 router.add("/t/:token", tapPage);
-router.add("/code", codePage);
-router.add("/code/:project", projectPage);
-router.add("/code/:project/:thread", threadPage); // also /code/:project/neu
+// mit eigener Code-App (code_url) führen alte Links dorthin, sonst bleibt der Code-Bereich hier in IDA
+router.add("/code", (p) => (codeUrl() ? location.replace(codeUrl()) : codePage(p)));
+router.add("/code/:project", (p) => (codeUrl() ? location.replace(`${codeUrl()}/p/${p.project}`) : projectPage(p)));
+router.add("/code/:project/:thread", (p) => (codeUrl() // also /code/:project/neu
+  ? location.replace(`${codeUrl()}/p/${p.project}${p.thread === "neu" ? "/neu" : `/t/${p.thread}`}`)
+  : threadPage(p)));
 router.add("/limits", usagePage);
 router.add("/einstellungen", () => settingsPage());
 router.add("/einstellungen/:section", settingsPage);

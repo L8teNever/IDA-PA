@@ -46,7 +46,8 @@ export const colors = (a) => PALETTE[a?.palette] || PALETTE.blau;
 // Profile picture of the agent, or its first letter when it has none (inside .dot / .ag-dot / .mdot).
 export const face = (a) => (a?.avatar ? `<img src="${esc(a.avatar)}" alt="">` : esc(a?.name?.[0] || ""));
 export const agents = () => state.boot?.agents || [];
-export const kalenderUrl = () => (state.boot?.kalender_url || "").replace(/\/+$/, "");
+export const codeUrl = () => (state.boot?.code_url || "").replace(/\/+$/, "");
+export const kalenderUrl =() => (state.boot?.kalender_url || "").replace(/\/+$/, "");
 export const mainAgent = () => agents().find((a) => a.is_main) || agents()[0];
 export const agentById = (id) => agents().find((a) => a.id === id);
 export const agentOf = (id) => agentById(id) || mainAgent();

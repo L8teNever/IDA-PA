@@ -55,6 +55,9 @@ class Settings(BaseSettings):
     wiki_ida_token: str = ""
     wiki_public_url: str = ""
 
+    # Code-App (eigener Dienst, siehe docs/CODE.md): öffentliche URL; leer = Code-Bereich bleibt hier in IDA
+    code_public_url: str = ""
+
     @property
     def model_list(self) -> list[str]:
         return [m.strip() for m in self.models.split(",") if m.strip()]

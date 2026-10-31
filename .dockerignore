@@ -13,3 +13,5 @@ backend/.pytest_cache
 *.db
 kalender/tests
 kalender/.pytest_cache
+code/tests
+code/.pytest_cache

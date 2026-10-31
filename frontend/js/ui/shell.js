@@ -89,7 +89,15 @@ export function initShell() {
     $("navBadge").hidden = !n;
     $("navBadge").textContent = n;
     const code = document.querySelector('#sideNav [data-nav="code"]');
-    if (code) code.hidden = !state.boot?.code_enabled; // the code area is off until switched on in the settings
+    if (code) {
+      code.hidden = !state.boot?.code_enabled; // the code area is off until switched on in the settings
+      const url = state.boot?.code_url || ""; // eigene Code-App: der Link öffnet sie wie Kalender und Wiki
+      code.href = url || "/code";
+      if (url) {
+        Object.assign(code, { target: "_blank", rel: "noopener" });
+        code.dataset.external = "code";
+      }
+    }
     const kal = $("navKalender");
     if (kal) {
       const url = state.boot?.kalender_url || "";
