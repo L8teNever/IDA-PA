@@ -10,7 +10,7 @@ class Settings(BaseSettings):
 
     frontend_dir: Path = Path(__file__).resolve().parents[2] / "frontend"
     ida_internal_url: str = "http://app:8000"   # IDA im Docker-Netz: dort laufen KI, Projekte, Git und GitHub
-    code_public_url: str = ""                    # z. B. https://code.kulbarts.com
+    code_public_url: str = ""                    # z. B. https://idacode.kulbarts.com
     ida_public_url: str = ""                     # Link zurück zu IDA (Einstellungen); leer = kein Link
 
 
