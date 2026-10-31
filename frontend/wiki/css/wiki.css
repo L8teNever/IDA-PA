@@ -994,3 +994,33 @@
 .dd-text { flex: 1; min-width: 0; }
 .dd-check { font-size: 20px; color: var(--accent); visibility: hidden; }
 .dd-item.sel .dd-check { visibility: visible; }
+
+/* Einstellungen wie im Kalender: gruppierte Listen, Unterseiten mit Zurück-Pfeil */
+.set-view { display: flex; flex-direction: column; gap: 14px; min-height: 0; flex: 1; }
+.set-view.fwd { animation: set-fwd 0.32s var(--emph); }
+.set-view.back { animation: set-back 0.32s var(--emph); }
+@keyframes set-fwd { from { opacity: 0; transform: translateX(28px); } }
+@keyframes set-back { from { opacity: 0; transform: translateX(-28px); } }
+.set-head { justify-content: flex-start; gap: 6px; }
+.set-head h2 { flex: 1; min-width: 0; }
+.set-view .sheet-scroll { gap: 4px; padding-right: 2px; }
+.set-gl { font-size: 13px; font-weight: 500; color: var(--accent); padding: 16px 16px 6px; }
+.set-view .sheet-hint { padding: 0 4px 6px; }
+.set-list { display: flex; flex-direction: column; gap: 2px; }
+.set-li { display: flex; align-items: center; gap: 14px; min-height: 60px; padding: 8px 16px; width: 100%;
+  background: var(--surface-high); border: 0; border-radius: 6px; color: var(--on-surface); font: inherit; font-size: 15px;
+  text-align: left; text-decoration: none; cursor: pointer; transition: background 0.15s; }
+.set-li:first-child { border-radius: 22px 22px 6px 6px; }
+.set-li:last-child { border-radius: 6px 6px 22px 22px; }
+.set-li:only-child { border-radius: 22px; }
+.set-li:not(.static):hover { background: var(--surface-highest); }
+.set-li.static { cursor: default; }
+.set-li > .ms { color: var(--muted); font-size: 22px; flex: none; }
+.set-li .ct { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.set-li .ct > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.set-li .ct small { color: var(--muted); font-size: 12px; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.set-li .btn-tonal, .set-li .icon-btn { flex: none; }
+.set-empty { padding: 4px 16px 8px; }
+.set-view .created-tok { margin-top: 10px; }
+.set-view .created-tok pre { white-space: pre-wrap; word-break: break-all; margin: 8px 0 0; }
+@media (prefers-reduced-motion: reduce) { .set-view.fwd, .set-view.back { animation: none; } }

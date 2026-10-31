@@ -416,151 +416,253 @@ export async function openProposalsSheet({ onResolved, toast }) {
   await load();
 }
 
+
+// Einstellungen wie im Kalender: eine übersichtliche Liste, jeder Eintrag öffnet eine eigene Unterseite
 export async function openSettingsSheet({ meta, installPrompt, onRefresh, toast }) {
   const mcpUrl = `${(meta?.public_url || location.origin).replace(/\/+$/, "")}/mcp`;
-  const { el } = openModal(
-    `
-    <div class="sheet-head">
-      <h2><span class="ms">settings</span> Wiki-Einstellungen, MCP &amp; Sicherung</h2>
-      <button type="button" class="icon-btn" data-close-sheet><span class="ms">close</span></button>
-    </div>
-    <div class="sheet-scroll settings-sections">
-      <section class="set-card">
-        <h3><span class="ms">key</span> Externe KI-Anbindung über MCP (<code>/mcp</code>)</h3>
-        <p class="sheet-hint">Verbinde Claude Code, Cursor oder Desktop-KIs direkt mit deinem gemeinsamen <code>memory/</code>-Gedächtnis. Der Bereich <code>privat/</code> ist über MCP technisch <strong>strikt schreibgeschützt</strong>.</p>
-        <div class="mcp-endpoint-box">
-          <code>${esc(mcpUrl)}</code>
-          <button type="button" class="btn-tonal sm" id="wkCopyMcpUrl"><span class="ms">content_copy</span> URL</button>
-        </div>
-        <form id="wkNewTokForm" class="tok-form">
-          <input id="wkTokName" class="wk-input" placeholder="Name des Geräts / Clients (z. B. Claude Code Laptop)" required maxlength="50">
-          <div class="tok-checks">
-            <label><input type="checkbox" id="wkTokPriv" checked> <code>privat/</code> lesbar</label>
-            <label><input type="checkbox" id="wkTokKi" checked> <code>ki/</code> Chats lesbar</label>
-          </div>
-          <button type="submit" class="btn-primary sm"><span class="ms">add</span> Token erzeugen</button>
-        </form>
-        <div id="wkCreatedTok" class="created-tok" hidden></div>
-        <div id="wkTokList" class="tok-list"></div>
-      </section>
+  const { el } = openModal(`<div class="set-view" id="wkSetView"></div>`);
+  const view = el.querySelector("#wkSetView");
+  let data = { tokens: [], trash: [], backups: [] };
+  let createdTok = "";
 
-      <section class="set-card">
-        <h3><span class="ms">delete</span> Papierkorb (30 Tage Aufbewahrung)</h3>
-        <div id="wkTrashList" class="tok-list"></div>
-      </section>
-
-      <section class="set-card">
-        <h3><span class="ms">backup</span> Sicherungen &amp; Obsidian-Export</h3>
-        <p class="sheet-hint">Exportiert alle echten Markdown-Dateien (<code>vault/</code>) und Anhänge (<code>files/</code>) als portables ZIP-Archiv.</p>
-        <div class="prop-actions" style="justify-content:flex-start">
-          <a class="btn-primary sm" href="${esc(api.apiUrl("/api/v1/export.zip"))}"><span class="ms">download</span> Vault als ZIP herunterladen</a>
-          <button type="button" class="btn-tonal sm" id="wkRunBackup"><span class="ms">backup</span> Server-Backup jetzt anlegen</button>
-          ${installPrompt ? `<button type="button" class="btn-tonal sm" id="wkInstallPwa"><span class="ms">install_mobile</span> Als App installieren</button>` : ""}
-        </div>
-        <div id="wkBackupList" class="tok-list" style="margin-top:10px"></div>
-      </section>
-    </div>
-  `,
-    { wide: true },
-  );
-
-  el.querySelector("#wkCopyMcpUrl").addEventListener("click", () => {
-    navigator.clipboard?.writeText(mcpUrl);
-    toast?.("MCP-URL kopiert.");
-  });
-
-  el.querySelector("#wkInstallPwa")?.addEventListener("click", async () => {
-    installPrompt.prompt?.();
-  });
-
-  async function refreshLists() {
+  async function loadData() {
     const [tokRes, trashRes, bkpRes] = await Promise.all([
       api.get("/api/v1/mcp-tokens").catch(() => ({ tokens: [] })),
       api.get("/api/v1/trash").catch(() => ({ items: [] })),
       api.get("/api/v1/backups").catch(() => ({ backups: [] })),
     ]);
-
-    const tokEl = el.querySelector("#wkTokList");
-    tokEl.innerHTML = (tokRes.tokens || []).length
-      ? tokRes.tokens
-          .map(
-            (t) => `
-          <div class="tok-row">
-            <div>
-              <strong>${esc(t.name)}</strong> <code>${esc(t.prefix)}…</code>
-              <small class="muted-path">memory: Lesen+Schreiben · privat: ${t.allow_read_private ? "Lesen" : "Aus"} · ki: ${t.allow_read_chats ? "Lesen" : "Aus"}</small>
-            </div>
-            <button type="button" class="icon-btn" data-del-tok="${esc(t.id)}" title="Widerrufen"><span class="ms">delete</span></button>
-          </div>`,
-          )
-          .join("")
-      : `<div class="muted-path">Noch keine benannten MCP-Tokens angelegt.</div>`;
-
-    const trEl = el.querySelector("#wkTrashList");
-    trEl.innerHTML = (trashRes.items || []).length
-      ? trashRes.items
-          .map(
-            (p) => `
-          <div class="tok-row">
-            <div><strong>${esc(p.title)}</strong> <small class="muted-path">${esc(p.path)}</small></div>
-            <button type="button" class="btn-tonal sm" data-restore-trash="${esc(p.id)}"><span class="ms">undo</span> Wiederherstellen</button>
-          </div>`,
-          )
-          .join("")
-      : `<div class="muted-path">Der Papierkorb ist leer.</div>`;
-
-    const bkEl = el.querySelector("#wkBackupList");
-    bkEl.innerHTML = (bkpRes.backups || []).slice(0, 5)
-      .map((b) => `<div class="tok-row"><span><code>${esc(b.name)}</code></span><small class="muted-path">${formatBytes(b.size)}</small></div>`)
-      .join("");
+    data = { tokens: tokRes.tokens || [], trash: trashRes.items || [], backups: bkpRes.backups || [] };
   }
 
-  el.querySelector("#wkNewTokForm").addEventListener("submit", async (e) => {
-    e.preventDefault();
-    const name = el.querySelector("#wkTokName").value.trim();
-    if (!name) return;
-    const created = await api.post("/api/v1/mcp-tokens", {
-      name,
-      allow_read_private: el.querySelector("#wkTokPriv").checked,
-      allow_read_chats: el.querySelector("#wkTokKi").checked,
-    });
-    el.querySelector("#wkTokName").value = "";
-    const snippet = JSON.stringify(
-      { mcpServers: { "ida-wiki": { type: "http", url: mcpUrl, headers: { Authorization: `Bearer ${created.token}` } } } },
-      null,
-      2,
-    );
-    const box = el.querySelector("#wkCreatedTok");
-    box.hidden = false;
-    box.innerHTML = `
-      <div><strong>Einmalig angezeigtes Token für „${esc(created.name)}“:</strong></div>
-      <code>${esc(created.token)}</code>
-      <pre>${esc(snippet)}</pre>
-    `;
-    await refreshLists();
-  });
+  const head = (title, back) => `
+    <div class="sheet-head set-head">
+      ${back ? `<button type="button" class="icon-btn" data-set-back title="Zurück"><span class="ms">arrow_back</span></button>` : ""}
+      <h2>${title}</h2>
+      <button type="button" class="icon-btn" data-close-sheet title="Schließen"><span class="ms">close</span></button>
+    </div>`;
+
+  const item = (go, icon, title, sub = "") => `
+    <button type="button" class="set-li" data-set-go="${go}">
+      <span class="ms">${icon}</span>
+      <div class="ct"><span>${title}</span>${sub ? `<small>${sub}</small>` : ""}</div>
+      <span class="ms">chevron_right</span>
+    </button>`;
+
+  const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+  const empty = (text) => `<div class="muted-path set-empty">${text}</div>`;
+
+  const pages = {
+    home() {
+      const lastBackup = data.backups[0];
+      return `
+        ${head("Einstellungen")}
+        <div class="sheet-scroll">
+          <div class="set-list">
+            ${item("mcp", "key", "Externe KI-Anbindung (MCP)", data.tokens.length ? plural(data.tokens.length, "Zugang", "Zugänge") : "Noch kein Zugang angelegt")}
+          </div>
+          <div class="set-gl">Daten</div>
+          <div class="set-list">
+            ${item("trash", "delete", "Papierkorb", data.trash.length ? plural(data.trash.length, "Seite", "Seiten") : "Leer")}
+            ${item("backup", "backup", "Sicherungen und Export", lastBackup ? `Letzte: ${esc(lastBackup.name)}` : "Noch keine Sicherung")}
+          </div>
+          ${
+            installPrompt
+              ? `<div class="set-gl">App</div>
+                 <div class="set-list">
+                   <button type="button" class="set-li" id="wkInstallPwa"><span class="ms">install_mobile</span><div class="ct"><span>App installieren</span></div></button>
+                 </div>`
+              : ""
+          }
+        </div>`;
+    },
+
+    mcp() {
+      return `
+        ${head("Externe KI-Anbindung", true)}
+        <div class="sheet-scroll">
+          <p class="sheet-hint">Verbinde Claude Code, Cursor oder Desktop-KIs direkt mit deinem gemeinsamen <code>memory/</code>-Gedächtnis. Der Bereich <code>privat/</code> ist über MCP technisch <strong>strikt schreibgeschützt</strong>.</p>
+          <div class="set-gl">Adresse</div>
+          <div class="mcp-endpoint-box">
+            <code>${esc(mcpUrl)}</code>
+            <button type="button" class="btn-tonal sm" id="wkCopyMcpUrl"><span class="ms">content_copy</span> Kopieren</button>
+          </div>
+          <div class="set-gl">Neuer Zugang</div>
+          <form id="wkNewTokForm" class="tok-form">
+            <input id="wkTokName" class="wk-input" placeholder="Name des Geräts / Clients (z. B. Claude Code Laptop)" required maxlength="50">
+            <div class="tok-checks">
+              <label><input type="checkbox" id="wkTokPriv" checked> <code>privat/</code> lesbar</label>
+              <label><input type="checkbox" id="wkTokKi" checked> <code>ki/</code> Chats lesbar</label>
+            </div>
+            <button type="submit" class="btn-primary sm"><span class="ms">add</span> Token erzeugen</button>
+          </form>
+          ${createdTok}
+          <div class="set-gl">Angelegte Zugänge</div>
+          ${
+            data.tokens.length
+              ? `<div class="set-list">${data.tokens
+                  .map(
+                    (t) => `
+                <div class="set-li static">
+                  <span class="ms">vpn_key</span>
+                  <div class="ct"><span>${esc(t.name)} <code>${esc(t.prefix)}…</code></span>
+                  <small>memory: Lesen + Schreiben · privat: ${t.allow_read_private ? "Lesen" : "Aus"} · ki: ${t.allow_read_chats ? "Lesen" : "Aus"}</small></div>
+                  <button type="button" class="icon-btn" data-del-tok="${esc(t.id)}" title="Widerrufen"><span class="ms">delete</span></button>
+                </div>`,
+                  )
+                  .join("")}</div>`
+              : empty("Noch keine benannten MCP-Tokens angelegt.")
+          }
+        </div>`;
+    },
+
+    trash() {
+      return `
+        ${head("Papierkorb", true)}
+        <div class="sheet-scroll">
+          <p class="sheet-hint">Gelöschte Seiten bleiben 30 Tage hier und lassen sich mit einem Klick zurückholen.</p>
+          ${
+            data.trash.length
+              ? `<div class="set-list">${data.trash
+                  .map(
+                    (p) => `
+                <div class="set-li static">
+                  <span class="ms">description</span>
+                  <div class="ct"><span>${esc(p.title)}</span><small>${esc(p.path)}</small></div>
+                  <button type="button" class="btn-tonal sm" data-restore-trash="${esc(p.id)}"><span class="ms">undo</span> <span class="hide-xs">Wiederherstellen</span></button>
+                </div>`,
+                  )
+                  .join("")}</div>`
+              : empty("Der Papierkorb ist leer.")
+          }
+        </div>`;
+    },
+
+    backup() {
+      return `
+        ${head("Sicherungen und Export", true)}
+        <div class="sheet-scroll">
+          <p class="sheet-hint">Exportiert alle echten Markdown-Dateien (<code>vault/</code>) und Anhänge (<code>files/</code>) als portables ZIP-Archiv – direkt in Obsidian öffnbar.</p>
+          <div class="set-list">
+            <a class="set-li" href="${esc(api.apiUrl("/api/v1/export.zip"))}"><span class="ms">download</span><div class="ct"><span>Vault als ZIP herunterladen</span><small>Obsidian-Export</small></div></a>
+            <button type="button" class="set-li" id="wkRunBackup"><span class="ms">backup</span><div class="ct"><span>Server-Backup jetzt anlegen</span></div></button>
+          </div>
+          <div class="set-gl">Letzte Sicherungen</div>
+          ${
+            data.backups.length
+              ? `<div class="set-list">${data.backups
+                  .slice(0, 5)
+                  .map(
+                    (b) => `
+                <div class="set-li static">
+                  <span class="ms">inventory_2</span>
+                  <div class="ct"><span><code>${esc(b.name)}</code></span><small>${formatBytes(b.size)}</small></div>
+                </div>`,
+                  )
+                  .join("")}</div>`
+              : empty("Noch keine Sicherung vorhanden.")
+          }
+        </div>`;
+    },
+  };
+
+  let current = "home";
+  function show(name, dir = "") {
+    current = name;
+    view.innerHTML = pages[name]();
+    view.classList.remove("fwd", "back");
+    if (dir) {
+      void view.offsetWidth; // Animation neu starten
+      view.classList.add(dir);
+    }
+  }
+
+  async function reload() {
+    await loadData();
+    if (view.isConnected) show(current);
+  }
 
   el.addEventListener("click", async (e) => {
+    const go = e.target.closest("[data-set-go]");
+    if (go) {
+      createdTok = "";
+      show(go.dataset.setGo, "fwd");
+      return;
+    }
+    if (e.target.closest("[data-set-back]")) {
+      show("home", "back");
+      return;
+    }
+    if (e.target.closest("#wkCopyMcpUrl")) {
+      navigator.clipboard?.writeText(mcpUrl);
+      toast?.("MCP-URL kopiert.");
+      return;
+    }
+    if (e.target.closest("#wkInstallPwa")) {
+      installPrompt?.prompt?.();
+      return;
+    }
     const delTok = e.target.closest("[data-del-tok]");
     if (delTok) {
-      await api.del(`/api/v1/mcp-tokens/${encodeURIComponent(delTok.dataset.delTok)}`);
-      toast?.("MCP-Token widerrufen.");
-      await refreshLists();
+      try {
+        await api.del(`/api/v1/mcp-tokens/${encodeURIComponent(delTok.dataset.delTok)}`);
+        toast?.("MCP-Token widerrufen.");
+      } catch (err) {
+        toast?.(err.message);
+      }
+      await reload();
+      return;
     }
     const rest = e.target.closest("[data-restore-trash]");
     if (rest) {
-      await api.post(`/api/v1/trash/${encodeURIComponent(rest.dataset.restoreTrash)}/restore`, {});
-      toast?.("Seite wiederhergestellt.");
-      await refreshLists();
-      onRefresh?.();
+      try {
+        await api.post(`/api/v1/trash/${encodeURIComponent(rest.dataset.restoreTrash)}/restore`, {});
+        toast?.("Seite wiederhergestellt.");
+        onRefresh?.();
+      } catch (err) {
+        toast?.(err.message);
+      }
+      await reload();
+      return;
+    }
+    if (e.target.closest("#wkRunBackup")) {
+      try {
+        await api.post("/api/v1/backups", {});
+        toast?.("Vollständige Sicherung erstellt.");
+      } catch (err) {
+        toast?.(err.message);
+      }
+      await reload();
     }
   });
 
-  el.querySelector("#wkRunBackup").addEventListener("click", async () => {
-    await api.post("/api/v1/backups", {});
-    toast?.("Vollständige Sicherung erstellt.");
-    await refreshLists();
+  el.addEventListener("submit", async (e) => {
+    if (e.target.id !== "wkNewTokForm") return;
+    e.preventDefault();
+    const name = el.querySelector("#wkTokName").value.trim();
+    if (!name) return;
+    try {
+      const created = await api.post("/api/v1/mcp-tokens", {
+        name,
+        allow_read_private: el.querySelector("#wkTokPriv").checked,
+        allow_read_chats: el.querySelector("#wkTokKi").checked,
+      });
+      const snippet = JSON.stringify(
+        { mcpServers: { "ida-wiki": { type: "http", url: mcpUrl, headers: { Authorization: `Bearer ${created.token}` } } } },
+        null,
+        2,
+      );
+      createdTok = `
+        <div class="created-tok">
+          <div><strong>Einmalig angezeigtes Token für „${esc(created.name)}“:</strong></div>
+          <code>${esc(created.token)}</code>
+          <pre>${esc(snippet)}</pre>
+        </div>`;
+    } catch (err) {
+      toast?.(err.message);
+    }
+    await reload();
   });
 
-  await refreshLists();
+  show("home");
+  await reload();
 }
