@@ -611,3 +611,30 @@ body.pane-resizing iframe { pointer-events: none; }
 .empty-ic .ms.big { font-size: 34px; }
 .pane-box > .act-row .btn-tonal { flex: 1 1 130px; justify-content: center; }
 .pane-box > .act-row .lbl { display: inline; }
+
+/* ---------- Actions ---------- */
+.ac-bar { display: flex; align-items: center; gap: 8px; }
+.ac-count { flex: 1; font-size: 12.5px; color: var(--muted); }
+.ac-bar .chip { height: 32px; max-width: 45%; }
+.ac-bar .chip { overflow: hidden; text-overflow: ellipsis; }
+.ac-list { display: flex; flex-direction: column; gap: 2px; }
+.ac-run { display: flex; align-items: center; gap: 12px; border: 0; background: none; color: var(--on-surface); font: inherit; text-align: left; padding: 10px 8px; border-radius: 16px; cursor: pointer; min-width: 0; }
+.ac-run:hover { background: var(--surface-high); }
+.ac-main { display: flex; flex-direction: column; min-width: 0; flex: 1; line-height: 1.35; }
+.ac-main b { font-size: 13.5px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ac-main small, .ac-time small, .ac-head small { font-size: 11.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ac-time { display: flex; flex-direction: column; align-items: flex-end; flex: none; }
+.ac-st { font-size: 24px; flex: none; }
+.ac-st.ok { color: var(--ok); } .ac-st.err { color: var(--err); } .ac-st.run, .ac-st.wait { color: var(--warn); } .ac-st.muted { color: var(--muted); }
+.ac-head { display: flex; align-items: center; gap: 10px; padding: 0 4px; }
+.ac-head b { font-size: 15px; font-weight: 500; }
+.ac-jobs { display: flex; flex-direction: column; gap: 8px; }
+.ac-job { background: var(--surface-high); border-radius: 18px; overflow: hidden; }
+.ac-job summary { display: flex; align-items: center; gap: 10px; padding: 10px 12px; cursor: pointer; list-style: none; }
+.ac-job summary::-webkit-details-marker { display: none; }
+.ac-job summary small { font-size: 11.5px; color: var(--muted); flex: none; }
+.ac-steps { padding: 0 12px 10px 12px; display: flex; flex-direction: column; gap: 2px; }
+.ac-step { display: flex; align-items: center; gap: 8px; font-size: 12.5px; padding: 3px 0 3px 4px; color: var(--muted); }
+.ac-step .ac-st { font-size: 17px; }
+.ac-log { max-height: 72vh; font-size: 11.5px; }
+.diff i.warn { color: var(--warn); }

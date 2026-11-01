@@ -14,7 +14,7 @@ let route = { view: "home" };
 let cur = null;           // aktuelles Projekt (mit git-Status), falls route.project
 let thread = null;        // geöffneter Thread (Titel usw.)
 let q = "";               // Suche in der Seitenleiste
-let paneTab = ["files", "changes"].includes(localStorage.getItem("code-pane")) ? localStorage.getItem("code-pane") : null; // offener Tab rechts (PC), null = zu
+let paneTab = ["files", "changes", "actions"].includes(localStorage.getItem("code-pane")) ? localStorage.getItem("code-pane") : null; // offener Tab rechts (PC), null = zu
 const open = new Set();   // aufgeklappte Projekte in der Seitenleiste
 const wide = () => matchMedia("(min-width: 1200px)").matches;
 const desktop = () => matchMedia("(min-width: 961px)").matches;
@@ -103,6 +103,7 @@ function drawRail() {
     <div class="rail-group">
       ${btn('data-pane="files"', paneTab === "files" && wide() && ready, "folder_open", "Dateien", !ready)}
       ${btn('data-pane="changes"', paneTab === "changes" && wide() && ready, "difference", "Änderungen", !ready)}
+      ${btn('data-pane="actions"', paneTab === "actions" && wide() && ready, "play_circle", "Actions", !ready)}
     </div>
     <div class="rail-spacer"></div>
     ${btn('data-act="limits" title="KI-Limits"', false, "data_usage", "Limits")}

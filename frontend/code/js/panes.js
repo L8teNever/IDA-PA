@@ -3,8 +3,9 @@
 import { api, rawUrl } from "./api.js";
 import { esc, fmtBytes, fmtRel, formDialog, md, openModal, popMenu, toast } from "./ui.js";
 import { modelInfo, state } from "./store.js";
+import { mountActions } from "./actions.js";
 
-export const TABS = [["files", "folder_open", "Dateien"], ["changes", "difference", "Änderungen"]];
+export const TABS = [["files", "folder_open", "Dateien"], ["changes", "difference", "Änderungen"], ["actions", "play_circle", "Actions"]];
 
 export function tabsHtml(tab, extra = "") {
   return `<div class="pane-tabs" role="tablist">${TABS.map(([k, ic, t]) => `<button type="button" role="tab" data-pane-tab="${k}" class="${tab === k ? "on" : ""}" title="${t}" aria-label="${t}">
@@ -16,6 +17,7 @@ export function fillTab(el, projectId, tab, { onChange } = {}) {
   const token = (el.dataset.tok = String(Math.random()));
   const isCurrent = () => el.isConnected && el.dataset.tok === token;
   if (tab === "files") mountFiles(el, projectId, isCurrent);
+  else if (tab === "actions") mountActions(el, projectId, isCurrent);
   else renderChanges(el, projectId, { onChange, isCurrent });
 }
 

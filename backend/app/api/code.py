@@ -247,6 +247,38 @@ async def pull_request(pid: str, body: PullRequest, db: DB):
     return await github.create_pr(db, name, st["branch"], base, body.title.strip(), body.body)
 
 
+# ---- GitHub Actions ----
+
+async def _repo(db, pid: str) -> str:
+    p, d = await _project(db, pid)
+    st = await git.status(d)
+    name = git.full_name(st["remote"] or p.repo_url)
+    if not name:
+        raise Invalid("Actions gibt es nur bei Projekten mit GitHub-Repo")
+    return name
+
+
+@router.get("/projects/{pid}/actions/runs")
+async def actions_runs(pid: str, db: DB, branch: str | None = None):
+    return await github.runs(db, await _repo(db, pid), branch)
+
+
+@router.get("/projects/{pid}/actions/runs/{run_id}")
+async def actions_run(pid: str, run_id: int, db: DB):
+    return await github.run_detail(db, await _repo(db, pid), run_id)
+
+
+@router.get("/projects/{pid}/actions/jobs/{job_id}/log")
+async def actions_log(pid: str, job_id: int, db: DB):
+    return await github.job_log(db, await _repo(db, pid), job_id)
+
+
+@router.post("/projects/{pid}/actions/runs/{run_id}/{action}")
+async def actions_do(pid: str, run_id: int, action: str, db: DB):
+    await github.run_action(db, await _repo(db, pid), run_id, action)
+    return {"ok": True}
+
+
 # ---- approvals ("Nachfragen") ----
 
 @router.get("/approvals")

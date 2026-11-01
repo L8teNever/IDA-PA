@@ -110,6 +110,21 @@ class FakeGitHub:
                                       {"x-oauth-scopes": "repo, workflow, read:user"})
                 if path == "/user/repos":
                     return self._send(200, list(gh.repos.values()))
+                if path.endswith("/actions/runs") and path.startswith("/repos/"):
+                    return self._send(200, {"total_count": 1, "workflow_runs": [{"id": 7, "run_number": 3, "display_title": "Fix", "name": "CI", "status": "completed",
+                                            "conclusion": "failure", "event": "push", "head_branch": "main", "head_sha": "abcdef123", "actor": {"login": "octo"}}]})
+                if path.endswith("/actions/runs/7"):
+                    return self._send(200, {"id": 7, "run_number": 3, "display_title": "Fix", "name": "CI", "status": "completed", "conclusion": "failure"})
+                if path.endswith("/actions/runs/7/jobs"):
+                    return self._send(200, {"jobs": [{"id": 70, "name": "test", "status": "completed", "conclusion": "failure",
+                                                      "steps": [{"name": "pytest", "status": "completed", "conclusion": "failure", "number": 1}]}]})
+                if path.endswith("/actions/jobs/70/logs"):
+                    data = b"2026-10-01T10:00:00Z FAILED test_x" + bytes([10])
+                    self.send_response(200)
+                    self.send_header("content-type", "text/plain")
+                    self.send_header("content-length", str(len(data)))
+                    self.end_headers()
+                    return self.wfile.write(data)
                 return self._send(404, {"message": "Not Found"})
 
         return H

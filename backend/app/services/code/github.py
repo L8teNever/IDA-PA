@@ -213,3 +213,67 @@ async def create_pr(db: AsyncSession, full_name: str, head: str, base: str, titl
         raise _err(r, "Pull Request fehlgeschlagen")
     x = r.json()
     return {"number": x["number"], "url": x["html_url"], "title": x["title"]}
+
+
+# ---- Actions (workflow runs, jobs, logs) ----
+
+def _run(x: dict) -> dict:
+    return {"id": x["id"], "number": x.get("run_number"), "name": x.get("display_title") or x.get("name"), "workflow": x.get("name"),
+            "status": x.get("status"), "conclusion": x.get("conclusion"), "event": x.get("event"), "branch": x.get("head_branch"),
+            "sha": (x.get("head_sha") or "")[:7], "actor": (x.get("actor") or {}).get("login"), "attempt": x.get("run_attempt"),
+            "created_at": x.get("created_at"), "started_at": x.get("run_started_at"), "updated_at": x.get("updated_at"), "url": x.get("html_url")}
+
+
+async def runs(db: AsyncSession, full_name: str, branch: str | None = None, per_page: int = 30) -> dict:
+    tok = await need_token(db)
+    params: dict = {"per_page": max(1, min(per_page, 50))}
+    if branch:
+        params["branch"] = branch
+    async with _api(tok) as c:
+        r = await c.get(f"/repos/{full_name}/actions/runs", params=params)
+    if r.status_code != 200:
+        raise _err(r, "Actions laden fehlgeschlagen")
+    j = r.json()
+    return {"total": j.get("total_count", 0), "runs": [_run(x) for x in j.get("workflow_runs") or []]}
+
+
+async def run_detail(db: AsyncSession, full_name: str, run_id: int) -> dict:
+    tok = await need_token(db)
+    async with _api(tok) as c:
+        r1 = await c.get(f"/repos/{full_name}/actions/runs/{run_id}")
+        r2 = await c.get(f"/repos/{full_name}/actions/runs/{run_id}/jobs", params={"per_page": 100})
+    if r1.status_code != 200:
+        raise _err(r1, "Run laden fehlgeschlagen")
+    if r2.status_code != 200:
+        raise _err(r2, "Jobs laden fehlgeschlagen")
+    jobs = [{"id": x["id"], "name": x["name"], "status": x.get("status"), "conclusion": x.get("conclusion"),
+             "started_at": x.get("started_at"), "completed_at": x.get("completed_at"),
+             "steps": [{"name": st["name"], "status": st.get("status"), "conclusion": st.get("conclusion"), "number": st.get("number")}
+                       for st in x.get("steps") or []]} for x in r2.json().get("jobs") or []]
+    return {**_run(r1.json()), "jobs": jobs}
+
+
+async def job_log(db: AsyncSession, full_name: str, job_id: int, limit: int = 400_000) -> dict:
+    """Plain-text log of one job (GitHub answers with a redirect to a short-lived download URL). Keeps the end if it is long."""
+    tok = await need_token(db)
+    async with _api(tok) as c:
+        r = await c.get(f"/repos/{full_name}/actions/jobs/{job_id}/logs", follow_redirects=True)
+    if r.status_code == 404:
+        raise Invalid("Für diesen Job gibt es (noch) kein Log")
+    if r.status_code != 200:
+        raise _err(r, "Log laden fehlgeschlagen")
+    text = r.text
+    cut = len(text) > limit
+    return {"log": text[-limit:] if cut else text, "truncated": cut}
+
+
+async def run_action(db: AsyncSession, full_name: str, run_id: int, action: str) -> None:
+    """action: rerun | rerun-failed | cancel"""
+    path = {"rerun": "rerun", "rerun-failed": "rerun-failed-jobs", "cancel": "cancel"}.get(action)
+    if not path:
+        raise Invalid("Unbekannte Aktion")
+    tok = await need_token(db)
+    async with _api(tok) as c:
+        r = await c.post(f"/repos/{full_name}/actions/runs/{run_id}/{path}")
+    if r.status_code not in (200, 201, 202):
+        raise _err(r, "Aktion fehlgeschlagen")
