@@ -383,19 +383,18 @@ def test_project_files_listing_and_preview(client, code_on, github):
     client.delete(f"{API}/code/projects/{pid}")
 
 
-def test_github_actions_runs_jobs_and_log(client, code_on, github):
+def test_github_actions_runs_jobs_and_log(client, code_on, github, monkeypatch):
     """Workflow runs of the repo, their jobs with steps and the plain-text log; local projects have no Actions."""
-    import asyncio
-    from app.db import session_scope
-    from app.services.code import github as gh
-
-    async def go():
-        async with session_scope() as db:
-            return await gh.runs(db, "octo/hello"), await gh.run_detail(db, "octo/hello", 7), await gh.job_log(db, "octo/hello", 70)
-    runs, detail, log = asyncio.run(go())
+    from app.services.code import git
+    p = _project(client, github)
+    monkeypatch.setattr(git, "full_name", lambda url: "octo/hello")
+    base = f"{API}/code/projects/{p['id']}/actions"
+    runs = client.get(f"{base}/runs").json()
     assert runs["total"] == 1 and runs["runs"][0]["conclusion"] == "failure" and runs["runs"][0]["sha"] == "abcdef1"
+    detail = client.get(f"{base}/runs/7").json()
     assert detail["jobs"][0]["steps"][0]["name"] == "pytest"
+    log = client.get(f"{base}/jobs/70/log").json()
     assert "FAILED test_x" in log["log"] and not log["truncated"]
-    e = client.post(f"{API}/code/projects", json={"name": "LeerActions"}).json()
-    r = client.get(f"{API}/code/projects/{e['id']}/actions/runs")
+    monkeypatch.setattr(git, "full_name", lambda url: None)
+    r = client.get(f"{base}/runs")
     assert r.status_code == 400 and "GitHub-Repo" in r.json()["detail"]
