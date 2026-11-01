@@ -10,8 +10,9 @@ runs on the server:
     – the user copies that return address into IDA, the server delivers it to the agent.
   - Models come from the account (session/new -> config option "model"), offered as "agy:<model>".
   - Limits (5-hour / weekly per model family) come from Google's quota endpoint with the stored login.
-  - Runs: a fresh session per run with the run's MCP servers; tool permission requests are only granted for
-    IDA's MCP tools (no shell, no file edits).
+  - Normal chats: a fresh session in an empty run dir; only IDA MCP tools are allowed (no shell / file edits).
+  - Code threads: session cwd = project folder; edit/shell follow the thread's permission mode (ask/edits/full),
+    with ask/execute routed through the same approvals UI as Claude Code. Authenticated git goes via code_commit.
 """
 import asyncio
 import contextlib
@@ -46,6 +47,9 @@ AUTH_PREFIX = "Open the following link to authenticate the ACP server: "
 URL_MARK = "__IDA_AUTH_URL__"
 IDLE_LIMIT = 15 * 60
 QUOTA_ENDPOINTS = ("https://daily-cloudcode-pa.googleapis.com", "https://cloudcode-pa.googleapis.com")
+# ACP session modes aligned with Claude Code's --permission-mode values
+CODE_MODES = {"ask": "default", "edits": "acceptEdits", "full": "bypassPermissions"}
+RISKY = frozenset({"execute", "edit", "delete", "move"})
 
 
 class NotLoggedIn(Invalid):
@@ -229,6 +233,7 @@ class Client:
         self.pending: dict[int, asyncio.Future] = {}
         self.sessions: dict[str, asyncio.Queue] = {}
         self.allowed_servers: dict[str, set[str]] = {}
+        self.session_meta: dict[str, dict] = {}  # sessionId -> {mode, chat_id} for code threads
         self.auth_url: str | None = None
         self.auth_seen = asyncio.Event()
         self.auth_task: asyncio.Task | None = None
@@ -310,21 +315,43 @@ class Client:
             return
         if "id" in msg:  # a request from the agent to us
             if method == "session/request_permission":
-                await self._send({"jsonrpc": "2.0", "id": msg["id"], "result": self._permission(params)})
+                result = await self._permission(params)
+                await self._send({"jsonrpc": "2.0", "id": msg["id"], "result": result})
             else:
                 await self._send({"jsonrpc": "2.0", "id": msg["id"], "error": {"code": -32601, "message": f"{method} wird nicht unterstützt"}})
 
-    def _permission(self, params: dict) -> dict:
-        """Only IDA's MCP tools may run – shell, file edits and everything else are rejected."""
+    async def _permission(self, params: dict) -> dict:
+        """Normal chat: only IDA MCP. Code threads: follow ask/edits/full; ask waits on the user like Claude."""
         call = params.get("toolCall") or {}
-        servers = self.allowed_servers.get(params.get("sessionId"), set())
-        text = json.dumps(call, ensure_ascii=False).lower()
-        is_mcp = any(s.lower() in text for s in servers) or "mcp" in str(call.get("title", "")).lower()
-        kind = "allow_once" if is_mcp and call.get("kind") not in ("execute", "edit", "delete", "move") else "reject_once"
+        sid = params.get("sessionId")
+        servers = self.allowed_servers.get(sid, set())
+        meta = self.session_meta.get(sid) or {}
+        blob = json.dumps(call, ensure_ascii=False).lower()
+        is_mcp = any(s.lower() in blob for s in servers) or "mcp" in str(call.get("title", "")).lower()
+        tool_kind = str(call.get("kind") or "other")
+        risky = tool_kind in RISKY
+        mode = meta.get("mode")  # None = normal chat
+        allow = False
+        if is_mcp and not risky:
+            allow = True
+        elif mode == "full":
+            allow = True
+        elif mode and not risky:
+            allow = True
+        elif mode == "edits" and tool_kind in ("edit", "delete", "move"):
+            allow = True
+        elif mode in ("ask", "edits") and meta.get("chat_id") and risky:
+            from .code import approvals
+            title = str(call.get("title") or call.get("toolName") or tool_kind or "?")
+            tool = re.split(r"[/:]", title)[-1].strip() or tool_kind
+            inp = call.get("rawInput") if isinstance(call.get("rawInput"), dict) else {"raw": call.get("rawInput")}
+            decision = await approvals.ask(meta["chat_id"], tool, inp or {})
+            allow = decision.get("behavior") == "allow" if isinstance(decision, dict) else False
+        kind = "allow_once" if allow else "reject_once"
         opt = next((o for o in params.get("options") or [] if o.get("kind") == kind), None)
         with contextlib.suppress(OSError):
             with (home(self.account_id) / "permissions.jsonl").open("a", encoding="utf8") as f:
-                f.write(json.dumps({"at": time.time(), "decision": kind, "call": call}, ensure_ascii=False)[:2000] + "\n")
+                f.write(json.dumps({"at": time.time(), "decision": kind, "mode": mode, "call": call}, ensure_ascii=False)[:2000] + "\n")
         return {"outcome": {"outcome": "selected", "optionId": opt["optionId"]}} if opt else {"outcome": {"outcome": "cancelled"}}
 
     async def _send(self, msg: dict) -> None:
@@ -332,7 +359,7 @@ class Client:
         self.proc.stdin.write((json.dumps(msg) + "\n").encode())
         await self.proc.stdin.drain()
 
-    async def request(self, method: str, params: dict, timeout: float = 120) -> dict:
+    async def request(self, method: str, params: dict, timeout: float | None = 120) -> dict:
         if not self.alive:
             raise Invalid("Der Antigravity-Agent läuft nicht")
         self.last_used = time.time()
@@ -342,7 +369,7 @@ class Client:
         self.pending[rid] = fut
         await self._send({"jsonrpc": "2.0", "id": rid, "method": method, "params": params})
         try:
-            return await asyncio.wait_for(fut, timeout)
+            return await (fut if timeout is None else asyncio.wait_for(fut, timeout))
         finally:
             self.pending.pop(rid, None)
 
@@ -712,23 +739,33 @@ def _tool_name(call: dict, servers: list[str]) -> tuple[str, str]:
 
 
 async def stream(spec) -> AsyncIterator[dict]:
-    """Same events as claude.runner.stream. A fresh session per run (chats send their history along)."""
+    """Same events as claude.runner.stream. A fresh session per run (chats send their history along).
+
+    Code threads (spec.code): cwd = project folder, permission mode ask/edits/full, no run timeout
+    (may wait for user approvals). Normal chats: empty temp cwd, MCP-only tools.
+    """
     s = get_settings()
     acc = spec.account
+    code = getattr(spec, "code", None)
     try:
         c = await client_for(acc)
     except Invalid as e:
         yield {"type": "done", "ok": False, "result": str(e), "session_id": None}
         return
-    run_dir = s.sandbox_dir / "agy-runs" / new_id()
-    run_dir.mkdir(parents=True, exist_ok=True)
+    tmp_dir = None
+    if code:
+        work = Path(code.cwd)
+    else:
+        tmp_dir = s.sandbox_dir / "agy-runs" / new_id()
+        tmp_dir.mkdir(parents=True, exist_ok=True)
+        work = tmp_dir
     servers = [{"type": "http", "name": k, "url": v["url"], "headers": [{"name": hk, "value": hv} for hk, hv in (v.get("headers") or {}).items()]}
                for k, v in spec.mcp_servers.items()]
     raw_log = home(acc.id) / "last_run.jsonl"
     sid = None
     prompt: asyncio.Task | None = None
     try:
-        res = await c.request("session/new", {"cwd": str(run_dir), "mcpServers": servers}, 120)
+        res = await c.request("session/new", {"cwd": str(work), "mcpServers": servers}, 120)
         sid = res["sessionId"]
         found = _parse_models(res)
         if found:
@@ -736,14 +773,28 @@ async def stream(spec) -> AsyncIterator[dict]:
         queue: asyncio.Queue = asyncio.Queue()
         c.sessions[sid] = queue
         c.allowed_servers[sid] = set(spec.mcp_servers)
+        if code:
+            c.session_meta[sid] = {"mode": code.mode or "ask", "chat_id": code.chat_id}
+            mode_val = CODE_MODES.get(code.mode or "ask", "default")
+            for method, params in (
+                ("session/set_mode", {"sessionId": sid, "modeId": mode_val}),
+                ("session/set_config_option", {"sessionId": sid, "configId": "mode", "value": mode_val}),
+            ):
+                try:
+                    await c.request(method, params, 30)
+                    break
+                except Invalid:
+                    continue
         model = spec.model[len(PREFIX):] if is_model(spec.model) else ""
         if model:  # variants (…-high) via set_model, base models also via the config option
             try:
                 await c.request("session/set_model", {"sessionId": sid, "modelId": model}, 30)
             except Invalid:
                 await c.request("session/set_config_option", {"sessionId": sid, "configId": "model", "value": model}, 30)
+        # code may wait on user approvals – no wall-clock limit; normal chats keep run_timeout_s
+        prompt_timeout = None if code else s.run_timeout_s
         prompt = asyncio.create_task(c.request("session/prompt", {"sessionId": sid, "prompt": _prompt_blocks(spec, getattr(c, "prompt_caps", {}))},
-                                               s.run_timeout_s))
+                                               prompt_timeout))
         names: dict[str, tuple[str, str]] = {}
         texts: list[str] = []
         with raw_log.open("w", encoding="utf8") as raw:
@@ -790,8 +841,10 @@ async def stream(spec) -> AsyncIterator[dict]:
         if sid:
             c.sessions.pop(sid, None)
             c.allowed_servers.pop(sid, None)
+            c.session_meta.pop(sid, None)
         c.last_used = time.time()
-        shutil.rmtree(run_dir, ignore_errors=True)
+        if tmp_dir:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
 def _events(upd: dict, names: dict, servers: list[str], texts: list[str]) -> list[dict]:

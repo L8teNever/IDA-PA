@@ -285,8 +285,8 @@ async def _code_run(db, project: CodeProject, chat: Chat, permission_mode: str |
         raise Invalid("Das Projekt wird noch geklont" if project.status == "cloning" else f"Das Projekt ist nicht bereit: {project.status_text}")
     if permission_mode:
         chat.permission_mode = permission_mode
-    if providers.of_model(model or chat.model) != "claude":
-        raise Invalid("Im Code-Bereich laufen nur Claude-Modelle")
+    if providers.of_model(model or chat.model) not in ("claude", "antigravity"):
+        raise Invalid("Im Code-Bereich laufen nur Claude- und Antigravity-Modelle")
     path = projects.path_of(project)
     try:
         branch = (await git.run(path, "rev-parse", "--abbrev-ref", "HEAD")).strip()

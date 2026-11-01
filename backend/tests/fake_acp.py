@@ -4,14 +4,17 @@
   authenticate              -> done at once if $GEMINI_HOME/antigravity-acp/acp_token.json exists; otherwise it "opens the
                                browser" ($BROWSER) with a Google link whose redirect_uri is a local HTTP listener – a GET
                                with ?code=…&state=… there writes the token file and finishes authenticate
-  session/new               -> sessionId + config option "model" (the account's models)
-  session/set_config_option -> remembers the model
+  session/new               -> sessionId + config option "model" (the account's models); remembers cwd
+  session/set_config_option -> remembers model or mode
+  session/set_mode          -> remembers mode
   session/prompt            -> streams session/update (message chunks, tool calls) and ends with stopReason end_turn;
                                "TOOL x {json}" calls tool x of the session's MCP server "ida"
+                               "PWD" echoes cwd/mode (code threads); "WRITE f text" asks session/request_permission first
 """
 import http.server
 import json
 import os
+import queue
 import secrets
 import subprocess
 import sys
@@ -22,6 +25,8 @@ home = os.environ["GEMINI_HOME"]
 token = os.path.join(home, "antigravity-acp", "acp_token.json")
 out_lock = threading.Lock()
 sessions = {}
+replies = {}  # request id -> Queue for client responses (permissions)
+next_req = 1000
 MODELS = [{"value": "gemini-3.1-pro-high", "name": "Gemini 3.1 Pro (High)"}, {"value": "gemini-3-flash", "name": "Gemini 3 Flash"},
           {"value": "claude-sonnet-4-6", "name": "Claude Sonnet 4.6 (Thinking)"}]
 
@@ -34,6 +39,23 @@ def send(msg):
 
 def reply(i, result):
     send({"jsonrpc": "2.0", "id": i, "result": result})
+
+
+def ask_client(method, params, timeout=120):
+    """Send a JSON-RPC request to the client (IDA) and wait for its response (e.g. permissions)."""
+    global next_req
+    next_req += 1
+    rid = next_req
+    q = queue.Queue()
+    replies[rid] = q
+    send({"jsonrpc": "2.0", "id": rid, "method": method, "params": params})
+    try:
+        msg = q.get(timeout=timeout)
+    finally:
+        replies.pop(rid, None)
+    if "error" in msg:
+        raise RuntimeError(msg["error"])
+    return msg.get("result")
 
 
 def authenticate(i):
@@ -75,11 +97,36 @@ def prompt(i, p):
     s = sessions[sid]
     text = "".join(x.get("text", "") for x in p["prompt"])
     model = s.get("model", "default")
+    mode = s.get("mode", "default")
+    cwd = s.get("cwd") or os.getcwd()
 
     def upd(u):
         send({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": sid, "update": u}})
-    if "TOOL " in text:
-        line = text[text.index("TOOL "):].splitlines()[0]
+
+    # follow-ups send the whole history – use the newest instruction (last match / after header)
+    focus = text.split("Neue Nachricht des Nutzers:\n")[-1] if "Neue Nachricht des Nutzers:" in text else text
+    if "WRITE " in focus:
+        _, name, content = focus[focus.rindex("WRITE "):].splitlines()[0].split(" ", 2)
+        path = os.path.join(cwd, name)
+        inp = {"file_path": path, "content": content}
+        options = [{"optionId": "allow", "kind": "allow_once", "name": "Allow"},
+                   {"optionId": "deny", "kind": "reject_once", "name": "Deny"}]
+        res = ask_client("session/request_permission", {
+            "sessionId": sid,
+            "toolCall": {"toolCallId": "w1", "title": "Write", "kind": "edit", "rawInput": inp},
+            "options": options,
+        })
+        outcome = (res or {}).get("outcome") or {}
+        allowed = outcome.get("outcome") == "selected" and outcome.get("optionId") == "allow"
+        if allowed:
+            open(path, "w", encoding="utf8").write(content)
+            answer = f"[acp|{model}] {name} geschrieben"
+        else:
+            answer = f"[acp|{model}] abgelehnt"
+    elif "PWD" in focus:
+        answer = f"[acp|{model}] cwd={cwd} mode={mode}"
+    elif "TOOL " in focus:
+        line = focus[focus.index("TOOL "):].splitlines()[0]
         _, name, raw = line.split(" ", 2)
         upd({"sessionUpdate": "tool_call", "toolCallId": "t1", "title": f"ida/{name}", "kind": "other", "status": "in_progress", "rawInput": json.loads(raw)})
         srv = next(x for x in s["mcp"] if x["name"] == "ida")
@@ -100,6 +147,10 @@ def prompt(i, p):
 for raw in sys.stdin:
     msg = json.loads(raw)
     m, i, p = msg.get("method"), msg.get("id"), msg.get("params") or {}
+    # client response to our request (e.g. permission decision)
+    if i is not None and "method" not in msg and ("result" in msg or "error" in msg) and i in replies:
+        replies[i].put(msg)
+        continue
     if m == "initialize":
         reply(i, {"protocolVersion": 1, "authMethods": [{"id": "oauth-personal", "name": "Log in with Google"}],
                   "agentCapabilities": {"mcpCapabilities": {"http": True}}})
@@ -110,12 +161,19 @@ for raw in sys.stdin:
             send({"jsonrpc": "2.0", "id": i, "error": {"code": -32000, "message": "Authentication required"}})
             continue
         sid = "s" + secrets.token_hex(4)
-        sessions[sid] = {"mcp": p.get("mcpServers") or []}
+        sessions[sid] = {"mcp": p.get("mcpServers") or [], "cwd": p.get("cwd"), "mode": "default"}
         reply(i, {"sessionId": sid, "configOptions": [{"id": "model", "type": "select", "currentValue": MODELS[0]["value"],
                                                         "options": [{"group": "Modelle", "options": MODELS}]}]})
     elif m == "session/set_config_option":
-        sessions[p["sessionId"]]["model"] = p["value"]
+        s = sessions[p["sessionId"]]
+        if p.get("configId") == "mode":
+            s["mode"] = p["value"]
+        else:
+            s["model"] = p["value"]
         reply(i, {"configOptions": []})
+    elif m == "session/set_mode":
+        sessions[p["sessionId"]]["mode"] = p.get("modeId") or p.get("value")
+        reply(i, {})
     elif m == "session/prompt":
         threading.Thread(target=prompt, args=(i, p), daemon=True).start()
     elif m == "logout":

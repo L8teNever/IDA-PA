@@ -65,8 +65,8 @@ async def prepare(db: AsyncSession, agent: Agent, prompt: str, *, model: str | N
                   interactive: bool = False, depth: int = 0, memory_on: bool | None = None, forced_skill: Skill | None = None,
                   session_id: str | None = None, persist: bool = False, extra: str = "", effort: str | None = None,
                   code: dict | None = None, chat_id: str | None = None) -> Prepared:
-    """code: a code thread – {"path", "mode", "name", "repo_url", "branch", "env"}: Claude's own tools in the project
-    folder instead of the empty sandbox; memory and the internal tools stay the same as in every chat."""
+    """code: a code thread – {"path", "mode", "name", "repo_url", "branch", "env"}: tools in the project
+    folder (Claude CLI or Antigravity ACP) instead of the empty sandbox; memory and internal tools stay."""
     s = get_settings()
     memory_on = agent.memory_enabled if memory_on is None else memory_on
     labels = await prompts.labels(db)
@@ -101,7 +101,8 @@ async def prepare(db: AsyncSession, agent: Agent, prompt: str, *, model: str | N
     spec = RunSpec(model=model, account=acc, prompt=prompt, system=system,
                    mcp_servers=servers, allow=allow, deny=deny, session_id=session_id, persist=persist, effort=effort,
                    agent_id=agent.id, kind="chat" if interactive else "run",
-                   code=CodeRun(cwd=code["path"], mode=code["mode"], env=code.get("env") or {}) if code else None)
+                   code=CodeRun(cwd=code["path"], mode=code["mode"], env=code.get("env") or {},
+                                chat_id=chat_id) if code else None)
     return Prepared(spec=spec, token=token)
 
 

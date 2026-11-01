@@ -124,9 +124,6 @@ def test_code_thread_runs_in_the_project_with_real_tools(client, code_on, github
     # threads are listed in the project, not among the normal chats
     assert c["id"] in [t["id"] for t in client.get(f"{API}/code/projects/{p['id']}/threads").json()]
     assert c["id"] not in [x["id"] for x in client.get(f"{API}/chats").json()]
-    # only Claude models in the code area; a normal chat cannot become a code thread by accident
-    r = client.post(f"{API}/chat", json={"project_id": p["id"], "text": "x", "model": "agy:gemini-3-flash"})
-    assert r.status_code == 400
     assert client.patch(f"{API}/code/threads/{c['id']}", json={"title": "Erster Thread", "permission_mode": "ask"}).json()["permission_mode"] == "ask"
     # code area off: the thread cannot run
     client.put(f"{API}/code/settings", json={"enabled": False})
@@ -216,6 +213,43 @@ def test_approvals_wait_for_the_user(client, code_on, github):
     wait(lambda: not client.get(f"{API}/chats/{cid3}").json()["running"])
     assert not client.get(f"{API}/code/approvals?chat_id={cid3}").json()
     assert "c.txt" not in [f["path"] for f in client.get(f"{API}/code/projects/{p['id']}/git").json()["files"]]
+
+
+def _agy_login(client):
+    """Create an Antigravity account and complete the fake Google sign-in."""
+    from urllib.parse import parse_qs, urlparse
+    a = client.post(f"{API}/accounts", json={"provider": "antigravity"}).json()
+    st = client.post(f"{API}/accounts/{a['id']}/antigravity/login").json()
+    q = parse_qs(urlparse(st["url"]).query)
+    redirect, state = q["redirect_uri"][0], q["state"][0]
+    client.post(f"{API}/accounts/{a['id']}/antigravity/callback", json={"url": f"{redirect}?code=abc&state={state}&scope=x"})
+    return a
+
+
+def test_antigravity_code_thread_uses_project_and_approvals(client, code_on, github):
+    """Code threads accept agy: models: cwd = project, ask mode waits on the same approval UI as Claude."""
+    from app.services.code import projects
+    a = _agy_login(client)
+    p = _project(client, github)
+    path = projects.root() / p["id"]
+    ev = chat(client, project_id=p["id"], text="PWD wo bin ich", model="agy:gemini-3-flash",
+              account_id=a["id"], permission_mode="full")
+    out = text(ev)
+    assert done(ev)["ok"] and f"cwd={path}" in out and "mode=bypassPermissions" in out
+    # ask mode: WRITE waits for the user like Claude's code_approve
+    cid = _start(client, {"project_id": p["id"], "text": "WRITE agy.txt von Gemini", "model": "agy:gemini-3-flash",
+                          "account_id": a["id"], "permission_mode": "ask"})
+    appr = wait(lambda: client.get(f"{API}/code/approvals?chat_id={cid}").json())[0]
+    assert appr["tool"] == "Write" and "von Gemini" in appr["input"]["content"]
+    assert client.post(f"{API}/code/approvals/{appr['id']}", json={"decision": "allow"}).status_code == 200
+    wait(lambda: not client.get(f"{API}/chats/{cid}").json()["running"])
+    assert (path / "agy.txt").read_text(encoding="utf8") == "von Gemini"
+    # full mode writes without asking
+    ev = chat(client, chat_id=cid, text="WRITE free.txt ok", model="agy:gemini-3-flash",
+              account_id=a["id"], permission_mode="full")
+    assert "free.txt geschrieben" in text(ev) and not any("approval" in e for e in ev)
+    assert (path / "free.txt").read_text(encoding="utf8") == "ok"
+    client.delete(f"{API}/accounts/{a['id']}")
 
 
 def test_git_commit_push_branch_and_pr(client, code_on, github):

@@ -87,6 +87,7 @@ class CodeRun:
     cwd: Path
     mode: str = "ask"  # ask | edits | full
     env: dict[str, str] = field(default_factory=dict)  # git identity / GitHub token for git and gh
+    chat_id: str | None = None  # for Antigravity: ACP permission requests go through approvals.ask
 
 
 @dataclass
