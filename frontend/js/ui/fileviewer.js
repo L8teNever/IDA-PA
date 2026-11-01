@@ -38,6 +38,7 @@ export function mountFileExplorer(container, projectId, { initialPath = "" } = {
   let curFile = null;
   let curDirData = null;
   let q = "";
+  let searchOpen = false;
   let htmlTab = "render"; // "render" | "code"
   let mdTab = "render";   // "render" | "code"
   let device = "full";    // "full" | "tablet" | "mobile"
@@ -57,10 +58,10 @@ export function mountFileExplorer(container, projectId, { initialPath = "" } = {
     }
   }
 
-  function drawDir() {
+  function drawDir({ focusSearch = false } = {}) {
     if (!curDirData) return;
     const parts = curPath ? curPath.split("/").filter(Boolean) : [];
-    let crumbHtml = `<button type="button" class="fe-crumb ${parts.length === 0 ? "active" : ""}" data-cd=""><span class="ms">folder</span>Root</button>`;
+    let crumbHtml = `<button type="button" class="fe-crumb ${parts.length === 0 ? "active" : ""}" data-cd="" title="Projektroot" aria-label="Root"><span class="ms">home</span></button>`;
     let accum = "";
     for (let i = 0; i < parts.length; i++) {
       accum += (accum ? "/" : "") + parts[i];
@@ -68,6 +69,7 @@ export function mountFileExplorer(container, projectId, { initialPath = "" } = {
       crumbHtml += `<span class="fe-sep">/</span><button type="button" class="fe-crumb ${isLast ? "active" : ""}" data-cd="${esc(accum)}">${esc(parts[i])}</button>`;
     }
 
+    const showSearch = searchOpen || !!q.trim();
     const filterVal = q.toLowerCase().trim();
     const entries = curDirData.entries.filter((e) => !filterVal || e.name.toLowerCase().includes(filterVal));
 
@@ -76,13 +78,15 @@ export function mountFileExplorer(container, projectId, { initialPath = "" } = {
         <div class="fe-crumbs">${crumbHtml}</div>
         <div class="fe-actions">
           ${curDirData.parent !== null ? `<button type="button" class="icon-btn" id="feUp" title="Ebene nach oben"><span class="ms">arrow_upward</span></button>` : ""}
+          <button type="button" class="icon-btn ${showSearch ? "on" : ""}" id="feSearchBtn" title="Filtern" aria-label="Filtern" aria-expanded="${showSearch}"><span class="ms">search</span></button>
           <button type="button" class="icon-btn" id="feRefresh" title="Aktualisieren"><span class="ms">refresh</span></button>
         </div>
       </div>
-      <div class="fe-search-wrap">
+      ${showSearch ? `<div class="fe-search-wrap">
         <span class="ms">search</span>
-        <input type="search" id="feSearch" placeholder="Dateien in diesem Ordner filtern …" value="${esc(q)}">
-      </div>
+        <input type="search" id="feSearch" placeholder="In diesem Ordner filtern" value="${esc(q)}" enterkeyhint="search">
+        <button type="button" class="icon-btn ib-sm" id="feSearchClose" title="Suche schließen" aria-label="Suche schließen"><span class="ms">close</span></button>
+      </div>` : ""}
       <div class="fe-list">
         ${entries.length ? entries.map((e) => {
           const [ic, cls] = fileIcon(e.name, e.is_dir);
@@ -100,20 +104,37 @@ export function mountFileExplorer(container, projectId, { initialPath = "" } = {
       </div>
     </div>`;
 
-    container.querySelectorAll("[data-cd]").forEach((b) => (b.onclick = () => loadDir(b.dataset.cd)));
-    if ($("feUp")) $("feUp").onclick = () => loadDir(curDirData.parent || "");
+    container.querySelectorAll("[data-cd]").forEach((b) => (b.onclick = () => { searchOpen = false; q = ""; loadDir(b.dataset.cd); }));
+    if ($("feUp")) $("feUp").onclick = () => { searchOpen = false; q = ""; loadDir(curDirData.parent || ""); };
     if ($("feRefresh")) $("feRefresh").onclick = () => loadDir(curPath);
+    if ($("feSearchBtn")) $("feSearchBtn").onclick = () => {
+      if (showSearch && !q.trim()) { searchOpen = false; drawDir(); return; }
+      searchOpen = true;
+      drawDir({ focusSearch: true });
+    };
+    if ($("feSearchClose")) $("feSearchClose").onclick = () => { searchOpen = false; q = ""; drawDir(); };
 
     const sInp = $("feSearch");
     if (sInp) {
-      sInp.oninput = () => { q = sInp.value; drawDir(); };
+      sInp.oninput = () => {
+        q = sInp.value;
+        searchOpen = true;
+        const start = sInp.selectionStart, end = sInp.selectionEnd;
+        drawDir();
+        const again = $("feSearch");
+        if (again) { again.focus(); again.setSelectionRange(start, end); }
+      };
+      sInp.onkeydown = (e) => {
+        if (e.key === "Escape") { searchOpen = false; q = ""; drawDir(); }
+      };
+      if (focusSearch) sInp.focus();
     }
 
     container.querySelectorAll(".fe-row").forEach((row) => {
       row.onclick = () => {
         const isDir = row.dataset.dir === "1";
         const path = row.dataset.path;
-        if (isDir) loadDir(path);
+        if (isDir) { searchOpen = false; q = ""; loadDir(path); }
         else loadFile(path);
       };
     });

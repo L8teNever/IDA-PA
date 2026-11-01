@@ -287,6 +287,11 @@ class GitCommit(BaseModel):
     push: bool = False
 
 
+class CommitMessageSuggest(BaseModel):
+    model: str | None = None
+    file: str | None = None  # only this file's diff, else everything
+
+
 class GitBranch(BaseModel):
     name: str
     create: bool = True

@@ -7,11 +7,11 @@ from fastapi.responses import FileResponse
 from sqlalchemy import select
 
 from ..models import Chat, ChatMessage
-from ..schemas import ApprovalAnswer, CodeSettings, GitBranch, GitCommit, ProjectCreate, ProjectUpdate, Publish, PullRequest, ThreadUpdate
+from ..schemas import ApprovalAnswer, CodeSettings, CommitMessageSuggest, GitBranch, GitCommit, ProjectCreate, ProjectUpdate, Publish, PullRequest, ThreadUpdate
 from ..services import chat as chat_service
 from ..services import code as code_area
 from ..services import settings_store
-from ..services.code import approvals, git, github, projects
+from ..services.code import approvals, commit_msg, git, github, projects
 from ..services.errors import Invalid, NotFound
 from . import serializers as ser
 from .deps import DB
@@ -203,6 +203,13 @@ async def git_commit(pid: str, body: GitCommit, db: DB):
     if body.push:
         out["pushed"] = (await git.push(d, env))["branch"]
     return out
+
+
+@router.post("/projects/{pid}/commit-message")
+async def suggest_commit_message(pid: str, body: CommitMessageSuggest, db: DB):
+    """Short commit message from the current diff, with the chosen model (no tools)."""
+    _, d = await _project(db, pid)
+    return await commit_msg.suggest(db, d, model=body.model, file=body.file)
 
 
 @router.post("/projects/{pid}/push")

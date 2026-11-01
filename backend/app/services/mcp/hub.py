@@ -5,7 +5,7 @@ Rights depend on the caller (see identity.Identity):
   sub-agents:  messages, notifications, own notes, see all routines, edit/create only their own routines.
   chat_*:      every agent may search and read all chats (also those of other agents) for context.
   memory_*:    only when memory is switched on for the run.
-  code_*:      code_projects for the main agent; code_approve only inside a code thread (the CLI's permission tool).
+  code_*:      code_projects for the main agent; code_approve / code_commit only inside a code thread.
 Triggers and connector access are never settable here – only by the user in the UI.
 """
 import json
@@ -25,7 +25,7 @@ from .. import trackers as tracker_svc
 from .. import skills as skill_svc
 from ..claude import prompts
 from ..errors import Invalid, NotFound
-from ..code import approvals
+from ..code import approvals, commit_msg, git, github, projects as code_projects
 from ..memory import store as memory
 from . import kalender_tools, wiki_tools
 from .identity import Identity, get
@@ -94,6 +94,8 @@ def _spec(ids: list[str]) -> list[tuple[str, str, str, dict]]:
         (ALL, "chat_read", "Liest die Nachrichten eines Chats (id aus chat_search), neueste zuletzt. Mit offset ältere Teile nachladen.", obj({"chat_id": E, "limit": {"type": "integer", "minimum": 1, "maximum": 100}, "offset": {"type": "integer", "minimum": 0, "description": "so viele der neuesten Nachrichten überspringen"}}, ("chat_id",))),
         (MAIN, "code_projects", "Listet die Projekte im Code-Bereich (Repos, an denen der Nutzer mit dir programmiert) mit ihren Threads (neueste zuerst). Threads liest du mit chat_read(chat_id).", obj({"project_id": {**E, "description": "nur dieses Projekt, mit allen Threads"}})),
         (CODE, "code_approve", "Interne Freigabe-Abfrage des Code-Bereichs (wird von Claude Code selbst aufgerufen).", obj({"tool_name": E, "input": {"type": "object"}, "tool_use_id": E}, ("tool_name",))),
+        (CODE, "code_commit", "Committet die aktuellen Änderungen dieses Code-Projekts. Ohne message: ein kleines Modell schreibt die Commit-Nachricht nur aus dem Diff (kein Chat-Kontext, spart Tokens). Mit push=true danach pushen. Nur nutzen, wenn der Nutzer committen (bzw. pushen) möchte – nicht git commit in der Shell.",
+         obj({"message": {**E, "description": "Commit-Nachricht; weglassen = automatisch aus dem Diff"}, "push": {"type": "boolean", "description": "nach dem Commit pushen (Standard false)"}, "model": {**E, "description": "optional: Modell nur für die automatische Nachricht (sonst das günstige Standardmodell)"}})),
         (ALL, "skill_list", "Listet alle Skills.", obj({})),
         (ALL, "skill_get", "Lädt die Anleitung eines Skills.", obj({"id": E}, ("id",))),
         (MAIN_LIVE, "skill_create", "Legt einen Skill an (Anleitung, die Agenten bei passenden Aufgaben befolgen; der Nutzer aktiviert ihn mit /id).", obj({"name": E, "description": E, "body": E, "agents": {"type": "array", "items": E}}, ("name", "body"))),
@@ -201,6 +203,29 @@ async def _code_projects(db: AsyncSession, project_id: str | None) -> dict:
     if project_id and not out:
         raise NotFound("Projekt nicht gefunden")
     return {"projekte": out, "hinweis": "Threads mit chat_read(chat_id) lesen, mit chat_search(bereich=\"code\") durchsuchen." if out else "Noch keine Code-Projekte."}
+
+
+async def _code_commit(db: AsyncSession, me: Identity, a: dict) -> dict:
+    """Commit (+ optional push) in the code thread's project. Auto-message from diff only."""
+    chat = await db.get(Chat, me.chat_id) if me.chat_id else None
+    if not chat or chat.kind != "code" or not chat.project_id:
+        raise Invalid("code_commit nur in einem Code-Thread")
+    p, d = await code_projects.ready(db, chat.project_id)
+    message = str(a.get("message") or "").strip()
+    used_model = None
+    if not message:
+        sug = await commit_msg.suggest(db, d, model=(str(a["model"]).strip() if a.get("model") else None))
+        message, used_model = sug["message"], sug["model"]
+    env = git.auth_env(await github.account(db))
+    out = await git.commit(d, message, env)
+    pushed = None
+    if a.get("push"):
+        await github.need_token(db)
+        pushed = (await git.push(d, env))["branch"]
+    return {"ok": True, "sha": out["sha"], "files": out["files"], "message": message,
+            **({"model": used_model} if used_model else {}),
+            **({"pushed": pushed} if pushed else {}),
+            "projekt": p.name}
 
 
 async def _chat_read(db: AsyncSession, chat_id: str, limit: int, offset: int, labels: dict) -> dict:
@@ -320,6 +345,8 @@ async def _call(db: AsyncSession, me: Identity, name: str, a: dict) -> dict:
                                   a.get("bereich"), a.get("project_id"))
     if name == "code_projects":
         return await _code_projects(db, a.get("project_id"))
+    if name == "code_commit":
+        return await _code_commit(db, me, a)
     if name == "chat_read":
         return await _chat_read(db, str(a.get("chat_id")), int(a.get("limit") or 30), int(a.get("offset") or 0), labels)
     if name == "skill_list":

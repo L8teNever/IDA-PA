@@ -37,11 +37,13 @@ addEventListener("keydown", (e) => {
 function dragHandle(side) {
   const h = document.createElement("div");
   h.className = `cp-resize ${side}`;
-  h.title = "Breite ändern";
+  h.title = "Breite ziehen";
   h.onpointerdown = (e) => {
     e.preventDefault();
     h.setPointerCapture(e.pointerId);
+    body.classList.add("code-resizing");
     const name = side === "left" ? "--cl" : "--cr";
+    const key = side === "left" ? "code-cl" : "code-cr";
     const move = (ev) => {
       const w = (side === "left" ? ev.clientX : innerWidth - ev.clientX) - 10; // panes float 10px from the edge
       setW(name, Math.max(220, Math.min(w, innerWidth * 0.45)));
@@ -49,8 +51,9 @@ function dragHandle(side) {
     const up = () => {
       h.removeEventListener("pointermove", move);
       h.removeEventListener("pointerup", up);
+      body.classList.remove("code-resizing");
       const px = parseInt(body.style.getPropertyValue(name));
-      if (px) localStorage.setItem(side === "left" ? "code-cl" : "code-cr", px);
+      if (px) localStorage.setItem(key, px);
     };
     h.addEventListener("pointermove", move);
     h.addEventListener("pointerup", up);
@@ -115,7 +118,10 @@ function paintThreads() {
 }
 
 // ---- right: files | changes | preview (on the phone the same tabs in a sheet) ----
-const tabsHtml = (tab, closeBtn) => `<div class="cp-tabs">${TABS.map(([k, ic, t]) => `<button type="button" data-tab="${k}" class="${tab === k ? "on" : ""}"><span class="ms">${ic}</span><span class="cp-tl">${t}</span></button>`).join("")}${closeBtn}</div>`;
+const tabsHtml = (tab, closeBtn) => `<div class="cp-tabs">${TABS.map(([k, ic, t]) => {
+  const label = k === "changes" ? "" : `<span class="cp-tl">${t}</span>`;
+  return `<button type="button" data-tab="${k}" class="${tab === k ? "on" : ""}" title="${t}" aria-label="${t}"><span class="ms">${ic}</span>${label}</button>`;
+}).join("")}${closeBtn}</div>`;
 
 function fillTab(el, projectId, tab, isCurrent) {
   if (tab === "files") mountFileExplorer(el, projectId);

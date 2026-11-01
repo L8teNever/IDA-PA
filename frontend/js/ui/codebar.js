@@ -1,9 +1,54 @@
 // Code area pieces shared by the thread view and the project page:
 // the bar above a code thread (project, branch, rights), the changes sheet (diff, commit, push, PR) and approval cards.
 import { api } from "../api.js";
+import { modelInfo, state } from "../store.js";
 import { $, attempt, closeSheet, esc, openSheet, toast } from "./dom.js";
 import { openFileSheet } from "./fileviewer.js";
 import { openDrawer } from "./shell.js";
+
+const COMMIT_MODEL_KEY = "commitMsgModel";
+function commitModel() {
+  const models = state.boot?.models || [];
+  const saved = localStorage.getItem(COMMIT_MODEL_KEY);
+  if (models.includes(saved)) return saved;
+  const prefer = models.find((m) => /haiku/i.test(m));
+  return prefer || state.boot?.default_model || models[0] || "";
+}
+function setCommitModel(id) {
+  localStorage.setItem(COMMIT_MODEL_KEY, id);
+}
+function paintCommitModelChip() {
+  const id = commitModel();
+  const m = modelInfo(id);
+  const btn = $("csModel"), icon = $("csModelIcon"), name = $("csModelName");
+  if (icon) icon.textContent = m.icon;
+  if (name) name.textContent = m.short;
+  if (btn) btn.title = `Modell: ${m.name}`;
+}
+function openCommitModelPicker() {
+  const existing = $("csModelList");
+  if (existing) { existing.remove(); return; }
+  const host = $("csSuggest");
+  if (!host) return;
+  const models = state.boot?.models || [];
+  const cur = commitModel();
+  const list = document.createElement("div");
+  list.id = "csModelList";
+  list.className = "cs-model-list";
+  list.innerHTML = models.map((id) => {
+    const m = modelInfo(id);
+    return `<button type="button" class="cs-model ${id === cur ? "on" : ""}" data-m="${esc(id)}">
+      <span class="ms">${m.icon}</span><span>${esc(m.name)}</span></button>`;
+  }).join("") || `<div class="empty">Keine Modelle.</div>`;
+  host.after(list);
+  list.onclick = (e) => {
+    const r = e.target.closest("[data-m]");
+    if (!r) return;
+    setCommitModel(r.dataset.m);
+    list.remove();
+    paintCommitModelChip();
+  };
+}
 
 export const MODES = [
   ["ask", "front_hand", "Nachfragen", "Jede Änderung und jeder Befehl wartet auf dein OK"],
@@ -125,25 +170,47 @@ export async function renderChanges(s, projectId, { onChange, onClose } = {}) {
       [st, d] = await Promise.all([api.get(`/code/projects/${projectId}/git`), api.get(`/code/projects/${projectId}/diff${file ? `?file=${encodeURIComponent(file)}` : ""}`)]);
     } catch (e) { s.innerHTML = `<div class="handle"></div><div class="ferr">${esc(e.message)}</div>`; return; }
     const gh = !!st.github;
+    const remoteShort = st.remote ? st.remote.replace(/^https?:\/\//, "").replace(/\.git$/, "") : "";
+    const branchTip = `${st.branch}${st.upstream ? ` → ${st.upstream}` : ""}${st.ahead ? ` · ${st.ahead}↑` : ""}${st.behind ? ` · ${st.behind}↓` : ""}`;
+    s.classList.add("cs-panel");
     s.innerHTML = `${onClose ? `<div class="handle"></div>` : ""}
       ${onClose ? `<div class="cs-head"><h2 class="cs-title">Änderungen</h2><button class="icon-btn" data-x aria-label="Schließen"><span class="ms">close</span></button></div>` : ""}
-      <div class="cs-info"><span><span class="ms">alt_route</span><b>${esc(st.branch)}</b>${st.upstream ? ` → ${esc(st.upstream)}` : ""}${st.ahead ? ` · ${st.ahead} nicht gepusht` : ""}${st.behind ? ` · ${st.behind} neuer auf GitHub` : ""}</span>
-        <span>${st.remote ? `<span class="ms">cloud</span>${esc(st.remote.replace(/^https?:\/\//, "").replace(/\.git$/, ""))}` : `<span class="ms">cloud_off</span>nur lokal`}</span>
-        <span>${gh ? `<span class="ms">account_circle</span>${esc(st.github)}` : `<a href="/einstellungen/github"><span class="ms">link_off</span>GitHub nicht verbunden</a>`}</span></div>
-      ${st.files.length ? `<div class="cs-files">${st.files.map((f) => `<button type="button" class="cs-file ${file === f.path ? "on" : ""}" data-file="${esc(f.path)}"><b class="st-${f.code === "?" ? "A" : f.code}">${esc(f.code === "?" ? "A" : f.code)}</b>${esc(f.path)}</button>`).join("")}
-        ${file ? `<button type="button" class="cs-file" data-file=""><span class="ms">select_all</span>Alle</button>` : ""}</div>` : ""}
+      <div class="cs-info">
+        <span title="${esc(branchTip)}"><span class="ms">alt_route</span><b>${esc(st.branch)}</b>${st.upstream ? `<i>→ ${esc(st.upstream)}</i>` : ""}${st.ahead ? `<i>${st.ahead}↑</i>` : ""}${st.behind ? `<i>${st.behind}↓</i>` : ""}</span>
+        <span title="${esc(remoteShort || "nur lokal")}">${st.remote ? `<span class="ms">cloud</span><i>${esc(remoteShort)}</i>` : `<span class="ms">cloud_off</span><i>lokal</i>`}</span>
+        <span title="${esc(gh ? st.github : "GitHub nicht verbunden")}">${gh ? `<span class="ms">account_circle</span><i>${esc(st.github)}</i>` : `<a href="/einstellungen/github"><span class="ms">link_off</span></a>`}</span>
+      </div>
+      ${st.files.length ? `<div class="cs-files">${st.files.map((f) => `<button type="button" class="cs-file ${file === f.path ? "on" : ""}" data-file="${esc(f.path)}" title="${esc(f.path)}"><b class="st-${f.code === "?" ? "A" : f.code}">${esc(f.code === "?" ? "A" : f.code)}</b><span>${esc(f.path)}</span></button>`).join("")}
+        ${file ? `<button type="button" class="cs-file" data-file="" title="Alle Dateien"><span class="ms">select_all</span></button>` : ""}</div>` : ""}
       ${diffHtml(d.diff)}${d.truncated ? `<p class="hint">Gekürzt – zu viele Änderungen für die Anzeige.</p>` : ""}
-      ${st.files.length ? `<label class="fld"><span>Commit-Nachricht</span><input id="csMsg" maxlength="300" placeholder="Was wurde geändert?"></label>
-        <div class="es-actions"><button class="es-btn primary" data-act="commit"><span class="ms">commit</span>Commit</button>
-        ${st.remote ? `<button class="es-btn" data-act="commitpush"><span class="ms">cloud_upload</span>Commit & Push</button>` : ""}</div>` : ""}
-      <div class="es-actions" style="margin-top:8px">
-        ${st.remote && st.has_commits && (st.ahead || !st.upstream) ? `<button class="es-btn" data-act="push"><span class="ms">cloud_upload</span>Push</button>` : ""}
-        ${!st.remote ? `<button class="es-btn" data-act="publish"><span class="ms">publish</span>Auf GitHub veröffentlichen</button>` : ""}
-        <button class="es-btn" data-act="branch"><span class="ms">add</span>Neuer Branch</button>
-        ${st.branches.length > 1 ? `<button class="es-btn" data-act="switch"><span class="ms">swap_horiz</span>Branch wechseln</button>` : ""}
-        ${st.remote ? `<button class="es-btn" data-act="pr"><span class="ms">merge</span>Pull Request</button>` : ""}
-      </div><div class="ferr" id="csErr"></div>`;
+      ${st.files.length ? `<div class="cs-commit" id="csSuggest">
+        <div class="cs-msg">
+          <input id="csMsg" maxlength="300" placeholder="Commit-Nachricht – was wurde geändert?" aria-label="Commit-Nachricht">
+          <button type="button" class="icon-btn" id="csModel" title="Modell wählen"><span class="ms" id="csModelIcon">smart_toy</span><span class="cs-al" id="csModelName">Modell</span></button>
+          <button type="button" class="icon-btn" data-act="suggest" title="Nachricht vorschlagen"><span class="ms">auto_awesome</span><span class="cs-al">Nachricht</span></button>
+        </div>
+        <div class="cs-acts">
+          <button type="button" class="cs-act primary" data-act="commit" title="Commit"><span class="ms">commit</span><span class="cs-al">Commit</span></button>
+          ${st.remote ? `<button type="button" class="cs-act" data-act="commitpush" title="Commit & Push"><span class="ms">cloud_upload</span><span class="cs-al">Commit & Push</span></button>` : ""}
+          ${st.remote && st.has_commits && (st.ahead || !st.upstream) ? `<button type="button" class="cs-act" data-act="push" title="Push"><span class="ms">cloud_upload</span><span class="cs-al">Push</span></button>` : ""}
+          ${!st.remote ? `<button type="button" class="cs-act" data-act="publish" title="Auf GitHub veröffentlichen"><span class="ms">publish</span><span class="cs-al">Veröffentlichen</span></button>` : ""}
+          <button type="button" class="cs-act" data-act="branch" title="Neuer Branch"><span class="ms">add</span><span class="cs-al">Branch</span></button>
+          ${st.branches.length > 1 ? `<button type="button" class="cs-act" data-act="switch" title="Branch wechseln"><span class="ms">swap_horiz</span><span class="cs-al">Wechseln</span></button>` : ""}
+          ${st.remote ? `<button type="button" class="cs-act" data-act="pr" title="Pull Request"><span class="ms">merge</span><span class="cs-al">PR</span></button>` : ""}
+        </div>
+      </div>` : `<div class="cs-acts">
+        ${st.remote && st.has_commits && (st.ahead || !st.upstream) ? `<button type="button" class="cs-act" data-act="push" title="Push"><span class="ms">cloud_upload</span><span class="cs-al">Push</span></button>` : ""}
+        ${!st.remote ? `<button type="button" class="cs-act" data-act="publish" title="Auf GitHub veröffentlichen"><span class="ms">publish</span><span class="cs-al">Veröffentlichen</span></button>` : ""}
+        <button type="button" class="cs-act" data-act="branch" title="Neuer Branch"><span class="ms">add</span><span class="cs-al">Branch</span></button>
+        ${st.branches.length > 1 ? `<button type="button" class="cs-act" data-act="switch" title="Branch wechseln"><span class="ms">swap_horiz</span><span class="cs-al">Wechseln</span></button>` : ""}
+        ${st.remote ? `<button type="button" class="cs-act" data-act="pr" title="Pull Request"><span class="ms">merge</span><span class="cs-al">PR</span></button>` : ""}
+      </div>`}
+      <div class="ferr" id="csErr"></div>`;
     if (onClose) s.querySelector("[data-x]").onclick = onClose;
+    if (st.files.length) {
+      paintCommitModelChip();
+      $("csModel").onclick = openCommitModelPicker;
+    }
     s.querySelectorAll("[data-file]").forEach((b) => (b.onclick = () => draw(b.dataset.file || null)));
     s.querySelectorAll("[data-act]").forEach((b) => (b.onclick = async () => {
       const act = b.dataset.act;
@@ -153,6 +220,27 @@ export async function renderChanges(s, projectId, { onChange, onClose } = {}) {
         try { const r = await fn(); if (ok) toast(typeof ok === "function" ? ok(r) : ok); await draw(); onChange?.(); return r; }
         catch (e) { $("csErr").textContent = e.message; b.disabled = false; }
       };
+      if (act === "suggest") {
+        const model = commitModel();
+        if (!model) { $("csErr").textContent = "Kein Modell gewählt"; return; }
+        b.disabled = true;
+        $("csErr").textContent = "";
+        const ic = b.querySelector(".ms");
+        const prev = ic?.textContent;
+        if (ic) ic.textContent = "progress_activity";
+        ic?.classList.add("spin");
+        try {
+          const r = await api.post(`/code/projects/${projectId}/commit-message`, { model, ...(file ? { file } : {}) });
+          $("csMsg").value = r.message;
+          $("csMsg").focus();
+        } catch (e) { $("csErr").textContent = e.message; }
+        finally {
+          b.disabled = false;
+          ic?.classList.remove("spin");
+          if (ic && prev) ic.textContent = prev;
+        }
+        return;
+      }
       if (act === "commit" || act === "commitpush") {
         const message = $("csMsg").value.trim();
         if (!message) { $("csErr").textContent = "Commit-Nachricht fehlt"; $("csMsg").focus(); return; }

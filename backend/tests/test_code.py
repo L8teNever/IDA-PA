@@ -223,6 +223,9 @@ def test_git_commit_push_branch_and_pr(client, code_on, github):
     p = _project(client, github)
     st = client.get(f"{API}/code/projects/{p['id']}/git").json()
     assert st["files"] and st["github"] == "octo" and "main" in st["branches"]
+    # short commit message from the diff (fake Claude echoes the prompt – we only need a non-empty line)
+    sug = client.post(f"{API}/code/projects/{p['id']}/commit-message", json={}).json()
+    assert sug["message"] and sug["model"]
     assert client.post(f"{API}/code/projects/{p['id']}/commit", json={"message": " "}).status_code == 400
     r = client.post(f"{API}/code/projects/{p['id']}/commit", json={"message": "Dateien von IDA", "push": True}).json()
     assert r["sha"] and r["pushed"] == "main" and r["files"] >= 2
@@ -230,6 +233,7 @@ def test_git_commit_push_branch_and_pr(client, code_on, github):
     log = subprocess.run(["git", "log", "-1", "--format=%an <%ae>|%s", "main"], cwd=github.bare("octo/hello"), capture_output=True, text=True).stdout
     assert log.strip() == "Octo Cat <42+octo@users.noreply.github.com>|Dateien von IDA"
     assert client.post(f"{API}/code/projects/{p['id']}/commit", json={"message": "leer"}).json()["detail"] == "Nichts zu committen"
+    assert client.post(f"{API}/code/projects/{p['id']}/commit-message", json={}).json()["detail"] == "Keine Änderungen"
     # branches
     assert client.post(f"{API}/code/projects/{p['id']}/branch", json={"name": "kein gültiger..name"}).status_code == 400
     assert client.post(f"{API}/code/projects/{p['id']}/branch", json={"name": "ida/feature"}).json()["branch"] == "ida/feature"
@@ -285,6 +289,21 @@ def test_shared_memory_and_ida_finds_code_threads(client, code_on, github):
     assert "Keine Berechtigung" in text(ev) or "deny" in text(ev)
     for c in client.get(f"{API}/chats").json():
         client.delete(f"{API}/chats/{c['id']}")
+
+
+def test_code_commit_tool_writes_message_from_diff(client, code_on, github):
+    """Agent commits via code_commit; without message a cheap model call uses only the diff."""
+    from app.services.code import projects
+    p = client.post(f"{API}/code/projects", json={"name": "CommitTool"}).json()
+    folder = projects.root() / p["id"]
+    (folder / "note.txt").write_text("hallo commit", encoding="utf-8")
+    ev = chat(client, project_id=p["id"], text='TOOL code_commit {}', permission_mode="full")
+    out = text(ev)
+    assert '"ok": true' in out and '"sha"' in out and '"message"' in out and '"model"' in out
+    assert client.get(f"{API}/code/projects/{p['id']}/git").json()["clean"]
+    # no changes left → tool reports that
+    ev2 = chat(client, project_id=p["id"], text='TOOL code_commit {"message": "nochmal"}', permission_mode="full")
+    assert "Nichts zu committen" in text(ev2) or "Keine Änderungen" in text(ev2)
 
 
 def test_delete_project_removes_threads_and_folder(client, code_on, github):
