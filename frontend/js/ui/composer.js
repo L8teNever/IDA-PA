@@ -3,6 +3,7 @@ import { ctx, send, addSys, stopAnswer } from "../pages/chat.js";
 import { enqueue, initQueue } from "./queue.js";
 import { hasFiles, initAttach, takeFiles, uploading } from "./attach.js";
 import { loadUsage, modelInfo, onChange, state } from "../store.js";
+import { initQuote, withQuote } from "./quote.js";
 import { $, esc } from "./dom.js";
 
 const ACC_COLORS = [["#282a2f", "#c4c6cf"], ["#3a2c0c", "#ffc85a"], ["#1b2a4a", "#8ab4ff"], ["#0f2e22", "#7ee2b8"], ["#3a1029", "#ff8fc8"]];
@@ -131,6 +132,7 @@ function updateSend() {
 }
 
 export function initComposer() {
+  initQuote();
   const input = $("input");
   input.addEventListener("input", () => {
     input.style.height = "auto";
@@ -157,6 +159,7 @@ export function initComposer() {
     let skill = null, body = text;
     const m = /^\/([a-z0-9-]{1,32})(?:\s+([\s\S]*))?$/.exec(text);
     if (m && (state.boot?.skills || []).some((s) => s.id === m[1])) { skill = m[1]; body = (m[2] || "").trim(); }
+    if (body) body = withQuote(body);
     input.value = ""; input.style.height = "auto";
     updateSend();
     document.body.classList.remove("slash-open");

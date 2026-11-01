@@ -2,6 +2,7 @@
 // Die Antwort läuft auf dem Server weiter, auch wenn die Seite gewechselt oder die App geschlossen wird.
 import { api, followChat, streamChat } from "./api.js";
 import { mainAgent } from "./store.js";
+import { userHtml } from "./quote.js";
 import { $, attempt, esc, fmtDateTime, fmtDur, md, toast } from "./ui.js";
 
 // aktueller Thread: id (null = neu), project, mode (Rechte), busy (Antwort läuft)
@@ -67,7 +68,7 @@ function filesHtml(files) {
 
 function addUser(text, files) {
   const r = row("me");
-  r.innerHTML = filesHtml(files) + (text ? `<div class="msg me">${esc(text)}</div>` : "");
+  r.innerHTML = filesHtml(files) + (text ? `<div class="msg me">${userHtml(text)}</div>` : "");
   r.querySelectorAll("img").forEach((i) => i.addEventListener("load", () => scroll(), { once: true }));
   scroll(true);
 }

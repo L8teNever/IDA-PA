@@ -2,6 +2,7 @@
 import { api } from "./api.js";
 import { ctx, send, stopAnswer } from "./chat.js";
 import { loadUsage, mainAgent, modelInfo, state } from "./store.js";
+import { initQuote, withQuote } from "./quote.js";
 import { $, esc, toast } from "./ui.js";
 
 let sel = JSON.parse(localStorage.getItem("code-model") || "null"); // { model, account, effort }
@@ -193,6 +194,7 @@ export function dropFiles() {
 
 // nach dem Zeichnen der Thread-Ansicht aufrufen
 export function bindComposer() {
+  initQuote();
   const input = $("input"), form = $("composer");
   const grow = () => { input.style.height = "auto"; input.style.height = `${Math.min(input.scrollHeight, innerHeight * 0.4)}px`; };
   input.addEventListener("input", () => { grow(); updateSend(); });
@@ -228,7 +230,7 @@ export function bindComposer() {
     input.value = "";
     grow();
     const { model, account, effort } = current();
-    send(text, { model, accountId: account?.id, effort, files: ready });
+    send(text ? withQuote(text) : text, { model, accountId: account?.id, effort, files: ready });
   };
   renderFiles();
   renderChip();

@@ -6,6 +6,7 @@ import { agentById, agentOf, mainAgent, state } from "../store.js";
 import { approvalHtml, bindCodeBar, codeBar, refreshBar } from "../ui/codebar.js";
 import { mountCodePanes } from "../ui/codepanes.js";
 import { $, esc, fmtDateTime, md, toast } from "../ui/dom.js";
+import { userHtml } from "../ui/quote.js";
 import { flashMood, moodForTool, setLive } from "../ui/mascot.js";
 import { setAgent, setView } from "../ui/shell.js";
 
@@ -110,7 +111,7 @@ function filesHtml(files) {
 
 function addUser(text, skill, files) {
   const r = row("me");
-  r.innerHTML = filesHtml(files) + (text || skill ? `<div class="msg me">${skill ? `<span class="skill-tag"><span class="ms">auto_fix_high</span>/${esc(skill)}</span> ` : ""}${esc(text)}</div>` : "");
+  r.innerHTML = filesHtml(files) + (text || skill ? `<div class="msg me">${skill ? `<span class="skill-tag"><span class="ms">auto_fix_high</span>/${esc(skill)}</span> ` : ""}${userHtml(text)}</div>` : "");
   r.querySelectorAll("img").forEach((i) => i.addEventListener("load", scroll, { once: true }));
   scroll();
 }

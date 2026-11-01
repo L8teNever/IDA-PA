@@ -638,3 +638,17 @@ body.pane-resizing iframe { pointer-events: none; }
 .ac-step .ac-st { font-size: 17px; }
 .ac-log { max-height: 72vh; font-size: 11.5px; }
 .diff i.warn { color: var(--warn); }
+
+/* ---------- Zitat aus einer Antwort ("Fragen") ---------- */
+.quote-fab { position: fixed; z-index: 500; display: inline-flex; align-items: center; gap: 6px; height: 36px; padding: 0 14px 0 10px; border: 0; border-radius: 999px;
+  background: var(--accent); color: var(--on-accent); font: inherit; font-size: 13.5px; font-weight: 500; cursor: pointer; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5); animation: qf-in 0.14s ease-out; }
+.quote-fab[hidden] { display: none; }
+.quote-fab .ms { font-size: 19px; }
+@keyframes qf-in { from { opacity: 0; transform: translateY(4px) scale(0.96); } to { opacity: 1; transform: none; } }
+.quote-chip { display: flex; align-items: flex-start; gap: 8px; margin: 0 0 6px; padding: 8px 4px 8px 12px; border-radius: 16px; background: var(--surface-high); border-left: 3px solid var(--accent); }
+.quote-chip[hidden] { display: none; }
+.quote-chip > .ms { font-size: 18px; color: var(--accent); margin-top: 2px; flex: none; }
+.qc-text { flex: 1; min-width: 0; font-size: 13px; line-height: 1.45; color: var(--muted); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; white-space: pre-wrap; word-break: break-word; }
+.msg-quote { display: flex; gap: 6px; margin: -2px 0 8px; padding: 6px 10px; border-radius: 12px; border-left: 3px solid var(--accent); background: rgba(255, 255, 255, 0.06); font-size: 13px; line-height: 1.45; color: var(--muted); }
+.msg-quote .ms { font-size: 16px; color: var(--accent); flex: none; margin-top: 1px; }
+.msg-quote > span:last-child { display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; white-space: pre-wrap; word-break: break-word; }
