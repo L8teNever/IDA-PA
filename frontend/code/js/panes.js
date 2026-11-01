@@ -131,7 +131,7 @@ function mountFiles(el, projectId, isCurrent) {
 
 // ---- Änderungen ----
 function diffHtml(text) {
-  if (!text.trim()) return `<div class="pane-empty"><span class="ms big">check_circle</span>Keine Änderungen seit dem letzten Commit.</div>`;
+  if (!text.trim()) return `<div class="pane-empty clean"><span class="empty-ic"><span class="ms big">check</span></span><b>Alles committet</b><small>Keine Änderungen seit dem letzten Commit.</small></div>`;
   return `<pre class="diff">${text.split("\n").map((l) => {
     const c = l.startsWith("diff --git") ? "file" : l.startsWith("+++") || l.startsWith("---") ? "meta" : l.startsWith("@@") ? "hunk" : l.startsWith("+") ? "add" : l.startsWith("-") ? "del" : "";
     return `<i class="${c}">${esc(l)}</i>`;
@@ -162,12 +162,16 @@ export async function renderChanges(el, projectId, { onChange, isCurrent = () =>
     if (!isCurrent()) return;
     const remote = st.remote ? st.remote.replace(/^https?:\/\//, "").replace(/\.git$/, "") : "";
     el.innerHTML = `<div class="pane-box">
-      <div class="git-info">
-        <span><span class="ms">alt_route</span><b>${esc(st.branch)}</b>${st.upstream ? ` → ${esc(st.upstream)}` : ""}</span>
-        ${st.ahead ? `<span class="pill warn"><span class="ms">arrow_upward</span>${st.ahead} nicht gepusht</span>` : ""}
-        ${st.behind ? `<span class="pill"><span class="ms">arrow_downward</span>${st.behind} neuer auf GitHub</span>` : ""}
-        <span>${remote ? `<span class="ms">cloud</span>${esc(remote)}` : `<span class="ms">cloud_off</span>nur lokal`}</span>
-        <span>${st.github ? `<span class="ms">account_circle</span>${esc(st.github)}` : `<span class="ms">link_off</span>GitHub nicht verbunden`}</span>
+      <div class="git-card">
+        <div class="gi-row"><span class="gi-ic"><span class="ms">alt_route</span></span>
+          <span class="gi-txt"><small>Branch</small><b>${esc(st.branch)}</b></span>
+          ${st.upstream ? `<span class="gi-side" title="verknüpft mit ${esc(st.upstream)}"><span class="ms">link</span>${esc(st.upstream)}</span>` : ""}
+          ${st.ahead ? `<span class="pill warn" title="${st.ahead} nicht gepusht"><span class="ms">arrow_upward</span>${st.ahead}</span>` : ""}
+          ${st.behind ? `<span class="pill" title="${st.behind} neuer auf GitHub"><span class="ms">arrow_downward</span>${st.behind}</span>` : ""}</div>
+        <div class="gi-row"><span class="gi-ic"><span class="ms">${remote ? "cloud" : "cloud_off"}</span></span>
+          <span class="gi-txt"><small>Repository</small><b>${remote ? esc(remote) : "nur lokal"}</b></span></div>
+        <div class="gi-row"><span class="gi-ic"><span class="ms">${st.github ? "account_circle" : "link_off"}</span></span>
+          <span class="gi-txt"><small>GitHub</small><b>${st.github ? esc(st.github) : "nicht verbunden"}</b></span></div>
       </div>
       ${st.files.length ? `<div class="cs-files">${st.files.map((f) => { const c = f.code === "?" ? "A" : f.code; return `<button type="button" class="cs-file ${file === f.path ? "on" : ""}" data-file="${esc(f.path)}"><b class="st-${esc(c)}">${esc(c)}</b><span>${esc(f.path)}</span></button>`; }).join("")}
         ${file ? `<button type="button" class="cs-file" data-file=""><span class="ms">select_all</span><span>Alle</span></button>` : ""}</div>` : ""}
