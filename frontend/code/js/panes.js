@@ -2,12 +2,13 @@
 // Am PC als eigene Insel rechts, am Handy/Tablet als großer Dialog mit denselben Tabs.
 import { api, rawUrl } from "./api.js";
 import { esc, fmtBytes, fmtRel, formDialog, md, openModal, popMenu, toast } from "./ui.js";
+import { modelInfo, state } from "./store.js";
 
 export const TABS = [["files", "folder_open", "Dateien"], ["changes", "difference", "Änderungen"]];
 
 export function tabsHtml(tab, extra = "") {
-  return `<div class="pane-tabs" role="tablist">${TABS.map(([k, ic, t]) => `<button type="button" role="tab" data-pane-tab="${k}" class="${tab === k ? "on" : ""}">
-    <span class="ms">${ic}</span><span>${t}</span></button>`).join("")}${extra}</div>`;
+  return `<div class="pane-tabs" role="tablist">${TABS.map(([k, ic, t]) => `<button type="button" role="tab" data-pane-tab="${k}" class="${tab === k ? "on" : ""}" title="${t}" aria-label="${t}">
+    <span class="ms">${ic}</span></button>`).join("")}${extra}</div>`;
 }
 
 // Inhalt eines Tabs in el zeichnen. isCurrent(el) sagt, ob el noch angezeigt wird (sonst nichts mehr hineinschreiben).
@@ -36,7 +37,7 @@ function fileIcon(name, isDir) {
 const lines = (src) => (src ? src.split("\n").map((l, i) => `<span class="ln">${i + 1}</span><span class="lc">${esc(l) || " "}</span>`).join("\n") : `<span class="muted">(leere Datei)</span>`);
 
 function mountFiles(el, projectId, isCurrent) {
-  let cur = "", q = "", dir = null;
+  let cur = "", q = "", dir = null, searching = false;
   let htmlTab = "render", mdTab = "render", device = "full";
 
   const loadDir = async (path = "") => {
@@ -59,8 +60,10 @@ function mountFiles(el, projectId, isCurrent) {
     el.innerHTML = `<div class="pane-box">
       <div class="fe-bar"><div class="fe-crumbs">${crumbs}</div>
         ${dir.parent !== null ? `<button type="button" class="icon-btn sm" data-up title="Ebene nach oben"><span class="ms">arrow_upward</span></button>` : ""}
+        <button type="button" class="icon-btn sm ${searching ? "active" : ""}" data-search title="Im Ordner suchen"><span class="ms">search</span></button>
         <button type="button" class="icon-btn sm" data-reload title="Neu laden"><span class="ms">refresh</span></button></div>
-      <label class="pane-search"><span class="ms">search</span><input type="search" placeholder="In diesem Ordner filtern" value="${esc(q)}"></label>
+      ${searching ? `<label class="pane-search"><span class="ms">search</span><input type="search" placeholder="In diesem Ordner filtern" value="${esc(q)}">
+        <button type="button" class="icon-btn sm" data-search-close title="Suche schließen"><span class="ms">close</span></button></label>` : ""}
       <div class="fe-list">${list.length ? list.map((e) => {
         const [ic, cls] = fileIcon(e.name, e.is_dir);
         return `<button type="button" class="fe-row" data-path="${esc(e.path)}" data-dir="${e.is_dir ? 1 : 0}">
@@ -71,8 +74,13 @@ function mountFiles(el, projectId, isCurrent) {
     el.querySelectorAll("[data-cd]").forEach((b) => (b.onclick = () => loadDir(b.dataset.cd)));
     el.querySelector("[data-up]")?.addEventListener("click", () => loadDir(dir.parent || ""));
     el.querySelector("[data-reload]").onclick = () => loadDir(cur);
+    el.querySelector("[data-search]").onclick = () => { searching = !searching; if (!searching) q = ""; drawDir(); el.querySelector(".pane-search input")?.focus(); };
     const inp = el.querySelector(".pane-search input");
-    inp.oninput = () => { q = inp.value; const pos = inp.selectionStart; drawDir(); const n = el.querySelector(".pane-search input"); n.focus(); n.setSelectionRange(pos, pos); };
+    if (inp) {
+      inp.oninput = () => { q = inp.value; const pos = inp.selectionStart; drawDir(); const n = el.querySelector(".pane-search input"); n.focus(); n.setSelectionRange(pos, pos); };
+      inp.onkeydown = (e) => { if (e.key === "Escape") { searching = false; q = ""; drawDir(); } };
+      el.querySelector("[data-search-close]").onclick = () => { searching = false; q = ""; drawDir(); };
+    }
     el.querySelectorAll(".fe-row").forEach((r) => (r.onclick = () => (r.dataset.dir === "1" ? loadDir(r.dataset.path) : loadFile(r.dataset.path))));
   };
 
@@ -130,6 +138,20 @@ function diffHtml(text) {
   }).join("")}</pre>`;
 }
 
+// Modell nur für die Commit-Nachricht (bleibt gespeichert, "" = günstiges Standardmodell)
+const cmModel = () => localStorage.getItem("code-commit-model") || "";
+const cmLabel = () => (cmModel() ? modelInfo(cmModel()).name : "Standard (günstig)");
+
+function gitButtons(st) {
+  const b = (act, ic, label, tonal = true) => `<button type="button" class="${tonal ? "btn-tonal" : "btn-primary"}" data-act="${act}" title="${label}"><span class="ms">${ic}</span><span class="lbl">${label}</span></button>`;
+  return [
+    st.remote && st.has_commits && (st.ahead || !st.upstream) ? b("push", "cloud_upload", "Push") : "",
+    !st.remote ? b("publish", "publish", "Auf GitHub veröffentlichen") : "",
+    b("branch", "alt_route", "Branch"),
+    st.remote ? b("pr", "merge", "Pull Request") : "",
+  ].join("");
+}
+
 export async function renderChanges(el, projectId, { onChange, isCurrent = () => el.isConnected } = {}) {
   let file = null;
   const draw = async () => {
@@ -150,15 +172,14 @@ export async function renderChanges(el, projectId, { onChange, isCurrent = () =>
       ${st.files.length ? `<div class="cs-files">${st.files.map((f) => { const c = f.code === "?" ? "A" : f.code; return `<button type="button" class="cs-file ${file === f.path ? "on" : ""}" data-file="${esc(f.path)}"><b class="st-${esc(c)}">${esc(c)}</b><span>${esc(f.path)}</span></button>`; }).join("")}
         ${file ? `<button type="button" class="cs-file" data-file=""><span class="ms">select_all</span><span>Alle</span></button>` : ""}</div>` : ""}
       ${diffHtml(d.diff)}${d.truncated ? `<p class="sheet-hint">Gekürzt – zu viele Änderungen für die Anzeige.</p>` : ""}
-      ${st.files.length ? `<form class="commit-box" data-commit><input class="cd-input" name="msg" maxlength="300" placeholder="Commit-Nachricht – was wurde geändert?" autocomplete="off">
-        <div class="btn-row"><button class="btn-primary" type="submit" data-how="commit"><span class="ms">commit</span>Commit</button>
-        ${st.remote ? `<button class="btn-tonal" type="submit" data-how="push"><span class="ms">cloud_upload</span>Commit &amp; Push</button>` : ""}</div></form>` : ""}
-      <div class="btn-row">
-        ${st.remote && st.has_commits && (st.ahead || !st.upstream) ? `<button type="button" class="btn-tonal" data-act="push"><span class="ms">cloud_upload</span>Push</button>` : ""}
-        ${!st.remote ? `<button type="button" class="btn-tonal" data-act="publish"><span class="ms">publish</span>Auf GitHub veröffentlichen</button>` : ""}
-        <button type="button" class="btn-tonal" data-act="branch"><span class="ms">alt_route</span>Branch</button>
-        ${st.remote ? `<button type="button" class="btn-tonal" data-act="pr"><span class="ms">merge</span>Pull Request</button>` : ""}
-      </div><div class="ferr" data-err></div></div>`;
+      ${st.files.length ? `<form class="commit-box" data-commit>
+        <div class="cm-row"><input class="cd-input" name="msg" maxlength="300" placeholder="Commit-Nachricht – was wurde geändert?" autocomplete="off">
+          <button type="button" class="icon-btn sm" data-gen title="Nachricht schreiben lassen (${esc(cmLabel())})"><span class="ms">auto_awesome</span></button>
+          <button type="button" class="icon-btn sm" data-model title="Modell für die Nachricht: ${esc(cmLabel())}"><span class="ms">smart_toy</span></button></div>
+        <div class="act-row"><button class="btn-primary" type="submit" data-how="commit" title="Commit"><span class="ms">commit</span><span class="lbl">Commit</span></button>
+        ${st.remote ? `<button class="btn-tonal" type="submit" data-how="push" title="Commit &amp; Push"><span class="ms">cloud_upload</span><span class="lbl">Commit &amp; Push</span></button>` : ""}
+        ${gitButtons(st)}</div></form>` : `<div class="act-row">${gitButtons(st)}</div>`}
+      <div class="ferr" data-err></div></div>`;
     const err = el.querySelector("[data-err]");
     const run = async (btn, fn, ok) => {
       if (btn) btn.disabled = true;
@@ -175,6 +196,22 @@ export async function renderChanges(el, projectId, { onChange, isCurrent = () =>
       const push = e.submitter?.dataset.how === "push";
       run(e.submitter, () => api.post(`/code/projects/${projectId}/commit`, { message, push }), (r) => `Committet (${r.sha})${r.pushed ? " und gepusht" : ""}`);
     };
+    const msgInput = form?.elements.msg;
+    form?.querySelector("[data-model]")?.addEventListener("click", (ev) => {
+      const btn = ev.currentTarget;
+      const items = [{ head: "Modell für Commit-Nachrichten" }, { value: "", icon: "bolt", label: "Standard (günstig)", on: !cmModel() }]
+        .concat((state.boot?.models || []).map((id) => { const i = modelInfo(id); return { value: id, icon: i.icon, label: i.name, sub: i.desc, on: cmModel() === id }; }));
+      popMenu(btn, items, (v) => { localStorage.setItem("code-commit-model", v); toast(`Commit-Nachrichten: ${cmLabel()}`); draw(); });
+    });
+    form?.querySelector("[data-gen]")?.addEventListener("click", async (ev) => {
+      const btn = ev.currentTarget, ic = btn.querySelector(".ms");
+      btn.disabled = true; ic.textContent = "progress_activity"; ic.classList.add("spin"); err.textContent = "";
+      try {
+        const r = await api.post(`/code/projects/${projectId}/commit-message`, { model: cmModel() || null, file });
+        msgInput.value = r.message; msgInput.focus();
+      } catch (e) { err.textContent = e.message; }
+      finally { btn.disabled = false; ic.textContent = "auto_awesome"; ic.classList.remove("spin"); }
+    });
     el.querySelectorAll("[data-act]").forEach((b) => (b.onclick = async () => {
       const act = b.dataset.act;
       if (act === "push") return run(b, () => api.post(`/code/projects/${projectId}/push`), "Gepusht");

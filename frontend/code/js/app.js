@@ -43,6 +43,8 @@ export async function startApp(root) {
   $("sideQ").oninput = () => { q = $("sideQ").value; drawSide(); };
   $("scrim").onclick = closeDrawer;
   document.addEventListener("click", onClick);
+  document.addEventListener("pointerdown", (e) => { if (e.button === 0 && e.target.closest("[data-pane-resize]")) startPaneResize(e); });
+  document.addEventListener("dblclick", (e) => { if (e.target.closest("[data-pane-resize]")) { localStorage.removeItem("code-pane-w"); applyPaneW(); } });
   addEventListener("resize", () => { drawPane(); measureSide(); });
   addEventListener("keydown", (e) => {
     if ((e.ctrlKey || e.metaKey) && e.key === "k") { e.preventDefault(); openDrawer(); $("sideQ").focus(); }
@@ -186,6 +188,27 @@ function setPane(tab) {
   drawRail();
 }
 
+// Breite der rechten Insel: per Ziehen am linken Rand, wird gemerkt und beim nächsten Öffnen wieder verwendet
+const PANE_MIN = 320, paneMax = () => Math.max(PANE_MIN, Math.min(900, innerWidth - 560));
+const clampPane = (w) => Math.round(Math.max(PANE_MIN, Math.min(paneMax(), w)));
+function applyPaneW() {
+  const w = parseInt(localStorage.getItem("code-pane-w") || "", 10);
+  if (w) $("pane").style.setProperty("--pane-w", `${clampPane(w)}px`); else $("pane").style.removeProperty("--pane-w");
+}
+function startPaneResize(e) {
+  e.preventDefault();
+  const pane = $("pane"), right = pane.getBoundingClientRect().right;
+  let w = pane.offsetWidth;
+  document.body.classList.add("pane-resizing");
+  const move = (ev) => { w = clampPane(right - ev.clientX); pane.style.setProperty("--pane-w", `${w}px`); };
+  const up = () => {
+    document.body.classList.remove("pane-resizing");
+    removeEventListener("pointermove", move); removeEventListener("pointerup", up); removeEventListener("pointercancel", up);
+    localStorage.setItem("code-pane-w", String(w));
+  };
+  addEventListener("pointermove", move); addEventListener("pointerup", up); addEventListener("pointercancel", up);
+}
+
 let paneFor = null; // { project, tab } – was rechts gerade gezeigt wird
 function drawPane(force = false) {
   const pane = $("pane");
@@ -195,7 +218,8 @@ function drawPane(force = false) {
   if (!showIt) { paneFor = null; return; }
   if (!force && paneFor?.project === cur.id && paneFor?.tab === paneTab) return;
   paneFor = { project: cur.id, tab: paneTab };
-  pane.innerHTML = `${tabsHtml(paneTab, `<button type="button" class="icon-btn sm" data-pane-close title="Schließen (Strg+.)" aria-label="Bereich schließen"><span class="ms">right_panel_close</span></button>`)}<div class="pane-body" id="paneBody"></div>`;
+  applyPaneW();
+  pane.innerHTML = `<div class="pane-resize" data-pane-resize title="Breite ziehen (Doppelklick: zurücksetzen)"></div>${tabsHtml(paneTab, `<button type="button" class="icon-btn sm" data-pane-close title="Schließen (Strg+.)" aria-label="Bereich schließen"><span class="ms">right_panel_close</span></button>`)}<div class="pane-body" id="paneBody"></div>`;
   fillTab($("paneBody"), cur.id, paneTab, { onChange: refreshProject });
 }
 
@@ -495,7 +519,7 @@ function drawTopbarChips() {
   const files = (cur.git?.files || []).length;
   const m = modeOf(ctx.mode);
   box.innerHTML = `<button type="button" class="chip mode-chip mode-${m[0]}" data-act="mode" title="${esc(m[3])}"><span class="ms">${m[1]}</span><span class="hide-xs">${m[2]}</span></button>
-    <button type="button" class="chip ${files ? "has" : ""}" data-pane="changes" title="Änderungen, Commit, Push, Pull Request"><span class="ms">difference</span><span class="hide-xs">${files ? `${files} Änderung${files === 1 ? "" : "en"}` : "Änderungen"}</span>${files ? `<b class="chip-n mobile-only">${files}</b>` : ""}</button>
+    <button type="button" class="chip ${files ? "has" : ""}" data-pane="changes" title="Änderungen, Commit, Push, Pull Request" aria-label="Änderungen"><span class="ms">difference</span>${files ? `<b class="chip-n">${files}</b>` : ""}</button>
     <button type="button" class="icon-btn" data-pane="files" title="Dateien (Strg+.)" aria-label="Dateien"><span class="ms">folder_open</span></button>
     ${ctx.id ? `<button type="button" class="icon-btn" data-act="thread-menu" title="Thread" aria-label="Thread-Menü"><span class="ms">more_vert</span></button>` : ""}`;
   const b = $("thBranch");
