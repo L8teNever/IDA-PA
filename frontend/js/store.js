@@ -27,7 +27,8 @@ export function modelInfo(id) {
   if (isAgy(id)) {
     const rest = id.slice(4);
     const short = /gemini/i.test(rest) ? "Gemini" : /claude/i.test(rest) ? "Claude" : /gpt/i.test(rest) ? "GPT" : pretty(rest.split("-")[0]);
-    return { id, short, icon: /gemini/i.test(rest) ? "diamond" : "rocket_launch", desc: "über Google Antigravity", name: label || pretty(rest) };
+    const icon = /gemini/i.test(rest) ? "diamond" : /claude/i.test(rest) ? "psychology" : /gpt/i.test(rest) ? "auto_awesome" : "rocket_launch";
+    return { id, short, icon, desc: "über Google Antigravity", name: label || pretty(rest) };
   }
   const key = Object.keys(MODEL_INFO).find((k) => id.includes(k));
   const ver = (id.match(/(\d+)-(\d+)$/) || []).slice(1).join(".");
@@ -68,11 +69,19 @@ export function setUnread(n) {
   emit();
 }
 
+/** Session limit for the chip: Claude five_hour, or Antigravity's unmuted 5h pool (Gemini / Claude&GPT). */
+export function sessionWindow(windows) {
+  const list = windows || [];
+  return list.find((x) => x.id === "five_hour")
+    || list.find((x) => !x.muted && /-(5h|quota)$/.test(x.id || ""))
+    || list.find((x) => !x.muted);
+}
+
 export async function loadUsage() {
   try {
     const list = await api.get("/usage");
     for (const a of list) {
-      const w = (a.windows || []).find((x) => x.id === "five_hour");
+      const w = sessionWindow(a.windows);
       state.usage[a.id] = w ? Math.round(w.percent ?? 0) : null;
     }
     emit();

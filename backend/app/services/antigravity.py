@@ -532,20 +532,32 @@ async def logout(account: Account) -> None:
 
 # ---------------- models ----------------
 def _parse_models(result: dict) -> list[dict]:
-    """The account's models. The agent lists every model with its thinking level (…-low/-medium/-high) under
-    models.availableModels – that list is preferred; the "model" select only has the base models."""
-    variants = [{"id": m["modelId"], "name": m.get("name") or m["modelId"], "desc": ""}
-                for m in ((result or {}).get("models") or {}).get("availableModels") or [] if m.get("modelId")]
-    order = {"high": 0, "medium": 1, "low": 2}
-    variants.sort(key=lambda m: (re.sub(r"-(low|medium|high)$", "", m["id"]), order.get(m["id"].rsplit("-", 1)[-1], 9)))
-    out: list[dict] = []
+    """All models the Antigravity account can run: Gemini, Claude and GPT.
+
+    session/new exposes two lists – the "model" select (base ids, often including Claude/GPT) and
+    models.availableModels (thinking-level variants, often Gemini-heavy). Older code preferred the
+    longer list and dropped Claude/GPT when Gemini alone had more variants. We merge both; if a
+    base id also has -low/-medium/-high variants, the bare base is omitted.
+    """
+    by_id: dict[str, dict] = {}
     for opt in (result or {}).get("configOptions") or []:
         if opt.get("id") == "model" and opt.get("type") == "select":
             for entry in opt.get("options") or []:
                 for o in (entry.get("options") if "options" in entry else [entry]):
                     if o.get("value"):
-                        out.append({"id": o["value"], "name": o.get("name") or o["value"], "desc": o.get("description") or ""})
-    return variants if len(variants) >= len(out) else out
+                        by_id[o["value"]] = {"id": o["value"], "name": o.get("name") or o["value"],
+                                             "desc": o.get("description") or ""}
+    for m in ((result or {}).get("models") or {}).get("availableModels") or []:
+        mid = m.get("modelId")
+        if mid:
+            by_id[mid] = {"id": mid, "name": m.get("name") or mid, "desc": ""}
+    has_variant = {re.sub(r"-(low|medium|high)$", "", mid) for mid in by_id if re.search(r"-(low|medium|high)$", mid)}
+    for base in has_variant:
+        by_id.pop(base, None)
+    order = {"high": 0, "medium": 1, "low": 2}
+    out = list(by_id.values())
+    out.sort(key=lambda m: (re.sub(r"-(low|medium|high)$", "", m["id"]), order.get(m["id"].rsplit("-", 1)[-1], 9), m["id"]))
+    return out
 
 
 async def load_models(account: Account, c: Client | None = None) -> list[dict]:
@@ -602,11 +614,13 @@ async def _fetch_usage(account: Account) -> dict:
                         if rr.status_code == 200:
                             outs.append(rr.json())
                 return outs
-            # the summary only has the shared Claude/GPT group; Gemini quotas are per model in fetchAvailableModels
+            # summary = shared pools (gemini-*/3p-*); fetchAvailableModels fills gaps (often only 5h)
+            # and lists Claude/GPT that the ACP select sometimes omits from availableModels
             windows = _summary_windows(await call("retrieveUserQuotaSummary"))
-            covered = {w["id"].split("-")[0] for w in windows}
-            windows += [w for w in _model_windows(await call("fetchAvailableModels"))
-                        if not (w["id"].startswith(("claude", "gpt")) and "3p" in covered)]
+            model_payloads = await call("fetchAvailableModels")
+            covered = {_quota_period(w["id"]) for w in windows}
+            windows += [w for w in _model_windows(model_payloads) if _quota_period(w["id"]) not in covered]
+            _merge_quota_models(account.id, model_payloads)
     except (OSError, ValueError, KeyError, httpx.HTTPError) as e:
         return {"error": f"Limits konnten nicht gelesen werden: {e.__class__.__name__}"}
     if not windows:
@@ -614,23 +628,119 @@ async def _fetch_usage(account: Account) -> dict:
     return {"windows": _present(windows, status(account).get("models", []))}
 
 
+def _merge_quota_models(account_id: str, payloads: list[dict]) -> None:
+    """Add Claude/GPT/Gemini ids from Google's quota catalog if the ACP session list missed them."""
+    extra: list[dict] = []
+    for s in payloads:
+        for mid, m in (s.get("models") or {}).items():
+            if not mid or not m.get("displayName"):
+                continue
+            if _model_family(mid) not in ("gemini", "claude", "gpt"):
+                continue
+            extra.append({"id": mid, "name": m["displayName"], "desc": ""})
+    if not extra:
+        return
+    try:
+        cur = {m["id"] if isinstance(m, dict) else str(m): (m if isinstance(m, dict) else {"id": str(m), "name": str(m)})
+               for m in json.loads(_status_file(account_id).read_text(encoding="utf8")).get("models") or [] if m}
+    except (OSError, ValueError):
+        cur = {}
+    changed = False
+    for m in extra:
+        if m["id"] not in cur:
+            cur[m["id"]] = m
+            changed = True
+    if changed:
+        order = {"high": 0, "medium": 1, "low": 2}
+        models = list(cur.values())
+        models.sort(key=lambda m: (re.sub(r"-(low|medium|high)$", "", m["id"]), order.get(m["id"].rsplit("-", 1)[-1], 9), m["id"]))
+        _save_status(account_id, models=models)
+
+
+def _model_family(mid: str) -> str:
+    m = (mid or "").lower()
+    if m.startswith("gemini") or m.startswith("agy:gemini"):
+        return "gemini"
+    if m.startswith("claude") or m.startswith("agy:claude"):
+        return "claude"
+    if m.startswith("gpt") or m.startswith("agy:gpt") or m.startswith("openai"):
+        return "gpt"
+    return "other"
+
+
+def _quota_pool(wid: str) -> str:
+    """Quota bucket → pool. 3p is Google's shared Claude+GPT pool."""
+    w = (wid or "").lower()
+    if w.startswith("gemini"):
+        return "gemini"
+    if w.startswith(("3p", "claude", "gpt")):
+        return "third_party"
+    return "other"
+
+
+def _quota_period(wid: str) -> tuple[str, str]:
+    """(pool, period) so summary gemini-5h and model gemini-quota do not both appear."""
+    w = (wid or "").lower()
+    pool = _quota_pool(w)
+    if "weekly" in w:
+        period = "weekly"
+    elif "5h" in w or w.endswith("-quota") or w.endswith("_quota"):
+        period = "5h"
+    else:
+        period = w
+    return pool, period
+
+
 def _present(windows: list[dict], models: list[dict]) -> list[dict]:
-    """Gemini (usable in IDA) first, with the models it covers; Claude & GPT last and marked as not usable."""
-    names = list(dict.fromkeys(re.sub(r"\s*\((low|medium|high)\)$", "", m.get("name") or m["id"], flags=re.I) for m in models))
+    """Show quotas for model families the account can actually pick in IDA; mute the rest.
+
+    Selectable models come from the Antigravity account (status.json). Gemini and Claude/GPT
+    (agy:…) each have their own shared pool – only pools with at least one selectable model
+    stay unmuted and list those model names.
+    """
+    by_pool: dict[str, list[str]] = {"gemini": [], "third_party": [], "other": []}
+    for m in models:
+        mid = m.get("id") or ""
+        fam = _model_family(mid)
+        pool = "gemini" if fam == "gemini" else "third_party" if fam in ("claude", "gpt") else "other"
+        name = re.sub(r"\s*\((low|medium|high)\)$", "", m.get("name") or mid, flags=re.I)
+        if name and name not in by_pool[pool]:
+            by_pool[pool].append(name)
+    selectable = {p for p, names in by_pool.items() if names and p != "other"}
+
     now = time.time()
-    for w in windows:
+    out: list[dict] = []
+    seen: set[tuple[str, str]] = set()
+    # prefer summary ids (gemini-5h / *-weekly) over fetchAvailableModels (*-quota)
+    ordered = sorted(windows, key=lambda w: (0 if re.search(r"-(5h|weekly)$", w["id"] or "") else 1, w["id"]))
+    for w in ordered:
+        key = _quota_period(w["id"])
+        if key in seen:
+            continue
+        seen.add(key)
         with contextlib.suppress(ValueError, TypeError):  # Google keeps sending the last reset when nothing is used up
-            if datetime.fromisoformat(str(w["resets_at"]).replace("Z", "+00:00")).timestamp() < now:
+            if w.get("resets_at") and datetime.fromisoformat(str(w["resets_at"]).replace("Z", "+00:00")).timestamp() < now:
                 w["resets_at"] = None
-        if w["id"].startswith("gemini"):
-            w["label"] = "Gemini · alle Modelle" + (" · Woche" if w["id"].endswith("weekly") else "")
-            w["models"] = names
-            w["note"] = "Google rechnet alle Gemini-Modelle über ein gemeinsames Kontingent ab."
-        elif w["id"].startswith(("3p", "claude", "gpt")):
-            w["label"] = w["label"].replace(" (in IDA nicht nutzbar)", "")
+        pool, period = key
+        weekly = period == "weekly"
+        period_lbl = " · Woche" if weekly else " · 5 Std" if period == "5h" else ""
+        usable = pool in selectable
+        if pool == "gemini":
+            w["label"] = "Gemini" + period_lbl
+            w["models"] = by_pool["gemini"]
+            w["muted"] = not usable
+            w["note"] = ("Gemeinsames Kontingent der Gemini-Modelle, die du über Antigravity wählen kannst."
+                         if usable else "Kein Gemini-Modell zur Auswahl auf diesem Account.")
+        elif pool == "third_party":
+            w["label"] = "Claude & GPT" + period_lbl
+            w["models"] = by_pool["third_party"]
+            w["muted"] = not usable
+            w["note"] = ("Gemeinsames Kontingent der Claude-/GPT-Modelle, die du über Antigravity wählen kannst."
+                         if usable else "Nicht zur Auswahl – auf diesem Account sind diese Modelle nicht freigeschaltet.")
+        else:
             w["muted"] = True
-            w["note"] = "In IDA nicht nutzbar – Google gibt Claude & GPT beim offiziellen Login nicht frei."
-    return sorted(windows, key=lambda w: bool(w.get("muted")))
+        out.append(w)
+    return sorted(out, key=lambda w: (bool(w.get("muted")), 0 if _quota_period(w["id"])[1] == "5h" else 1, w["id"]))
 
 
 def _window(wid: str, label: str, q: dict) -> dict | None:
@@ -686,7 +796,7 @@ def _model_windows(responses: list[dict]) -> list[dict]:
 
 async def exhausted(account: Account) -> bool:
     u = await usage(account)
-    # only quotas of models IDA can actually run (Claude & GPT via Antigravity are not usable anyway)
+    # only quotas of model families the account can actually pick in IDA
     return any((w.get("percent") or 0) >= 99.5 for w in u.get("windows") or [] if not w.get("muted"))
 
 

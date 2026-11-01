@@ -25,8 +25,10 @@ export async function usagePage(_, query) {
   $("uList").innerHTML = list.map((a) => {
     const tag = `<span class="prov-tag ${a.provider || "claude"}">${a.provider === "antigravity" ? "Antigravity" : "Claude"}</span>`;
     if (a.error) return `<div class="pcard"><div class="pc-head"><b>${esc(a.name)} ${tag}</b></div><div class="pc-foot">⚠ ${esc(a.error)}</div></div>`;
-    const week = a.windows.find((w) => w.id === "seven_day");
-    const sess = a.windows.find((w) => w.id === "five_hour");
+    // Claude: five_hour/seven_day; Antigravity: unmuted gemini-/3p- 5h & weekly pools
+    const open = a.windows.filter((w) => !w.muted);
+    const week = open.find((w) => w.id === "seven_day") || open.find((w) => /weekly$/.test(w.id || ""));
+    const sess = open.find((w) => w.id === "five_hour") || open.find((w) => /-(5h|quota)$/.test(w.id || ""));
     const others = a.windows.filter((w) => w !== week && w !== sess);
     const p = Math.round(week?.percent ?? 0);
     return `<div class="acc-block"><div class="grp">${esc(a.name)} ${tag}${a.stale ? " · " + esc(a.note || "alte Werte") : ""}</div>

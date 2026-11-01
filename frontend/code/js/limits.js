@@ -26,8 +26,9 @@ function accountHtml(a) {
   const tag = `<span class="lim-tag">${a.provider === "antigravity" ? "Antigravity" : "Claude"}</span>`;
   const title = `<div class="set-gl">${esc(a.name)} ${tag}${a.stale ? ` · ${esc(a.note || "alte Werte")}` : ""}</div>`;
   if (a.error) return `${title}<div class="lim-card"><div class="ferr">${esc(a.error)}</div></div>`;
-  const sess = a.windows.find((w) => w.id === "five_hour");
-  const week = a.windows.find((w) => w.id === "seven_day");
+  const open = a.windows.filter((w) => !w.muted);
+  const sess = open.find((w) => w.id === "five_hour") || open.find((w) => /-(5h|quota)$/.test(w.id || ""));
+  const week = open.find((w) => w.id === "seven_day") || open.find((w) => /weekly$/.test(w.id || ""));
   const rest = a.windows.filter((w) => w !== sess && w !== week);
   return `${title}<div class="lim-card">${sess ? bar("Aktuelle Sitzung", sess) : ""}${week ? bar("Diese Woche", week) : ""}${rest.map((w) => bar(w.label, w)).join("")}</div>`;
 }

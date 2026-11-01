@@ -481,10 +481,13 @@ def test_antigravity_sign_in_models_chat_and_limits(client):
     bad = client.post(f"{API}/accounts/{a['id']}/antigravity/callback", json={"url": f"{redirect}?code=x&state=falsch"})
     assert bad.status_code == 400
     done = client.post(f"{API}/accounts/{a['id']}/antigravity/callback", json={"url": f"{redirect}?code=abc&state={state}&scope=x"}).json()
-    assert done["phase"] == "done" and [m["id"] for m in done["models"]][0] == "gemini-3.1-pro-high"
+    ids = [m["id"] for m in done["models"]]
+    assert done["phase"] == "done" and "gemini-3.1-pro-high" in ids and "claude-sonnet-4-6" in ids and "gpt-oss-120b-medium" in ids
     assert client.get(f"{API}/accounts").json()[-1]["logged_in"]
     boot = client.get(f"{API}/bootstrap").json()
-    assert "agy:gemini-3.1-pro-high" in boot["models"] and boot["model_names"]["agy:claude-sonnet-4-6"] == "Claude Sonnet 4.6 (Thinking)"
+    assert "agy:gemini-3.1-pro-high" in boot["models"]
+    assert "agy:claude-sonnet-4-6" in boot["models"] and boot["model_names"]["agy:claude-sonnet-4-6"] == "Claude Sonnet 4.6 (Thinking)"
+    assert "agy:gpt-oss-120b-medium" in boot["models"]  # Claude/GPT via Antigravity stay selectable next to Gemini
     # chat on the Antigravity account with the chosen model; instructions go in front of the message
     ev = chat(client, text="Hallo Gemini", model="agy:gemini-3.1-pro-high")
     text = "".join(e.get("text", "") for e in ev)

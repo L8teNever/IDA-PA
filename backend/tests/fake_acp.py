@@ -27,8 +27,19 @@ out_lock = threading.Lock()
 sessions = {}
 replies = {}  # request id -> Queue for client responses (permissions)
 next_req = 1000
+# select = base list (Gemini + Claude + GPT); availableModels = many Gemini thinking variants
+# (regression: preferring the longer variants list used to drop Claude/GPT from the picker)
 MODELS = [{"value": "gemini-3.1-pro-high", "name": "Gemini 3.1 Pro (High)"}, {"value": "gemini-3-flash", "name": "Gemini 3 Flash"},
-          {"value": "claude-sonnet-4-6", "name": "Claude Sonnet 4.6 (Thinking)"}]
+          {"value": "claude-sonnet-4-6", "name": "Claude Sonnet 4.6 (Thinking)"},
+          {"value": "gpt-oss-120b-medium", "name": "GPT-OSS 120B (Medium)"}]
+AVAILABLE = [
+    {"modelId": "gemini-3-flash-low", "name": "Gemini 3 Flash (low)"},
+    {"modelId": "gemini-3-flash-medium", "name": "Gemini 3 Flash (medium)"},
+    {"modelId": "gemini-3-flash-high", "name": "Gemini 3 Flash (high)"},
+    {"modelId": "gemini-3.1-pro-low", "name": "Gemini 3.1 Pro (low)"},
+    {"modelId": "gemini-3.1-pro-medium", "name": "Gemini 3.1 Pro (medium)"},
+    {"modelId": "gemini-3.1-pro-high", "name": "Gemini 3.1 Pro (high)"},
+]
 
 
 def send(msg):
@@ -162,8 +173,9 @@ for raw in sys.stdin:
             continue
         sid = "s" + secrets.token_hex(4)
         sessions[sid] = {"mcp": p.get("mcpServers") or [], "cwd": p.get("cwd"), "mode": "default"}
-        reply(i, {"sessionId": sid, "configOptions": [{"id": "model", "type": "select", "currentValue": MODELS[0]["value"],
-                                                        "options": [{"group": "Modelle", "options": MODELS}]}]})
+        reply(i, {"sessionId": sid, "models": {"availableModels": AVAILABLE},
+                  "configOptions": [{"id": "model", "type": "select", "currentValue": MODELS[0]["value"],
+                                    "options": [{"group": "Modelle", "options": MODELS}]}]})
     elif m == "session/set_config_option":
         s = sessions[p["sessionId"]]
         if p.get("configId") == "mode":
