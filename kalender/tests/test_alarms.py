@@ -4,9 +4,20 @@ Die Termine liegen relativ zur echten Uhrzeit (die Warteschlange rechnet mit ech
 """
 from datetime import datetime, timedelta, timezone
 
+import pytest
+
 from .conftest import API, TOKEN, mk
 
 M = timedelta(minutes=1)
+_made: list[str] = []  # in diesem Test angelegte Termine
+
+
+@pytest.fixture(autouse=True)
+def _cleanup(client):
+    """Die Termine liegen relativ zu „jetzt“: danach löschen, sonst landen sie in den festen Tagen anderer Tests."""
+    yield
+    while _made:
+        client.delete(f"{API}/events/{_made.pop()}")
 
 
 def base() -> datetime:
@@ -24,7 +35,9 @@ def alarms(ida, title):
 
 
 def event(client, title, start: datetime, hours=1, **kw):
-    return mk(client, title, start.isoformat(), end=(start + timedelta(hours=hours)).isoformat(), **kw)["event"]
+    ev = mk(client, title, start.isoformat(), end=(start + timedelta(hours=hours)).isoformat(), **kw)["event"]
+    _made.append(ev["id"])
+    return ev
 
 
 def test_alarm_fires_exactly_once_and_reaches_ida(client, ida):
