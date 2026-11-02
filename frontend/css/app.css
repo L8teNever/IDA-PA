@@ -585,6 +585,9 @@ body.tap-view #appHeader { display: none; }
 /* chat: how long an answer took */
 .msg-meta { display: flex; align-items: center; gap: 4px; margin-top: 8px; font-size: 12px; color: var(--muted); }
 .msg-meta .ms { font-size: 14px; }
+.msg-meta > span { display: inline-flex; align-items: center; gap: 4px; }
+.msg-meta .msg-route { color: var(--accent); margin-right: 10px; cursor: help; }
+a.mm-empty { display: block; text-decoration: none; color: var(--accent); }
 .msg-meta.live { margin: -2px 0 6px 52px; }
 
 /* ---------- Code area (/code) ---------- */

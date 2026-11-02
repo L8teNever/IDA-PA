@@ -5,6 +5,7 @@ import { $, esc } from "../../ui/dom.js";
 import { setAgent, setView } from "../../ui/shell.js";
 import * as accounts from "./accounts.js";
 import * as agentsSec from "./agents.js";
+import * as autoSec from "./auto.js";
 import * as codeSec from "./code.js";
 import * as github from "./github.js";
 import * as homeSec from "./home.js";
@@ -16,6 +17,7 @@ import * as skills from "./skills.js";
 const SECTIONS = [
   ["KI", [
     ["agents", "groups", "Agents", () => state.boot.agents.map((a) => a.name).join(", "), "blau", agentsSec],
+    ["auto", "auto_awesome", "Auto", () => "Modell automatisch wählen lassen", "lila", autoSec],
     ["mcp", "extension", "MCP-Server", () => "Verbindungen und Tools", "mint", mcp],
     ["skills", "auto_fix_high", "Skills", () => `${state.boot.skills.length} aktiv`, "gelb", skills],
     ["gedaechtnis", "psychology", "Gedächtnis", () => "Was die Agents sich merken", "lila", memory],

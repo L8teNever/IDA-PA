@@ -29,7 +29,7 @@ from ..db import session_scope, utcnow
 from ..models import Account, Agent, Chat, ChatMessage, CodeProject, Skill
 from . import code as code_area
 from . import files as file_svc
-from . import providers, runs
+from . import autoroute, providers, runs
 from .code import approvals, git, github
 from .claude import runner
 from .errors import Invalid, NotFound
@@ -166,7 +166,7 @@ async def start_chat(*, chat_id: str | None, agent_id: str | None, text: str, mo
 
     async def drive():
         try:
-            async for ev in _answer(state, order, prompt, skill_id, effort, stopped, attachments):
+            async for ev in _answer(state, order, prompt, skill_id, effort or (state["route"] or {}).get("effort"), stopped, attachments):
                 await live.push(ev)
         except Exception as e:  # noqa: BLE001 – the browser must always get an end
             log.exception("chat answer %s failed", state["chat_id"])
@@ -241,14 +241,21 @@ async def _prepare(*, chat_id, agent_id, text, model, account_id, skill_id, file
         if project:
             code = await _code_run(db, project, chat, permission_mode, model)
         if model:
-            providers.check_model(model)
+            if not autoroute.is_auto(model):
+                providers.check_model(model)
             chat.model = model
-        acc = await runs.account_or_first(db, account_id or chat.account_id or agent.account_id, chat.model)
+        history = list((await db.scalars(select(ChatMessage).where(ChatMessage.chat_id == chat.id).order_by(ChatMessage.at))).all()) if chat_id else []
+        route = None
+        if autoroute.is_auto(chat.model):  # "Auto": pick model + strength for this message
+            last = next(((m.meta or {})["route"]["model"] for m in reversed(history) if m.role == "assistant" and (m.meta or {}).get("route")), None)
+            route = await autoroute.route(db, text, code_thread=bool(code), files=len(file_ids), last_model=last)
+            account_id = None  # the account must fit the chosen model, not what the menu showed
+        run_model = route["model"] if route else chat.model
+        acc = await runs.account_or_first(db, account_id or chat.account_id or agent.account_id, run_model)
         chat.account_id = acc.id
         skill = await db.get(Skill, skill_id) if skill_id else None
         if skill_id and not (skill and skill.enabled):
             raise Invalid(f"Skill /{skill_id} gibt es nicht oder er ist aus")
-        history = list((await db.scalars(select(ChatMessage).where(ChatMessage.chat_id == chat.id).order_by(ChatMessage.at))).all()) if chat_id else []
         fs = await file_svc.take(db, file_ids, chat.id)
         if not code and any(f.kind == "file" for f in fs):
             raise Invalid("Diese Datei kann das Modell hier nicht lesen – beliebige Dateien gehen nur in Code-Threads")
@@ -259,9 +266,9 @@ async def _prepare(*, chat_id, agent_id, text, model, account_id, skill_id, file
         chat.updated_at = utcnow()
         await db.flush()
         info = chat_dict(chat)
-        state = {"chat_id": chat.id, "agent_id": agent.id, "model": chat.model, "session": chat.session_id if chat.session_account == acc.id else None,
-                 "history": _transcript(history), "code": code}
-        order = [acc] + ([a for a in await providers.accounts_for(db, chat.model) if a.id != acc.id] if agent.fallback else [])
+        state = {"chat_id": chat.id, "agent_id": agent.id, "model": run_model, "session": chat.session_id if chat.session_account == acc.id else None,
+                 "history": _transcript(history), "code": code, "route": route}
+        order = [acc] + ([a for a in await providers.accounts_for(db, run_model) if a.id != acc.id] if agent.fallback else [])
     # text files go into the message itself; pictures and PDFs go to the model as they are
     prompt = text
     for f in fs:
@@ -305,6 +312,9 @@ async def _answer(state: dict, order: list[Account], text: str, skill_id: str | 
     tools: dict[str, dict] = {}
     result: dict = {"ok": False, "result": "Keine Antwort"}
     used: Account | None = None
+    route = state.get("route")
+    if route:  # shown under the answer right away
+        yield {"route": route}
     for i, acc in enumerate(order):
         resume = state["session"] if i == 0 else None
         prompt = prompt_text
@@ -355,7 +365,7 @@ async def _answer(state: dict, order: list[Account], text: str, skill_id: str | 
     ms = int((time.monotonic() - t0) * 1000)
     async with session_scope() as db:
         chat = await db.get(Chat, state["chat_id"])
-        meta = {"model": state["model"], "account": used.name if used else None, "ms": ms}
+        meta = {"model": state["model"], "account": used.name if used else None, "ms": ms, **({"route": route} if route else {})}
         if result.get("stopped"):
             meta["stopped"] = True
             chat.session_id = None  # the cut-off turn is not in Claude's session – the next message carries the history
@@ -370,4 +380,4 @@ async def _answer(state: dict, order: list[Account], text: str, skill_id: str | 
         chat.updated_at = utcnow()
         await db.flush()
         mid = msg.id
-    yield {"done": {"ok": result["ok"], "message_id": mid, "ms": ms, **({"stopped": True} if result.get("stopped") else {} if result["ok"] else {"error": result["result"][:800]})}}
+    yield {"done": {"ok": result["ok"], "message_id": mid, "ms": ms, "model": state["model"], "account": used.name if used else None, **({"stopped": True} if result.get("stopped") else {} if result["ok"] else {"error": result["result"][:800]})}}

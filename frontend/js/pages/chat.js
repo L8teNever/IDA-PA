@@ -2,7 +2,7 @@
 // and for the threads of the code area ("/code/:project/:thread"): same view with the code bar on top.
 import { api, followChat, streamChat } from "../api.js";
 import { setUrl } from "../router.js";
-import { agentById, agentOf, mainAgent, state } from "../store.js";
+import { agentById, agentOf, mainAgent, modelInfo, state } from "../store.js";
 import { approvalHtml, bindCodeBar, codeBar, refreshBar } from "../ui/codebar.js";
 import { mountCodePanes } from "../ui/codepanes.js";
 import { $, esc, fmtDateTime, md, toast } from "../ui/dom.js";
@@ -145,14 +145,18 @@ export function fmtDur(ms) {
   return s < 1 ? "<1 s" : s < 60 ? `${s} s` : `${Math.floor(s / 60)} Min ${String(s % 60).padStart(2, "0")} s`;
 }
 
+const EFFORT_NAMES = { low: "Niedrig", medium: "Mittel", high: "Hoch", xhigh: "Extra", max: "Max" };
 function renderBot(el, parts, text, meta) {
   const html = (parts || []).map((p) => (p.t === "text" ? `<div class="md-text">${md(p.text)}</div>` : p.t === "approval" ? approvalHtml(p) : toolHtml(p))).join("");
   el.innerHTML = html || (text ? `<div class="md-text">${md(text)}</div>` : "");
   if (meta?.stopped) el.insertAdjacentHTML("beforeend", `<div class="msg-stopped"><span class="ms">stop_circle</span>Gestoppt</div>`);
   if (meta?.error) el.insertAdjacentHTML("beforeend", `<div class="msg-err"><span class="ms">error</span>${esc(meta.error)}</div>`);
   if (!el.innerHTML) el.innerHTML = `<div class="typing"><i></i><i></i><i></i></div>`;
-  // how long the answer took
-  if (meta?.ms != null) el.insertAdjacentHTML("beforeend", `<div class="msg-meta" title="So lange hat die Antwort gedauert"><span class="ms">timer</span>${fmtDur(meta.ms)}</div>`);
+  // how long the answer took; with "Auto" also which model it picked (and why, on hover)
+  const r = meta?.route;
+  const routed = r ? `<span class="msg-route" title="${esc(r.reason || "")}"><span class="ms">auto_awesome</span>Auto → ${esc(modelInfo(r.model).name)}${r.effort ? ` · ${EFFORT_NAMES[r.effort] || r.effort}` : ""}</span>` : "";
+  if (meta?.ms != null || routed)
+    el.insertAdjacentHTML("beforeend", `<div class="msg-meta">${routed}${meta?.ms != null ? `<span title="So lange hat die Antwort gedauert"><span class="ms">timer</span>${fmtDur(meta.ms)}</span>` : ""}</div>`);
 }
 
 function scroll() {
@@ -213,6 +217,8 @@ async function follow(start, since = null) {
       const p = parts.find((x) => x.t === "approval" && x.id === ev.approval_done.id);
       if (p) p.decision = ev.approval_done.decision;
       setLive("thinking");
+    } else if (ev.route) {
+      meta.route = ev.route;
     } else if (ev.sys) {
       addSys(ev.sys);
     } else if (ev.done) {

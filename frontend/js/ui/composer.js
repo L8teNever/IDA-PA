@@ -19,6 +19,7 @@ const ring = (p, size) => (p == null ? "" : `<span class="lim-ring ${size}" styl
 function current() {
   const models = state.boot?.models || [];
   const accs = accounts();
+  if (sel?.model === "auto") return { model: "auto", account: null, effort: null }; // the server picks model, account and strength
   const model = models.includes(sel?.model) ? sel.model : state.agent?.model || state.boot?.default_model;
   // the account must be able to run the model: agy:… only on Antigravity accounts, Claude models only on Claude accounts
   const fits = (a) => a && (a.provider === "antigravity") === String(model || "").startsWith("agy:");
@@ -57,14 +58,26 @@ const effortDefault = (id) => (/opus-5-5|haiku-5-5/.test(id) ? "medium" : "high"
 function renderMenu() {
   const accs = accounts();
   const { model, account, effort } = current();
-  if (!menuTab || !accs.some((a) => a.id === menuTab)) menuTab = account?.id || accs[0]?.id;
-  const tabs = accs.map((a) => {
+  if (!menuTab || (menuTab !== "auto" && !accs.some((a) => a.id === menuTab))) menuTab = model === "auto" ? "auto" : account?.id || accs[0]?.id;
+  const autoTab = `<button type="button" data-tab="auto" class="mm-acc ${menuTab === "auto" ? "on" : ""}" title="Auto – wählt selbst">
+      <span class="ms">auto_awesome</span><span class="acc-txt"><b>Auto</b><small>wählt selbst</small></span></button>`;
+  const tabs = autoTab + accs.map((a) => {
     const p = state.usage[a.id], agy = a.provider === "antigravity";
     return `<button type="button" data-tab="${a.id}" class="mm-acc ${a.id === menuTab ? "on" : ""}" title="${esc(a.name)}">
       <span class="ms">${agy ? "rocket_launch" : "account_circle"}</span>
       <span class="acc-txt"><b>${esc(shortName(a.name))}${a.logged_in ? "" : " ⚠"}</b><small>${agy ? "Antigravity" : "Claude"}${p == null ? "" : ` · ${p} %`}</small></span>
       ${p == null ? "" : `<span class="acc-bar"><i style="width:${Math.min(100, p)}%;background:${limColor(p)}"></i></span>`}</button>`;
   }).join("");
+  if (menuTab === "auto") {
+    $("modelMenu").innerHTML = `<div class="mm-head">Anbieter</div><div class="mm-accs">${tabs}</div>
+      <div class="mm-head">Modell</div><div class="mm-list">
+      <div role="menuitem" tabindex="0" data-m="auto" class="mm-item ${model === "auto" ? "sel" : ""}">
+        <span class="mic"><span class="ms">auto_awesome</span></span>
+        <span class="mtxt"><b>Auto</b><small>Wählt pro Nachricht Anbieter, Modell und Stärke – unter der Antwort steht, was es wurde</small></span>
+        <span class="ms mcheck">check</span></div>
+      <a class="mm-empty" href="/einstellungen/auto">Einstellen, welche Modelle Auto nehmen darf →</a></div>`;
+    return;
+  }
   const tabAcc = accs.find((a) => a.id === menuTab);
   const agyTab = tabAcc?.provider === "antigravity";
   const groups = [];
@@ -86,14 +99,14 @@ function renderMenu() {
       ${lv.length ? `<span class="mm-lvl" aria-label="Nachdenken">${lv.map((k) => `<button type="button" data-m="${g.ids[k]}" class="${on && model === g.ids[k] ? "on" : ""}">${LEVELS[k]}</button>`).join("")}</span>` : ef.length ? `<span class="mm-lvl claude" aria-label="Nachdenken">${ef.map((k) => `<button type="button" data-m="${pick}" data-eff="${k}" class="${cur === k ? "on" : ""}">${EFFORTS[k]}</button>`).join("")}</span>`
         : `<span class="ms mcheck">check</span>`}</div>`;
   }).join("") : `<div class="mm-empty">${agyTab ? "Noch keine Modelle – den Antigravity-Account erst anmelden (Einstellungen → Accounts)." : "Keine Modelle."}</div>`;
-  $("modelMenu").innerHTML = `${accs.length > 1 ? `<div class="mm-head">Account</div><div class="mm-accs">${tabs}</div>` : ""}
+  $("modelMenu").innerHTML = `<div class="mm-head">Anbieter / Account</div><div class="mm-accs">${tabs}</div>
     <div class="mm-head">Modell${groups.length ? " <span>· rechts wählst du, wie gründlich es nachdenkt</span>" : ""}</div><div class="mm-list">${list}</div>`;
   $("modelMenu").querySelector(".mm-acc.on")?.scrollIntoView({ block: "nearest", inline: "nearest" });
 }
 
 function choose(model, accountId, effort = null) {
   const before = current();
-  sel = { model, account: accountId, effort };
+  sel = model === "auto" ? { model } : { model, account: accountId, effort };
   localStorage.setItem("modelSel", JSON.stringify(sel));
   renderChip();
   const now = current();

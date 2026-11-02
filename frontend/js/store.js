@@ -23,6 +23,7 @@ const MODEL_INFO = {
 const pretty = (s) => s.replace(/[-_]/g, " ").replace(/\b([a-z])/g, (c) => c.toUpperCase()).replace(/(\d) (\d)/g, "$1.$2");
 export const isAgy = (id) => String(id || "").startsWith("agy:");
 export function modelInfo(id) {
+  if (id === "auto") return { id, short: "Auto", icon: "auto_awesome", desc: "Wählt Anbieter, Modell und Stärke pro Nachricht selbst", name: "Auto" };
   const label = state.boot?.model_names?.[id];
   if (isAgy(id)) {
     const rest = id.slice(4);

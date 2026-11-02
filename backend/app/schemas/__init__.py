@@ -322,3 +322,8 @@ class GithubToken(BaseModel):
 
 class GithubClient(BaseModel):
     client_id: str
+
+
+class AutoRoute(BaseModel):
+    provider_mode: Literal["per_chat", "free", "claude", "antigravity"] = "per_chat"
+    models: list[str] | None = None  # None = default (configured Claude models + all Antigravity models)
