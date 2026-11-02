@@ -326,7 +326,8 @@ class GithubClient(BaseModel):
 
 class AutoRoute(BaseModel):
     provider_mode: Literal["per_chat", "free", "claude", "antigravity"] = "per_chat"
-    models: list[str] | None = None  # None = default (configured Claude models + all Antigravity models)
+    models: list[str] | None = None  # None = default pool (curated current models)
+    profiles: dict[str, dict[str, int | None]] | None = None  # own strength/skills per model; None = keep the saved ones
 
 
 class RouteRating(BaseModel):

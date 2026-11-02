@@ -1,8 +1,9 @@
 """Model "auto": picks provider, model and strength for each message by itself.
 
 Step 1 (rules + profiles): the message is sorted into a kind (code, writing, research, chat, general) and a
-difficulty (1 light … 3 hard). Each usable model gets a profile from its name (provider, tier 1–3, thinking
-levels). Auto takes the lightest model that fits the difficulty, prefers a provider per kind and skips
+difficulty (1 light … 3 hard). Each model has a profile (CURATED below, changeable in the settings): strength
+1–3, which difficulties it serves, and skills 1–10 for code, writing, research and speed. Among the models that
+fit the difficulty Auto takes the one best at this kind (ties: the lighter one), sets the thinking level and skips
 accounts at their limit. Which models it may use and whether it may change provider are set under
 Einstellungen → Auto (settings key "autoroute").
 
@@ -29,16 +30,38 @@ from .errors import Invalid
 AUTO = "auto"
 KEY = "autoroute"
 PROVIDER_MODES = ("per_chat", "free", "claude", "antigravity")
-DEFAULTS = {"provider_mode": "per_chat", "models": None}  # models None = the configured Claude models + all Antigravity models
+DEFAULTS = {"provider_mode": "per_chat", "models": None, "profiles": {}}  # models None = default pool; profiles = own changes per model
 EFFORT_OF = {1: "low", 2: "medium", 3: "high"}
 KIND_NAMES = {"code": "Code", "writing": "Schreiben", "research": "Recherche", "chat": "Smalltalk", "general": "Allgemein"}
 LEVEL_NAMES = {1: "leicht", 2: "mittel", 3: "schwer"}
-# which provider fits a kind better when Auto may choose; None = no preference (stay with the chat's / default provider)
-PREFER = {"code": "claude", "writing": "claude", "research": "antigravity", "chat": None, "general": None}
+SKILLS = ("code", "writing", "research", "speed")
+SKILL_NAMES = {"code": "Code", "writing": "Schreiben", "research": "Wissen/Recherche", "speed": "Tempo"}
 
 
 def is_auto(model: str | None) -> bool:
     return model == AUTO
+
+
+# Curated profiles of the known models (matched in order against the id without "agy:" and without the level suffix).
+# tier = natural strength (1 light, 2 middle, 3 strong); covers = difficulties it may serve (Flash on "High" also
+# handles middle ones); skills 1–10 from public benchmarks (Stand 2026-11, mostly vendor/aggregator figures – rough);
+# default = in the pool without an own choice. Everything can be changed under Einstellungen → Auto.
+CURATED: list[tuple[str, dict]] = [
+    (r"claude-opus-5-5", {"tier": 3, "code": 10, "writing": 9, "research": 8, "speed": 3,
+                          "note": "stärkstes Claude – v. a. Code und Agenten-Aufgaben"}),
+    (r"claude-sonnet-5-5", {"tier": 2, "code": 8, "writing": 8, "research": 7, "speed": 6, "note": "ausgewogen"}),
+    (r"claude-haiku-5-5", {"tier": 1, "code": 6, "writing": 6, "research": 5, "speed": 9, "note": "schnell und sparsam"}),
+    (r"claude-fable-5-1", {"tier": 2, "code": 5, "writing": 8, "research": 6, "speed": 6, "note": "kreatives Schreiben"}),
+    (r"claude-(opus|sonnet|haiku|fable)-[45]", {"old": True}),
+    (r"gemini-4-argon", {"tier": 3, "code": 9, "writing": 8, "research": 10, "speed": 4,
+                         "note": "stärkstes Gemini – Wissen, lange Texte, Recherche"}),
+    (r"gemini-3\.8-flash", {"tier": 1, "covers": (1, 2), "code": 7, "writing": 6, "research": 7, "speed": 9,
+                            "note": "schnell; auf „Hoch“ auch für Mittleres"}),
+    (r"image", {"chat": False, "note": "erzeugt Bilder – nicht für Chat"}),
+    (r"gemini-(2\.5|3-|3\.1|3\.5)", {"old": True}),
+    (r"gpt-oss", {"tier": 1, "code": 4, "writing": 5, "research": 5, "speed": 5, "default": False,
+                  "note": "offenes Modell, schwächer als Gemini Flash"}),
+]
 
 
 @dataclass
@@ -48,26 +71,74 @@ class Profile:
     provider: str
     tier: int | None  # 1 light, 2 middle, 3 strong; None = unknown (only used when nothing else fits)
     level: int | None = None  # Antigravity variants "(Low|Medium|High)": thinking level of this variant
+    skills: dict | None = None
+    covers: tuple = ()
+    chat: bool = True  # usable for chat answers at all
+    default: bool = True  # in the pool without an own choice
+    note: str = ""
+    curated: bool = False
+
+    @property
+    def base(self) -> str:
+        """The model without its level variant (agy:gemini-3.8-flash-high -> agy:gemini-3.8-flash)."""
+        return re.sub(r"-(low|medium|high)$", "", self.id)
+
+    def skill(self, kind: str) -> float:
+        k = self.skills or {}
+        if kind == "chat":
+            return k.get("speed", 5)
+        if kind == "general":
+            return (k.get("code", 5) + k.get("writing", 5) + k.get("research", 5)) / 3
+        return k.get(kind, 5)
 
 
 def _tier(text: str) -> int | None:
     t = text.lower()
-    if re.search(r"haiku|flash|lite|mini|nano", t):
+    if re.search(r"haiku|flash|\blite\b|\bmini\b|\bnano\b", t):
         return 1
-    if re.search(r"opus|\bpro\b|ultra", t):
+    if re.search(r"opus|\bpro\b|ultra|argon", t):
         return 3
     if re.search(r"sonnet|gpt|claude", t):
         return 2
     return None
 
 
-def profile(model: str, name: str | None = None) -> Profile:
+def profile(model: str, name: str | None = None, override: dict | None = None) -> Profile:
     name = name or model
-    if antigravity.is_model(model):
-        m = re.search(r"\((low|medium|high)\)\s*$", name, re.I)
+    agy = antigravity.is_model(model)
+    level = None
+    if agy:
+        m = re.search(r"\((low|medium|high)\)\s*$", name, re.I) or re.search(r"-(low|medium|high)$", model)
         level = {"low": 1, "medium": 2, "high": 3}[m.group(1).lower()] if m else None
-        return Profile(model, name, "antigravity", _tier(name + " " + model), level)
-    return Profile(model, name, "claude", _tier(model))
+    bare = re.sub(r"-(low|medium|high)$", "", model[len(antigravity.PREFIX):] if agy else model)
+    p = Profile(model, name, "antigravity" if agy else "claude", _tier(name + " " + model), level)
+    cur = next((c for rx, c in CURATED if re.search(rx, bare)), None)
+    if cur:
+        p.curated = True
+        p.note = cur.get("note", "")
+        if cur.get("old"):
+            p.default, p.note = False, "ältere Version"
+            p.skills = {k: 4 for k in SKILLS}
+        elif cur.get("chat") is False:
+            p.chat = p.default = False
+        else:
+            p.tier = cur["tier"]
+            p.skills = {k: cur[k] for k in SKILLS}
+            p.default = cur.get("default", True)
+            p.covers = tuple(cur.get("covers", ()))
+    elif p.tier:
+        p.skills = {k: 5 for k in SKILLS}
+    else:
+        p.default = False  # unknown name: only when chosen by hand
+    if override:
+        if override.get("tier") in (1, 2, 3):
+            if override["tier"] != p.tier:
+                p.covers = ()
+            p.tier = override["tier"]
+        p.skills = {**(p.skills or {k: 5 for k in SKILLS}), **{k: int(v) for k, v in override.items() if k in SKILLS and 1 <= int(v) <= 10}}
+    if not p.covers and p.tier:
+        p.covers = (p.tier,)
+    return p
 
 
 def supports_effort(model: str) -> bool:
@@ -87,18 +158,29 @@ async def config(db: AsyncSession) -> dict:
 
 async def available(db: AsyncSession) -> list[Profile]:
     names = await providers.model_names(db)
-    return [profile(m, names.get(m)) for m in await providers.model_list(db)]
+    own = (await config(db))["profiles"] or {}
+    return [profile(m, names.get(m), own.get(m)) for m in await providers.model_list(db)]
 
 
 def default_allowed(profiles: list[Profile]) -> list[str]:
+    """Without an own choice: the curated current models (no old versions, no image models) – Claude only when it is
+    one of the configured MODELS."""
     configured = set(get_settings().model_list)
-    return [p.id for p in profiles if p.provider == "antigravity" or p.id in configured]
+    return [p.id for p in profiles if p.default and p.chat and (p.provider == "antigravity" or p.id in configured)]
 
 
-async def save(db: AsyncSession, provider_mode: str, models: list[str] | None) -> dict:
+async def save(db: AsyncSession, provider_mode: str, models: list[str] | None, profiles: dict | None = None) -> dict:
     if provider_mode not in PROVIDER_MODES:
         raise Invalid("Unbekannte Anbieter-Einstellung")
-    await settings_store.put(db, KEY, {"provider_mode": provider_mode, "models": models})
+    cur = await config(db)
+    clean = {}
+    for mid, o in (cur["profiles"] if profiles is None else profiles).items():
+        o = {k: int(v) for k, v in (o or {}).items() if k in (*SKILLS, "tier") and v is not None}
+        if any(not (1 <= v <= (3 if k == "tier" else 10)) for k, v in o.items()):
+            raise Invalid(f"Ungültige Werte für {mid} (Stärke 1–3, Fähigkeiten 1–10)")
+        if o:
+            clean[mid] = o
+    await settings_store.put(db, KEY, {"provider_mode": provider_mode, "models": models, "profiles": clean})
     return await config(db)
 
 
@@ -246,18 +328,29 @@ async def similar_difficulty(db: AsyncSession, text: str) -> tuple[int, int] | N
 
 # ---- 2. which model ----
 
-def _pick_in(cands: list[Profile], difficulty: int) -> Profile | None:
-    """The model of the wanted tier (else the next stronger, else the next weaker); Antigravity: the variant whose
-    thinking level fits the difficulty."""
-    known = [p for p in cands if p.tier]
-    for tier in [difficulty] + [t for t in (difficulty + 1, difficulty + 2) if t <= 3] + [t for t in (difficulty - 1, difficulty - 2) if t >= 1]:
-        same = [p for p in known if p.tier == tier]
-        if same:
-            levelled = [p for p in same if p.level]
-            if levelled:
-                return min(levelled, key=lambda p: (abs(p.level - difficulty), same.index(p)))
-            return same[0]
-    return cands[0] if cands else None
+def _wanted_level(p: Profile, difficulty: int) -> int:
+    """Thinking level for a model: full when it works above its natural strength, else by the difficulty."""
+    return 3 if (p.tier or 2) < difficulty else difficulty
+
+
+def _choose(cands: list[Profile], kind: str, difficulty: int, prefer: str | None) -> Profile | None:
+    """Among the models that may serve this difficulty, the one best at this kind; ties -> the lighter one, then the
+    preferred provider. Nothing fits -> the closest strength. Antigravity: then the variant with the fitting level."""
+    cands = [p for p in cands if p.chat and p.tier]
+    if not cands:
+        return None
+    fit = [p for p in cands if difficulty in p.covers]
+    if not fit:  # e.g. only light models allowed for a hard question: the closest strength, rather stronger
+        dist = min(abs((p.tier or 2) - difficulty) for p in cands)
+        fit = [p for p in cands if abs((p.tier or 2) - difficulty) == dist]
+        fit = [p for p in fit if (p.tier or 2) >= difficulty] or fit
+    order = {p.id: i for i, p in enumerate(cands)}
+    best = max(fit, key=lambda p: (p.skill(kind), -(p.tier or 2), p.provider == prefer, -order[p.id]))
+    variants = [p for p in fit if p.base == best.base and p.level]
+    if variants:
+        want = _wanted_level(best, difficulty)
+        best = min(variants, key=lambda p: (abs(p.level - want), order[p.id]))
+    return best
 
 
 async def _usable(db: AsyncSession, provider: str, cache: dict) -> bool:
@@ -292,33 +385,29 @@ async def route(db: AsyncSession, text: str, *, code_thread: bool = False, files
 
     mode = cfg["provider_mode"]
     last_provider = providers.of_model(last_model) if last_model else None
-    default_provider = providers.of_model(get_settings().default_model)
+    prefer = last_provider or providers.of_model(get_settings().default_model)
     if mode in ("claude", "antigravity"):
-        order = [mode]
+        provs = [mode]
     elif mode == "per_chat" and last_provider:
-        order = [last_provider]
-    else:
-        first = PREFER.get(kind) or last_provider or default_provider
-        order = [first, "antigravity" if first == "claude" else "claude"]
+        provs = [last_provider]
+    else:  # free choice (or first message of a chat): the best model of both providers
+        provs = ["claude", "antigravity"]
 
     cache: dict = {}
-    chosen, note = None, ""
-    for i, prov in enumerate(order):
-        cands = [p for p in pool if p.provider == prov]
-        if not cands:
-            continue
-        if not await _usable(db, prov, cache):
+    note, usable = "", []
+    for prov in provs:
+        if await _usable(db, prov, cache):
+            usable.append(prov)
+        elif any(p.provider == prov for p in pool):
             note = f" · {providers.PROVIDERS[prov]} am Limit"
-            continue
-        chosen = _pick_in(cands, difficulty)
-        if chosen:
-            break
+    chosen = _choose([p for p in pool if p.provider in usable], kind, difficulty, prefer)
     if not chosen:  # everything at the limit or nothing of the allowed provider: take what fits anyway (the run reports the limit)
-        chosen = _pick_in([p for p in pool if p.provider == order[0]] or pool, difficulty)
+        chosen = _choose([p for p in pool if p.provider in provs] or pool, kind, difficulty, prefer) or pool[0]
 
-    effort = EFFORT_OF[difficulty] if supports_effort(chosen.id) else None
+    effort = EFFORT_OF[_wanted_level(chosen, difficulty)] if supports_effort(chosen.id) else None
     learned = " · gelernt: stärker" if difficulty > rule_difficulty else " · gelernt: sparsamer" if difficulty < rule_difficulty else ""
     if similar:
         learned = f" · wie {similar[1]} ähnliche bewertete Anfragen"
-    reason = f"{KIND_NAMES[kind]}, {LEVEL_NAMES[difficulty]} ({why}){learned}{note}"
+    strong_at = f" · stark bei {KIND_NAMES[kind]}" if kind != "chat" and chosen.skills and chosen.skill(kind) >= 8 else ""
+    reason = f"{KIND_NAMES[kind]}, {LEVEL_NAMES[difficulty]} ({why}){learned}{strong_at}{note}"
     return {"model": chosen.id, "effort": effort, "kind": kind, "difficulty": difficulty, "rule_difficulty": rule_difficulty, "reason": reason}

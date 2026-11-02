@@ -124,3 +124,37 @@ def test_rate_with_better_model(client):
     client.delete(f"{API}/autoroute/learned")
     for c in client.get(f"{API}/chats").json():
         client.delete(f"{API}/chats/{c['id']}")
+
+
+def test_profiles_pick_the_best_for_the_kind():
+    """Curated profiles: strength + skills decide; old versions and image models stay out of the default pool."""
+    names = {"agy:gemini-4-argon-high": "Gemini 4 Argon (High)", "agy:gemini-4-argon-low": "Gemini 4 Argon (Low)",
+             "agy:gemini-3.8-flash-high": "Gemini 3.8 Flash (High)", "agy:gemini-3.8-flash-low": "Gemini 3.8 Flash (Low)",
+             "agy:gemini-2.5-pro": "Gemini 2.5 Pro", "agy:gemini-3.1-flash-image": "Gemini 3.1 Flash Image",
+             "claude-haiku-5-5": None, "claude-sonnet-5-5": None, "claude-opus-5-5": None, "claude-opus-4-8": None}
+    ps = [autoroute.profile(m, n) for m, n in names.items()]
+    by = {p.id: p for p in ps}
+    assert by["agy:gemini-4-argon-high"].tier == 3 and by["agy:gemini-2.5-pro"].default is False  # "Gemini" is no "mini"
+    assert by["agy:gemini-3.1-flash-image"].chat is False and by["claude-opus-4-8"].default is False
+    pool = [p for p in ps if p.default and p.chat]
+    pick = lambda kind, d: autoroute._choose(pool, kind, d, "claude").id  # noqa: E731
+    assert pick("code", 3) == "claude-opus-5-5"  # best at code
+    assert pick("research", 3) == "agy:gemini-4-argon-high"  # best at knowledge/research
+    assert pick("code", 2) == "claude-sonnet-5-5"
+    assert pick("research", 2) == "agy:gemini-3.8-flash-high"  # Flash on "High" covers middle questions
+    assert pick("chat", 1) == "claude-haiku-5-5"  # tie on speed -> preferred provider
+    # own values win: Opus made a light model with top speed takes the small talk
+    own = autoroute.profile("claude-opus-5-5", None, {"tier": 1, "speed": 10})
+    assert autoroute._choose([own, by["claude-haiku-5-5"]], "chat", 1, "claude").id == "claude-opus-5-5"
+
+
+def test_profile_overrides_are_saved(client):
+    s = client.get(f"{API}/autoroute").json()
+    sonnet = next(m for m in s["available"] if m["id"] == "claude-sonnet-5-5")
+    assert sonnet["tier"] == 2 and sonnet["skills"]["code"] == 8 and sonnet["curated"] and not sonnet["changed"]
+    r = client.put(f"{API}/autoroute", json={"provider_mode": "per_chat", "models": None,
+                                             "profiles": {"claude-sonnet-5-5": {"code": 3}}}).json()
+    sonnet = next(m for m in r["available"] if m["id"] == "claude-sonnet-5-5")
+    assert sonnet["skills"]["code"] == 3 and sonnet["changed"]
+    assert client.put(f"{API}/autoroute", json={"provider_mode": "per_chat", "profiles": {"claude-sonnet-5-5": {"code": 11}}}).status_code == 400
+    client.put(f"{API}/autoroute", json={"provider_mode": "per_chat", "models": None, "profiles": {}})

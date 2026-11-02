@@ -935,3 +935,17 @@ body.view-timeline #btnBack { display: none; }
 .route-rate button.on { opacity: 1; color: var(--accent); }
 .route-better { font-size: 12px; color: var(--accent); margin-left: 2px; }
 .route-better select { font: inherit; font-size: 12px; background: var(--surface, #1b1d22); color: inherit; border: 1px solid rgba(255,255,255,.15); border-radius: 6px; padding: 2px 4px; }
+/* Einstellungen → Auto: model profiles */
+.ar-list { display: flex; flex-direction: column; gap: 4px; }
+.ar-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 12px; background: rgba(255,255,255,.03); }
+.ar-row.off { opacity: .55; }
+.ar-main { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; cursor: pointer; }
+.ar-txt { display: flex; flex-direction: column; min-width: 0; }
+.ar-txt small { color: var(--muted); font-size: 12px; }
+.ar-skills { display: inline-flex; gap: 3px; cursor: help; }
+.ar-bar { width: 22px; height: 6px; border-radius: 3px; background: rgba(255,255,255,.08); overflow: hidden; }
+.ar-bar i { display: block; height: 100%; background: var(--accent); }
+.ar-form { flex-basis: 100%; display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px 12px; padding-top: 6px; }
+.ar-form input[type=range] { width: 100%; }
+.ar-more { margin-top: 6px; }
+.ar-more summary { cursor: pointer; color: var(--muted); font-size: 13px; padding: 6px 2px; }

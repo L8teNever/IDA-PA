@@ -14,8 +14,10 @@ async def _out(db) -> dict:
     profiles = await autoroute.available(db)
     defaults = autoroute.default_allowed(profiles)
     return {**cfg, "stats": await autoroute.stats(db), "embed_model": await embeddings.model(), "allowed": cfg["models"] if cfg["models"] is not None else defaults,
-            "available": [{"id": p.id, "name": p.name, "provider": p.provider, "provider_name": providers.PROVIDERS[p.provider],
-                           "tier": p.tier, "level": p.level} for p in profiles]}
+            "skills": autoroute.SKILL_NAMES,
+            "available": [{"id": p.id, "base": p.base, "name": p.name, "provider": p.provider, "provider_name": providers.PROVIDERS[p.provider],
+                           "tier": p.tier, "level": p.level, "skills": p.skills, "chat": p.chat, "recommended": p.default,
+                           "note": p.note, "curated": p.curated, "changed": p.id in (cfg["profiles"] or {})} for p in profiles]}
 
 
 @router.get("/api/v1/autoroute")
@@ -25,7 +27,7 @@ async def get_autoroute(db: DB):
 
 @router.put("/api/v1/autoroute")
 async def put_autoroute(body: AutoRoute, db: DB):
-    await autoroute.save(db, body.provider_mode, body.models)
+    await autoroute.save(db, body.provider_mode, body.models, body.profiles)
     return await _out(db)
 
 
