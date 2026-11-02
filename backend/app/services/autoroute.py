@@ -8,7 +8,12 @@ Einstellungen → Auto (settings key "autoroute").
 
 Step 2 (learning): after an answer the user can rate the choice (passte / zu schwach / zu stark). Per kind the
 ratings shift the difficulty one step up or down once enough of them point the same way (table route_feedback).
+
+Step 3 (similar questions): with an embedding model in Ollama (same as the memory), each rated question is stored
+as a vector. A new message that closely resembles rated ones takes the strength those ratings say was right –
+this beats the per-kind shift. Without Ollama this step is skipped.
 """
+import asyncio
 import re
 from dataclasses import dataclass
 
@@ -18,6 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..config import get_settings
 from ..models import ChatMessage, RouteFeedback
 from . import antigravity, providers, settings_store
+from .memory import embeddings
 from .errors import Invalid
 
 AUTO = "auto"
@@ -158,7 +164,11 @@ async def rate(db: AsyncSession, message_id: str, rating: str, better_model: str
         db.add(fb)
     fb.kind, fb.model = route_info["kind"], route_info["model"]
     fb.difficulty = route_info.get("rule_difficulty") or route_info["difficulty"]
-    fb.rating, fb.better_model, fb.snippet = rating, better_model, (question or "")[:300]
+    snippet = (question or "")[:300]
+    if snippet != fb.snippet or not fb.embedding:
+        vec = await _embed(snippet)
+        fb.embedding, fb.embed_model = (embeddings.to_bytes(vec[1]), vec[0]) if vec else (None, None)
+    fb.rating, fb.better_model, fb.snippet = rating, better_model, snippet
     msg.meta = {**msg.meta, "route": {**route_info, "rating": rating}}
     await db.flush()
     return msg.meta["route"]
@@ -178,6 +188,53 @@ async def stats(db: AsyncSession) -> list[dict]:
 
 async def reset_learning(db: AsyncSession) -> None:
     await db.execute(delete(RouteFeedback))
+
+
+# ---- similar earlier questions (embeddings) ----
+
+SIMILAR_MIN = 0.78  # cosine from which an earlier question counts as "the same kind of request"
+SIMILAR_K = 5
+SIMILAR_WEIGHT = 1.5  # summed similarity needed before they decide (≈ two close matches)
+SIMILAR_SCAN = 500  # newest ratings compared
+
+
+async def _embed(text: str):
+    """(model, vector) or None – never holds up a message for long."""
+    if not text.strip():
+        return None
+    try:
+        got = await asyncio.wait_for(embeddings.embed([text[:1000]]), timeout=4)
+    except (asyncio.TimeoutError, Exception):  # noqa: BLE001 – Ollama is optional
+        return None
+    return (got[0], got[1][0]) if got else None
+
+
+def _ideal(fb: RouteFeedback) -> int | None:
+    """Which difficulty the rating says would have been right for that question."""
+    if fb.better_model:
+        return profile(fb.better_model).tier
+    tier = profile(fb.model).tier or fb.difficulty
+    return min(3, max(1, tier + (1 if fb.rating == "weak" else -1 if fb.rating == "strong" else 0)))
+
+
+async def similar_difficulty(db: AsyncSession, text: str) -> tuple[int, int] | None:
+    """(difficulty, number of similar questions) from the closest rated questions, or None (too few / no Ollama)."""
+    if not await db.scalar(select(func.count()).select_from(RouteFeedback).where(RouteFeedback.embedding.is_not(None))):
+        return None  # nothing to compare – do not even ask Ollama
+    vec = await _embed(text)
+    if not vec:
+        return None
+    model, q = vec
+    rows = (await db.scalars(select(RouteFeedback).where(RouteFeedback.embed_model == model, RouteFeedback.embedding.is_not(None))
+                             .order_by(RouteFeedback.at.desc()).limit(SIMILAR_SCAN))).all()
+    near = sorted(((embeddings.cosine(q, embeddings.from_bytes(r.embedding)), r) for r in rows), key=lambda x: -x[0])
+    near = [(c, r) for c, r in near[:SIMILAR_K] if c >= SIMILAR_MIN]
+    ideals = [(c, _ideal(r)) for c, r in near]
+    ideals = [(c, d) for c, d in ideals if d]
+    weight = sum(c for c, _ in ideals)
+    if weight < SIMILAR_WEIGHT:
+        return None
+    return min(3, max(1, round(sum(c * d for c, d in ideals) / weight))), len(ideals)
 
 
 # ---- 2. which model ----
@@ -222,6 +279,9 @@ async def route(db: AsyncSession, text: str, *, code_thread: bool = False, files
     kind, rule_difficulty, why = classify(text, code_thread=code_thread, files=files)
     shift = await learned_shift(db, kind)
     difficulty = min(3, max(1, rule_difficulty + shift))
+    similar = await similar_difficulty(db, text)
+    if similar:
+        difficulty = similar[0]
 
     mode = cfg["provider_mode"]
     last_provider = providers.of_model(last_model) if last_model else None
@@ -251,5 +311,7 @@ async def route(db: AsyncSession, text: str, *, code_thread: bool = False, files
 
     effort = EFFORT_OF[difficulty] if supports_effort(chosen.id) else None
     learned = " · gelernt: stärker" if difficulty > rule_difficulty else " · gelernt: sparsamer" if difficulty < rule_difficulty else ""
+    if similar:
+        learned = f" · wie {similar[1]} ähnliche bewertete Anfragen"
     reason = f"{KIND_NAMES[kind]}, {LEVEL_NAMES[difficulty]} ({why}){learned}{note}"
     return {"model": chosen.id, "effort": effort, "kind": kind, "difficulty": difficulty, "rule_difficulty": rule_difficulty, "reason": reason}

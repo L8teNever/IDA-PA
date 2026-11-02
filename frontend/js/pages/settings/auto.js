@@ -35,6 +35,9 @@ export async function render(el) {
         ${x.shift > 0 ? ` · <b>nimmt jetzt stärkere Modelle</b>` : x.shift < 0 ? ` · <b>nimmt jetzt kleinere Modelle</b>` : ""}</span></div>`).join("")}</div>
         <button type="button" class="es-btn" id="aReset" style="margin-top:8px"><span class="ms">restart_alt</span>Gelerntes zurücksetzen</button>`
       : `<div class="rf-sum"><span class="ms">thumb_up</span><span>Noch keine Bewertungen. Unter jeder Auto-Antwort kannst du angeben, ob das Modell passte, zu schwach oder zu stark war – Auto passt sich daran an.</span></div>`}
+      <div class="rf-sum" style="margin-top:8px"><span class="ms">${s.embed_model ? "hub" : "info"}</span><span>${s.embed_model
+        ? `Ähnliche Anfragen: <b>an</b> (über <span class="mono">${esc(s.embed_model)}</span> in Ollama) – ähnelt eine neue Frage bewerteten, nimmt Auto die Stärke, die dort richtig war.`
+        : "Ähnliche Anfragen: <b>aus</b> – dafür braucht es ein Embedding-Modell in Ollama (z. B. <span class=\"mono\">ollama pull nomic-embed-text</span>). Bis dahin lernt Auto pro Art der Anfrage."}</span></div>
       <div class="wiz-nav"><button class="es-btn primary" id="aSave"><span class="ms">check</span>Speichern</button></div>`;
     $("aMode").onclick = (e) => { const b = e.target.closest("[data-m]"); if (!b) return; keep(); mode = b.dataset.m; draw(); };
     if ($("aReset")) $("aReset").onclick = async () => {

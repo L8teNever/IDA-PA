@@ -3,6 +3,7 @@ from fastapi import APIRouter
 
 from ..schemas import AutoRoute, RouteRating
 from ..services import autoroute, providers
+from ..services.memory import embeddings
 from .deps import DB
 
 router = APIRouter(tags=["autoroute"])
@@ -12,7 +13,7 @@ async def _out(db) -> dict:
     cfg = await autoroute.config(db)
     profiles = await autoroute.available(db)
     defaults = autoroute.default_allowed(profiles)
-    return {**cfg, "stats": await autoroute.stats(db), "allowed": cfg["models"] if cfg["models"] is not None else defaults,
+    return {**cfg, "stats": await autoroute.stats(db), "embed_model": await embeddings.model(), "allowed": cfg["models"] if cfg["models"] is not None else defaults,
             "available": [{"id": p.id, "name": p.name, "provider": p.provider, "provider_name": providers.PROVIDERS[p.provider],
                            "tier": p.tier, "level": p.level} for p in profiles]}
 

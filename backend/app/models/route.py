@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import DateTime, Integer, String, Text
+from sqlalchemy import DateTime, Integer, LargeBinary, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ..db import Base, utcnow
@@ -21,4 +21,7 @@ class RouteFeedback(Base):
     rating: Mapped[str] = mapped_column(String(8))  # ok | weak (too weak) | strong (stronger than needed)
     better_model: Mapped[str | None] = mapped_column(String(64), default=None)
     snippet: Mapped[str] = mapped_column(Text, default="")
+    # float32 vector of the snippet (Ollama, like the memory) – finds similar earlier questions; None without Ollama
+    embedding: Mapped[bytes | None] = mapped_column(LargeBinary, default=None)
+    embed_model: Mapped[str | None] = mapped_column(String(80), default=None)
     at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)

@@ -72,3 +72,42 @@ def test_ratings_teach_auto(client):
     assert client.delete(f"{API}/autoroute/learned").json()["stats"] == []
     for c in client.get(f"{API}/chats").json():
         client.delete(f"{API}/chats/{c['id']}")
+
+
+def test_similar_questions_decide(monkeypatch):
+    """With embeddings: closely similar rated questions set the strength (beats the rules)."""
+    import array
+    import asyncio
+
+    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+    from app.db import Base
+    from app.models import RouteFeedback
+    from app.services.memory import embeddings
+
+    vecs = {"Wie spät ist es?": [1.0, 0.0], "Wie spät ist es jetzt?": [0.99, 0.14], "Erklär Quantenphysik": [0.0, 1.0]}
+
+    async def fake_embed(text):
+        v = vecs.get(text)
+        return ("fake", array.array("f", v)) if v else None
+
+    monkeypatch.setattr(autoroute, "_embed", fake_embed)
+
+    async def go():
+        eng = create_async_engine("sqlite+aiosqlite://")
+        async with eng.begin() as c:
+            await c.run_sync(Base.metadata.create_all)
+        async with async_sessionmaker(eng)() as db:
+            assert await autoroute.similar_difficulty(db, "Wie spät ist es jetzt?") is None  # nothing rated yet
+            for i in range(2):  # Sonnet was "zu stark" for the time question twice -> ideal = 1
+                db.add(RouteFeedback(message_id=f"m{i}", kind="general", difficulty=2, model="claude-sonnet-5-5", rating="strong",
+                                     snippet="Wie spät ist es?", embedding=embeddings.to_bytes(array.array("f", [1.0, 0.0])), embed_model="fake"))
+            await db.flush()
+            assert await autoroute.similar_difficulty(db, "Wie spät ist es jetzt?") == (1, 2)
+            assert await autoroute.similar_difficulty(db, "Erklär Quantenphysik") is None  # not similar
+        # a named better model wins over the rating direction
+        assert autoroute._ideal(RouteFeedback(model="claude-haiku-5-5", rating="ok", better_model="claude-opus-5-5", difficulty=1)) == 3
+        assert autoroute._ideal(RouteFeedback(model="claude-sonnet-5-5", rating="weak", difficulty=2)) == 3
+        await eng.dispose()
+
+    asyncio.run(go())
