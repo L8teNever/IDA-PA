@@ -148,9 +148,12 @@ async def learned_shift(db: AsyncSession, kind: str) -> int:
     return 1 if score > LEARN_STEP else -1 if score < -LEARN_STEP else 0
 
 
-async def rate(db: AsyncSession, message_id: str, rating: str, better_model: str | None = None) -> dict:
-    """Saves the rating of one Auto answer (again = overwrites it) and marks it on the message."""
-    if rating not in RATINGS:
+async def rate(db: AsyncSession, message_id: str, rating: str | None, better_model: str | None = None) -> dict:
+    """Saves the rating of one Auto answer (again = overwrites it) and marks it on the message.
+    With better_model and no rating, the rating follows from it: stronger tier = weak, weaker = strong, same = ok."""
+    if better_model and not providers.known_model(better_model):
+        raise Invalid(f"Unbekanntes Modell „{better_model}“")
+    if (rating or not better_model) and rating not in RATINGS:
         raise Invalid("Unbekannte Bewertung")
     msg = await db.get(ChatMessage, message_id)
     route_info = (msg.meta or {}).get("route") if msg else None
@@ -158,6 +161,9 @@ async def rate(db: AsyncSession, message_id: str, rating: str, better_model: str
         raise Invalid("Diese Antwort wurde nicht von Auto gewählt")
     question = await db.scalar(select(ChatMessage.text).where(ChatMessage.chat_id == msg.chat_id, ChatMessage.role == "user",
                                                               ChatMessage.at <= msg.at).order_by(ChatMessage.at.desc()).limit(1))
+    if not rating:
+        have, want = profile(route_info["model"]).tier or 2, profile(better_model).tier or 2
+        rating = "weak" if want > have else "strong" if want < have else "ok"
     fb = await db.scalar(select(RouteFeedback).where(RouteFeedback.message_id == message_id))
     if not fb:
         fb = RouteFeedback(message_id=message_id)
@@ -169,7 +175,8 @@ async def rate(db: AsyncSession, message_id: str, rating: str, better_model: str
         vec = await _embed(snippet)
         fb.embedding, fb.embed_model = (embeddings.to_bytes(vec[1]), vec[0]) if vec else (None, None)
     fb.rating, fb.better_model, fb.snippet = rating, better_model, snippet
-    msg.meta = {**msg.meta, "route": {**route_info, "rating": rating}}
+    msg.meta = {**msg.meta, "route": {**{k: v for k, v in route_info.items() if k != "better"}, "rating": rating,
+                                      **({"better": better_model} if better_model else {})}}
     await db.flush()
     return msg.meta["route"]
 

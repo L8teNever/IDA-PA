@@ -331,5 +331,5 @@ class AutoRoute(BaseModel):
 
 class RouteRating(BaseModel):
     message_id: str
-    rating: Literal["ok", "weak", "strong"]
+    rating: Literal["ok", "weak", "strong"] | None = None  # empty with better_model: follows from it
     better_model: str | None = None

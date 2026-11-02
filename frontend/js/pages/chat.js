@@ -147,15 +147,28 @@ export function fmtDur(ms) {
 
 // rating of an Auto choice – Auto learns from it (Einstellungen → Auto)
 const RATINGS = [["ok", "thumb_up", "Modell passte"], ["weak", "arrow_upward", "Zu schwach – ein stärkeres wäre besser gewesen"], ["strong", "arrow_downward", "Zu stark – ein kleineres hätte gereicht"]];
-document.addEventListener("click", async (e) => {
-  const b = e.target.closest(".route-rate [data-rate]");
-  if (!b) return;
-  const box = b.closest(".route-rate");
+async function sendRating(box, body) {
   try {
-    await api.post("/autoroute/rate", { message_id: box.dataset.mid, rating: b.dataset.rate });
-    box.querySelectorAll("button").forEach((x) => x.classList.toggle("on", x === b));
+    const { route } = await api.post("/autoroute/rate", { message_id: box.dataset.mid, ...body });
+    box.querySelectorAll("[data-rate]").forEach((x) => x.classList.toggle("on", x.dataset.rate === route.rating));
+    box.querySelector("[data-better]").classList.toggle("on", !!route.better);
+    box.querySelector(".route-better").innerHTML = route.better ? `→ ${esc(modelInfo(route.better).name)}` : "";
     toast("Danke – Auto merkt sich das");
   } catch (err) { toast(err.message); }
+}
+document.addEventListener("click", (e) => {
+  const b = e.target.closest(".route-rate [data-rate]");
+  if (b) return sendRating(b.closest(".route-rate"), { rating: b.dataset.rate });
+  const pick = e.target.closest(".route-rate [data-better]");
+  if (!pick) return;
+  // which model would have been better: a small list of all models right next to the buttons
+  const box = pick.closest(".route-rate"), slot = box.querySelector(".route-better");
+  if (slot.querySelector("select")) return;
+  slot.innerHTML = `<select aria-label="Besseres Modell"><option value="">Welches wäre besser gewesen?</option>${(state.boot?.models || [])
+    .map((m) => `<option value="${esc(m)}">${esc(modelInfo(m).name)}${m.startsWith("agy:") ? " (Antigravity)" : ""}</option>`).join("")}</select>`;
+  const sel = slot.querySelector("select");
+  sel.focus();
+  sel.onchange = () => sel.value && sendRating(box, { better_model: sel.value });
 });
 const EFFORT_NAMES = { low: "Niedrig", medium: "Mittel", high: "Hoch", xhigh: "Extra", max: "Max" };
 function renderBot(el, parts, text, meta) {
@@ -167,7 +180,9 @@ function renderBot(el, parts, text, meta) {
   // how long the answer took; with "Auto" also which model it picked (and why, on hover)
   const r = meta?.route;
   const rate = r && meta.id ? `<span class="route-rate" data-mid="${esc(meta.id)}">${RATINGS.map(([k, ic, t]) =>
-    `<button type="button" data-rate="${k}" class="${r.rating === k ? "on" : ""}" title="${t}" aria-label="${t}"><span class="ms">${ic}</span></button>`).join("")}</span>` : "";
+    `<button type="button" data-rate="${k}" class="${r.rating === k ? "on" : ""}" title="${t}" aria-label="${t}"><span class="ms">${ic}</span></button>`).join("")}
+    <button type="button" data-better class="${r.better ? "on" : ""}" title="Ein bestimmtes anderes Modell wäre besser gewesen" aria-label="Besseres Modell angeben"><span class="ms">swap_horiz</span></button>
+    <span class="route-better">${r.better ? `→ ${esc(modelInfo(r.better).name)}` : ""}</span></span>` : "";
   const routed = r ? `<span class="msg-route" title="${esc(r.reason || "")}"><span class="ms">auto_awesome</span>Auto → ${esc(modelInfo(r.model).name)}${r.effort ? ` · ${EFFORT_NAMES[r.effort] || r.effort}` : ""}</span>${rate}` : "";
   if (meta?.ms != null || routed)
     el.insertAdjacentHTML("beforeend", `<div class="msg-meta">${routed}${meta?.ms != null ? `<span title="So lange hat die Antwort gedauert"><span class="ms">timer</span>${fmtDur(meta.ms)}</span>` : ""}</div>`);

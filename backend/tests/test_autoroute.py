@@ -111,3 +111,16 @@ def test_similar_questions_decide(monkeypatch):
         await eng.dispose()
 
     asyncio.run(go())
+
+
+def test_rate_with_better_model(client):
+    """Naming the model that would have been better sets the rating by itself (Haiku -> Opus = zu schwach)."""
+    ev = chat(client, text="Hi", model="auto")
+    mid = next(e["done"]["message_id"] for e in ev if "done" in e)
+    r = client.post(f"{API}/autoroute/rate", json={"message_id": mid, "better_model": "claude-opus-5-5"}).json()["route"]
+    assert r["rating"] == "weak" and r["better"] == "claude-opus-5-5"
+    assert client.post(f"{API}/autoroute/rate", json={"message_id": mid, "better_model": "gibts-nicht"}).status_code == 400
+    assert client.post(f"{API}/autoroute/rate", json={"message_id": mid}).status_code == 400
+    client.delete(f"{API}/autoroute/learned")
+    for c in client.get(f"{API}/chats").json():
+        client.delete(f"{API}/chats/{c['id']}")
