@@ -29,8 +29,19 @@ export async function render(el) {
         <label class="tool-item"><input type="checkbox" value="${esc(m.id)}" ${allowed.has(m.id) ? "checked" : ""}>
           <span>${esc(m.name)}${m.tier ? ` <small class="muted">· ${TIERS[m.tier]}</small>` : ` <small class="muted">· unbekannt</small>`}</span></label>`).join("")}</div>`).join("")
         || `<div class="soon-box"><span class="ms">person</span>Noch keine Modelle – erst einen Account einrichten (Einstellungen → Accounts).</div>`}
+      <div class="rf-h" style="margin:16px 0 6px">Gelernt aus deinen Bewertungen</div>
+      ${s.stats.length ? `<div class="tool-list">${s.stats.map((x) => `<div class="tool-item"><span><b>${esc(x.name)}</b> · ${x.total} Bewertungen ·
+        ${Math.round((x.ok / x.total) * 100)} % passte · ${x.weak}× zu schwach · ${x.strong}× zu stark
+        ${x.shift > 0 ? ` · <b>nimmt jetzt stärkere Modelle</b>` : x.shift < 0 ? ` · <b>nimmt jetzt kleinere Modelle</b>` : ""}</span></div>`).join("")}</div>
+        <button type="button" class="es-btn" id="aReset" style="margin-top:8px"><span class="ms">restart_alt</span>Gelerntes zurücksetzen</button>`
+      : `<div class="rf-sum"><span class="ms">thumb_up</span><span>Noch keine Bewertungen. Unter jeder Auto-Antwort kannst du angeben, ob das Modell passte, zu schwach oder zu stark war – Auto passt sich daran an.</span></div>`}
       <div class="wiz-nav"><button class="es-btn primary" id="aSave"><span class="ms">check</span>Speichern</button></div>`;
     $("aMode").onclick = (e) => { const b = e.target.closest("[data-m]"); if (!b) return; keep(); mode = b.dataset.m; draw(); };
+    if ($("aReset")) $("aReset").onclick = async () => {
+      if (!confirm("Alle Bewertungen vergessen? Auto entscheidet dann wieder nur nach seinen Regeln.")) return;
+      const r = await attempt(() => api.del("/autoroute/learned"), "Zurückgesetzt");
+      if (r) { Object.assign(s, r); draw(); }
+    };
     $("aSave").onclick = async () => {
       keep();
       if (!allowed.size) return attempt(() => Promise.reject(new Error("Mindestens ein Modell auswählen")));

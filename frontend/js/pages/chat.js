@@ -84,7 +84,7 @@ export async function openChat(id) {
   if (project) { showCodeBar(); $("input").placeholder = `Was soll ${a.name} in ${project.name} machen?`; }
   for (const m of c.messages) {
     if (m.role === "user") addUser(m.text, m.meta?.skill, m.meta?.files);
-    else if (m.role === "assistant") renderBot(addBot(), m.parts, m.text, m.meta);
+    else if (m.role === "assistant") renderBot(addBot(), m.parts, m.text, { ...m.meta, id: m.id });
     else addSys(m.text);
   }
   box.scrollTop = box.scrollHeight;
@@ -145,6 +145,18 @@ export function fmtDur(ms) {
   return s < 1 ? "<1 s" : s < 60 ? `${s} s` : `${Math.floor(s / 60)} Min ${String(s % 60).padStart(2, "0")} s`;
 }
 
+// rating of an Auto choice – Auto learns from it (Einstellungen → Auto)
+const RATINGS = [["ok", "thumb_up", "Modell passte"], ["weak", "arrow_upward", "Zu schwach – ein stärkeres wäre besser gewesen"], ["strong", "arrow_downward", "Zu stark – ein kleineres hätte gereicht"]];
+document.addEventListener("click", async (e) => {
+  const b = e.target.closest(".route-rate [data-rate]");
+  if (!b) return;
+  const box = b.closest(".route-rate");
+  try {
+    await api.post("/autoroute/rate", { message_id: box.dataset.mid, rating: b.dataset.rate });
+    box.querySelectorAll("button").forEach((x) => x.classList.toggle("on", x === b));
+    toast("Danke – Auto merkt sich das");
+  } catch (err) { toast(err.message); }
+});
 const EFFORT_NAMES = { low: "Niedrig", medium: "Mittel", high: "Hoch", xhigh: "Extra", max: "Max" };
 function renderBot(el, parts, text, meta) {
   const html = (parts || []).map((p) => (p.t === "text" ? `<div class="md-text">${md(p.text)}</div>` : p.t === "approval" ? approvalHtml(p) : toolHtml(p))).join("");
@@ -154,7 +166,9 @@ function renderBot(el, parts, text, meta) {
   if (!el.innerHTML) el.innerHTML = `<div class="typing"><i></i><i></i><i></i></div>`;
   // how long the answer took; with "Auto" also which model it picked (and why, on hover)
   const r = meta?.route;
-  const routed = r ? `<span class="msg-route" title="${esc(r.reason || "")}"><span class="ms">auto_awesome</span>Auto → ${esc(modelInfo(r.model).name)}${r.effort ? ` · ${EFFORT_NAMES[r.effort] || r.effort}` : ""}</span>` : "";
+  const rate = r && meta.id ? `<span class="route-rate" data-mid="${esc(meta.id)}">${RATINGS.map(([k, ic, t]) =>
+    `<button type="button" data-rate="${k}" class="${r.rating === k ? "on" : ""}" title="${t}" aria-label="${t}"><span class="ms">${ic}</span></button>`).join("")}</span>` : "";
+  const routed = r ? `<span class="msg-route" title="${esc(r.reason || "")}"><span class="ms">auto_awesome</span>Auto → ${esc(modelInfo(r.model).name)}${r.effort ? ` · ${EFFORT_NAMES[r.effort] || r.effort}` : ""}</span>${rate}` : "";
   if (meta?.ms != null || routed)
     el.insertAdjacentHTML("beforeend", `<div class="msg-meta">${routed}${meta?.ms != null ? `<span title="So lange hat die Antwort gedauert"><span class="ms">timer</span>${fmtDur(meta.ms)}</span>` : ""}</div>`);
 }
@@ -224,6 +238,7 @@ async function follow(start, since = null) {
     } else if (ev.done) {
       ok = ev.done.ok;
       if (ev.done.ms != null) meta.ms = ev.done.ms;
+      if (ev.done.message_id) meta.id = ev.done.message_id;
       if (ev.done.stopped) meta.stopped = true;
       else if (!ok) meta.error = ev.done.error;
     }

@@ -9,11 +9,12 @@ from .setting import Setting
 from .message import USER, Message
 from .reminder import Reminder
 from .routine import Routine, RoutineRun
+from .route import RouteFeedback
 from .skill import AgentSkill, Skill
 from .tracker import Tracker, TrackerCheck, TrackerLink
 
 __all__ = [
     "Account", "Agent", "AgentConnector", "AgentRun", "Chat", "ChatFile", "ChatMessage", "CodeProject", "Connector",
-    "MemoryBackup", "MemoryEntry", "Setting", "USER", "Message", "Reminder", "Routine", "RoutineRun", "AgentSkill", "Skill",
+    "MemoryBackup", "MemoryEntry", "Setting", "USER", "Message", "Reminder", "Routine", "RoutineRun", "RouteFeedback", "AgentSkill", "Skill",
     "Tracker", "TrackerCheck", "TrackerLink",
 ]

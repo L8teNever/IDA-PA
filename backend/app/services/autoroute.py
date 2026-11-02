@@ -5,13 +5,18 @@ difficulty (1 light … 3 hard). Each usable model gets a profile from its name 
 levels). Auto takes the lightest model that fits the difficulty, prefers a provider per kind and skips
 accounts at their limit. Which models it may use and whether it may change provider are set under
 Einstellungen → Auto (settings key "autoroute").
+
+Step 2 (learning): after an answer the user can rate the choice (passte / zu schwach / zu stark). Per kind the
+ratings shift the difficulty one step up or down once enough of them point the same way (table route_feedback).
 """
 import re
 from dataclasses import dataclass
 
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import get_settings
+from ..models import ChatMessage, RouteFeedback
 from . import antigravity, providers, settings_store
 from .errors import Invalid
 
@@ -121,6 +126,60 @@ def classify(text: str, *, code_thread: bool = False, files: int = 0) -> tuple[s
     return "general", 2 if (n > 200 or files) else 1, "Allgemeine Frage"
 
 
+# ---- learning from the ratings ----
+
+RATINGS = ("ok", "weak", "strong")
+LEARN_WINDOW = 40  # newest ratings per kind that count
+LEARN_PRIOR = 3  # as if there were 3 extra "passte" – one rating alone moves nothing
+LEARN_STEP = 0.34  # this share of (weak − strong) shifts the difficulty by one
+
+
+async def learned_shift(db: AsyncSession, kind: str) -> int:
+    """+1 = this kind was too often too weak, −1 = too often stronger than needed, 0 = fits."""
+    rows = (await db.scalars(select(RouteFeedback.rating).where(RouteFeedback.kind == kind)
+                             .order_by(RouteFeedback.at.desc()).limit(LEARN_WINDOW))).all()
+    score = sum(1 if r == "weak" else -1 if r == "strong" else 0 for r in rows) / (len(rows) + LEARN_PRIOR)
+    return 1 if score > LEARN_STEP else -1 if score < -LEARN_STEP else 0
+
+
+async def rate(db: AsyncSession, message_id: str, rating: str, better_model: str | None = None) -> dict:
+    """Saves the rating of one Auto answer (again = overwrites it) and marks it on the message."""
+    if rating not in RATINGS:
+        raise Invalid("Unbekannte Bewertung")
+    msg = await db.get(ChatMessage, message_id)
+    route_info = (msg.meta or {}).get("route") if msg else None
+    if not route_info:
+        raise Invalid("Diese Antwort wurde nicht von Auto gewählt")
+    question = await db.scalar(select(ChatMessage.text).where(ChatMessage.chat_id == msg.chat_id, ChatMessage.role == "user",
+                                                              ChatMessage.at <= msg.at).order_by(ChatMessage.at.desc()).limit(1))
+    fb = await db.scalar(select(RouteFeedback).where(RouteFeedback.message_id == message_id))
+    if not fb:
+        fb = RouteFeedback(message_id=message_id)
+        db.add(fb)
+    fb.kind, fb.model = route_info["kind"], route_info["model"]
+    fb.difficulty = route_info.get("rule_difficulty") or route_info["difficulty"]
+    fb.rating, fb.better_model, fb.snippet = rating, better_model, (question or "")[:300]
+    msg.meta = {**msg.meta, "route": {**route_info, "rating": rating}}
+    await db.flush()
+    return msg.meta["route"]
+
+
+async def stats(db: AsyncSession) -> list[dict]:
+    """Per kind: how many ratings, how many fitted, and where learning shifts it now."""
+    rows = (await db.execute(select(RouteFeedback.kind, RouteFeedback.rating, func.count()).group_by(RouteFeedback.kind, RouteFeedback.rating))).all()
+    out = {}
+    for kind, rating, n in rows:
+        out.setdefault(kind, {"kind": kind, "name": KIND_NAMES.get(kind, kind), "ok": 0, "weak": 0, "strong": 0})[rating] = n
+    for k, v in out.items():
+        v["total"] = v["ok"] + v["weak"] + v["strong"]
+        v["shift"] = await learned_shift(db, k)
+    return sorted(out.values(), key=lambda v: -v["total"])
+
+
+async def reset_learning(db: AsyncSession) -> None:
+    await db.execute(delete(RouteFeedback))
+
+
 # ---- 2. which model ----
 
 def _pick_in(cands: list[Profile], difficulty: int) -> Profile | None:
@@ -160,7 +219,9 @@ async def route(db: AsyncSession, text: str, *, code_thread: bool = False, files
     pool = [p for p in profiles if p.id in allowed] or [p for p in profiles if p.id in default_allowed(profiles)] or profiles
     if not pool:
         raise Invalid("Auto hat kein Modell zur Auswahl – erst einen Account einrichten (Einstellungen → Accounts)")
-    kind, difficulty, why = classify(text, code_thread=code_thread, files=files)
+    kind, rule_difficulty, why = classify(text, code_thread=code_thread, files=files)
+    shift = await learned_shift(db, kind)
+    difficulty = min(3, max(1, rule_difficulty + shift))
 
     mode = cfg["provider_mode"]
     last_provider = providers.of_model(last_model) if last_model else None
@@ -189,5 +250,6 @@ async def route(db: AsyncSession, text: str, *, code_thread: bool = False, files
         chosen = _pick_in([p for p in pool if p.provider == order[0]] or pool, difficulty)
 
     effort = EFFORT_OF[difficulty] if supports_effort(chosen.id) else None
-    reason = f"{KIND_NAMES[kind]}, {LEVEL_NAMES[difficulty]} ({why}){note}"
-    return {"model": chosen.id, "effort": effort, "kind": kind, "difficulty": difficulty, "reason": reason}
+    learned = " · gelernt: stärker" if difficulty > rule_difficulty else " · gelernt: sparsamer" if difficulty < rule_difficulty else ""
+    reason = f"{KIND_NAMES[kind]}, {LEVEL_NAMES[difficulty]} ({why}){learned}{note}"
+    return {"model": chosen.id, "effort": effort, "kind": kind, "difficulty": difficulty, "rule_difficulty": rule_difficulty, "reason": reason}

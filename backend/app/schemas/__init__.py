@@ -327,3 +327,9 @@ class GithubClient(BaseModel):
 class AutoRoute(BaseModel):
     provider_mode: Literal["per_chat", "free", "claude", "antigravity"] = "per_chat"
     models: list[str] | None = None  # None = default (configured Claude models + all Antigravity models)
+
+
+class RouteRating(BaseModel):
+    message_id: str
+    rating: Literal["ok", "weak", "strong"]
+    better_model: str | None = None

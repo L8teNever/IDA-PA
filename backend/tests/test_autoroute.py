@@ -43,3 +43,32 @@ def test_auto_settings(client):
     client.put(f"{API}/autoroute", json={"provider_mode": "per_chat", "models": None})
     for c in client.get(f"{API}/chats").json():
         client.delete(f"{API}/chats/{c['id']}")
+
+
+def test_ratings_teach_auto(client):
+    """Ratings under Auto answers: one alone moves nothing, several "zu schwach" make the kind one step stronger."""
+    ids, cid = [], None
+    for _ in range(3):
+        ev = chat(client, text="Hi", model="auto", **({"chat_id": cid} if cid else {}))
+        cid = ev[0]["chat"]["id"]
+        ids.append(next(e["done"]["message_id"] for e in ev if "done" in e))
+    r = client.post(f"{API}/autoroute/rate", json={"message_id": ids[0], "rating": "weak"}).json()
+    assert r["route"]["rating"] == "weak"
+    ev = chat(client, chat_id=cid, text="Hi", model="auto")
+    assert next(e["route"] for e in ev if "route" in e)["model"] == "claude-haiku-5-5"  # one rating: no change yet
+    for mid in ids[1:]:
+        client.post(f"{API}/autoroute/rate", json={"message_id": mid, "rating": "weak"})
+    ev = chat(client, chat_id=cid, text="Hi", model="auto")
+    route = next(e["route"] for e in ev if "route" in e)
+    assert route["model"] == "claude-sonnet-5-5" and "gelernt" in route["reason"]
+    s = client.get(f"{API}/autoroute").json()
+    assert s["stats"][0]["kind"] == "chat" and s["stats"][0]["weak"] == 3 and s["stats"][0]["shift"] == 1
+    # rated message shows the rating; a non-Auto answer cannot be rated
+    msgs = client.get(f"{API}/chats/{cid}").json()["messages"]
+    assert next(m for m in msgs if m["id"] == ids[0])["meta"]["route"]["rating"] == "weak"
+    plain = chat(client, text="Hallo")
+    pid = next(e["done"]["message_id"] for e in plain if "done" in e)
+    assert client.post(f"{API}/autoroute/rate", json={"message_id": pid, "rating": "ok"}).status_code == 400
+    assert client.delete(f"{API}/autoroute/learned").json()["stats"] == []
+    for c in client.get(f"{API}/chats").json():
+        client.delete(f"{API}/chats/{c['id']}")
