@@ -142,9 +142,10 @@ export async function openDetail(id) {
     </div>
     ${ro ? "" : `<div class="es-actions"><button class="btn f" data-edit><span class="ms">edit</span>Bearbeiten</button><button class="btn i" data-dup title="Duplizieren"><span class="ms">content_copy</span></button><button class="btn i" data-share title="Teilen"><span class="ms">share</span></button><button class="btn i danger" data-del title="Löschen"><span class="ms">delete</span></button></div>`}`;
   document.body.append(sc, sh);
-  requestAnimationFrame(() => document.body.classList.add("ev-open"));
   const remove = () => { document.body.classList.remove("ev-open", "ev-full"); detailOpen = null; setTimeout(() => { sc.remove(); sh.remove(); }, 300); };
   detailOpen = remove;
+  // erst im nächsten Bild (für die Einblend-Animation) – aber nur, wenn das Blatt bis dahin nicht schon wieder zu ist (schnelles Escape)
+  requestAnimationFrame(() => { if (detailOpen === remove) document.body.classList.add("ev-open"); });
   pushLayer(remove);
   sc.onclick = closeTop;
   $("[data-x]", sh).onclick = closeTop;

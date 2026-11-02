@@ -110,12 +110,32 @@ export function requestFor(e) {
   throw new Error(`Unbekannte Art: ${e.type}`);
 }
 
-let kick = null;
-/** Alle wartenden Änderungen der Reihe nach senden. Nur ein Durchlauf gleichzeitig (auch über Fenster/Service Worker hinweg). */
-export async function push() {
+let kick = null, pushing = null, pushAgain = false;
+const online = () => globalThis.navigator?.onLine !== false;
+
+/** Alle wartenden Änderungen der Reihe nach senden. Nur ein Durchlauf gleichzeitig (auch über Fenster/Service Worker hinweg).
+ *  Wird push() aufgerufen, während in diesem Fenster schon einer läuft, läuft danach noch einer – sonst ginge z. B. ein
+ *  „Jetzt abgleichen“ direkt nach der Anmeldung verloren, weil der alte Durchlauf noch mit dem Fehler beschäftigt war. */
+export function push() {
+  if (pushing) { pushAgain = true; return pushing; }
+  pushing = (async () => {
+    try {
+      let r;
+      do { pushAgain = false; r = await pushOnce(); } while (pushAgain);
+      return r;
+    } finally { pushing = null; }
+  })();
+  return pushing;
+}
+
+async function pushOnce() {
   const out = await withLock(async () => {
     const sum = { sent: 0, conflicts: 0, errors: 0, merged: 0, stopped: "" };
-    for (const e of await outbox.all()) if (e.state === "sending") await outbox.mark(e.seq, { state: "pending" });   // vorheriger Durchlauf abgestürzt: Idempotenz macht Wiederholen sicher
+    for (const e of await outbox.all()) {
+      if (e.state === "sending") await outbox.mark(e.seq, { state: "pending" });   // vorheriger Durchlauf abgestürzt: Idempotenz macht Wiederholen sicher
+      // Wartezeit galt nur, weil kein Netz da war: jetzt online → sofort senden, nicht erst nach 5 s / 15 s / 45 s
+      else if (e.state === "pending" && e.errKind === "offline" && e.nextTry > Date.now() && online()) await outbox.mark(e.seq, { nextTry: 0 });
+    }
     const blocked = new Set();
     for (let guard = 0; guard < 5000; guard++) {
       const e = await outbox.nextDue(blocked);
@@ -143,7 +163,7 @@ export async function push() {
         if (!(err instanceof ApiError)) { await outbox.mark(e.seq, { state: "pending" }); throw err; }
         if (["offline", "server", "auth"].includes(err.kind)) {
           const tries = (e.tries || 0) + 1;
-          await outbox.mark(e.seq, { state: "pending", tries, nextTry: err.kind === "auth" ? 0 : Date.now() + outbox.backoff(tries), error: err.message });
+          await outbox.mark(e.seq, { state: "pending", tries, nextTry: err.kind === "auth" ? 0 : Date.now() + outbox.backoff(tries), error: err.message, errKind: err.kind });
           sum.stopped = err.kind; break;
         }
         if (err.kind === "conflict" && e.type === "update" && (e.merges || 0) < 3) {      // anderes Feld geändert → ohne Nachfrage zusammenführen
@@ -158,7 +178,11 @@ export async function push() {
     }
     return sum;
   });
-  if (!out) return null;
+  if (!out) {   // ein anderes Fenster / der Service Worker gleicht gerade ab: gleich noch einmal schauen, ob dann etwas übrig ist
+    clearTimeout(kick);
+    kick = setTimeout(() => push().catch(() => {}), 1500);
+    return null;
+  }
   if (out.sent || out.conflicts || out.errors || out.merged) { await pull().catch(() => {}); repo.emit("push"); }
   for (const fn of pushed) { try { fn(out); } catch { /* Hörer */ } }
   schedule();
