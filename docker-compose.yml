@@ -12,7 +12,8 @@ services:
     env_file: .env
     environment:
       DATABASE_URL: postgresql+asyncpg://ida:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD in .env setzen}@db:5432/ida
-      OLLAMA_URL: ${OLLAMA_URL:-http://host.docker.internal:11434}
+      EMBED_MODEL: ${OLLAMA_EMBED_MODEL:-}           # leer = erkennt das installierte Embedding-Modell selbst
+      OLLAMA_URL: ${OLLAMA_URL:-http://ollama:11434}   # Ollama im Stack (siehe unten): Gedächtnis-Suche + „Auto“-Modellwahl
       KALENDER_URL: http://kalender:8000          # Kalender-Dienst (siehe unten); leer = Kalender-Funktionen aus
       KALENDER_IDA_TOKEN: ${KALENDER_IDA_TOKEN:-}
       WIKI_URL: http://wiki:8000                  # Wiki-Dienst (siehe unten); leer = Wiki-Funktionen aus
@@ -24,7 +25,7 @@ services:
     volumes:
       - ida-data:/data            # Claude-Logins, Sandbox
     extra_hosts:
-      - "host.docker.internal:host-gateway"   # Ollama auf dem Host (optional, fürs Gedächtnis)
+      - "host.docker.internal:host-gateway"   # falls Ollama doch auf dem Host läuft: OLLAMA_URL=http://host.docker.internal:11434
     depends_on:
       db:
         condition: service_healthy
@@ -45,6 +46,31 @@ services:
       interval: 5s
       timeout: 5s
       retries: 20
+
+  # Ollama – lokale Embeddings (nur CPU, kein Port nach außen). Für die Gedächtnis-Suche nach Bedeutung und damit
+  # „Auto“ ähnliche bewertete Anfragen wiedererkennt. ollama-init lädt das Embedding-Modell beim Start (einmalig ~270 MB).
+  ollama:
+    image: ollama/ollama:latest
+    restart: unless-stopped
+    environment:
+      OLLAMA_KEEP_ALIVE: ${OLLAMA_KEEP_ALIVE:-30m}   # so lange bleibt das Modell im RAM nach der letzten Anfrage
+    volumes:
+      - ollama-data:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+
+  ollama-init:
+    image: ollama/ollama:latest
+    restart: "no"
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+    entrypoint: ["ollama", "pull", "${OLLAMA_EMBED_MODEL:-nomic-embed-text}"]
+    depends_on:
+      ollama:
+        condition: service_healthy
 
   # Kalender – eigener Dienst mit eigenen Daten (SQLite im Volume kalender-data, getrennt von IDA), eigener Port, eigene PWA.
   # Läuft auch ohne IDA. Ida bedient ihn über die calendar_*-Tools; Erinnerungen gehen per Webhook an IDA. Siehe docs/KALENDER.md
@@ -78,7 +104,7 @@ services:
       WIKI_IDA_TOKEN: ${WIKI_IDA_TOKEN:-}
       WIKI_MCP_TOKEN: ${WIKI_MCP_TOKEN:-}
       WIKI_PUBLIC_URL: ${WIKI_PUBLIC_URL:-https://wiki.kulbarts.com}
-      OLLAMA_URL: ${OLLAMA_URL:-}
+      OLLAMA_URL: ${OLLAMA_URL:-http://ollama:11434}
     ports:
       - "${WIKI_PORT:-8083}:8000"
     volumes:
@@ -114,6 +140,7 @@ services:
       - ${DOCKER_CONFIG_DIR:-~/.docker}/config.json:/config.json:ro   # Login für private GHCR-Images
 
 volumes:
+  ollama-data:
   ida-data:
   ida-db:
   kalender-data:
