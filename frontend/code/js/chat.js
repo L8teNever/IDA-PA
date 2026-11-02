@@ -1,7 +1,7 @@
 // Ein Thread: Verlauf anzeigen, neue Antworten live mitlesen (NDJSON von IDA), Freigaben („Darf ich?“) beantworten.
 // Die Antwort läuft auf dem Server weiter, auch wenn die Seite gewechselt oder die App geschlossen wird.
 import { api, followChat, streamChat } from "./api.js";
-import { mainAgent } from "./store.js";
+import { mainAgent, modelInfo, state } from "./store.js";
 import { userHtml } from "./quote.js";
 import { $, attempt, esc, fmtDateTime, fmtDur, md, toast } from "./ui.js";
 
@@ -47,7 +47,7 @@ export async function mountThread(project, id) {
   b.innerHTML = `<div class="chat-day">${esc(c.title)} · ${fmtDateTime(c.created_at)}</div>`;
   for (const m of c.messages) {
     if (m.role === "user") addUser(m.text, m.meta?.files);
-    else if (m.role === "assistant") renderBot(addBot(), m.parts, m.text, m.meta);
+    else if (m.role === "assistant") renderBot(addBot(), m.parts, m.text, { ...m.meta, id: m.id });
     else addSys(m.text);
   }
   scroll(true);
@@ -151,8 +151,39 @@ function renderBot(el, parts, text, meta) {
   if (meta?.stopped) el.insertAdjacentHTML("beforeend", `<div class="msg-note"><span class="ms">stop_circle</span>Gestoppt</div>`);
   if (meta?.error) el.insertAdjacentHTML("beforeend", `<div class="msg-err"><span class="ms">error</span>${esc(meta.error)}</div>`);
   if (!el.innerHTML) el.innerHTML = `<div class="typing"><i></i><i></i><i></i></div>`;
-  if (meta?.ms != null) el.insertAdjacentHTML("beforeend", `<div class="msg-note" title="So lange hat die Antwort gedauert"><span class="ms">timer</span>${fmtDur(meta.ms)}</div>`);
+  // bei "Auto": welches Modell es wurde (Grund beim Darüberfahren) und Bewertung, aus der Auto lernt
+  const r = meta?.route;
+  const rate = r && meta.id ? `<span class="route-rate" data-mid="${esc(meta.id)}">${RATINGS.map(([k, ic, t]) =>
+    `<button type="button" data-rate="${k}" class="${r.rating === k ? "on" : ""}" title="${t}" aria-label="${t}"><span class="ms">${ic}</span></button>`).join("")}
+    <button type="button" data-better class="${r.better ? "on" : ""}" title="Ein bestimmtes anderes Modell wäre besser gewesen" aria-label="Besseres Modell angeben"><span class="ms">swap_horiz</span></button>
+    <span class="route-better">${r.better ? `→ ${esc(modelInfo(r.better).name)}` : ""}</span></span>` : "";
+  const routed = r ? `<span class="msg-route" title="${esc(r.reason || "")}"><span class="ms">auto_awesome</span>Auto → ${esc(modelInfo(r.model).name)}${r.effort ? ` · ${EFFORT_NAMES[r.effort] || r.effort}` : ""}</span>${rate}` : "";
+  if (meta?.ms != null || routed)
+    el.insertAdjacentHTML("beforeend", `<div class="msg-note msg-meta">${routed}${meta?.ms != null ? `<span title="So lange hat die Antwort gedauert"><span class="ms">timer</span>${fmtDur(meta.ms)}</span>` : ""}</div>`);
 }
+
+const EFFORT_NAMES = { low: "Niedrig", medium: "Mittel", high: "Hoch", xhigh: "Extra", max: "Max" };
+const RATINGS = [["ok", "thumb_up", "Modell passte"], ["weak", "arrow_upward", "Zu schwach – ein stärkeres wäre besser gewesen"], ["strong", "arrow_downward", "Zu stark – ein kleineres hätte gereicht"]];
+async function sendRating(box, body) {
+  const route = await attempt(async () => (await api.post("/autoroute/rate", { message_id: box.dataset.mid, ...body })).route, "Danke – Auto merkt sich das");
+  if (!route) return;
+  box.querySelectorAll("[data-rate]").forEach((x) => x.classList.toggle("on", x.dataset.rate === route.rating));
+  box.querySelector("[data-better]").classList.toggle("on", !!route.better);
+  box.querySelector(".route-better").innerHTML = route.better ? `→ ${esc(modelInfo(route.better).name)}` : "";
+}
+document.addEventListener("click", (e) => {
+  const b = e.target.closest(".route-rate [data-rate]");
+  if (b) return sendRating(b.closest(".route-rate"), { rating: b.dataset.rate });
+  const pick = e.target.closest(".route-rate [data-better]");
+  if (!pick) return;
+  const box = pick.closest(".route-rate"), slot = box.querySelector(".route-better");
+  if (slot.querySelector("select")) return;
+  slot.innerHTML = `<select aria-label="Besseres Modell"><option value="">Welches wäre besser gewesen?</option>${(state.boot?.models || [])
+    .map((m) => `<option value="${esc(m)}">${esc(modelInfo(m).name)}${m.startsWith("agy:") ? " (Antigravity)" : ""}</option>`).join("")}</select>`;
+  const sel = slot.querySelector("select");
+  sel.focus();
+  sel.onchange = () => sel.value && sendRating(box, { better_model: sel.value });
+});
 
 // Stopp-Knopf: beendet die laufende Antwort (das Geschriebene bleibt)
 export async function stopAnswer() {
@@ -198,10 +229,13 @@ async function follow(start, since = null) {
     } else if (ev.approval_done) {
       const p = parts.find((x) => x.t === "approval" && x.id === ev.approval_done.id);
       if (p) p.decision = ev.approval_done.decision;
+    } else if (ev.route) {
+      meta.route = ev.route;
     } else if (ev.sys) {
       addSys(ev.sys, "swap_horiz");
     } else if (ev.done) {
       ok = ev.done.ok;
+      if (ev.done.message_id) meta.id = ev.done.message_id;
       if (ev.done.ms != null) meta.ms = ev.done.ms;
       if (ev.done.stopped) meta.stopped = true;
       else if (!ok) meta.error = ev.done.error;

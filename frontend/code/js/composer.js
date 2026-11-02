@@ -31,6 +31,7 @@ export function current() {
   const models = state.boot?.models || [];
   const accs = accounts();
   const a = mainAgent();
+  if (sel?.model === "auto") return { model: "auto", account: null, effort: null }; // der Server wählt Modell, Account und Stärke
   const model = models.includes(sel?.model) ? sel.model : a?.model || state.boot?.default_model;
   const fits = (x) => x && (x.provider === "antigravity") === String(model || "").startsWith("agy:");
   const wanted = accs.find((x) => x.id === sel?.account) || accs.find((x) => x.id === a?.account_id);
@@ -110,9 +111,12 @@ function openModelMenu() {
         ${p == null ? "" : `<span class="mm-bar"><i style="width:${Math.min(100, p)}%;background:${limColor(p)}"></i></span>`}</button>`;
     }).join("")}</div>` : ""}
       <div class="pop-head">Modell</div>
+      <div class="mm-item ${model === "auto" ? "sel" : ""}" data-m="auto" role="menuitem" tabindex="0" title="Auto wählt pro Nachricht Anbieter, Modell und Stärke">
+        <span class="ms mm-ic">auto_awesome</span><span class="pop-txt"><b>Auto</b><small>Wählt pro Nachricht Modell und Stärke – unter der Antwort steht, was es wurde</small></span>
+        ${model === "auto" ? `<span class="ms pop-check">check</span>` : ""}</div>
       ${groups.length ? groups.map((g) => {
         const ids = Object.values(g.ids);
-        const on = menuTab === account?.id && ids.includes(model);
+        const on = model !== "auto" && menuTab === account?.id && ids.includes(model);
         const pick = on ? model : g.ids.medium || ids[0];
         const lv = Object.keys(LEVELS).filter((k) => g.ids[k]);
         const ef = agyTab ? [] : effortsOf(pick);
@@ -132,7 +136,7 @@ function openModelMenu() {
     if (t) { menuTab = t.dataset.tab; draw(); return; }
     const b = e.target.closest("[data-m]");
     if (!b) return;
-    sel = { model: b.dataset.m, account: menuTab, effort: b.dataset.eff || null };
+    sel = { model: b.dataset.m, account: b.dataset.m === "auto" ? null : menuTab, effort: b.dataset.eff || null };
     localStorage.setItem("code-model", JSON.stringify(sel));
     close();
     renderChip();
@@ -251,7 +255,8 @@ document.addEventListener("code:busy", updateSend);
 document.addEventListener("code:done", updateSend);
 // ein geöffneter Thread bringt sein Modell/seinen Account mit
 document.addEventListener("code:model", (e) => {
-  if (e.detail?.model) sel = { model: e.detail.model, account: e.detail.account, effort: sel?.effort || null };
+  if (e.detail?.model === "auto") sel = { model: "auto", account: null, effort: null };
+  else if (e.detail?.model) sel = { model: e.detail.model, account: e.detail.account, effort: sel?.effort || null };
   renderChip();
 });
 export const refreshChip = renderChip;

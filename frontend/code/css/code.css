@@ -669,3 +669,13 @@ body.pane-resizing iframe { pointer-events: none; }
 .msg-quote { display: flex; gap: 6px; margin: -2px 0 8px; padding: 6px 10px; border-radius: 12px; border-left: 3px solid var(--accent); background: rgba(255, 255, 255, 0.06); font-size: 13px; line-height: 1.45; color: var(--muted); }
 .msg-quote .ms { font-size: 16px; color: var(--accent); flex: none; margin-top: 1px; }
 .msg-quote > span:last-child { display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; white-space: pre-wrap; word-break: break-word; }
+
+/* Auto: gewähltes Modell und Bewertung unter der Antwort */
+.msg-note.msg-meta { gap: 4px; }
+.msg-note .msg-route { display: inline-flex; align-items: center; gap: 4px; color: var(--accent); margin-right: 10px; cursor: help; }
+.route-rate { display: inline-flex; align-items: center; gap: 2px; margin-right: 10px; }
+.route-rate button { background: none; border: 0; padding: 2px 4px; border-radius: 6px; color: var(--muted); cursor: pointer; opacity: .6; }
+.route-rate button:hover { opacity: 1; background: rgba(255,255,255,.06); }
+.route-rate button.on { opacity: 1; color: var(--accent); }
+.route-better { font-size: 12px; color: var(--accent); margin-left: 2px; }
+.route-better select { font: inherit; font-size: 12px; background: var(--surface-high); color: inherit; border: 1px solid var(--border-subtle); border-radius: 6px; padding: 2px 4px; }
