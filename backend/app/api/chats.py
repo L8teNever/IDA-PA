@@ -8,6 +8,7 @@ from ..models import Chat, ChatMessage
 from ..schemas import ChatSend, ChatUpdate
 from ..services import chat as chat_service
 from ..services import files as file_svc
+from ..services import settings_store
 from ..services.chat import stream_chat
 from ..services.code import approvals
 from ..services.errors import Invalid, NotFound
@@ -69,6 +70,7 @@ async def delete(chat_id: str, db: DB):
     chat_service.stop(chat_id)
     approvals.forget(chat_id)
     await file_svc.delete_for_chat(db, chat_id)
+    await settings_store.delete(db, f"code_draft:t-{chat_id}")
     await db.delete(c)
     try:
         from ..services import wiki_sync

@@ -1,8 +1,12 @@
 // Eingabe unten im Thread: wachsendes Textfeld, Dateien anhängen, Modell/Account/Denktiefe wählen (wie in IDA), Senden/Stoppen.
+// Während die KI arbeitet, kommen neue Nachrichten in die Warteschlange (queue.js); der Text im Feld ist ein Entwurf
+// auf dem Server (draft.js) und auf jedem Gerät derselbe.
 import { api } from "./api.js";
 import { ctx, send, stopAnswer } from "./chat.js";
 import { loadUsage, mainAgent, modelInfo, state } from "./store.js";
 import { initQuote, withQuote } from "./quote.js";
+import { bindQueue, enqueue } from "./queue.js";
+import { bindDraft, draftSent } from "./draft.js";
 import { $, esc, toast } from "./ui.js";
 
 let sel = JSON.parse(localStorage.getItem("code-model") || "null"); // { model, account, effort }
@@ -37,6 +41,7 @@ export function current() {
 
 export function composerHtml(placeholder) {
   return `<form class="composer" id="composer" autocomplete="off">
+    <div class="queue" id="queue" hidden></div>
     <div class="att-list" id="attList" hidden></div>
     <textarea id="input" rows="1" placeholder="${esc(placeholder)}" aria-label="Nachricht"></textarea>
     <div class="comp-row">
@@ -63,12 +68,12 @@ function updateSend() {
   const input = $("input"), b = $("send");
   if (!input || !b) return;
   const content = !!input.value.trim() || files.some((x) => x.state === "ok");
-  const mode = ctx.busy ? (content ? "wait" : "stop") : "send";
-  b.disabled = mode === "wait" || (!content && !ctx.busy);
+  const mode = ctx.busy ? (content ? "queue" : "stop") : "send";
+  b.disabled = !content && !ctx.busy;
   b.dataset.mode = mode;
-  b.querySelector(".ms").textContent = mode === "stop" ? "stop" : "arrow_upward";
-  b.setAttribute("aria-label", mode === "stop" ? "Antwort stoppen" : "Senden");
-  b.title = mode === "stop" ? "Antwort stoppen" : mode === "wait" ? "Erst wenn die Antwort fertig ist" : "Senden (Enter)";
+  b.querySelector(".ms").textContent = { send: "arrow_upward", queue: "playlist_add", stop: "stop" }[mode];
+  b.setAttribute("aria-label", { send: "Senden", queue: "In die Warteschlange", stop: "Antwort stoppen" }[mode]);
+  b.title = { send: "Senden (Enter)", queue: "In die Warteschlange – geht raus, sobald die Antwort fertig ist", stop: "Antwort stoppen" }[mode];
 }
 
 // ---- Modell-Menü ----
@@ -219,7 +224,7 @@ export function bindComposer() {
   $("modelBtn").onclick = openModelMenu;
   form.onsubmit = (e) => {
     e.preventDefault();
-    if (ctx.busy) { if ($("send").dataset.mode === "stop") stopAnswer(); return; }
+    if (ctx.busy && $("send").dataset.mode === "stop") return e.submitter ? stopAnswer() : undefined; // leeres Feld: der Knopf stoppt
     if (files.some((x) => x.state === "up")) return toast("Moment – die Dateien werden noch hochgeladen");
     const text = input.value.trim();
     const ready = files.filter((x) => x.state === "ok").map(({ id, name, kind }) => ({ id, name, kind }));
@@ -229,9 +234,14 @@ export function bindComposer() {
     renderFiles();
     input.value = "";
     grow();
+    draftSent();
     const { model, account, effort } = current();
-    send(text ? withQuote(text) : text, { model, accountId: account?.id, effort, files: ready });
+    const body = text ? withQuote(text) : text, opts = { model, accountId: account?.id, effort, files: ready };
+    if (ctx.busy) { enqueue(body, opts); updateSend(); } // die KI arbeitet noch: die Nachricht wartet in der Schlange
+    else send(body, opts);
   };
+  bindQueue();
+  bindDraft();
   renderFiles();
   renderChip();
   updateSend();

@@ -11,6 +11,9 @@ let following = null; // AbortController der Antwort, der wir gerade folgen
 
 const fire = (name, detail) => document.dispatchEvent(new CustomEvent(name, { detail }));
 
+// Schlüssel für Entwurf und Warteschlange: Thread („t-…“) oder neuer Thread im Projekt („p-…“)
+export const threadKey = () => (ctx.id ? `t-${ctx.id}` : ctx.project ? `p-${ctx.project.id}` : null);
+
 export function detach() {
   if (following) { following.abort(); following = null; }
   if (ctx.busy) { ctx.busy = false; fire("code:done", { ok: true, left: true }); }
@@ -30,6 +33,7 @@ export function mountNew(project, mode = "ask") {
   box().innerHTML = `<div class="code-intro"><span class="ms">terminal</span><b>Neuer Thread in ${esc(project.name)}</b>
     <small>${esc(a?.name || "Ida")} arbeitet direkt im Projekt – liest Code, ändert Dateien, führt Befehle aus. Was soll gemacht werden?</small></div>`;
   fire("code:model", { model: null, account: null });
+  fire("code:mounted");
 }
 
 // vorhandener Thread
@@ -48,6 +52,7 @@ export async function mountThread(project, id) {
   }
   scroll(true);
   if (c.running) follow((onEvent, signal) => followChat(c.id, onEvent, signal), c.running_since);
+  fire("code:mounted");
   return c;
 }
 

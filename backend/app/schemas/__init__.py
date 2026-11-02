@@ -277,6 +277,10 @@ class ProjectUpdate(BaseModel):
     name: str
 
 
+class Draft(BaseModel):
+    text: str = Field("", max_length=200_000)
+
+
 class ThreadUpdate(BaseModel):
     title: str | None = None
     permission_mode: Mode | None = None

@@ -1,13 +1,15 @@
 """Code area: on/off switch, projects (git repos), their threads, git actions and approvals.
 Threads themselves are chats: messages go through POST /chat (with project_id for a new thread), /chats/{id}/live, /stop."""
 import mimetypes
+import re
 
 from fastapi import APIRouter
 from fastapi.responses import FileResponse
 from sqlalchemy import select
 
 from ..models import Chat, ChatMessage
-from ..schemas import ApprovalAnswer, CodeSettings, CommitMessageSuggest, GitBranch, GitCommit, ProjectCreate, ProjectUpdate, Publish, PullRequest, ThreadUpdate
+from ..db import utcnow
+from ..schemas import ApprovalAnswer, CodeSettings, CommitMessageSuggest, Draft, GitBranch, GitCommit, ProjectCreate, ProjectUpdate, Publish, PullRequest, ThreadUpdate
 from ..services import chat as chat_service
 from ..services import code as code_area
 from ..services import settings_store
@@ -91,6 +93,7 @@ async def rename_project(pid: str, body: ProjectUpdate, db: DB):
 async def delete_project(pid: str, db: DB):
     await code_area.require(db)
     await projects.delete(db, pid)
+    await settings_store.delete(db, f"code_draft:p-{pid}")
     try:
         from ..services import wiki_sync
         wiki_sync.enqueue_project_delete(pid)
@@ -175,6 +178,38 @@ async def update_thread(cid: str, body: ThreadUpdate, db: DB):
     if body.permission_mode:
         c.permission_mode = body.permission_mode
     return ser.chat(c)
+
+
+# ---- drafts: unsent text in the input field, kept on the server so every device sees the same ----
+# key "t-<thread id>" for a thread, "p-<project id>" for a new thread in a project
+
+_DRAFT_KEY = re.compile(r"[tp]-[A-Za-z0-9_-]{1,32}")
+
+
+def _draft_key(key: str) -> str:
+    if not _DRAFT_KEY.fullmatch(key):
+        raise NotFound("Entwurf nicht gefunden")
+    return f"code_draft:{key}"
+
+
+@router.get("/drafts/{key}")
+async def get_draft(key: str, db: DB):
+    await code_area.require(db)
+    d = await settings_store.get(db, _draft_key(key)) or {}
+    return {"text": d.get("text", ""), "at": d.get("at")}
+
+
+@router.put("/drafts/{key}")
+async def put_draft(key: str, body: Draft, db: DB):
+    """Empty text removes the draft (sent or cleared)."""
+    await code_area.require(db)
+    k = _draft_key(key)
+    if body.text.strip():
+        at = ser.iso(utcnow())
+        await settings_store.put(db, k, {"text": body.text, "at": at})
+        return {"text": body.text, "at": at}
+    await settings_store.delete(db, k)
+    return {"text": "", "at": None}
 
 
 # ---- git ----

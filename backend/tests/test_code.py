@@ -353,6 +353,27 @@ def test_delete_project_removes_threads_and_folder(client, code_on, github):
     assert client.get(f"{API}/code/projects/{p['id']}").status_code == 404
 
 
+def test_drafts_are_kept_on_the_server(client, code_on, github):
+    """Unsent text in the input field: stored per thread / new thread, same on every device, gone when sent or deleted."""
+    p = client.post(f"{API}/code/projects", json={"name": "Entwurf"}).json()
+    new = f"{API}/code/drafts/p-{p['id']}"
+    assert client.get(new).json() == {"text": "", "at": None}
+    r = client.put(new, json={"text": "Bau mir\neinen Test"}).json()
+    assert r["text"] == "Bau mir\neinen Test" and r["at"]
+    assert client.get(new).json()["text"] == "Bau mir\neinen Test"
+    assert client.put(new, json={"text": "  "}).json()["text"] == ""
+    assert client.get(new).json()["text"] == ""
+    # a thread's draft goes away with the thread
+    cid = chat(client, project_id=p["id"], text="PWD")[0]["chat"]["id"]
+    client.put(f"{API}/code/drafts/t-{cid}", json={"text": "weiter"})
+    assert client.get(f"{API}/code/drafts/t-{cid}").json()["text"] == "weiter"
+    client.delete(f"{API}/chats/{cid}")
+    assert client.get(f"{API}/code/drafts/t-{cid}").json()["text"] == ""
+    for bad in ("x-1", "t-", "t-a.b", "t-" + "a" * 40):
+        assert client.get(f"{API}/code/drafts/{bad}").status_code == 404
+    client.delete(f"{API}/code/projects/{p['id']}")
+
+
 def test_project_files_listing_and_preview(client, code_on, github):
     from app.services.code import projects
     p = client.post(f"{API}/code/projects", json={"name": "FilesTest"}).json()

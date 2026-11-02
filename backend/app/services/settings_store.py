@@ -11,6 +11,12 @@ async def get(session: AsyncSession, key: str, default: Any = None) -> Any:
     return default if row is None else row.value
 
 
+async def delete(session: AsyncSession, key: str) -> None:
+    row = await session.get(Setting, key)
+    if row is not None:
+        await session.delete(row)
+
+
 async def put(session: AsyncSession, key: str, value: Any) -> None:
     row = await session.get(Setting, key)
     if row is None:
