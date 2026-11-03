@@ -5,7 +5,7 @@ import { initComposer } from "./ui/composer.js";
 import { $, toast } from "./ui/dom.js";
 import { initMascot } from "./ui/mascot.js";
 import { initPwa } from "./ui/pwa.js";
-import { initLive } from "./ui/live.js";
+import { initLive, livePage } from "./ui/live.js";
 import { initBack } from "./ui/back.js";
 import { initSelects } from "./ui/select.js";
 import { initShell, setView } from "./ui/shell.js";
@@ -40,6 +40,7 @@ router.add("/tracker", trackerPage);
 router.add("/tracker/:id/timer", timerPage);
 router.add("/tracker/:id", trackerPage); // also /tracker/neu
 router.add("/t/:token", tapPage);
+router.add("/live", livePage);
 // mit eigener Code-App (code_url) führen alte Links dorthin, sonst bleibt der Code-Bereich hier in IDA
 router.add("/code", (p) => (codeUrl() ? location.replace(codeUrl()) : codePage(p)));
 router.add("/code/:project", (p) => (codeUrl() ? location.replace(`${codeUrl()}/p/${p.project}`) : projectPage(p)));

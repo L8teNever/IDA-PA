@@ -18,3 +18,4 @@ legacy/node-app/.gitignore.old
 
 # old prototype (stays local, not part of the repo)
 legacy/
+skills/

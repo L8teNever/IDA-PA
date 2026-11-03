@@ -337,34 +337,48 @@ body.model-open .model-menu { border-bottom-width: 1px; }
 .mic-btn:hover { background: rgba(255,255,255,.07); color: var(--on-surface); }
 .mic-btn .ms { font-size: 22px; }
 .mic-btn[hidden] { display: none; }
-.live-view { position: fixed; inset: 0; z-index: 300; display: grid; place-items: center; padding: 20px;
-  background: rgba(0,0,0,.72); backdrop-filter: blur(8px); animation: live-in .25s ease; }
-.live-view.out { opacity: 0; transition: opacity .25s; }
-.live-card { width: min(420px, 100%); background: var(--surface-high); border-radius: 32px; padding: 32px 24px 24px;
-  display: flex; flex-direction: column; align-items: center; gap: 10px; box-shadow: 0 20px 60px rgba(0,0,0,.5); }
-.live-orb { width: 112px; height: 112px; border-radius: 50%; display: grid; place-items: center; background: var(--accent); color: var(--on-accent, #000);
-  transition: transform .3s var(--spring), box-shadow .3s; }
-.live-orb .ms { font-size: 44px; }
-.live-orb[data-state="connect"] { opacity: .55; animation: live-breathe 1.6s ease-in-out infinite; }
-.live-orb[data-state="listen"] { box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 45%, transparent); animation: live-pulse 2.2s ease-out infinite; }
-.live-orb[data-state="speak"] { transform: scale(1.08); animation: live-talk .45s ease-in-out infinite alternate; }
-.live-orb[data-state="tool"] { opacity: .8; animation: live-breathe .9s ease-in-out infinite; }
-.live-name { font-size: 20px; font-weight: 600; margin-top: 8px; }
-.live-state { font-size: 14px; color: var(--muted); }
-.live-lines { width: 100%; max-height: 32vh; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; margin: 8px 0; }
-.live-lines p { margin: 0; padding: 8px 12px; border-radius: 16px; font-size: 14px; line-height: 1.4; max-width: 88%; }
-.live-lines p[data-who="stella"] { align-self: flex-start; background: var(--surface-highest); }
-.live-lines p[data-who="user"] { align-self: flex-end; background: color-mix(in srgb, var(--accent) 22%, var(--surface-highest)); }
-.live-actions { display: flex; gap: 18px; margin-top: 6px; }
-.live-actions button { width: 60px; height: 60px; border-radius: 30px; border: 0; display: grid; place-items: center; cursor: pointer;
-  background: var(--surface-highest); color: var(--on-surface); }
-.live-actions .ms { font-size: 26px; }
-.live-actions .live-mute.on { background: #fff; color: #000; }
-.live-actions .live-end { background: #e5484d; color: #fff; }
-@keyframes live-in { from { opacity: 0; } }
-@keyframes live-breathe { 50% { transform: scale(.94); } }
-@keyframes live-pulse { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 45%, transparent); } 100% { box-shadow: 0 0 0 22px transparent; } }
-@keyframes live-talk { to { transform: scale(1.14); } }
+/* live page (/live): Mascot + Chat layout (Version B) */
+.live-b { display: flex; flex-direction: column; align-items: center; width: 100%; max-width: 540px; margin: 0 auto; height: 100dvh; padding: 20px 16px 16px; box-sizing: border-box; }
+.lv-buddy-wrap { position: relative; width: 100%; height: min(28vh, 220px); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.lv-glow { position: absolute; inset: -20%; border-radius: 50%; background: radial-gradient(closest-side, rgba(var(--accent-rgb), .35), transparent 70%); filter: blur(20px); z-index: 0; pointer-events: none; transition: opacity .3s; }
+.lv-wave { position: absolute; border-radius: 50%; border: 2px solid var(--accent); pointer-events: none; opacity: 0; transition: transform .12s linear, opacity .2s; }
+.lv-w1 { width: 180px; height: 180px; }
+.lv-w2 { width: 225px; height: 225px; }
+.lv-w3 { width: 270px; height: 270px; }
+.lv-buddy-wrap[data-state="speak"] .lv-wave, .lv-buddy-wrap[data-state="listen"] .lv-wave {
+  opacity: calc(0.1 + var(--lvl, 0) * 0.5);
+  transform: scale(calc(1 + var(--lvl, 0) * 0.22));
+}
+.lv-buddy-wrap[data-state="speak"] .lv-w1 { opacity: calc(0.2 + var(--lvl, 0) * 0.6); }
+.lv-buddy-wrap[data-state="speak"] .lv-w2 { opacity: calc(0.12 + var(--lvl, 0) * 0.4); }
+.lv-buddy-wrap[data-state="speak"] .lv-w3 { opacity: calc(0.06 + var(--lvl, 0) * 0.25); }
+.lv-buddy-wrap .buddy { position: relative; z-index: 1; }
+.lv-buddy-wrap[data-state="tool"] .buddy { animation: breathe 1.2s ease-in-out infinite; }
+.lv-buddy-wrap[data-state="fail"] .buddy .face { filter: saturate(.4) brightness(.85); }
+
+.lv-status { display: flex; align-items: center; justify-content: center; gap: 8px; margin-top: 2px; flex-shrink: 0; }
+.lv-pill { display: inline-flex; align-items: center; gap: 7px; padding: 5px 14px; border-radius: 20px; background: rgba(255,143,200,.14); border: 1px solid rgba(255,143,200,.22); font-size: 13px; font-weight: 500; color: var(--accent); transition: all .2s; }
+.lv-pill.listen { background: rgba(255,255,255,.07); border-color: rgba(255,255,255,.1); color: var(--on-surface); }
+.lv-pill.muted { background: rgba(255,255,255,.05); border-color: rgba(255,255,255,.08); color: var(--muted); }
+.lv-pill.tool { background: rgba(255,143,200,.18); color: var(--accent); }
+.lv-pill.fail { background: rgba(229,72,77,.18); border-color: rgba(229,72,77,.3); color: #ff8589; }
+.lv-pill.done { background: rgba(255,255,255,.08); border-color: rgba(255,255,255,.12); color: var(--on-surface); }
+.lv-time { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+.lv-tool { align-self: center; margin-top: 6px; display: inline-flex; align-items: center; gap: 6px; padding: 4px 11px; border-radius: 10px; background: rgba(255,143,200,.1); font-size: 12px; color: var(--accent); border: 1px solid rgba(255,143,200,.15); flex-shrink: 0; }
+.lv-tool .ms { font-size: 16px; }
+
+.lv-chat { flex: 1; width: 100%; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; padding: 12px 4px; margin: 8px 0; min-height: 80px; scroll-behavior: smooth; }
+.lv-msg { max-width: 86%; padding: 10px 14px; border-radius: 18px; font-size: 14.5px; line-height: 1.45; word-break: break-word; }
+.lv-msg small { display: block; font-size: 11px; margin-bottom: 2px; font-weight: 500; }
+.lv-msg.user { align-self: flex-end; background: color-mix(in srgb, var(--accent) 18%, var(--surface-highest, #1f2024)); border: 1px solid color-mix(in srgb, var(--accent) 26%, transparent); color: var(--on-surface); border-bottom-right-radius: 4px; }
+.lv-msg.user small { color: var(--accent); }
+.lv-msg.bot { align-self: flex-start; background: var(--surface-highest, #1a1c22); border: 1px solid rgba(255,255,255,.06); color: var(--on-surface); border-bottom-left-radius: 4px; }
+.lv-msg.bot small { color: var(--muted); }
+
+.lv-btns { display: flex; gap: 10px; justify-content: center; width: 100%; padding-top: 8px; flex-shrink: 0; }
+.es-btn.lv-end { background: #e5484d; color: #fff; }
+.es-btn.lv-end .ms { color: #fff; }
 
 /* Antigravity sign-in (like T3 Code) */
 .agy-steps { display: grid; gap: 18px; }
