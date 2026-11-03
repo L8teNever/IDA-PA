@@ -504,3 +504,29 @@ def test_queue_is_kept_on_the_server_and_sent_by_it(client, code_on, github):
     # the thread goes, its queue too
     client.delete(f"{API}/chats/{cid}")
     assert client.get(q).status_code == 404
+
+
+def test_branch_off_a_thread_from_any_answer(client, code_on, github):
+    """Abzweigen: a new thread with everything up to that answer; from the latest one it forks Claude's session."""
+    p = _project(client, github)
+    ev = chat(client, project_id=p["id"], text="eins", permission_mode="full")
+    cid = ev[0]["chat"]["id"]
+    chat(client, chat_id=cid, text="zwei")
+    msgs = client.get(f"{API}/chats/{cid}").json()["messages"]
+    first, last = msgs[1], msgs[3]
+    assert client.post(f"{API}/chats/{cid}/fork", json={"message_id": msgs[0]["id"]}).status_code == 400  # not from a user message
+    # from the latest answer: same session, forked on the next message (the original keeps its own)
+    f = client.post(f"{API}/chats/{cid}/fork", json={"message_id": last["id"]}).json()
+    assert f["kind"] == "code" and f["project_id"] == p["id"] and f["title"].startswith("↳ ") and f["id"] != cid
+    fm = client.get(f"{API}/chats/{f['id']}").json()["messages"]
+    assert [m["text"] for m in fm[:4]] == [m["text"] for m in msgs] and fm[-1]["role"] == "system"
+    out = text(chat(client, chat_id=f["id"], text="drei im Zweig"))
+    assert "FORK(" in out and "drei im Zweig" in out and "Bisheriger" not in out
+    out = text(chat(client, chat_id=f["id"], text="vier"))
+    assert "FORK(" not in out  # from now on its own session
+    assert "FORK(" not in text(chat(client, chat_id=cid, text="weiter im Original"))
+    # from an earlier answer: the conversation up to there goes along as text
+    g = client.post(f"{API}/chats/{cid}/fork", json={"message_id": first["id"]}).json()
+    out = text(chat(client, chat_id=g["id"], text="anders weiter"))
+    assert "Bisheriger Gesprächsverlauf" in out and "Nutzer: eins" in out and "zwei" not in out.split("Neue Nachricht")[0]
+    assert g["id"] in [t["id"] for t in client.get(f"{API}/code/projects/{p['id']}/threads").json()]

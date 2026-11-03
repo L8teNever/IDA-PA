@@ -5,13 +5,14 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy import or_, select
 
 from ..models import Chat, ChatMessage
-from ..schemas import ChatSend, ChatUpdate
+from ..schemas import ChatFork, ChatSend, ChatUpdate
 from ..services import chat as chat_service
 from ..services import chat_queue
 from ..services import files as file_svc
 from ..services import settings_store
 from ..services.chat import stream_chat
 from ..services.code import approvals
+from ..db import utcnow
 from ..services.errors import Invalid, NotFound
 from . import serializers as ser
 from .deps import DB
@@ -62,6 +63,34 @@ async def rename(chat_id: str, body: ChatUpdate, db: DB):
     except Exception:
         pass
     return ser.chat(c)
+
+
+@router.post("/chats/{chat_id}/fork")
+async def fork(chat_id: str, body: ChatFork, db: DB):
+    """Branch off: a new chat/thread with everything up to (and including) this answer – same context, then separate.
+    From the latest answer it continues Claude's session (with all tool results); from an earlier one the
+    conversation up to there is carried over as text."""
+    c = await db.get(Chat, chat_id)
+    if not c:
+        raise NotFound("Chat nicht gefunden")
+    msgs = list((await db.scalars(select(ChatMessage).where(ChatMessage.chat_id == chat_id).order_by(ChatMessage.at))).all())
+    cut = next((i for i, m in enumerate(msgs) if m.id == body.message_id), None)
+    if cut is None or msgs[cut].role != "assistant":
+        raise Invalid("Abzweigen geht nur ab einer Antwort der KI")
+    latest = cut == len(msgs) - 1 and not chat_service.running(chat_id)
+    base = c.title.removeprefix("↳ ")
+    new = Chat(agent_id=c.agent_id, title=f"↳ {base}"[:120], model=c.model, account_id=c.account_id, kind=c.kind,
+               project_id=c.project_id, permission_mode=c.permission_mode,
+               session_id=f"{chat_service.FORK}{c.session_id}" if latest and c.session_id else None,
+               session_account=c.session_account if latest and c.session_id else None)
+    db.add(new)
+    await db.flush()
+    for m in msgs[:cut + 1]:
+        meta = {k: v for k, v in (m.meta or {}).items() if k != "route"}  # ratings belong to the original answer
+        db.add(ChatMessage(chat_id=new.id, role=m.role, text=m.text, parts=m.parts, meta=meta, at=m.at))
+    db.add(ChatMessage(chat_id=new.id, role="system", text=f"Abgezweigt aus „{base}“", at=utcnow()))
+    await db.flush()
+    return {**ser.chat(new), "forked_from": chat_id}
 
 
 @router.delete("/chats/{chat_id}")

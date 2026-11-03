@@ -47,6 +47,9 @@ system = open(arg("--system-prompt-file"), encoding="utf8").read()
 mcp = json.load(open(arg("--mcp-config"), encoding="utf8"))["mcpServers"]
 account = os.path.basename(os.environ.get("CLAUDE_CONFIG_DIR", ""))
 session = arg("--resume") or "sess-" + account
+if "--fork-session" in args:  # branched thread: a new session that knows the old one
+    session = f"{session}-fork"
+    prompt = f"FORK({arg('--resume')}) {prompt}"
 
 
 def out(ev):

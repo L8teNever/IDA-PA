@@ -67,6 +67,7 @@ class RunSpec:
     allow: list[str] = field(default_factory=list)
     deny: list[str] = field(default_factory=list)
     session_id: str | None = None  # resume this Claude session
+    fork: bool = False  # resume into a new session (branched thread: the original session stays as it is)
     persist: bool = False  # keep the session for later resumes (chats)
     agent_id: str | None = None  # whose run this is (shown as the mascot's mood)
     kind: str = "run"  # chat | run
@@ -176,6 +177,8 @@ async def _stream(spec: RunSpec) -> AsyncIterator[dict]:
         args.append("--no-session-persistence")
     if spec.session_id and re.fullmatch(r"[\w-]+", spec.session_id):
         args += ["--resume", spec.session_id]
+        if spec.fork:
+            args.append("--fork-session")
 
     env = account_env(spec.account, code=bool(code))
     if code:

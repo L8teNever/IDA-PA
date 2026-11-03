@@ -281,6 +281,10 @@ class Draft(BaseModel):
     text: str = Field("", max_length=200_000)
 
 
+class ChatFork(BaseModel):
+    message_id: str = Field(min_length=1, max_length=12)
+
+
 class QueueItem(BaseModel):
     """A message that waits in a code thread's queue (same fields as POST /chat)."""
     text: str = Field("", max_length=200_000)

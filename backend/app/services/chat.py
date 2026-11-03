@@ -36,6 +36,7 @@ from .errors import Invalid, NotFound
 from .mcp import identity
 
 log = logging.getLogger("ida.chat")
+FORK = "fork:"  # session_id of a branched thread before its first answer: "fork:<session of the original>"
 KEEP_FINISHED = 120  # seconds a finished run stays followable (a browser that comes back just then still gets "done")
 
 
@@ -315,7 +316,9 @@ async def _prepare(*, chat_id, agent_id, text, model, account_id, skill_id, file
         chat.updated_at = utcnow()
         await db.flush()
         info = chat_dict(chat)
-        state = {"chat_id": chat.id, "agent_id": agent.id, "model": run_model, "session": chat.session_id if chat.session_account == acc.id else None,
+        session = chat.session_id if chat.session_account == acc.id else None
+        fork = bool(session and session.startswith(FORK))  # branched thread: its first answer forks the original's session
+        state = {"chat_id": chat.id, "agent_id": agent.id, "model": run_model, "session": session[len(FORK):] if fork else session, "fork": fork,
                  "history": _transcript(history), "code": code, "route": route}
         order = [acc] + ([a for a in await providers.accounts_for(db, run_model) if a.id != acc.id] if agent.fallback else [])
     # text files go into the message itself; pictures and PDFs go to the model as they are
@@ -373,7 +376,7 @@ async def _answer(state: dict, order: list[Account], text: str, skill_id: str | 
             agent = await db.get(Agent, state["agent_id"])
             skill = await db.get(Skill, skill_id) if skill_id else None
             p = await runs.prepare(db, agent, prompt, model=state["model"], account=acc, interactive=True, forced_skill=skill,
-                                   session_id=resume, persist=True, effort=effort, code=state.get("code"), chat_id=state["chat_id"])
+                                   session_id=resume, fork=bool(resume and state.get("fork")), persist=True, effort=effort, code=state.get("code"), chat_id=state["chat_id"])
         p.spec.attachments = list(attachments or [])
         if state.get("code"):  # tools the user allowed for good in this thread
             p.spec.allow += approvals.always(state["chat_id"])

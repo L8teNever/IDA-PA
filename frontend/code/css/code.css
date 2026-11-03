@@ -679,3 +679,7 @@ body.pane-resizing iframe { pointer-events: none; }
 .route-rate button.on { opacity: 1; color: var(--accent); }
 .route-better { font-size: 12px; color: var(--accent); margin-left: 2px; }
 .route-better select { font: inherit; font-size: 12px; background: var(--surface-high); color: inherit; border: 1px solid var(--border-subtle); border-radius: 6px; padding: 2px 4px; }
+.msg-branch { display: inline-flex; align-items: center; gap: 4px; margin-left: 10px; padding: 2px 6px; border: 0; border-radius: 6px; background: none;
+  color: var(--muted); font: inherit; font-size: 12px; cursor: pointer; opacity: .7; }
+.msg-branch:hover { opacity: 1; color: var(--accent); background: rgba(255,255,255,.06); }
+.msg-branch .ms { font-size: 15px; }

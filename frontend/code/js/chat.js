@@ -1,7 +1,8 @@
 // Ein Thread: Verlauf anzeigen, neue Antworten live mitlesen (NDJSON von IDA), Freigaben („Darf ich?“) beantworten.
 // Die Antwort läuft auf dem Server weiter, auch wenn die Seite gewechselt oder die App geschlossen wird.
 import { api, followChat, streamChat } from "./api.js";
-import { mainAgent, modelInfo, state } from "./store.js";
+import { loadTree, mainAgent, modelInfo, state } from "./store.js";
+import { navigate, urlOf } from "./router.js";
 import { userHtml } from "./quote.js";
 import { $, attempt, esc, fmtDateTime, fmtDur, md, toast } from "./ui.js";
 
@@ -179,8 +180,9 @@ function renderBot(el, parts, text, meta) {
     <button type="button" data-better class="${r.better ? "on" : ""}" title="Ein bestimmtes anderes Modell wäre besser gewesen" aria-label="Besseres Modell angeben"><span class="ms">swap_horiz</span></button>
     <span class="route-better">${r.better ? `→ ${esc(modelInfo(r.better).name)}` : ""}</span></span>` : "";
   const routed = r ? `<span class="msg-route" title="${esc(r.reason || "")}"><span class="ms">auto_awesome</span>Auto → ${esc(modelInfo(r.model).name)}${r.effort ? ` · ${EFFORT_NAMES[r.effort] || r.effort}` : ""}</span>${rate}` : "";
-  if (meta?.ms != null || routed)
-    el.insertAdjacentHTML("beforeend", `<div class="msg-note msg-meta">${routed}${meta?.ms != null ? `<span title="So lange hat die Antwort gedauert"><span class="ms">timer</span>${fmtDur(meta.ms)}</span>` : ""}</div>`);
+  const branch = meta?.id ? `<button type="button" class="msg-branch" data-branch="${esc(meta.id)}" title="Ab hier abzweigen: neuer Thread mit allem bis zu dieser Antwort – danach getrennt" aria-label="Ab hier abzweigen"><span class="ms">call_split</span>Abzweigen</button>` : "";
+  if (meta?.ms != null || routed || branch)
+    el.insertAdjacentHTML("beforeend", `<div class="msg-note msg-meta">${routed}${meta?.ms != null ? `<span title="So lange hat die Antwort gedauert"><span class="ms">timer</span>${fmtDur(meta.ms)}</span>` : ""}${branch}</div>`);
 }
 
 const EFFORT_NAMES = { low: "Niedrig", medium: "Mittel", high: "Hoch", xhigh: "Extra", max: "Max" };
@@ -204,6 +206,18 @@ document.addEventListener("click", (e) => {
   const sel = slot.querySelector("select");
   sel.focus();
   sel.onchange = () => sel.value && sendRating(box, { better_model: sel.value });
+});
+
+// Abzweigen: neuer Thread mit allem bis zu dieser Antwort (gleicher Kontext), danach zwei getrennte Wege
+document.addEventListener("click", async (e) => {
+  const b = e.target.closest("[data-branch]");
+  if (!b || !ctx.id || b.disabled) return;
+  b.disabled = true;
+  const t = await attempt(() => api.post(`/chats/${encodeURIComponent(ctx.id)}/fork`, { message_id: b.dataset.branch }), "Abgezweigt – neuer Thread");
+  b.disabled = false;
+  if (!t) return;
+  await loadTree().catch(() => {});
+  navigate(urlOf({ project: t.project_id, thread: t.id }));
 });
 
 // Stopp-Knopf: beendet die laufende Antwort (das Geschriebene bleibt)
