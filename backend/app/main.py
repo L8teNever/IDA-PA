@@ -12,7 +12,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import db, seed
-from .api import accounts, agents, autoroute, chats, code, connectors, files, github, internal_mcp, kalender, memory, messages, reminders, routines, skills, system, trackers
+from .api import accounts, agents, autoroute, chats, code, connectors, files, github, internal_mcp, kalender, memory, messages, reminders, routines, skills, system, trackers, voice
 from .config import get_settings
 from .services import jobs, scheduler
 from .services.errors import Invalid, NotFound
@@ -60,9 +60,6 @@ async def lifespan(app: FastAPI):
         scheduler.start()
     from .services import wiki_sync
     wiki_sync.start()
-    if get_settings().whisper_preload:
-        from .services import speech
-        speech.warm_up()
     log.info("IDA bereit")
     yield
     await wiki_sync.stop()
@@ -84,7 +81,7 @@ def create_app() -> FastAPI:
         return JSONResponse({"detail": str(e)}, status_code=404)
 
     app.include_router(trackers.tap_router)
-    for r in (system, agents, autoroute, chats, files, messages, routines, reminders, trackers, code, github, connectors, skills, memory, accounts, internal_mcp, kalender):
+    for r in (system, agents, autoroute, chats, files, messages, routines, reminders, trackers, code, github, connectors, skills, memory, accounts, internal_mcp, kalender, voice):
         app.include_router(r.router)
 
     front = s.frontend_dir

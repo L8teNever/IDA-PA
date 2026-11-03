@@ -514,34 +514,6 @@ def test_antigravity_sign_in_models_chat_and_limits(client):
     client.delete(f"{API}/accounts/{a['id']}")
 
 
-def test_transcribe_microphone_input(client, monkeypatch):
-    """The recording goes to the (local) Whisper model; here the model is replaced, the real one needs a download."""
-    from app.services import speech
-    seen = {}
-
-    def fake(path):
-        seen["size"] = __import__("os").path.getsize(path)
-        seen["suffix"] = path[-5:]
-        return {"text": "Erinnere mich morgen an den Müll", "seconds": 2.4, "language": "de"}
-    monkeypatch.setattr(speech, "transcribe_file", fake)
-    r = client.post(f"{API}/transcribe", files={"audio": ("aufnahme.webm", b"\x1aE\xdf\xa3" + b"0" * 2000, "audio/webm")}).json()
-    assert r["text"] == "Erinnere mich morgen an den Müll" and seen == {"size": 2004, "suffix": ".webm"}
-    bad = client.post(f"{API}/transcribe", files={"audio": ("leer.webm", b"", "audio/webm")})
-    assert bad.status_code == 400
-
-
-def test_audio_decoding_really_works(tmp_path):
-    # faster-whisper decodes with PyAV; an incompatible PyAV version breaks every recording
-    import wave
-
-    from faster_whisper.audio import decode_audio
-    p = tmp_path / "a.wav"
-    with wave.open(str(p), "wb") as w:
-        w.setnchannels(1); w.setsampwidth(2); w.setframerate(16000)
-        w.writeframes(b"\x00\x00" * 8000)
-    assert len(decode_audio(str(p))) == 8000
-
-
 def test_chat_effort_reaches_claude(client):
     """The thinking level picked in the model menu is passed to the CLI as --effort."""
     ev = chat(client, text="Hallo", effort="max")

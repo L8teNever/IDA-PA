@@ -47,6 +47,7 @@ def _fake_acp(tmp: Path) -> str:
 _github = None
 _kalender = None
 _wiki = None
+_voice = None
 
 
 @pytest.fixture(scope="session")
@@ -62,6 +63,12 @@ def wiki(server):
 
 
 @pytest.fixture(scope="session")
+def voice(server):
+    """Der echte Voice-Container (app.voice) mit Gemini-Ersatz: {"url", "gemini", "app"}."""
+    return _voice
+
+
+@pytest.fixture(scope="session")
 def github(server):
     """The fake GitHub (Device Flow, API, bare repos) the app talks to."""
     return _github
@@ -74,7 +81,7 @@ def server():
     from .fake_kalender import FakeKalender
     from .fake_wiki import FakeWiki
     tmp = Path(tempfile.mkdtemp(prefix="ida-test-"))
-    port = _free_port()
+    port, vport = _free_port(), _free_port()
     _github = FakeGitHub(tmp / "github")
     _kalender = FakeKalender()
     _wiki = FakeWiki()
@@ -84,11 +91,15 @@ def server():
         "WIKI_PUBLIC_URL": "https://wiki.example.test",
         "KALENDER_PUBLIC_URL": "https://kalender.example.test",
         "GITHUB_API_URL": _github.url, "GITHUB_URL": _github.url, "GITHUB_CLIENT_ID": "",
-        "DATA_DIR": str(tmp / "data"), "CLAUDE_BIN": _fake_bin(tmp), "SCHEDULER_ENABLED": "false", "WHISPER_PRELOAD": "false",
+        "DATA_DIR": str(tmp / "data"), "CLAUDE_BIN": _fake_bin(tmp), "SCHEDULER_ENABLED": "false",
         "AGY_RUNTIME_DIR": _fake_acp(tmp),
         "INTERNAL_URL": f"http://127.0.0.1:{port}", "OLLAMA_URL": "http://127.0.0.1:9",
         # CI also runs the suite against PostgreSQL (TEST_DATABASE_URL); locally SQLite in the temp dir
         "DATABASE_URL": os.environ.get("TEST_DATABASE_URL", ""),
+        # Stella: der Voice-Container läuft im Test mit (Gemini wird ersetzt)
+        "VOICE_URL": f"http://127.0.0.1:{vport}", "VOICE_SECRET": "test-voice-secret-123456",
+        "VOICE_PUBLIC_URL": f"http://127.0.0.1:{vport}", "VOICE_IDA_URL": f"http://127.0.0.1:{port}",
+        "GEMINI_API_KEY": "test-gemini-key", "STELLA_OWNER_NUMBER": "+4917012345678",
     })
     import uvicorn
 
@@ -101,9 +112,25 @@ def server():
         if srv.started:
             break
         time.sleep(0.1)
+    global _voice
+    from app.voice.main import create_app as create_voice
+
+    from .fake_gemini import FakeGemini
+    gem = FakeGemini()
+    vapp = create_voice(connect=gem.connect)
+    vsrv = uvicorn.Server(uvicorn.Config(vapp, host="127.0.0.1", port=vport, log_level="warning"))
+    vth = threading.Thread(target=vsrv.run, daemon=True)
+    vth.start()
+    for _ in range(100):
+        if vsrv.started:
+            break
+        time.sleep(0.1)
+    _voice = {"url": f"http://127.0.0.1:{vport}", "gemini": gem, "app": vapp}
     yield f"http://127.0.0.1:{port}"
+    vsrv.should_exit = True
     srv.should_exit = True
     th.join(5)
+    vth.join(5)
 
 
 @pytest.fixture(scope="session")

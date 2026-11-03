@@ -8,7 +8,9 @@ httpx>=0.28,<1
 pydantic-settings>=2.16,<3
 python-multipart>=0.0.20,<1
 tzdata>=2025.2
-faster-whisper>=1.2.1
-# PyAV 19 removed open(metadata_errors=...), which faster-whisper still passes
-av>=11,<19
 markdown>=3.7,<4
+# Stella / Live-Sprache (Container „voice“): Gemini Live per WebSocket, Telefon-Audio, Telnyx-Signaturen
+websockets>=14
+numpy>=2,<3
+cryptography>=44
+audioop-lts>=0.2; python_version >= "3.13"

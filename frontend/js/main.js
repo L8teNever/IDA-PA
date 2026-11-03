@@ -5,7 +5,7 @@ import { initComposer } from "./ui/composer.js";
 import { $, toast } from "./ui/dom.js";
 import { initMascot } from "./ui/mascot.js";
 import { initPwa } from "./ui/pwa.js";
-import { initVoice } from "./ui/voice.js";
+import { initLive } from "./ui/live.js";
 import { initBack } from "./ui/back.js";
 import { initSelects } from "./ui/select.js";
 import { initShell, setView } from "./ui/shell.js";
@@ -62,7 +62,7 @@ async function start() {
   initMascot();
   initPwa();
   initComposer();
-  initVoice();
+  initLive();
   initBack();
   initHomeScroll();
   await router.start();

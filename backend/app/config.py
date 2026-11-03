@@ -22,12 +22,6 @@ class Settings(BaseSettings):
     timezone: str = "Europe/Berlin"  # routines with fixed times run in this zone  # memory consolidation and other housekeeping
     run_timeout_s: int = 600
 
-    # Speech input (microphone button): local Whisper via faster-whisper, model downloaded into data/whisper
-    whisper_model: str = "small"  # tiny | base | small | medium | large-v3 (bigger = better, slower)
-    whisper_compute_type: str = "int8"
-    whisper_language: str = "de"  # empty = detect
-    whisper_preload: bool = True  # load the model right after start
-
     # Optional embeddings for the memory (Ollama on the host)
     ollama_url: str = "http://host.docker.internal:11434"
     embed_model: str = ""  # empty = auto-detect
@@ -61,9 +55,50 @@ class Settings(BaseSettings):
     # Dashboard-App (eigener Dienst, siehe docs/DASHBOARD.md): öffentliche URL; leer = kein Eintrag in der Seitenleiste
     dashboard_public_url: str = ""
 
+    # Stella / Live-Sprache (eigener Container „voice“ aus demselben Image, siehe docs/STELLA.md).
+    # In IDA: wo der Voice-Dienst intern läuft, das gemeinsame Geheimnis und die öffentliche Adresse (Browser + Telnyx).
+    voice_url: str = ""  # z. B. http://voice:8000; leer = Live-Gespräch und Anrufe aus
+    voice_secret: str = ""  # gemeinsames Geheimnis IDA <-> voice (auch für die Browser-Tickets)
+    voice_public_url: str = ""  # z. B. https://voice.example.com
+    voice_agent: str = "stella"  # dieser Agent spricht (Profil, Gedächtnis, Chats)
+    # Im Gespräch direkt angebotene Tools (Muster, * erlaubt); alle anderen über tool_suchen/tool_ausfuehren
+    voice_core_tools: str = ("calendar_day_brief,calendar_events,calendar_free_time,calendar_search,calendar_event_create,calendar_event_move,"
+                             "reminder_create,reminder_list,tracker_list,tracker_check,memory_save,memory_search,wiki_search,wiki_read,"
+                             "agent_delegate,stundenplan,vertretungen,ausfaelle,sofia_list_homework,google_termine_liste,google_mails_suchen,"
+                             "homeassistant_zustand_lesen,homeassistant_einschalten,homeassistant_ausschalten")
+    # Im Gespräch nie erlaubt (Muster gegen den Tool-Namen)
+    voice_deny_tools: str = ("ssh_*,cloudflare_*,code_*,stella_*,agent_create,agent_update,agent_delete,skill_create,skill_update,"
+                             "skill_delete,routine_delete,tracker_delete,memory_delete")
+    # Im Voice-Container: wie er IDA erreicht, Gemini Live und Telnyx
+    voice_ida_url: str = "http://app:8000"
+    gemini_api_key: str = ""
+    gemini_live_model: str = "gemini-3.8-live"
+    gemini_live_fallbacks: str = "gemini-3.1-flash-live-preview,gemini-2.5-flash-native-audio-preview-12-2025"
+    gemini_voice: str = "Aoede"
+    gemini_thinking_budget: int = 0  # -1 = nicht senden
+    gemini_live_url: str = "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent"
+    telnyx_api_key: str = ""
+    telnyx_connection_id: str = ""
+    telnyx_from_number: str = ""
+    telnyx_public_key: str = ""  # Ed25519 (Mission Control) – prüft die Webhooks
+    telnyx_api_base: str = "https://api.telnyx.com/v2"
+    stella_owner_number: str = ""  # deine Nummer: nur sie darf anrufen, nur mit ihr hat Stella Zugriff
+    voice_max_call_min: int = 30
+    # Telefon: eigene Sprach-Erkennung gegen Auto- und Motorgeräusche (aus dem alten Stella übernommen)
+    voice_phone_vad: bool = True
+    voice_vad_rms: int = 500
+    voice_vad_silence_ms: int = 120
+    voice_vad_min_speech_ms: int = 60
+    voice_greeting_barge_in_s: float = 2.5
+    voice_echo_rms_factor: float = 3.0
+
     @property
     def model_list(self) -> list[str]:
         return [m.strip() for m in self.models.split(",") if m.strip()]
+
+    @property
+    def voice_on(self) -> bool:
+        return bool(self.voice_url and self.voice_secret)
 
     @property
     def db_url(self) -> str:

@@ -27,11 +27,11 @@ from ..claude import prompts
 from ..errors import Invalid, NotFound
 from ..code import approvals, commit_msg, git, github, projects as code_projects
 from ..memory import store as memory
-from . import kalender_tools, wiki_tools
+from . import kalender_tools, voice_tools, wiki_tools
 from .identity import Identity, get
 
 E = {"type": "string"}
-ALL, MAIN, MAIN_LIVE, CODE = "all", "main", "main_live", "code"
+ALL, MAIN, MAIN_LIVE, CODE, VOICE = "all", "main", "main_live", "code", "voice"  # voice: main agent + the voice agent (Stella)
 
 
 def _spec(ids: list[str]) -> list[tuple[str, str, str, dict]]:
@@ -113,6 +113,8 @@ def _spec(ids: list[str]) -> list[tuple[str, str, str, dict]]:
         tools += kalender_tools.spec()
     if wiki_tools.enabled():  # Wiki-Dienst eingerichtet (WIKI_URL): Gedächtnis, Suche, Privat-Freigaben
         tools += wiki_tools.spec()
+    if voice_tools.enabled():  # Voice-Dienst eingerichtet (VOICE_URL): Stella telefoniert
+        tools += [(VOICE, n, d, schema) for n, d, schema in voice_tools.spec()]
     return tools
 
 
@@ -121,6 +123,8 @@ def _allowed(who: str, name: str, me: Identity) -> bool:
         return False
     if who == CODE:
         return me.code and bool(me.chat_id)
+    if who == VOICE:
+        return me.is_main or me.agent_id == get_settings().voice_agent
     if who == ALL:
         return True
     if who == MAIN:
@@ -256,6 +260,8 @@ async def _call(db: AsyncSession, me: Identity, name: str, a: dict) -> dict:
         return await kalender_tools.call(db, me, name, a)
     if name.startswith("wiki_"):
         return await wiki_tools.call(db, me, name, a)
+    if name.startswith("stella_"):
+        return await voice_tools.call(db, me, name, a)
 
     async def own_routine(rid: str) -> Routine:
         r = await db.get(Routine, rid)

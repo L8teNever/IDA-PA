@@ -20,6 +20,7 @@ services:
       WIKI_IDA_TOKEN: ${WIKI_IDA_TOKEN:-}
       WIKI_PUBLIC_URL: ${WIKI_PUBLIC_URL:-https://wiki.kulbarts.com}
       CODE_PUBLIC_URL: ${CODE_PUBLIC_URL:-}         # Code-App (siehe unten); leer = Code-Bereich bleibt in IDA unter /code
+      VOICE_URL: http://voice:8000                # Stella (siehe unten); ohne VOICE_SECRET bleibt Stella aus
     ports:
       - "${IDA_PORT:-8080}:8000"
     volumes:
@@ -129,6 +130,31 @@ services:
     labels:
       com.centurylinklabs.watchtower.enable: "true"
 
+  # Stella – Live-Sprache mit Gemini Live: Live-Knopf in der IDA-App und Telefon über Telnyx. Gleiches Image wie IDA, eigener
+  # Container: Updates der App brechen kein Gespräch ab, Watchtower aktualisiert ihn nur, wenn gerade niemand spricht
+  # (Hook unten). Kontext, Gedächtnis und Tools holt er sich intern von IDA. Siehe docs/STELLA.md
+  voice:
+    image: ${IDA_IMAGE:-ghcr.io/l8tenever/ida-pa:latest}
+    pull_policy: always
+    restart: unless-stopped
+    env_file: .env                                 # VOICE_SECRET, GEMINI_API_KEY, TELNYX_*, STELLA_OWNER_NUMBER, VOICE_PUBLIC_URL
+    environment:
+      VOICE_IDA_URL: http://app:8000
+    command: ["uvicorn", "app.voice.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips", "*"]
+    ports:
+      - "${VOICE_PORT:-8086}:8000"                 # öffentlich (Tunnel) unter VOICE_PUBLIC_URL – Telnyx und der Browser müssen hin
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health').status==200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    depends_on:
+      - app
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"
+      com.centurylinklabs.watchtower.lifecycle.pre-update: "python -m app.voice.idle"   # Exit 75 = gerade im Gespräch -> später
+      com.centurylinklabs.watchtower.lifecycle.pre-update-timeout: "1"
+
   # Dashboard – eigene App (eigener Port, eigene PWA) für den Server: alle Docker-Stacks sehen, starten/stoppen/aktualisieren,
   # Compose und .env bearbeiten, Logs; Leistung (CPU/RAM/Netz im Verlauf) und Speicher. Siehe docs/DASHBOARD.md
   # ACHTUNG: Der Docker-Socket gibt volle Kontrolle über den Server – nur hinter Cloudflare Access/VPN erreichbar machen.
@@ -160,7 +186,7 @@ services:
     image: containrrr/watchtower
     profiles: ["autoupdate"]
     restart: unless-stopped
-    command: --label-enable --cleanup --interval 600
+    command: --label-enable --cleanup --interval 600 --enable-lifecycle-hooks
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ${DOCKER_CONFIG_DIR:-~/.docker}/config.json:/config.json:ro   # Login für private GHCR-Images

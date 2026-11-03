@@ -1,14 +1,14 @@
 """Health check and the data every page needs at start (agents, models, accounts, counters)."""
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, UploadFile
+from fastapi import APIRouter
 from sqlalchemy import func, select
 
 from ..config import get_settings
 from ..db import utcnow
 from ..models import USER, Account, Agent, Connector, Message, Reminder, Routine, RoutineRun, Skill, Tracker
 from ..schemas import HomeCalendar
-from ..services import activity, home_calendar, jobs, kalender_client, providers, settings_store, speech, trackers
+from ..services import activity, home_calendar, jobs, kalender_client, providers, settings_store, trackers
 from ..services import code as code_area
 from ..services.agents import PALETTES
 from ..services.claude.usage import logged_in
@@ -24,14 +24,6 @@ router = APIRouter(tags=["system"])
 @router.get("/api/v1/health")
 async def health():
     return {"ok": True}
-
-
-@router.post("/api/v1/transcribe")
-async def transcribe(audio: UploadFile):
-    """Microphone input: recording -> text (local Whisper). The text goes into the input field, not straight to a chat."""
-    name = (audio.filename or "").lower()
-    suffix = next((x for x in (".webm", ".ogg", ".mp4", ".m4a", ".wav", ".mp3") if name.endswith(x)), ".webm")
-    return await speech.transcribe(await audio.read(), suffix)
 
 
 @router.get("/api/v1/activity")
@@ -57,6 +49,8 @@ async def bootstrap(db: DB):
         "kalender_url": s.kalender_public_url or "",
         "code_url": s.code_public_url or "",
         "dashboard_url": s.dashboard_public_url or "",
+        "voice": bool(s.voice_on and s.voice_public_url),  # live button in the input field (conversation with Stella)
+        "voice_agent": s.voice_agent,
     }
 
 
