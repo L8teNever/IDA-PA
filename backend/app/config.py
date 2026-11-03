@@ -76,7 +76,6 @@ class Settings(BaseSettings):
     gemini_api_key: str = ""
     gemini_live_model: str = "gemini-3.8-live"
     gemini_live_fallbacks: str = "gemini-3.1-flash-live-preview,gemini-2.5-flash-native-audio-preview-12-2025"
-    gemini_voice: str = "Aoede"
     gemini_thinking_budget: int = 0  # -1 = nicht senden
     gemini_live_url: str = "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent"
     telnyx_api_key: str = ""

@@ -240,7 +240,7 @@ class Bridge:
         owner = c.owner  # decided by the number alone – never by anything said in the call
         tools = (info.get("tools") or []) if owner else []
         kind = c.direction
-        voice = info.get("voice") or getattr(self.s, "gemini_voice", None) or "Aoede"
+        voice = info.get("voice") or "Aoede"
         self.session = LiveSession(
             self.s, instructions=prompt.instructions(info.get("context") or "", owner=owner, kind=kind, brief=c.brief, read_only=c.read_only),
             tools=tools, run_tool=lambda n, a: self.phone.ida.tool(c.id, n, a), sink=self,

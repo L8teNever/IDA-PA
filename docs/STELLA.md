@@ -72,7 +72,7 @@ Telnyx ──► voice:/telnyx/webhook + /media ──┼─► Gemini Live (Web
 ## Feineinstellungen (`.env` & App)
 
 - **Stimme auswählen:** Direkt in der App unter **Einstellungen → Stella-Stimme** (oder bei Agent Stella). Dort können alle 21 Gemini-Stimmen mit Audiobeispielen probegehört und ausgewählt werden. Änderungen greifen sofort ohne Neustart.
-- `GEMINI_VOICE`: Standardstimme aus der `.env` (Fallback, Standard `Aoede`).
+- Die Stimme wird nur in den Einstellungen (Stella-Stimme) gewählt, nicht in der `.env`; ohne Auswahl gilt `Aoede`.
 - `GEMINI_LIVE_MODEL` und `GEMINI_LIVE_FALLBACKS`: Die Fallbacks werden nur beim Verbindungsaufbau versucht.
 - `VOICE_PHONE_VAD`, `VOICE_VAD_RMS`, `VOICE_VAD_SILENCE_MS`, `VOICE_VAD_MIN_SPEECH_MS`: die eigene Sprach-Erkennung am
   Telefon gegen Auto- und Motorgeräusche (aus dem alten Stella).

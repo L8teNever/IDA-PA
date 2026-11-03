@@ -100,7 +100,7 @@ async def run(ws, settings, ida: Ida | None = None, connect=None, active: set | 
     status, error = "done", ""
     try:
         info = await ida.start(call_id, "web", "", True, "")
-        voice = info.get("voice") or getattr(settings, "gemini_voice", None) or "Aoede"
+        voice = info.get("voice") or "Aoede"
         session = LiveSession(settings, instructions=prompt.instructions(info.get("context") or "", owner=True, kind="web"),
                               tools=info.get("tools") or [], run_tool=lambda n, a: ida.tool(call_id, n, a), sink=sink,
                               kickoff=prompt.kickoff(owner=True, kind="web"), client_vad=False, connect=connect, voice=voice)

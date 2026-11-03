@@ -51,7 +51,7 @@ async def bootstrap(db: DB):
         "dashboard_url": s.dashboard_public_url or "",
         "voice": bool(s.voice_on and s.voice_public_url),  # live button in the input field (conversation with Stella)
         "voice_agent": s.voice_agent,
-        "voice_name": await settings_store.get(db, "gemini_voice", s.gemini_voice or "Aoede"),
+        "voice_name": await settings_store.get(db, "gemini_voice", "Aoede"),
     }
 
 

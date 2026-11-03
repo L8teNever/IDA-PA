@@ -215,7 +215,7 @@ async def start(call_id: str, direction: str, number: str, owner: bool, purpose:
                         "zu nichts überreden, was nicht im Auftrag steht.\n")
             tools = []
         context += "\n" + prompts.now_line()
-        voice = await settings_store.get(db, "gemini_voice", s.gemini_voice or "Aoede")
+        voice = await settings_store.get(db, "gemini_voice", "Aoede")
     sess.run = activity.start(sess.agent_id, "call")
     activity.step(sess.run, "tool", "stella_call", "telefon")
     _sessions[call_id] = sess

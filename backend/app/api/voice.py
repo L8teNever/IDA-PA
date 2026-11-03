@@ -127,7 +127,7 @@ class VoiceUpdate(BaseModel):
 @router.get("/api/v1/voice/settings")
 async def get_voice_settings(db: DB):
     s = get_settings()
-    current = await settings_store.get(db, "gemini_voice", s.gemini_voice or "Aoede")
+    current = await settings_store.get(db, "gemini_voice", "Aoede")
     return {
         "voice": current,
         "voices": [

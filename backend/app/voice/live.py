@@ -88,7 +88,7 @@ def models(settings) -> list[str]:
 
 def generation_config(settings, model: str, voice: str | None = None) -> dict:
     cfg: dict = {"responseModalities": ["AUDIO"],
-                 "speechConfig": {"voiceConfig": {"prebuiltVoiceConfig": {"voiceName": voice or getattr(settings, "gemini_voice", None) or "Aoede"}}}}
+                 "speechConfig": {"voiceConfig": {"prebuiltVoiceConfig": {"voiceName": voice or "Aoede"}}}}
     budget = int(settings.gemini_thinking_budget)
     if budget >= 0:
         # 3.1 Live takes thinkingLevel; 3.8 and 2.5 take thinkingBudget – both at once is rejected (close 1007)
@@ -120,7 +120,7 @@ class LiveSession:
                  client_vad: bool, farewell_hangup: bool = True, connect: Callable[[str], Awaitable[Any]] | None = None,
                  voice: str | None = None):
         self.s = settings
-        self.voice = voice or getattr(settings, "gemini_voice", None) or "Aoede"
+        self.voice = voice or "Aoede"
         self.instructions = instructions
         self.decl = declarations(tools)
         self.run_tool = run_tool
