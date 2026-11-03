@@ -419,8 +419,8 @@ body.live-view .stage {
 /* Live: kein dauerndes Hoch-und-Runter-Schweben (float) mehr – Stella bleibt ruhig an ihrem Platz (Schlafen im Intro bleibt wie in IDA) */
 .lv-buddy-wrap .buddy { animation: none; transition: transform .1s ease-out; }
 body[data-mood="sleep"] .live-b.intro .lv-buddy-wrap .buddy { animation: breathe 4s ease-in-out infinite; }
-/* Sprechen: das ganze Maskottchen pulsiert – je lauter Stella spricht, desto größer wird es */
-.lv-buddy-wrap[data-state="speak"] .buddy { transform: scale(calc(1 + var(--lvl, 0) * .16)); }
+/* Sprechen: das ganze Maskottchen bewegt sich Silbe für Silbe wie ein Mund – vor allem in der Höhe, ohne Verzögerung durch eine lange Transition */
+.lv-buddy-wrap[data-state="speak"] .buddy { transform: scale(calc(1 + var(--lvl, 0) * .12), calc(1 + var(--lvl, 0) * .3)); transition: transform .03s linear; }
 /* Zuhören („Lauschen“): Kopf neigt sich neugierig hin und her, aufmerksames langsames Blinzeln,
    Augen schauen leicht nach oben und werden größer, je lauter Simon spricht; bei Lautstärke ein kleines „Mhm“-Nicken. */
 .lv-buddy-wrap[data-state="listen"] .buddy .face { animation: lv-lausch 4.2s ease-in-out infinite; }

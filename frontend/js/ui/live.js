@@ -9,6 +9,7 @@ import { $, esc, toast } from "./dom.js";
 import { setLive } from "./mascot.js";
 import { setView } from "./shell.js";
 import { connected, disconnected, hungUp, unlockTones } from "../../live/tones.js";
+import { follow, outputMeter } from "../../live/meter.js";
 
 // Runs in the audio thread: averages the mic signal down to 16 kHz and hands over ~40 ms Int16 blocks.
 const WORKLET = `
@@ -162,12 +163,11 @@ function play(c, buf) {
   ab.copyToChannel(f, 0);
   const src = c.ctx.createBufferSource();
   src.buffer = ab;
-  src.connect(c.ctx.destination);
+  src.connect(c.meter.node);
   const at = Math.max(c.ctx.currentTime + 0.02, c.next);
   src.start(at);
   c.next = at + ab.duration;
   c.sources.add(src);
-  c.outLevel = Math.max(c.outLevel, rms(pcm));
   src.onended = () => {
     c.sources.delete(src);
     if (!c.sources.size && !c.closing && c.state === "speak") setState(c, "listen");
@@ -181,6 +181,18 @@ function flush(c) { // interrupted: drop what was still queued
   c.next = 0;
 }
 
+// Maskottchen: läuft pro Bildschirmbild (nicht im 100-ms-Takt der Uhr), sonst sind einzelne Silben nicht zu sehen
+function frame(c) {
+  const wrap = $("lvBuddyWrap");
+  if (c.closed || !wrap) return;
+  const speak = c.state === "speak";
+  const lvl = speak ? c.meter.level() : c.state === "listen" && !c.muted ? c.inLevel : 0;
+  c.shown = follow(c.shown, lvl, speak);
+  wrap.style.setProperty("--lvl", c.shown.toFixed(3));
+  c.inLevel *= 0.94;
+  requestAnimationFrame(() => frame(c));
+}
+
 // mascot + clock: clock runs from "ready", waves breathe with whoever is talking
 function tick(c) {
   if (!$("lvBuddyWrap")) { // left the page: the talk ends, the app gets its colours back
@@ -188,11 +200,6 @@ function tick(c) {
     return stop(c);
   }
   if (c.t0) $("lvTime").textContent = fmt(Date.now() - c.t0);
-  const lvl = c.state === "speak" ? c.outLevel : c.state === "listen" && !c.muted ? c.inLevel : 0;
-  c.shown = c.shown * 0.6 + lvl * 0.4;
-  $("lvBuddyWrap").style.setProperty("--lvl", c.shown.toFixed(3));
-  c.outLevel *= 0.7;
-  c.inLevel *= 0.7;
 }
 
 async function wake(c) {
@@ -203,13 +210,15 @@ async function wake(c) {
 async function start(a) {
   if (!navigator.mediaDevices?.getUserMedia || !window.AudioWorkletNode) { note("Dieser Browser kann kein Live-Gespräch."); return; }
   const c = { name: a.name, sources: new Set(), next: 0, rate: 24000, closed: false, closing: false, state: "connect",
-              lines: [], inLevel: 0, outLevel: 0, shown: 0, t0: 0 };
+              lines: [], inLevel: 0, shown: 0, t0: 0 };
   cur = c;
   c.ctx = gestureCtx;
   gestureCtx = null;
   setLive("phone");
   bind(c);
   c.clock = setInterval(() => tick(c), 100);
+  c.meter = outputMeter(c.ctx);
+  frame(c);
   c.onVisible = () => { if (document.visibilityState === "visible") wake(c); };
   document.addEventListener("visibilitychange", c.onVisible);
   wake(c);

@@ -2,6 +2,7 @@
 // The key comes once through the install link from IDA (https://<voice host>/#key=…) and stays in localStorage.
 // With it the app gets a one-minute ticket from this host and talks to Gemini Live over /live (same protocol as IDA's /live page).
 import { connected, disconnected, hungUp, unlockTones } from "./tones.js";
+import { follow, outputMeter } from "./meter.js";
 const WORKLET = `
 class Down16k extends AudioWorkletProcessor {
   constructor() { super(); this.step = sampleRate / 16000; this.pos = 0; this.acc = 0; this.n = 0; this.buf = new Int16Array(640); this.len = 0; this.muted = false;
@@ -100,12 +101,11 @@ function play(c, buf) {
   ab.copyToChannel(f, 0);
   const src = c.ctx.createBufferSource();
   src.buffer = ab;
-  src.connect(c.ctx.destination);
+  src.connect(c.meter.node);
   const at = Math.max(c.ctx.currentTime + 0.02, c.next);
   src.start(at);
   c.next = at + ab.duration;
   c.sources.add(src);
-  c.outLevel = Math.max(c.outLevel, rms(pcm));
   src.onended = () => { c.sources.delete(src); if (!c.sources.size && !c.closing && c.state === "speak") setState(c, "listen"); };
   if (c.state !== "speak") setState(c, "speak");
 }
@@ -116,13 +116,20 @@ function flush(c) {
   c.next = 0;
 }
 
+// Maskottchen: läuft pro Bildschirmbild (nicht im 100-ms-Takt der Uhr), sonst sind einzelne Silben nicht zu sehen
+function frame(c) {
+  const wrap = $("lvBuddyWrap");
+  if (c.closed || !wrap) return;
+  const speak = c.state === "speak";
+  const lvl = speak ? c.meter.level() : c.state === "listen" && !c.muted ? c.inLevel : 0;
+  c.shown = follow(c.shown, lvl, speak);
+  wrap.style.setProperty("--lvl", c.shown.toFixed(3));
+  c.inLevel *= 0.94;
+  requestAnimationFrame(() => frame(c));
+}
+
 function tick(c) {
   if (c.t0) $("lvTime").textContent = fmt(Date.now() - c.t0);
-  const lvl = c.state === "speak" ? c.outLevel : c.state === "listen" && !c.muted ? c.inLevel : 0;
-  c.shown = c.shown * 0.6 + lvl * 0.4;
-  $("lvBuddyWrap").style.setProperty("--lvl", c.shown.toFixed(3));
-  c.outLevel *= 0.7;
-  c.inLevel *= 0.7;
 }
 
 async function wake(c) {
@@ -133,7 +140,7 @@ async function wake(c) {
 async function start() {
   if (!navigator.mediaDevices?.getUserMedia || !window.AudioWorkletNode) return home("Dieser Browser kann kein Live-Gespräch.");
   const c = { name: "Stella", sources: new Set(), next: 0, rate: 24000, closed: false, closing: false, state: "connect",
-              inLevel: 0, outLevel: 0, shown: 0, t0: 0, muted: false, ctx: gestureCtx, lines: [] };
+              inLevel: 0, shown: 0, t0: 0, muted: false, ctx: gestureCtx, lines: [] };
   cur = c;
   gestureCtx = null;
   shell(`<div class="lv-status"><span class="lv-pill" id="lvPill"><span class="ms" id="lvIcon">graphic_eq</span><span id="lvState"></span></span><span class="lv-time" id="lvTime">0:00</span></div>
@@ -175,6 +182,8 @@ async function start() {
   };
   draw(c);
   c.clock = setInterval(() => tick(c), 100);
+  c.meter = outputMeter(c.ctx);
+  frame(c);
   c.onVisible = () => { if (document.visibilityState === "visible") wake(c); };
   document.addEventListener("visibilitychange", c.onVisible);
   wake(c);
