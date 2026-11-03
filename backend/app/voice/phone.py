@@ -74,7 +74,7 @@ class Phone:
         return [c for c in self.calls.values() if c.status in ACTIVE and not c.finished]
 
     def _public(self, path: str, ws: bool = False) -> str:
-        base = self.s.voice_public_url.rstrip("/")
+        base = (self.s.voice_telnyx_url or self.s.voice_public_url).rstrip("/")
         if ws:
             base = "wss://" + base[8:] if base.startswith("https://") else "ws://" + base[7:] if base.startswith("http://") else base
         return base + path

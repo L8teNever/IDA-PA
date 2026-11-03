@@ -60,6 +60,7 @@ class Settings(BaseSettings):
     voice_url: str = ""  # z. B. http://voice:8000; leer = Live-Gespräch und Anrufe aus
     voice_secret: str = ""  # gemeinsames Geheimnis IDA <-> voice (auch für die Browser-Tickets)
     voice_public_url: str = ""  # z. B. https://voice.example.com
+    voice_telnyx_url: str = ""  # Adresse nur für Telnyx (Webhook/Media); leer = voice_public_url
     voice_app_url: str = ""  # Adresse der eigenständigen Live-App (z. B. https://voice.example.com); leer = voice_public_url
     voice_agent: str = "stella"  # dieser Agent spricht (Profil, Gedächtnis, Chats)
     # Im Gespräch direkt angebotene Tools (Muster, * erlaubt); alle anderen über tool_suchen/tool_ausfuehren
