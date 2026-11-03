@@ -86,7 +86,8 @@ async def app_link():
     s = get_settings()
     if not (s.voice_on and s.voice_public_url):
         raise Invalid("Live-Gespräch ist nicht eingerichtet (VOICE_URL, VOICE_SECRET, VOICE_PUBLIC_URL)")
-    return {"url": f"{s.voice_public_url.rstrip('/')}/#key={app_key(s.voice_secret)}"}
+    base = (s.voice_app_url or s.voice_public_url).rstrip("/")
+    return {"url": f"{base}/#key={app_key(s.voice_secret)}"}
 
 
 @router.get("/api/v1/voice/calls")

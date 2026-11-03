@@ -60,6 +60,7 @@ class Settings(BaseSettings):
     voice_url: str = ""  # z. B. http://voice:8000; leer = Live-Gespräch und Anrufe aus
     voice_secret: str = ""  # gemeinsames Geheimnis IDA <-> voice (auch für die Browser-Tickets)
     voice_public_url: str = ""  # z. B. https://voice.example.com
+    voice_app_url: str = ""  # Adresse der eigenständigen Live-App (z. B. https://voice.example.com); leer = voice_public_url
     voice_agent: str = "stella"  # dieser Agent spricht (Profil, Gedächtnis, Chats)
     # Im Gespräch direkt angebotene Tools (Muster, * erlaubt); alle anderen über tool_suchen/tool_ausfuehren
     voice_core_tools: str = ("calendar_day_brief,calendar_events,calendar_free_time,calendar_search,calendar_event_create,calendar_event_move,"
