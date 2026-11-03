@@ -269,7 +269,8 @@ async function start(a) {
 async function stop(c, problem) {
   if (!c || c.closed) return;
   c.closed = true;
-  (problem ? disconnected : hungUp)();
+  // Ton erst kurz nach dem Freigeben des Mikrofons: sonst schaltet das Handy mitten im Ton von Gesprächs- auf Medien-Audio und schluckt ihn
+  setTimeout(problem ? disconnected : hungUp, 250);
   try { c.ws?.readyState === 1 && c.ws.send(JSON.stringify({ type: "end" })); } catch { /* closed */ }
   try { c.ws?.close(); } catch { /* closed */ }
   c.stream?.getTracks().forEach((t) => t.stop());

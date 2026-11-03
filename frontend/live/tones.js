@@ -1,7 +1,7 @@
 // Stellas eigene Signaltöne für das Live-Gespräch, direkt im Browser erzeugt (keine Audiodateien):
 // weiche, glockige Töne (Sinus + leiser Oberton, sanfter Anschlag, kurzer Nachhall).
 //   connected()    – verbunden:  heller Dreiklang aufwärts („ding-ding-ding“)
-//   hungUp()       – aufgelegt:  zwei sanfte Töne abwärts
+//   hungUp()       – aufgelegt:  drei Töne abwärts mit langem Ausklingen
 //   disconnected() – getrennt/Fehler: tiefer, abwärts gleitender Ton mit leichtem Moll
 let ctx = null;
 
@@ -54,5 +54,6 @@ function play(notes) {
 }
 
 export const connected = () => play([[659.3, 0, 0.5, 0.16], [830.6, 0.09, 0.5, 0.15], [987.8, 0.18, 0.9, 0.17]]);   // E5 Gis5 H5
-export const hungUp = () => play([[987.8, 0, 0.45, 0.14], [659.3, 0.16, 0.8, 0.14]]);                                 // H5 → E5
-export const disconnected = () => play([[523.3, 0, 0.35, 0.14], [440, 0.2, 0.9, 0.15, 349.2]]);                       // C5 → A4, gleitet nach F4
+// Auflegen/Getrennt: länger und lauter als „verbunden“, damit das Ende deutlich auffällt
+export const hungUp = () => play([[987.8, 0, 0.6, 0.24], [783.99, 0.22, 0.6, 0.24], [659.3, 0.44, 1.5, 0.26]]);           // H5 → G5 → E5
+export const disconnected = () => play([[523.3, 0, 0.55, 0.24], [440, 0.3, 0.6, 0.24], [440, 0.62, 1.6, 0.26, 293.7]]);  // C5 → A4, gleitet nach D4
