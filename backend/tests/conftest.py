@@ -100,6 +100,8 @@ def server():
         "VOICE_URL": f"http://127.0.0.1:{vport}", "VOICE_SECRET": "test-voice-secret-123456",
         "VOICE_PUBLIC_URL": f"http://127.0.0.1:{vport}", "VOICE_IDA_URL": f"http://127.0.0.1:{port}",
         "GEMINI_API_KEY": "test-gemini-key", "STELLA_OWNER_NUMBER": "+4917012345678",
+        # nie echte Zugangsdaten aus der Umgebung nutzen: sonst wählt der Test wirklich die Testnummer an
+        "TELNYX_API_KEY": "", "TELNYX_CONNECTION_ID": "", "TELNYX_FROM_NUMBER": "", "VOICE_TELNYX_URL": "",
     })
     import uvicorn
 

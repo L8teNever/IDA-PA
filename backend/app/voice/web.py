@@ -14,10 +14,12 @@ import json
 import logging
 import secrets
 import time
+from dataclasses import replace
 
 from . import prompt
 from .ida import Ida
 from .live import LiveSession
+from .vad import EnergyVad, config_from_settings, pcm_rms
 
 log = logging.getLogger("ida.voice.web")
 _used: dict[str, float] = {}  # nonce -> expiry (a ticket works once)
@@ -61,6 +63,7 @@ class WebSink:
         self.ws = ws
         self.done = asyncio.Event()
         self.outcome = ""
+        self.play_end = 0.0  # wann Stellas bisher gesendete Stimme im Browser ungefähr fertig gespielt ist
 
     async def _json(self, obj: dict) -> None:
         try:
@@ -69,12 +72,14 @@ class WebSink:
             self.done.set()
 
     async def audio(self, pcm: bytes, rate: int) -> None:
+        self.play_end = max(self.play_end, time.monotonic()) + len(pcm) / (rate * 2)
         try:
             await self.ws.send_bytes(pcm)
         except Exception:  # noqa: BLE001
             self.done.set()
 
     async def interrupted(self) -> None:
+        self.play_end = 0.0  # der Browser verwirft, was noch in der Warteschlange lag
         await self._json({"type": "interrupted"})
 
     async def text(self, who: str, piece: str) -> None:
@@ -87,6 +92,39 @@ class WebSink:
         self.outcome = outcome
         asyncio.create_task(self._json({"type": "end", "reason": outcome}))  # the browser plays what is queued, then closes
         self.done.set()
+
+
+class BrowserMic:
+    """Browser-Mikro -> Gemini mit dem Geräusch-Filter vom Telefon: Hintergrund und Motor gelten nicht als Sprache."""
+
+    def __init__(self, session, sink: WebSink, settings):
+        self.session = session
+        self.sink = sink
+        self.s = settings
+        self.vad = EnergyVad(replace(config_from_settings(settings), rms_threshold=int(settings.voice_web_vad_rms),
+                                     silence_ms=int(settings.voice_web_vad_silence_ms)))
+        self.turn_open = False
+
+    def _echo(self, rms: int) -> bool:
+        """Solange Stella noch zu hören ist, ist ein leiser Beginn ihr eigenes Echo und keine Unterbrechung."""
+        need = int(self.s.voice_vad_rms * self.s.voice_echo_rms_factor)
+        return need > 0 and self.sink.play_end > time.monotonic() and rms < need
+
+    async def feed(self, pcm: bytes) -> None:
+        events = self.vad.feed(pcm)
+        rms = pcm_rms(pcm)
+        for ev in events:
+            if ev == "start":
+                if self._echo(rms):
+                    self.vad.speaking = False
+                    continue
+                self.turn_open = True
+                await self.session.activity_start()
+        await self.session.send_audio(pcm)
+        for ev in events:
+            if ev == "end" and self.turn_open:
+                self.turn_open = False
+                await self.session.activity_end()
 
 
 async def run(ws, settings, ida: Ida | None = None, connect=None, active: set | None = None) -> None:
@@ -103,7 +141,8 @@ async def run(ws, settings, ida: Ida | None = None, connect=None, active: set | 
         voice = info.get("voice") or "Aoede"
         session = LiveSession(settings, instructions=prompt.instructions(info.get("context") or "", owner=True, kind="web"),
                               tools=info.get("tools") or [], run_tool=lambda n, a: ida.tool(call_id, n, a), sink=sink,
-                              kickoff=prompt.kickoff(owner=True, kind="web"), client_vad=False, connect=connect, voice=voice)
+                              kickoff=prompt.kickoff(owner=True, kind="web"), client_vad=settings.voice_web_vad, connect=connect, voice=voice)
+        mic = BrowserMic(session, sink, settings) if settings.voice_web_vad else None
         await session.open()
         await sink._json({"type": "ready", "rate": 24000, "agent": info.get("agent") or "Stella", "offline": bool(info.get("offline"))})
         await session.kickoff()
@@ -114,7 +153,7 @@ async def run(ws, settings, ida: Ida | None = None, connect=None, active: set | 
                 if msg.get("type") == "websocket.disconnect":
                     break
                 if msg.get("bytes"):
-                    await session.send_audio(msg["bytes"])
+                    await (mic.feed if mic else session.send_audio)(msg["bytes"])
                 elif msg.get("text"):
                     try:
                         m = json.loads(msg["text"])

@@ -92,6 +92,12 @@ class Settings(BaseSettings):
     voice_vad_min_speech_ms: int = 60
     voice_greeting_barge_in_s: float = 2.5
     voice_echo_rms_factor: float = 3.0
+    # Live-Gespräch im Browser: derselbe Geräusch-Filter wie am Telefon. Eigene Pause, weil die Rauschunterdrückung
+    # des Browsers Sprechpausen stumm macht und 120 ms sonst mitten im Satz das Ende melden würden.
+    voice_web_vad: bool = True
+    voice_web_vad_silence_ms: int = 500
+    # Die Telefon-Schwelle (500) wäre hier zu hoch: normal laute Sprache käme nicht drüber. Gegen Geräusche hilft die mitlernende Grundlinie.
+    voice_web_vad_rms: int = 120
 
     @property
     def model_list(self) -> list[str]:

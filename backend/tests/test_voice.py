@@ -70,6 +70,50 @@ def test_browser_ticket_works_once_and_expires():
     assert not check_ticket("kaputt", "geheim")
 
 
+def test_browser_mic_filters_noise_and_echo():
+    import math
+    import struct
+    from types import SimpleNamespace as NS
+    from app.voice.web import BrowserMic
+
+    class Session:
+        def __init__(self): self.log = []
+        async def activity_start(self): self.log.append("start")
+        async def activity_end(self): self.log.append("end")
+        async def send_audio(self, pcm): pass
+
+    n = [0]
+
+    def block(voice=0, rumble=0):  # 40 ms bei 16 kHz wie aus dem Browser
+        out = []
+        for _ in range(640):
+            t = n[0] / 16000
+            n[0] += 1
+            v = rumble * math.sin(2 * math.pi * 60 * t)
+            v += voice * sum(math.sin(2 * math.pi * 150 * k * t) / k for k in range(1, 12))
+            out.append(int(max(-32000, min(32000, v))))
+        return struct.pack("<640h", *out)
+
+    def mic(play_end=0.0):
+        s = NS(voice_vad_rms=500, voice_vad_silence_ms=120, voice_vad_min_speech_ms=60, voice_web_vad_silence_ms=500, voice_web_vad_rms=120, voice_echo_rms_factor=3.0)
+        return BrowserMic(Session(), NS(play_end=play_end), s)
+
+    async def play(m, blocks):
+        for b in blocks:
+            await m.feed(b)
+        return m.session.log
+
+    speech = [block() for _ in range(5)] + [block(voice=3000) for _ in range(20)]
+    silence = [block() for _ in range(15)]
+    assert asyncio.run(play(mic(), [block(rumble=6000) for _ in range(50)])) == []         # Motor allein ist keine Sprache
+    assert asyncio.run(play(mic(), speech + silence)) == ["start", "end"]                  # Sprache mit Ende nach der Pause
+    assert asyncio.run(play(mic(), speech[:5] + [block(voice=3000) for _ in range(5)] + [block() for _ in range(5)]
+                            + [block(voice=3000) for _ in range(5)])) == ["start"]        # kurze Pause beendet den Satz nicht
+    quiet = [block() for _ in range(5)] + [block(voice=1200) for _ in range(20)]
+    assert asyncio.run(play(mic(), quiet)) == ["start"]                                    # leise Sprache kommt durch …
+    assert asyncio.run(play(mic(time.monotonic() + 60), quiet)) == []                      # … aber nicht als Echo, solange Stella spricht
+
+
 def test_phone_audio_frames():
     from app.voice.audio import PcmToPcmu8k, Pcmu8kToPcm16k
     down = PcmToPcmu8k(codec="PCMA")
@@ -172,7 +216,7 @@ def test_live_conversation_in_the_browser(client, voice):
     names = [d["name"] for d in setup["tools"][0]["functionDeclarations"]]
     assert names[0] == "auflegen" and "memory_save" in names and "tool_suchen" in names
     assert "Stella" in setup["systemInstruction"]["parts"][0]["text"]
-    assert setup["realtimeInputConfig"]["automaticActivityDetection"]["disabled"] is False
+    assert setup["realtimeInputConfig"]["automaticActivityDetection"]["disabled"] is True  # eigener Geräusch-Filter wie am Telefon
     resp = next(r for r in gem.responses if r["name"] == "memory_save")
     assert "error" not in resp["response"]
     mem = wait(lambda: [m for m in client.get(f"{API}/memory?scope=stella").json() if "Pizza" in m["text"]]
