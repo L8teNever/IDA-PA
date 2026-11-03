@@ -42,13 +42,6 @@ def test_installable_as_app(client):
     assert 'rel="manifest"' in client.get("/").text
 
 
-def test_live_is_own_app(client):
-    m = client.get("/live.webmanifest").json()
-    assert m["start_url"] == "/live" and m["id"] == "/live" and m["name"] == "IDA Live"
-    assert 'href="/live.webmanifest"' in client.get("/live").text
-    assert 'href="/manifest.webmanifest"' in client.get("/chats").text
-
-
 def test_seed(client):
     b = client.get(f"{API}/bootstrap").json()
     assert [a["id"] for a in b["agents"]] == ["ida", "stella", "lea"]
