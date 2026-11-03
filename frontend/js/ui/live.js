@@ -77,6 +77,12 @@ export async function livePage() {
         <button class="es-btn lv-end" id="lvEnd"><span class="ms">call_end</span>Auflegen</button></div>
       <div class="tmr-note" id="lvNote" hidden></div>
     </div>`;
+  const el = $("page").querySelector(".live-b");
+  if (el) {
+    el.addEventListener("touchmove", (e) => {
+      if (!e.target.closest(".lv-chat")) e.preventDefault();
+    }, { passive: false });
+  }
   if (!gestureCtx) { // opened directly (link, reload): the browser needs a tap before it may play sound
     $("lvBtns").innerHTML = `<button class="es-btn primary" id="lvGo"><span class="ms">graphic_eq</span>Gespräch starten</button>
       <button class="es-btn" id="lvBack"><span class="ms">close</span>Zurück</button>`;
