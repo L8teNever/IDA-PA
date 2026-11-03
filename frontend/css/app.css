@@ -406,15 +406,10 @@ body.live-view .stage {
 .live-b.intro .lv-buddy-wrap { transform: translateY(22dvh) scale(1.75); }
 .live-b.intro .lv-status { transform: translateY(32dvh); opacity: 0; }  /* kein „Verbinde …“ im Intro */
 .live-b.intro .lv-chat, .live-b.intro .lv-tool { opacity: 0; }
-.live-b.intro .buddy .eye { animation: wake 3.4s ease-out forwards; }
-.live-b.intro .buddy .face { animation: faceup 3.4s ease-out forwards; }
-.live-b.intro .lv-glow { animation: glowup 3.4s ease-out forwards; }
-.live-b.intro .buddy .z { animation-duration: 1.8s; }
-.live-b.intro .buddy .z2 { animation-delay: .4s; } .live-b.intro .buddy .z3 { animation-delay: .8s; }
-@keyframes wake { 0%, 52% { transform: scaleY(.08) } 60% { transform: scaleY(1) } 66% { transform: scaleY(.1) } 72%, 100% { transform: scaleY(1) } }
-@keyframes faceup { from { filter: brightness(.55) } to { filter: brightness(1) } }
-@keyframes glowup { from { opacity: .1 } to { opacity: 1 } }
-.lv-glow { position: absolute; inset: -20%; border-radius: 50%; background: radial-gradient(closest-side, rgba(var(--accent-rgb), .35), transparent 70%); filter: blur(20px); z-index: 0; pointer-events: none; transition: opacity .3s; }
+.live-b.waking .buddy .eye { animation: wake .7s ease-out 1; }   /* schlafen = exakt die Schlaf-Stimmung von IDA (body[data-mood=sleep]) */
+@keyframes wake { 0% { transform: scaleY(.1) } 35% { transform: scaleY(1) } 60% { transform: scaleY(.1) } 100% { transform: scaleY(1) } }
+.lv-glow { display: none; }  /* Leuchten wie auf der IDA-Startseite: nur das eigene ::before der .buddy */
+.lv-buddy-wrap .buddy::before { inset: -40%; }
 .lv-wave { position: absolute; border-radius: 50%; border: 2px solid var(--accent); pointer-events: none; opacity: 0; transition: transform .12s linear, opacity .2s; }
 .lv-w1 { width: clamp(105px, 30vw, 150px); height: clamp(105px, 30vw, 150px); }
 .lv-w2 { width: clamp(130px, 38vw, 185px); height: clamp(130px, 38vw, 185px); }

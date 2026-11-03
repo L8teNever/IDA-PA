@@ -143,10 +143,16 @@ async function start() {
       <button class="es-btn lv-end" id="lvEnd"><span class="ms">call_end</span>Auflegen</button></div>`);
   const root = $("page").querySelector(".live-b");   // intro: Stella wacht groß in der Mitte auf, danach wandert sie nach oben
   root.classList.add("intro");
-  const props = root.querySelector(".buddy .props");   // schläft erst (Zzz oben rechts), dann wacht sie auf
+  const props = root.querySelector(".buddy .props");   // erst schläft sie – exakt wie in IDA (Stimmung „sleep“ mit Zzz) –, dann wacht sie auf
+  document.body.dataset.mood = "sleep";
   if (props) props.innerHTML = `<b class="z z1">z</b><b class="z z2">z</b><b class="z z3">Z</b>`;
-  setTimeout(() => { if (props) props.innerHTML = ""; }, 1900);
-  c.introEnd = Date.now() + 3600;
+  setTimeout(() => {
+    delete document.body.dataset.mood;
+    if (props) props.innerHTML = "";
+    root.classList.add("waking");
+    setTimeout(() => root.classList.remove("waking"), 800);
+  }, 3000);
+  c.introEnd = Date.now() + 4000;
   c.endIntro = () => { const left = Math.max(0, c.introEnd - Date.now()); setTimeout(() => root.classList.remove("intro"), left); };
   $("lvEnd").onclick = () => stop(c);
   $("lvPhone").onclick = async () => {  // only on tap – never switches by itself
