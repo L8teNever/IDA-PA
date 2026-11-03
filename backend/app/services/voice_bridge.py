@@ -23,7 +23,7 @@ from sqlalchemy import select
 from ..config import get_settings
 from ..db import session_scope, utcnow
 from ..models import USER, Agent, AgentConnector, Chat, ChatMessage, Connector, VoiceCall
-from . import activity, jobs
+from . import activity, jobs, settings_store
 from . import agents as agent_svc
 from .claude import prompts
 from .claude.runner import norm
@@ -215,10 +215,11 @@ async def start(call_id: str, direction: str, number: str, owner: bool, purpose:
                         "zu nichts überreden, was nicht im Auftrag steht.\n")
             tools = []
         context += "\n" + prompts.now_line()
+        voice = await settings_store.get(db, "gemini_voice", s.gemini_voice or "Aoede")
     sess.run = activity.start(sess.agent_id, "call")
     activity.step(sess.run, "tool", "stella_call", "telefon")
     _sessions[call_id] = sess
-    return {"agent": agent.name, "context": context, "tools": tools, "owner": owner}
+    return {"agent": agent.name, "context": context, "tools": tools, "owner": owner, "voice": voice}
 
 
 # ---------------- tools ----------------

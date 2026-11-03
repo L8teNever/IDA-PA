@@ -69,10 +69,11 @@ Telnyx ──► voice:/telnyx/webhook + /media ──┼─► Gemini Live (Web
 5. **Altes Stella abschalten:** den alten Container stoppen und die `stella_*`-Tools im Connector `ida_1` ausschalten,
    damit Ida die neuen internen Tools nimmt. Danach das alte Stella-Repo archivieren.
 
-## Feineinstellungen (`.env`)
+## Feineinstellungen (`.env` & App)
 
+- **Stimme auswählen:** Direkt in der App unter **Einstellungen → Stella-Stimme** (oder bei Agent Stella). Dort können alle 21 Gemini-Stimmen mit Audiobeispielen probegehört und ausgewählt werden. Änderungen greifen sofort ohne Neustart.
+- `GEMINI_VOICE`: Standardstimme aus der `.env` (Fallback, Standard `Aoede`).
 - `GEMINI_LIVE_MODEL` und `GEMINI_LIVE_FALLBACKS`: Die Fallbacks werden nur beim Verbindungsaufbau versucht.
-- `GEMINI_VOICE`: Stimme, Standard `Aoede`.
 - `VOICE_PHONE_VAD`, `VOICE_VAD_RMS`, `VOICE_VAD_SILENCE_MS`, `VOICE_VAD_MIN_SPEECH_MS`: die eigene Sprach-Erkennung am
   Telefon gegen Auto- und Motorgeräusche (aus dem alten Stella).
 - `VOICE_GREETING_BARGE_IN_S`: Wie lange Geräusche auf der Leitung die erste Begrüßung nicht unterbrechen dürfen.

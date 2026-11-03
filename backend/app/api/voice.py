@@ -5,12 +5,16 @@ import hmac
 import secrets
 import time
 
+from pathlib import Path
+
 from fastapi import APIRouter, Header, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
+from pydantic import BaseModel
 
 from ..config import get_settings
-from ..services import voice_bridge
-from ..services.errors import Invalid
+from ..services import settings_store, voice_bridge
+from ..services.errors import Invalid, NotFound
+from .deps import DB
 
 router = APIRouter(tags=["voice"])
 TICKET_S = 60
@@ -87,3 +91,73 @@ async def ticket():
 @router.get("/api/v1/voice/calls")
 async def calls(limit: int = 20):
     return await voice_bridge.recent(limit)
+
+
+VOICE_CATALOG = [
+    {"id": "Aoede", "name": "Aoede", "gender": "weiblich", "description": "Klar, nachdenklich, lebendig (Standard)"},
+    {"id": "Kore", "name": "Kore", "gender": "weiblich", "description": "Ruhig, sanft, warm"},
+    {"id": "Leda", "name": "Leda", "gender": "weiblich", "description": "Jugendlich, frisch, herzlich"},
+    {"id": "Algieba", "name": "Algieba", "gender": "weiblich", "description": "Hell, sanft, fließend"},
+    {"id": "Callirrhoe", "name": "Callirrhoe", "gender": "weiblich", "description": "Entspannt, natürlich, locker"},
+    {"id": "Despina", "name": "Despina", "gender": "weiblich", "description": "Klar, direkt, ruhig"},
+    {"id": "Pulcherrima", "name": "Pulcherrima", "gender": "weiblich", "description": "Präsent, selbstbewusst"},
+    {"id": "Sulafat", "name": "Sulafat", "gender": "weiblich", "description": "Warm, vollmundig, weich"},
+    {"id": "Vindemiatrix", "name": "Vindemiatrix", "gender": "weiblich", "description": "Zart, behutsam, leise"},
+    {"id": "Achernar", "name": "Achernar", "gender": "weiblich", "description": "Sanft, zurückhaltend"},
+    {"id": "Puck", "name": "Puck", "gender": "männlich", "description": "Aufgeweckt, dynamisch, verspielt"},
+    {"id": "Charon", "name": "Charon", "gender": "männlich", "description": "Informativ, tiefenentspannt, ruhig"},
+    {"id": "Fenrir", "name": "Fenrir", "gender": "männlich", "description": "Kräftig, energisch, bestimmt"},
+    {"id": "Algenib", "name": "Algenib", "gender": "männlich", "description": "Markant, rau, souverän"},
+    {"id": "Alnilam", "name": "Alnilam", "gender": "männlich", "description": "Fest, sachlich, standhaft"},
+    {"id": "Enceladus", "name": "Enceladus", "gender": "männlich", "description": "Hauchig, intim, gelassen"},
+    {"id": "Gacrux", "name": "Gacrux", "gender": "männlich", "description": "Reif, sonor, geerdet"},
+    {"id": "Iapetus", "name": "Iapetus", "gender": "männlich", "description": "Klar, artikuliert, fokussiert"},
+    {"id": "Rasalgethi", "name": "Rasalgethi", "gender": "männlich", "description": "Bedacht, informativ"},
+    {"id": "Sadaltager", "name": "Sadaltager", "gender": "männlich", "description": "Erfahren, kompetent"},
+    {"id": "Zubenelgenubi", "name": "Zubenelgenubi", "gender": "männlich", "description": "Lässig, ungezwungen"},
+]
+
+
+class VoiceUpdate(BaseModel):
+    voice: str
+
+
+@router.get("/api/v1/voice/settings")
+async def get_voice_settings(db: DB):
+    s = get_settings()
+    current = await settings_store.get(db, "gemini_voice", s.gemini_voice or "Aoede")
+    return {
+        "voice": current,
+        "voices": [
+            {**v, "sample_url": f"/api/v1/voice/samples/{v['id']}"}
+            for v in VOICE_CATALOG
+        ],
+    }
+
+
+@router.patch("/api/v1/voice/settings")
+async def update_voice_settings(body: VoiceUpdate, db: DB):
+    target = body.voice.strip()
+    match = next((v for v in VOICE_CATALOG if v["id"].lower() == target.lower()), None)
+    if not match:
+        raise Invalid(f"Unbekannte Stimme: {target}")
+    await settings_store.put(db, "gemini_voice", match["id"])
+    return {"ok": True, "voice": match["id"]}
+
+
+@router.get("/api/v1/voice/samples/{voice_name}")
+async def voice_sample(voice_name: str):
+    s = get_settings()
+    cleaned = voice_name.strip().lower()
+    candidates = [
+        s.frontend_dir / "audio" / "voices" / f"{cleaned}.wav",
+        s.data_dir / "audio" / "voices" / f"{cleaned}.wav",
+    ]
+    for p in candidates:
+        try:
+            if p.is_file():
+                return FileResponse(p, media_type="audio/wav")
+        except (PermissionError, OSError):
+            continue
+    raise NotFound("Stimmprobe nicht gefunden")
+

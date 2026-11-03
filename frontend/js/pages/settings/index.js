@@ -12,6 +12,7 @@ import * as homeSec from "./home.js";
 import * as mcp from "./mcp.js";
 import * as memory from "./memory.js";
 import * as skills from "./skills.js";
+import * as stellaSec from "./stella.js";
 
 // id, icon, title, subtitle(), palette, module
 const SECTIONS = [
@@ -24,6 +25,7 @@ const SECTIONS = [
   ]],
   ["App", [
     ["startseite", "today", "Startseite", () => "Kalender im Tagesplan", "pink", homeSec],
+    ["stella", "record_voice_over", "Stella-Stimme", () => state.boot.voice_name || "Aoede", "pink", stellaSec],
     ["accounts", "person", "Accounts", () => `${state.boot.accounts.length} verbunden · Claude & Antigravity`, "orange", accounts],
   ]],
   ["Code", [

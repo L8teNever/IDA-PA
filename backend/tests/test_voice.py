@@ -331,3 +331,41 @@ def test_gemini_fallback_model():
         assert "key=test-gemini-key" in gem.urls[0]
         await s.close()
     asyncio.run(go())
+
+
+def test_voice_settings_and_samples(client):
+    r = client.get("/api/v1/voice/settings")
+    assert r.status_code == 200
+    data = r.json()
+    assert "voice" in data
+    assert len(data["voices"]) == 21
+    assert any(v["id"] == "Aoede" for v in data["voices"])
+    assert any(v["id"] == "Leda" for v in data["voices"])
+
+    # Update voice
+    r = client.patch("/api/v1/voice/settings", json={"voice": "Kore"})
+    assert r.status_code == 200
+    assert r.json()["voice"] == "Kore"
+
+    # Re-fetch settings
+    r = client.get("/api/v1/voice/settings")
+    assert r.json()["voice"] == "Kore"
+
+    # Bootstrap check
+    boot = client.get("/api/v1/bootstrap").json()
+    assert boot["voice_name"] == "Kore"
+
+    # Invalid voice
+    r = client.patch("/api/v1/voice/settings", json={"voice": "NichtVorhanden"})
+    assert r.status_code == 400
+
+    # Sample download
+    r = client.get("/api/v1/voice/samples/Aoede")
+    assert r.status_code == 200
+    assert r.headers["content-type"].startswith("audio/wav")
+    assert len(r.content) > 1000
+
+    # Unknown sample
+    r = client.get("/api/v1/voice/samples/Ungueltig")
+    assert r.status_code == 404
+

@@ -86,9 +86,9 @@ def models(settings) -> list[str]:
     return out
 
 
-def generation_config(settings, model: str) -> dict:
+def generation_config(settings, model: str, voice: str | None = None) -> dict:
     cfg: dict = {"responseModalities": ["AUDIO"],
-                 "speechConfig": {"voiceConfig": {"prebuiltVoiceConfig": {"voiceName": settings.gemini_voice or "Aoede"}}}}
+                 "speechConfig": {"voiceConfig": {"prebuiltVoiceConfig": {"voiceName": voice or getattr(settings, "gemini_voice", None) or "Aoede"}}}}
     budget = int(settings.gemini_thinking_budget)
     if budget >= 0:
         # 3.1 Live takes thinkingLevel; 3.8 and 2.5 take thinkingBudget – both at once is rejected (close 1007)
@@ -117,8 +117,10 @@ ToolRunner = Callable[[str, dict], Awaitable[dict]]
 
 class LiveSession:
     def __init__(self, settings, *, instructions: str, tools: list[dict], run_tool: ToolRunner, sink: Sink, kickoff: str,
-                 client_vad: bool, farewell_hangup: bool = True, connect: Callable[[str], Awaitable[Any]] | None = None):
+                 client_vad: bool, farewell_hangup: bool = True, connect: Callable[[str], Awaitable[Any]] | None = None,
+                 voice: str | None = None):
         self.s = settings
+        self.voice = voice or getattr(settings, "gemini_voice", None) or "Aoede"
         self.instructions = instructions
         self.decl = declarations(tools)
         self.run_tool = run_tool
@@ -142,7 +144,7 @@ class LiveSession:
     def setup_payload(self, model: str) -> dict:
         return {"setup": {
             "model": f"models/{model}",
-            "generationConfig": generation_config(self.s, model),
+            "generationConfig": generation_config(self.s, model, voice=self.voice),
             "systemInstruction": {"parts": [{"text": self.instructions}]},
             "tools": [{"functionDeclarations": self.decl}],
             "inputAudioTranscription": {},

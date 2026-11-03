@@ -108,6 +108,16 @@ async function edit(el, id) {
     <div class="btn-row"><button class="es-btn primary" id="aSave"><span class="ms">check</span>Speichern</button>
       ${a.is_main ? "" : `<button class="es-btn danger" id="aDel"><span class="ms">delete</span>Löschen</button>`}</div>
 
+    ${(a.id === "stella" || a.id === state.boot.voice_agent) ? `
+      <div class="grp">Stimme (Gemini Live)</div>
+      <div class="slist">
+        <a class="srow" href="/einstellungen/stella">
+          <span class="sic" style="background:var(--pink-container);color:var(--pink-accent)"><span class="ms">record_voice_over</span></span>
+          <span class="smain"><b>${esc(state.boot.voice_name || "Aoede")}</b><small>21 Stimmen verfügbar · Hier anhören und auswählen</small></span>
+          <span class="ms schev">chevron_right</span>
+        </a>
+      </div>` : ""}
+
     <div class="grp">Schnellstart-Buttons</div>
     <label class="fld"><span>Eine Zeile pro Button: Icon | Text (Icons: Material Symbols)</span><textarea id="aChips" rows="3">${esc((a.chips || []).map((x) => x.join(" | ")).join("\n"))}</textarea></label>
 

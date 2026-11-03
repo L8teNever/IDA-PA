@@ -1070,3 +1070,26 @@ body.view-timeline #btnBack { display: none; }
 .ar-form input[type=range] { width: 100%; }
 .ar-more { margin-top: 6px; }
 .ar-more summary { cursor: pointer; color: var(--muted); font-size: 13px; padding: 6px 2px; }
+
+/* ---------- Stella voice settings (/einstellungen/stella) ---------- */
+.voice-grid { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+.voice-card { display: flex; align-items: center; justify-content: space-between; gap: 12px; background: var(--surface-low); border: 1px solid var(--outline-variant); border-radius: 18px; padding: 12px 14px; transition: border-color .15s, background .15s; }
+.voice-card.active { background: rgba(247, 164, 191, 0.12); border-color: var(--pink-accent, #f7a4bf); }
+.voice-info { display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 0; }
+.voice-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.voice-name { font-weight: 600; font-size: 15px; color: var(--on-surface); }
+.voice-gender { font-size: 11px; padding: 2px 7px; border-radius: 8px; background: var(--surface-high); color: var(--muted); font-weight: 500; }
+.voice-card.active .voice-gender { background: rgba(247, 164, 191, 0.2); color: var(--pink-accent, #f7a4bf); }
+.voice-desc { font-size: 13px; color: var(--muted); line-height: 1.35; }
+.voice-card.active .voice-desc { color: var(--on-surface); opacity: .85; }
+.voice-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.voice-play-btn { width: 40px; height: 40px; border-radius: 50%; border: none; background: var(--surface-high); color: var(--on-surface); display: flex; align-items: center; justify-content: center; cursor: pointer; transition: transform .15s, background .15s, color .15s; }
+.voice-play-btn:hover { background: var(--surface-highest); transform: scale(1.05); }
+.voice-play-btn.playing { background: var(--pink-accent, #f7a4bf); color: #000; animation: voicePulse 1.2s infinite ease-in-out; }
+.voice-play-btn .ms { font-size: 20px; }
+.voice-select-btn { padding: 8px 14px; border-radius: 14px; font-size: 13px; font-weight: 500; border: 1px solid var(--outline); background: transparent; color: var(--on-surface); cursor: pointer; transition: all .15s; display: flex; align-items: center; gap: 6px; }
+.voice-select-btn:hover { background: var(--surface-high); }
+.voice-select-btn .ms { font-size: 16px; }
+.voice-card.active .voice-select-btn { background: var(--pink-accent, #f7a4bf); color: #000; border-color: var(--pink-accent, #f7a4bf); font-weight: 600; }
+@keyframes voicePulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.08); } }
+
