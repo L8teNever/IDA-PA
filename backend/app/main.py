@@ -112,6 +112,25 @@ def create_app() -> FastAPI:
             ],
         }, media_type="application/manifest+json", headers={"cache-control": "no-cache"})
 
+    live_html = index_html.replace('href="/manifest.webmanifest"', 'href="/live.webmanifest"').replace(
+        '<title>IDA</title>', '<title>IDA Live</title>')
+
+    @app.get("/live.webmanifest", include_in_schema=False)
+    async def live_manifest():
+        """Own installable app 'IDA Live' (opens /live directly) – shows up as its own entry in the Android activity/app picker."""
+        icon = f"/s/{version}/icons"
+        return JSONResponse({
+            "id": "/live", "name": "IDA Live", "short_name": "IDA Live", "description": "Direkt mit Stella sprechen",
+            "lang": "de", "start_url": "/live", "scope": "/live", "display": "standalone",
+            "background_color": "#000000", "theme_color": "#000000",
+            "icons": [
+                {"src": f"{icon}/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any"},
+                {"src": f"{icon}/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any"},
+                {"src": f"{icon}/maskable-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable"},
+                {"src": f"{icon}/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable"},
+            ],
+        }, media_type="application/manifest+json", headers={"cache-control": "no-cache"})
+
     @app.get("/sw.js", include_in_schema=False)
     async def service_worker():
         """Served from the root so it may control every page."""
@@ -122,6 +141,8 @@ def create_app() -> FastAPI:
         """Every page URL (/, /chats, /einstellungen/agents/lea …) gets the app; the browser router shows the page."""
         if path.startswith(("api/", "mcp/", "kal/")):
             return JSONResponse({"detail": "Nicht gefunden"}, status_code=404)
+        if path.rstrip("/") == "live":
+            return HTMLResponse(live_html, headers={"cache-control": "no-store"})
         return HTMLResponse(index_html, headers={"cache-control": "no-store"})
 
     return app
