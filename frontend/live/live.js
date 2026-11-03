@@ -166,7 +166,8 @@ async function start() {
       const r = await fetch("/pwa/phone", { method: "POST", headers: { "x-live-key": localStorage.getItem("liveKey") || "", "content-type": "application/json" },
                                             body: JSON.stringify({ lines: c.lines }) });
       if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || "Anruf geht gerade nicht");
-      stop(c, "", "Stella ruft dich gleich an – bitte ans Telefon gehen");
+      await stop(c, "", "Stella ruft dich gleich an – bitte ans Telefon gehen");
+      window.close();   // App direkt schließen; wenn das System das nicht erlaubt (iPhone), bleibt der Hinweis stehen
     } catch (e) { b.disabled = false; addLine(c, "bot", `\n(${e.message})`); }
   };
   $("lvMute").onclick = () => {
