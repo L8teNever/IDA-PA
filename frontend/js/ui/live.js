@@ -60,7 +60,6 @@ export async function livePage() {
     <div class="live live-b">
       <div class="lv-buddy-wrap" id="lvBuddyWrap" data-state="connect">
         <div class="buddy" id="lvBuddy" aria-hidden="true">
-          <i class="lv-wave lv-w1"></i><i class="lv-wave lv-w2"></i><i class="lv-wave lv-w3"></i>
           <div class="face"><div class="eyes"><div class="eye"></div><div class="eye"></div></div></div>
           <div class="props"></div>
         </div>

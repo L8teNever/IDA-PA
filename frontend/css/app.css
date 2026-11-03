@@ -411,23 +411,11 @@ body.live-view .stage {
 @keyframes wake { 0% { transform: scaleY(.1) } 35% { transform: scaleY(1) } 60% { transform: scaleY(.1) } 100% { transform: scaleY(1) } }
 
 .live-b .buddy::before { display: none; }   /* kein pinker Kreis/Leuchten hinter Stella */
-/* Wellen in Stellas Gesichtsform (gleiche Rundung wie .face), sitzen in der .buddy und schweben mit.
-   Sprechen: Wellen laufen vom Gesicht nach außen, Gesicht wippt mit der Lautstärke.
-   Zuhören: Wellen fließen von außen ins Gesicht hinein, Kopf leicht schräg, Augen etwas größer. */
-.lv-wave { position: absolute; inset: 0; z-index: 0; border-radius: 34% / 40%; border: 2px solid rgba(var(--accent-rgb), calc(.35 + var(--lvl, 0) * .65)); box-shadow: 0 0 calc(4px + var(--lvl, 0) * 14px) rgba(var(--accent-rgb), .35); pointer-events: none; opacity: 0; }
-.lv-buddy-wrap[data-state="speak"] .lv-wave { animation: lv-out 1.8s cubic-bezier(.2, .6, .35, 1) infinite; }
-.lv-buddy-wrap[data-state="listen"] .lv-wave { animation: lv-in 2.6s cubic-bezier(.45, 0, .55, 1) infinite; }
-.lv-buddy-wrap[data-state] .lv-w2 { animation-delay: .6s; }
-.lv-buddy-wrap[data-state="listen"] .lv-w2 { animation-delay: .87s; }
-.lv-buddy-wrap[data-state] .lv-w3 { animation-delay: 1.2s; }
-.lv-buddy-wrap[data-state="listen"] .lv-w3 { animation-delay: 1.73s; }
-@keyframes lv-out { 0% { transform: scale(1); opacity: .9 } 100% { transform: scale(1.75); opacity: 0 } }
-@keyframes lv-in { 0% { transform: scale(1.7); opacity: 0 } 45% { opacity: .55 } 100% { transform: scale(1.04); opacity: 0 } }
+/* Sprechen: Gesicht wippt mit der Lautstärke. Zuhören: Kopf leicht schräg, Augen etwas größer. Keine Wellen/Kreise. */
 .live-b .buddy .face { transition: transform .12s ease-out, filter .3s, background .6s, box-shadow .6s; }
-.lv-buddy-wrap[data-state="speak"] .buddy .face { transform: scale(calc(1 + var(--lvl, 0) * .05), calc(1 - var(--lvl, 0) * .035)); box-shadow: 0 0 calc(40px + var(--lvl, 0) * 40px) rgba(var(--accent-rgb), calc(.25 + var(--lvl, 0) * .4)), inset 0 -10px 24px rgba(0,0,0,.08); }
+.lv-buddy-wrap[data-state="speak"] .buddy .face { transform: scale(calc(1 + var(--lvl, 0) * .05), calc(1 - var(--lvl, 0) * .035)); }
 .lv-buddy-wrap[data-state="listen"] .buddy .face { transform: rotate(-5deg); transition: transform .6s cubic-bezier(.3, 1.4, .5, 1); }
 .lv-buddy-wrap[data-state="listen"] .buddy .eyes { transform: translate(-50%, -54%) scale(calc(1.06 + var(--lvl, 0) * .1)); }
-@media (prefers-reduced-motion: reduce) { .lv-wave { animation: none !important; } }
 .lv-buddy-wrap[data-state="tool"] .buddy { animation: breathe 1.2s ease-in-out infinite; }
 .lv-buddy-wrap[data-state="fail"] .buddy .face { filter: saturate(.4) brightness(.85); }
 

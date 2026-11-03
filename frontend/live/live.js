@@ -42,7 +42,7 @@ if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").cat
 let gestureCtx = null;
 let cur = null;
 
-const buddy = `<div class="buddy" aria-hidden="true"><i class="lv-wave lv-w1"></i><i class="lv-wave lv-w2"></i><i class="lv-wave lv-w3"></i><div class="face"><div class="eyes"><div class="eye"></div><div class="eye"></div></div></div><div class="props"></div></div>`;
+const buddy = `<div class="buddy" aria-hidden="true"><div class="face"><div class="eyes"><div class="eye"></div><div class="eye"></div></div></div><div class="props"></div></div>`;
 
 function shell(inner) {
   $("page").innerHTML = `<div class="live live-b">
