@@ -4,13 +4,14 @@ import asyncio
 import logging
 import os
 import time
+from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
 from .. import hostinfo
 from ..config import get_settings
-from ..discovery import P, ctr_name, stack_of
+from ..discovery import P, compose_files, ctr_name, stack_of
 from ..docker_api import DockerError
 from . import Tool
 
@@ -52,6 +53,25 @@ def dir_size(path: str) -> int:
     return total
 
 
+async def dir_sizes(paths: list[str]) -> dict[str, int]:
+    """Größen vieler Ordner in einem Rutsch mit `du` (niedrigste Priorität, eigener Prozess – der Speicher ist danach
+    sofort wieder frei). Ohne `du` rechnet Python selbst."""
+    if not paths:
+        return {}
+    try:
+        proc = await asyncio.create_subprocess_exec("nice", "-n", "19", "du", "-sx", "-B1", "--", *paths,
+                                                    stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL)
+        out, _ = await proc.communicate()
+    except OSError:
+        return {p: await asyncio.to_thread(dir_size, p) for p in paths}
+    sizes = {}
+    for line in out.decode("utf-8", "replace").splitlines():
+        n, _, path = line.partition("\t")
+        if n.isdigit():
+            sizes[path] = int(n)
+    return sizes
+
+
 class State:
     def __init__(self):
         self.df: dict | None = None
@@ -82,19 +102,19 @@ async def refresh(app, dirs: bool = True) -> None:
                     wd = (c.get("Labels") or {}).get(P + "project.working_dir")
                     if wd:
                         found[stack_of(c)] = wd
+                # dazu Stack-Ordner, die gerade aus sind (nur Ordner mit Compose-Datei)
                 for root in get_settings().stack_dirs:
                     try:
                         for d in os.scandir(root):
                             key = d.name.lower()
-                            if d.is_dir(follow_symlinks=False) and d.path not in found.values() and not os.path.isdir(found.get(key, "")):
+                            if (d.is_dir(follow_symlinks=False) and d.path not in found.values() and not os.path.isdir(found.get(key, ""))
+                                    and compose_files(Path(d.path))):
                                 found[key] = d.path
                     except OSError:
                         pass
-                sizes = {}
-                for name, path in found.items():
-                    if os.path.isdir(path):
-                        sizes[name] = await asyncio.to_thread(dir_size, path)
-                s.dirs = sizes
+                found = {k: os.path.normpath(v) for k, v in found.items() if os.path.isdir(v)}
+                by_path = await dir_sizes(sorted(set(found.values())))
+                s.dirs = {k: by_path.get(v, 0) for k, v in found.items()}
                 s.dirs_at = time.time()
         except DockerError as e:
             s.error = str(e)

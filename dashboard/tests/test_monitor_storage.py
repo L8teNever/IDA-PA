@@ -61,7 +61,9 @@ async def test_storage(client, tmp_path, settings):
     c.docker.containers = [ctr("a", "web", "shop"), ctr("b", "db", "shop")]
     shop = settings.stack_dirs[0] / "shop"
     shop.mkdir()
+    (shop / "compose.yaml").write_text("services: {}\n")
     (shop / "welt.dat").write_bytes(b"x" * 100_000)
+    (settings.stack_dirs[0] / "kein-stack").mkdir()        # Ordner ohne Compose-Datei zählt nicht
     r = await c.post("/api/v1/storage/refresh", json={})
     assert r.status_code == 200
     import asyncio
@@ -74,6 +76,7 @@ async def test_storage(client, tmp_path, settings):
     assert d["docker"]["images"] == 700 and d["docker"]["images_unused"] == 500 and d["docker"]["volumes_unused"] == 70
     shop_s = next(s for s in d["stacks"] if s["name"] == "shop")
     assert shop_s["images"] == 200 and shop_s["volumes"] == 3000 and shop_s["rw"] == 2000 and shop_s["files"] >= 100_000
+    assert "kein-stack" not in {s["name"] for s in d["stacks"]}
     r = await c.post("/api/v1/storage/prune", json={"what": "images"})
     assert r.json() == {"reclaimed": 500, "count": 1}
 

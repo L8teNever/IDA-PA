@@ -21,6 +21,7 @@ from .tools import all_tools
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("dashboard")
+logging.getLogger("httpx").setLevel(logging.WARNING)  # sonst jede Docker-Abfrage (alle 15 s × alle Container) im Log
 
 
 class Static(StaticFiles):
