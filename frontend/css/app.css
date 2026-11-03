@@ -413,24 +413,30 @@ body.live-view .stage {
 .live-b .buddy::before { display: none; }   /* kein pinker Kreis/Leuchten hinter Stella */
 /* Sprechen: Gesicht wippt mit der Lautstärke. Zuhören: Kopf leicht schräg, Augen etwas größer. Keine Wellen/Kreise. */
 .live-b .buddy .face { transition: transform .12s ease-out, filter .3s, background .6s, box-shadow .6s; }
-.lv-buddy-wrap[data-state="speak"] .buddy .face { transform: scale(calc(1 + var(--lvl, 0) * .05), calc(1 - var(--lvl, 0) * .035)); }
+/* Live: kein dauerndes Hoch-und-Runter-Schweben (float) mehr – Stella bleibt ruhig an ihrem Platz (Schlafen im Intro bleibt wie in IDA) */
+.lv-buddy-wrap .buddy { animation: none; transition: transform .1s ease-out; }
+body[data-mood="sleep"] .live-b.intro .lv-buddy-wrap .buddy { animation: breathe 4s ease-in-out infinite; }
+/* Sprechen: das ganze Maskottchen pulsiert – je lauter Stella spricht, desto größer wird es */
+.lv-buddy-wrap[data-state="speak"] .buddy { transform: scale(calc(1 + var(--lvl, 0) * .16)); }
 /* Zuhören („Lauschen“): Kopf neigt sich neugierig hin und her, aufmerksames langsames Blinzeln,
    Augen schauen leicht nach oben und werden größer, je lauter Simon spricht; bei Lautstärke ein kleines „Mhm“-Nicken. */
 .lv-buddy-wrap[data-state="listen"] .buddy .face { animation: lv-lausch 4.2s ease-in-out infinite; }
-.lv-buddy-wrap[data-state="listen"] .buddy .eyes { transform: translate(calc(-50% + 4%), calc(-56% + var(--lvl, 0) * 9%)) scale(calc(1.05 + var(--lvl, 0) * .12)); transition: transform .14s ease-out; }
+/* Live: Augen kleiner als auf der IDA-Startseite (wirkten nach dem Aufwachen zu groß) */
+.lv-buddy-wrap .buddy .eyes { transform: translate(-50%, -50%) scale(.78); }
+.lv-buddy-wrap[data-state="listen"] .buddy .eyes { transform: translate(calc(-50% + 4%), -56%) scale(calc(.78 + var(--lvl, 0) * .06)); transition: transform .14s ease-out; }
 .lv-buddy-wrap[data-state="listen"] .buddy .eye { animation: lv-aufmerksam 3.6s ease-in-out infinite; }
 .lv-buddy-wrap[data-state="listen"] .buddy .eye + .eye { animation-delay: .04s; }
 @keyframes lv-lausch {
-  0%, 100% { transform: rotate(-7deg) translateY(0) }
-  30% { transform: rotate(-3deg) translateY(-2%) }
-  50% { transform: rotate(-5deg) translateY(1%) }
-  75% { transform: rotate(-8deg) translateY(-1%) }
+  0%, 100% { transform: rotate(-7deg) }
+  30% { transform: rotate(-3deg) }
+  50% { transform: rotate(-5deg) }
+  75% { transform: rotate(-8deg) }
 }
-@keyframes lv-aufmerksam { 0%, 84%, 100% { transform: scaleY(1) } 89% { transform: scaleY(.12) } 94% { transform: scaleY(1.06) } }
+@keyframes lv-aufmerksam { 0%, 84%, 100% { transform: scaleY(1) } 89% { transform: scaleY(.12) } 94% { transform: scaleY(1) } }
 .lv-buddy-wrap[data-state="muted"] .buddy .face { transform: rotate(4deg); transition: transform .6s ease; }
 .lv-buddy-wrap[data-state="muted"] .buddy .eye { animation: none; transform: scaleY(.55); transition: transform .4s; }
 @media (prefers-reduced-motion: reduce) { .lv-buddy-wrap[data-state="listen"] .buddy .face { animation: none; transform: rotate(-5deg); } }
-.lv-buddy-wrap[data-state="tool"] .buddy { animation: breathe 1.2s ease-in-out infinite; }
+.lv-buddy-wrap[data-state="tool"] .buddy { animation: breathe 1.2s ease-in-out infinite; }  /* nur kurz, während sie etwas nachschaut */
 .lv-buddy-wrap[data-state="fail"] .buddy .face { filter: saturate(.4) brightness(.85); }
 
 .lv-status { display: flex; align-items: center; justify-content: center; gap: 8px; margin-top: 2px; flex-shrink: 0; }
