@@ -404,12 +404,14 @@ body.live-view .stage {
 /* Live-Intro: Stella wacht groß in der Mitte auf und wandert dann nach oben */
 .live-b .lv-buddy-wrap, .live-b .lv-status, .live-b .lv-chat, .live-b .lv-tool { transition: transform 1s cubic-bezier(.65, 0, .25, 1), opacity .8s ease; }
 .live-b.intro .lv-buddy-wrap { transform: translateY(22dvh) scale(1.75); }
-.live-b.intro .lv-status { transform: translateY(32dvh); }
+.live-b.intro .lv-status { transform: translateY(32dvh); opacity: 0; }  /* kein „Verbinde …“ im Intro */
 .live-b.intro .lv-chat, .live-b.intro .lv-tool { opacity: 0; }
-.live-b.intro .buddy .eye { animation: wake 2.6s ease-out forwards; }
-.live-b.intro .buddy .face { animation: faceup 2.6s ease-out forwards; }
-.live-b.intro .lv-glow { animation: glowup 2.6s ease-out forwards; }
-@keyframes wake { 0%, 30% { transform: scaleY(.08) } 40% { transform: scaleY(1) } 48% { transform: scaleY(.1) } 56%, 100% { transform: scaleY(1) } }
+.live-b.intro .buddy .eye { animation: wake 3.4s ease-out forwards; }
+.live-b.intro .buddy .face { animation: faceup 3.4s ease-out forwards; }
+.live-b.intro .lv-glow { animation: glowup 3.4s ease-out forwards; }
+.live-b.intro .buddy .z { animation-duration: 1.8s; }
+.live-b.intro .buddy .z2 { animation-delay: .4s; } .live-b.intro .buddy .z3 { animation-delay: .8s; }
+@keyframes wake { 0%, 52% { transform: scaleY(.08) } 60% { transform: scaleY(1) } 66% { transform: scaleY(.1) } 72%, 100% { transform: scaleY(1) } }
 @keyframes faceup { from { filter: brightness(.55) } to { filter: brightness(1) } }
 @keyframes glowup { from { opacity: .1 } to { opacity: 1 } }
 .lv-glow { position: absolute; inset: -20%; border-radius: 50%; background: radial-gradient(closest-side, rgba(var(--accent-rgb), .35), transparent 70%); filter: blur(20px); z-index: 0; pointer-events: none; transition: opacity .3s; }

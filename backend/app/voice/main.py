@@ -6,11 +6,12 @@ Internal (x-voice-secret):  /internal/calls, /internal/busy – used by IDA's st
 """
 import asyncio
 import contextlib
+import hashlib
 import hmac
 import logging
 
 from fastapi import FastAPI, Header, Request, WebSocket
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from ..config import get_settings
@@ -20,6 +21,23 @@ from .telnyx import TelnyxError, verify_signature
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("ida.voice")
+
+
+class _NoCache(StaticFiles):
+    """Static files of the live app: always re-validate (Cloudflare must not keep an old app.css for hours)."""
+
+    async def get_response(self, path, scope):
+        resp = await super().get_response(path, scope)
+        resp.headers["cache-control"] = "no-cache"
+        return resp
+
+
+def _version(front) -> str:
+    h = hashlib.sha1()
+    for d in ("css", "live"):
+        for f in sorted(p for p in (front / d).rglob("*") if p.is_file()):
+            h.update(f.read_bytes())
+    return h.hexdigest()[:10]
 
 
 def create_app(phone: Phone | None = None, connect=None) -> FastAPI:
@@ -102,7 +120,10 @@ def create_app(phone: Phone | None = None, connect=None) -> FastAPI:
 
     @app.get("/", include_in_schema=False)
     async def live_app():
-        return FileResponse(front / "live" / "index.html", headers={"cache-control": "no-cache"})
+        html = (front / "live" / "index.html").read_text(encoding="utf-8")
+        v = _version(front)  # version in the asset links: a fresh deploy never meets an old cached copy
+        html = html.replace('.css"', f'.css?v={v}"').replace('/live.js"', f'/live.js?v={v}"')
+        return HTMLResponse(html, headers={"cache-control": "no-cache"})
 
     @app.get("/manifest.webmanifest", include_in_schema=False)
     async def live_manifest():
@@ -152,7 +173,7 @@ def create_app(phone: Phone | None = None, connect=None) -> FastAPI:
         return {"ok": True, "call": c.id}
 
     for d in ("css", "fonts", "icons", "live"):  # only what the page needs
-        app.mount(f"/static/{d}", StaticFiles(directory=front / d), name=f"static-{d}")
+        app.mount(f"/static/{d}", _NoCache(directory=front / d), name=f"static-{d}")
 
     @app.websocket("/live")
     async def live_ws(ws: WebSocket):

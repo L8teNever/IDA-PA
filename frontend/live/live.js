@@ -143,7 +143,10 @@ async function start() {
       <button class="es-btn lv-end" id="lvEnd"><span class="ms">call_end</span>Auflegen</button></div>`);
   const root = $("page").querySelector(".live-b");   // intro: Stella wacht groß in der Mitte auf, danach wandert sie nach oben
   root.classList.add("intro");
-  c.introEnd = Date.now() + 2800;
+  const props = root.querySelector(".buddy .props");   // schläft erst (Zzz oben rechts), dann wacht sie auf
+  if (props) props.innerHTML = `<b class="z z1">z</b><b class="z z2">z</b><b class="z z3">Z</b>`;
+  setTimeout(() => { if (props) props.innerHTML = ""; }, 1900);
+  c.introEnd = Date.now() + 3600;
   c.endIntro = () => { const left = Math.max(0, c.introEnd - Date.now()); setTimeout(() => root.classList.remove("intro"), left); };
   $("lvEnd").onclick = () => stop(c);
   $("lvPhone").onclick = async () => {  // only on tap – never switches by itself
