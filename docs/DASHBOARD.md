@@ -38,12 +38,12 @@ Verkehr doppelt gezählt. Mit `DASHBOARD_NET_IFACES=enp0s31f6` legst du die Kart
 
 1. In `.env` (siehe `.env.example`):
    ```ini
-   DASHBOARD_PUBLIC_URL=https://idaserver.kulbarts.com
+   DASHBOARD_PUBLIC_URL=https://dashboard.kulbarts.com
    # STACKS_ROOT=/opt                    # Ordner, unter dem alle Stack-Ordner liegen
    # DASHBOARD_STACKS_DIRS=/opt/stacks   # hier wird nach Stacks gesucht, die gerade aus sind
    ```
-2. **Cloudflare Tunnel**: `idaserver.kulbarts.com` → `http://dashboard:8000` (bzw. Host-Port `8085`).
-3. **Cloudflare Access**: `idaserver.kulbarts.com/*` → `Allow` (nur dein Login). **Pflicht**: Das Dashboard hat den
+2. **Cloudflare Tunnel**: `dashboard.kulbarts.com` → `http://dashboard:8000` (bzw. Host-Port `8085`).
+3. **Cloudflare Access**: `dashboard.kulbarts.com/*` → `Allow` (nur dein Login). **Pflicht**: Das Dashboard hat den
    Docker-Socket, damit hat es volle Kontrolle über den Server. Eine eigene Anmeldung gibt es (wie bei den anderen Apps) nicht.
    Ändernde Aufrufe nimmt es nur als JSON an, damit fremde Webseiten nichts auslösen können.
 4. `docker compose pull && docker compose up -d`
