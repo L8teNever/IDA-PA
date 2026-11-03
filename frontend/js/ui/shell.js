@@ -110,5 +110,11 @@ export function initShell() {
       wiki.hidden = !url;
       if (url) wiki.href = url;
     }
+    const dash = $("navDashboard");
+    if (dash) {
+      const url = state.boot?.dashboard_url || "";
+      dash.hidden = !url;
+      if (url) dash.href = url;
+    }
   });
 }

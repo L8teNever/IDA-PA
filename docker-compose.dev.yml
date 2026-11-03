@@ -17,3 +17,15 @@ services:
     build:
       context: .
       dockerfile: wiki/Dockerfile
+  code:
+    image: ida-code:dev
+    pull_policy: build
+    build:
+      context: .
+      dockerfile: code/Dockerfile
+  dashboard:
+    image: ida-dashboard:dev
+    pull_policy: build
+    build:
+      context: .
+      dockerfile: dashboard/Dockerfile

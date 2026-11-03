@@ -84,3 +84,6 @@ Ohne `DATABASE_URL` nutzt die App SQLite unter `data/` – praktisch zum Entwick
 GitHub Actions testet bei jedem Push gegen SQLite **und** PostgreSQL und baut danach das Image.
 
 Details zum Umbau und zu den Entscheidungen: [docs/PLAN.md](docs/PLAN.md).
+
+Eigene Apps im Stack (eigener Port, eigene PWA): Kalender ([docs/KALENDER.md](docs/KALENDER.md)), Wiki ([docs/WIKI.md](docs/WIKI.md)),
+Code ([docs/CODE.md](docs/CODE.md)) und Dashboard für den Server – Docker-Stacks, Leistung, Speicher ([docs/DASHBOARD.md](docs/DASHBOARD.md)).

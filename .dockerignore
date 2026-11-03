@@ -14,4 +14,6 @@ backend/.pytest_cache
 kalender/tests
 kalender/.pytest_cache
 code/tests
+dashboard/tests
+dashboard/.pytest_cache
 code/.pytest_cache

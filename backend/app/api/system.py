@@ -56,6 +56,7 @@ async def bootstrap(db: DB):
         "wiki_url": s.wiki_public_url or "",
         "kalender_url": s.kalender_public_url or "",
         "code_url": s.code_public_url or "",
+        "dashboard_url": s.dashboard_public_url or "",
     }
 
 

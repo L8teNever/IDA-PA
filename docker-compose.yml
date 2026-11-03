@@ -129,6 +129,32 @@ services:
     labels:
       com.centurylinklabs.watchtower.enable: "true"
 
+  # Dashboard – eigene App (eigener Port, eigene PWA) für den Server: alle Docker-Stacks sehen, starten/stoppen/aktualisieren,
+  # Compose und .env bearbeiten, Logs; Leistung (CPU/RAM/Netz im Verlauf) und Speicher. Siehe docs/DASHBOARD.md
+  # ACHTUNG: Der Docker-Socket gibt volle Kontrolle über den Server – nur hinter Cloudflare Access/VPN erreichbar machen.
+  dashboard:
+    image: ${DASHBOARD_IMAGE:-ghcr.io/l8tenever/ida-dashboard:latest}
+    pull_policy: always
+    restart: unless-stopped
+    environment:
+      TIMEZONE: ${TIMEZONE:-Europe/Berlin}
+      STACKS_DIRS: ${DASHBOARD_STACKS_DIRS:-/opt/stacks}     # hier wird nach Stack-Ordnern gesucht (findet auch Stacks, die ganz aus sind)
+      HOST_ROOT: ${STACKS_ROOT:-/opt}                        # Belegung dieser Platte = „Platte“ im Dashboard
+      NET_IFACES: ${DASHBOARD_NET_IFACES:-}                  # leer = alle echten Netzwerkkarten
+      DASHBOARD_PUBLIC_URL: ${DASHBOARD_PUBLIC_URL:-}
+      IDA_PUBLIC_URL: ${IDA_PUBLIC_URL:-}
+    ports:
+      - "${DASHBOARD_PORT:-8085}:8000"
+    volumes:
+      - dashboard-data:/data                             # dashboard.db (Messwerte), backups/ (alte Stände von Compose/.env)
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${STACKS_ROOT:-/opt}:${STACKS_ROOT:-/opt}        # Stack-Ordner unter DEMSELBEN Pfad wie auf dem Server (sonst stimmen die Pfade für Compose nicht)
+      - /proc:/host/proc:ro                              # CPU, RAM und Netz des ganzen Servers
+      - ${DOCKER_CONFIG_DIR:-~/.docker}:/root/.docker:ro # Login für private Images (ghcr.io) beim Aktualisieren
+    labels:
+      ida.dashboard: "self"   # daran erkennt sich das Dashboard selbst (stoppt sich nie selbst)
+      com.centurylinklabs.watchtower.enable: "true"
+
   # optional: holt neue Images von GitHub automatisch (alle 10 Minuten) und startet die App neu
   watchtower:
     image: containrrr/watchtower
@@ -145,3 +171,4 @@ volumes:
   ida-db:
   kalender-data:
   wiki-data:
+  dashboard-data:
