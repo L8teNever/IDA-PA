@@ -85,6 +85,8 @@ function addLine(c, who, piece) {
     box.appendChild(last);
   }
   last.querySelector(".lv-text").textContent += piece;
+  const log = c.lines;
+  if (log.length && log[log.length - 1].who === who) log[log.length - 1].text += piece; else log.push({ who, text: piece });
   box.scrollTop = box.scrollHeight;
 }
 
@@ -130,15 +132,26 @@ async function wake(c) {
 async function start() {
   if (!navigator.mediaDevices?.getUserMedia || !window.AudioWorkletNode) return home("Dieser Browser kann kein Live-Gespräch.");
   const c = { name: "Stella", sources: new Set(), next: 0, rate: 24000, closed: false, closing: false, state: "connect",
-              inLevel: 0, outLevel: 0, shown: 0, t0: 0, muted: false, ctx: gestureCtx };
+              inLevel: 0, outLevel: 0, shown: 0, t0: 0, muted: false, ctx: gestureCtx, lines: [] };
   cur = c;
   gestureCtx = null;
   shell(`<div class="lv-status"><span class="lv-pill" id="lvPill"><span class="ms" id="lvIcon">graphic_eq</span><span id="lvState"></span></span><span class="lv-time" id="lvTime">0:00</span></div>
     <div class="lv-tool" id="lvTool" hidden><span class="ms">travel_explore</span><span id="lvToolText"></span></div>
     <div class="lv-chat" id="lvChat" aria-live="polite"></div>
     <div class="lv-btns"><button class="es-btn" id="lvMute"><span class="ms">mic</span>Stumm</button>
+      <button class="es-btn" id="lvPhone"><span class="ms">phone_forwarded</span>Am Telefon weiter</button>
       <button class="es-btn lv-end" id="lvEnd"><span class="ms">call_end</span>Auflegen</button></div>`);
   $("lvEnd").onclick = () => stop(c);
+  $("lvPhone").onclick = async () => {  // only on tap – never switches by itself
+    const b = $("lvPhone");
+    b.disabled = true;
+    try {
+      const r = await fetch("/pwa/phone", { method: "POST", headers: { "x-live-key": localStorage.getItem("liveKey") || "", "content-type": "application/json" },
+                                            body: JSON.stringify({ lines: c.lines }) });
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || "Anruf geht gerade nicht");
+      stop(c, "", "Stella ruft dich gleich an – bitte ans Telefon gehen");
+    } catch (e) { b.disabled = false; addLine(c, "bot", `\n(${e.message})`); }
+  };
   $("lvMute").onclick = () => {
     c.muted = !c.muted;
     c.node?.port.postMessage({ muted: c.muted });
@@ -200,7 +213,7 @@ async function start() {
   }
 }
 
-async function stop(c, problem) {
+async function stop(c, problem, note) {
   if (!c || c.closed) return;
   c.closed = true;
   try { c.ws?.readyState === 1 && c.ws.send(JSON.stringify({ type: "end" })); } catch { /* closed */ }
@@ -212,6 +225,7 @@ async function stop(c, problem) {
   try { await c.ctx?.close(); } catch { /* closed */ }
   if (cur === c) cur = null;
   home(problem || "", !problem);
+  if (note) { const p = $("lvChat"); if (p) p.innerHTML = `<div class="lv-msg bot"><small>IDA Live</small>${esc(note)}</div>`; }
 }
 
 // Opened as the installed app: the talk starts by itself (Chrome lets installed apps play sound without a tap;

@@ -130,6 +130,27 @@ def create_app(phone: Phone | None = None, connect=None) -> FastAPI:
             return JSONResponse({"detail": "Nicht erlaubt"}, status_code=403)
         return {"ticket": web.make_ticket(s.voice_secret), "name": "Stella"}
 
+    @app.post("/pwa/phone", include_in_schema=False)
+    async def pwa_phone(request: Request, x_live_key: str | None = Header(None)):
+        """Button "Am Telefon weiterführen": Stella ruft Simons Nummer an und macht mit dem bisherigen Verlauf weiter."""
+        key = web.app_key(s.voice_secret)
+        if not (key and x_live_key and hmac.compare_digest(x_live_key, key)):
+            return JSONResponse({"detail": "Nicht erlaubt"}, status_code=403)
+        try:
+            lines = (await request.json()).get("lines") or []
+        except Exception:
+            lines = []
+        talk = "\n".join(f"{'Simon' if str(l.get('who')) == 'user' else 'Stella'}: {str(l.get('text') or '')[:600]}"
+                         for l in lines[-30:] if isinstance(l, dict))
+        brief = ("Simon hat gerade in der Live-App mit dir gesprochen und möchte das Gespräch jetzt am Telefon weiterführen. "
+                 "Begrüße ihn kurz und mach nahtlos dort weiter, wo ihr aufgehört habt."
+                 + (f"\n\nBisheriger Verlauf:\n{talk}" if talk else ""))
+        try:
+            c = await phone.place("", brief)
+        except CallError as e:
+            return JSONResponse({"detail": str(e)}, status_code=400)
+        return {"ok": True, "call": c.id}
+
     for d in ("css", "fonts", "icons", "live"):  # only what the page needs
         app.mount(f"/static/{d}", StaticFiles(directory=front / d), name=f"static-{d}")
 
