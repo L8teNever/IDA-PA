@@ -108,7 +108,7 @@ def create_app(phone: Phone | None = None, connect=None) -> FastAPI:
     async def live_manifest():
         return JSONResponse({
             "id": "/", "name": "IDA Live", "short_name": "IDA Live", "description": "Direkt mit Stella sprechen",
-            "lang": "de", "start_url": "/", "scope": "/", "display": "standalone",
+            "lang": "de", "start_url": "/", "scope": "/", "display": "fullscreen", "display_override": ["fullscreen", "standalone"],
             "background_color": "#000000", "theme_color": "#000000",
             "icons": [
                 {"src": f"{icon}/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any"},
