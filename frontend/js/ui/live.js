@@ -54,14 +54,14 @@ function rms(int16) {
 export async function livePage() {
   const a = voiceAgent();
   setView("page");
-  document.body.classList.add("tap-view");
+  document.body.classList.add("live-view");
   paint(a);
   $("page").innerHTML = `
-    <div class="tap live live-b">
+    <div class="live live-b">
       <div class="lv-buddy-wrap" id="lvBuddyWrap" data-state="connect">
         <div class="lv-glow"></div>
         <i class="lv-wave lv-w1"></i><i class="lv-wave lv-w2"></i><i class="lv-wave lv-w3"></i>
-        <div class="buddy tap-buddy" id="lvBuddy" aria-hidden="true">
+        <div class="buddy" id="lvBuddy" aria-hidden="true">
           <div class="face"><div class="eyes"><div class="eye"></div><div class="eye"></div></div></div>
           <div class="props"></div>
         </div>
@@ -72,7 +72,7 @@ export async function livePage() {
       </div>
       <div class="lv-tool" id="lvTool" hidden><span class="ms">travel_explore</span><span id="lvToolText"></span></div>
       <div class="lv-chat" id="lvChat" aria-live="polite"></div>
-      <div class="tap-btns lv-btns" id="lvBtns">
+      <div class="lv-btns" id="lvBtns">
         <button class="es-btn" id="lvMute"><span class="ms">mic</span>Stumm</button>
         <button class="es-btn lv-end" id="lvEnd"><span class="ms">call_end</span>Auflegen</button></div>
       <div class="tmr-note" id="lvNote" hidden></div>
