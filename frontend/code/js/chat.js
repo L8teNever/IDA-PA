@@ -226,13 +226,17 @@ export async function stopAnswer() {
   await attempt(() => api.post(`/chats/${encodeURIComponent(ctx.id)}/stop`));
 }
 
+const RENDER_MS = 150;
 async function follow(start, since = null) {
   const el = addBot();
   const t0 = since ? new Date(since).getTime() : Date.now();
   const clock = document.createElement("div");
   clock.className = "msg-note live";
   el.after(clock);
-  const tick = () => { clock.innerHTML = `<span class="ms spin">progress_activity</span>arbeitet seit ${fmtDur(Date.now() - t0)}`; };
+  // nur der Text tickt – das Symbol bleibt stehen (sonst startet die Animation jede Sekunde neu)
+  clock.innerHTML = `<span class="ms spin">progress_activity</span><span></span>`;
+  const label = clock.lastChild;
+  const tick = () => { if (!document.hidden) label.textContent = `arbeitet seit ${fmtDur(Date.now() - t0)}`; };
   tick();
   const timer = setInterval(tick, 1000);
   const parts = [], tools = {}, meta = {};
@@ -242,6 +246,21 @@ async function follow(start, since = null) {
   ctx.busy = true;
   fire("code:busy");
   renderBot(el, parts);
+  // Neuzeichnen gebündelt: höchstens alle RENDER_MS statt bei jedem Wortschnipsel (das ganze Markdown und alle
+  // Werkzeug-Ausgaben neu aufzubauen, ist der Hauptgrund für warmes Handy und leeren Akku). Im Hintergrund gar nicht –
+  // beim Zurückkommen wird einmal nachgezeichnet.
+  let drawTimer = null, dirty = false;
+  const draw = () => {
+    clearTimeout(drawTimer);
+    drawTimer = null;
+    if (!dirty || document.hidden) return;
+    dirty = false;
+    renderBot(el, parts, "", meta);
+    scroll();
+  };
+  const later = () => { dirty = true; if (!drawTimer) drawTimer = setTimeout(draw, RENDER_MS); };
+  const onVisible = () => { if (!document.hidden) draw(); };
+  document.addEventListener("visibilitychange", onVisible);
   const onEvent = (ev) => {
     if (ev.chat) {
       if (!ctx.id) { ctx.id = ev.chat.id; fire("code:thread", { id: ev.chat.id, project: ctx.project.id }); }
@@ -275,8 +294,8 @@ async function follow(start, since = null) {
       if (ev.done.stopped) meta.stopped = true;
       else if (!ok) meta.error = ev.done.error;
     }
-    renderBot(el, parts, "", meta);
-    scroll();
+    // Freigaben und das Ende sofort zeigen, alles andere gebündelt
+    if (ev.approval || ev.approval_done || ev.done) { dirty = true; draw(); } else later();
   };
   try {
     await start(onEvent, ctrl.signal);
@@ -291,9 +310,13 @@ async function follow(start, since = null) {
       return;
     }
     meta.error = e.message;
+    dirty = false;
     renderBot(el, parts, "", meta);
   } finally {
     clearInterval(timer);
+    clearTimeout(drawTimer);
+    document.removeEventListener("visibilitychange", onVisible);
+    if (dirty && !ctrl.signal.aborted && el.isConnected) { dirty = false; renderBot(el, parts, "", meta); }
     clock.remove();
     if (following === ctrl) {
       following = null;

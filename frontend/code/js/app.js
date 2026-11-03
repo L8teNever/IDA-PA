@@ -83,12 +83,14 @@ export async function startApp(root) {
 let pollTimer = null;
 async function poll() {
   clearTimeout(pollTimer);
+  if (document.hidden) return; // im Hintergrund nichts abfragen – beim Zurückkommen geht es sofort weiter
   let busy = false;
   try { busy = await loadTree(); } catch { /* nächster Versuch */ }
   const p = cur && projectById(cur.id);
   // ein Projekt wurde fertig geklont: Projektseite neu zeichnen
   if (p && cur.status !== p.status && route.view === "project") show(route);
-  pollTimer = setTimeout(poll, busy || ctx.busy ? 4000 : 30000);
+  // läuft gerade etwas, öfter nachsehen – im offenen Thread kommt aber eh alles live, dort reicht es seltener
+  pollTimer = setTimeout(poll, ctx.busy ? 10000 : busy ? 5000 : 30000);
 }
 
 // ---------- Leiste links ----------

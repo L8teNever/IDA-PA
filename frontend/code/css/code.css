@@ -607,6 +607,11 @@ body.pane-resizing iframe { pointer-events: none; }
   .msg-note.live { margin-left: 0; }
   .bot-av { display: none; }
 }
+/* Handy: kein Weichzeichner hinter der Kopfzeile – der muss bei jedem Scrollen und jedem neuen Wort neu berechnet werden */
+@media (pointer: coarse) {
+  .stage-topbar { -webkit-backdrop-filter: none; backdrop-filter: none; background: color-mix(in srgb, var(--surface-highest) 96%, transparent); }
+  .cd-backdrop { backdrop-filter: none; }
+}
 @media (prefers-reduced-motion: reduce) { .set-view.fwd, .set-view.back, .spin { animation: none; } }
 
 /* ---------- Änderungen: Info-Karte, Leerzustand, Aktionen ---------- */

@@ -7,7 +7,7 @@ import { threadKey } from "./chat.js";
 import { $ } from "./ui.js";
 
 const url = (k) => `/code/drafts/${encodeURIComponent(k)}`;
-const SAVE_MS = 600, PULL_MS = 4000;
+const SAVE_MS = 600, PULL_MS = 10000;
 
 let key = null;     // Thread, dessen Entwurf im Feld steht
 let synced = "";    // Stand, der sicher auf dem Server liegt
