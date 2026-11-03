@@ -17,15 +17,7 @@ from ..services.errors import Invalid, NotFound
 from .deps import DB
 
 router = APIRouter(tags=["voice"])
-TICKET_S = 60
-
-
-def make_ticket(secret: str, now: float | None = None) -> str:
-    """exp.nonce.sig – the voice container checks it with the same secret (no call back to IDA needed)."""
-    exp = int((now or time.time()) + TICKET_S)
-    nonce = secrets.token_hex(8)
-    sig = hmac.new(secret.encode(), f"{exp}.{nonce}".encode(), hashlib.sha256).hexdigest()
-    return f"{exp}.{nonce}.{sig}"
+from ..voice.web import app_key, make_ticket  # noqa: E402,F401 – make_ticket stays importable from here
 
 
 def _denied():
@@ -86,6 +78,15 @@ async def ticket():
     base = s.voice_public_url.rstrip("/")
     ws = "wss://" + base[8:] if base.startswith("https://") else "ws://" + base[7:] if base.startswith("http://") else base
     return {"url": f"{ws}/live?ticket={make_ticket(s.voice_secret)}"}
+
+
+@router.get("/api/v1/voice/app-link")
+async def app_link():
+    """Install link of the stand-alone live app on the voice host (contains the key; opening it once stores the key)."""
+    s = get_settings()
+    if not (s.voice_on and s.voice_public_url):
+        raise Invalid("Live-Gespräch ist nicht eingerichtet (VOICE_URL, VOICE_SECRET, VOICE_PUBLIC_URL)")
+    return {"url": f"{s.voice_public_url.rstrip('/')}/#key={app_key(s.voice_secret)}"}
 
 
 @router.get("/api/v1/voice/calls")

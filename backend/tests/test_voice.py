@@ -369,3 +369,20 @@ def test_voice_settings_and_samples(client):
     r = client.get("/api/v1/voice/samples/Ungueltig")
     assert r.status_code == 404
 
+
+
+def test_live_app_on_voice_host(monkeypatch):
+    from fastapi.testclient import TestClient
+    from app.config import get_settings
+    from app.voice import web
+    from app.voice.main import create_app
+    s = get_settings()
+    monkeypatch.setattr(s, "voice_secret", "geheim")
+    c = TestClient(create_app(phone=object()))
+    assert "IDA Live" in c.get("/").text
+    assert c.get("/manifest.webmanifest").json()["start_url"] == "/"
+    assert c.get("/static/live/live.js").status_code == 200 and c.get("/static/css/app.css").status_code == 200
+    assert c.post("/pwa/ticket").status_code == 403
+    assert c.post("/pwa/ticket", headers={"x-live-key": "falsch"}).status_code == 403
+    r = c.post("/pwa/ticket", headers={"x-live-key": web.app_key("geheim")})
+    assert r.status_code == 200 and web.check_ticket(r.json()["ticket"], "geheim")

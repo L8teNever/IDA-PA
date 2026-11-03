@@ -15,6 +15,10 @@ export async function render(el) {
         Du kannst jede der 21 Stimmen mit einem Klick probehören.
       </p>
     </div>
+    <div class="srow" id="liveApp" hidden style="margin-bottom:12px;">
+      <span class="smain"><b>Live-App</b><small>Eigene App nur fürs Sprechen mit Stella. Link öffnen, dann im Browser „App installieren“ wählen.</small></span>
+      <a class="es-btn primary" id="liveAppLink" target="_blank" rel="noopener"><span class="ms">install_mobile</span>Öffnen</a>
+    </div>
     <div id="stellaLoading" class="sub-intro">Lade Stimmen …</div>
     <div id="stellaContent" style="display:none">
       <div class="chipset" id="stellaFilter" style="margin-bottom:12px;">
@@ -25,6 +29,7 @@ export async function render(el) {
       <div id="stellaVoiceList" class="voice-grid"></div>
     </div>`;
 
+  api.get("/voice/app-link").then((l) => { $("liveAppLink").href = l.url; $("liveApp").hidden = false; }).catch(() => {});
   try {
     const data = await api.get("/voice/settings");
     const activeVoice = data.voice || "Aoede";

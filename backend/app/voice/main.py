@@ -10,7 +10,8 @@ import hmac
 import logging
 
 from fastapi import FastAPI, Header, Request, WebSocket
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from ..config import get_settings
 from . import web
@@ -94,6 +95,43 @@ def create_app(phone: Phone | None = None, connect=None) -> FastAPI:
             return
         await ws.accept()
         await phone.media(ws, call)
+
+    # Stand-alone live app (PWA) on the voice host: its own install, opens straight into the conversation.
+    front = s.frontend_dir
+    icon = "/static/icons"
+
+    @app.get("/", include_in_schema=False)
+    async def live_app():
+        return FileResponse(front / "live" / "index.html", headers={"cache-control": "no-cache"})
+
+    @app.get("/manifest.webmanifest", include_in_schema=False)
+    async def live_manifest():
+        return JSONResponse({
+            "id": "/", "name": "IDA Live", "short_name": "IDA Live", "description": "Direkt mit Stella sprechen",
+            "lang": "de", "start_url": "/", "scope": "/", "display": "standalone",
+            "background_color": "#000000", "theme_color": "#000000",
+            "icons": [
+                {"src": f"{icon}/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any"},
+                {"src": f"{icon}/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any"},
+                {"src": f"{icon}/maskable-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable"},
+                {"src": f"{icon}/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable"},
+            ],
+        }, media_type="application/manifest+json", headers={"cache-control": "no-cache"})
+
+    @app.get("/sw.js", include_in_schema=False)
+    async def live_sw():
+        return FileResponse(front / "sw.js", media_type="text/javascript", headers={"cache-control": "no-cache"})
+
+    @app.post("/pwa/ticket", include_in_schema=False)
+    async def pwa_ticket(x_live_key: str | None = Header(None)):
+        """The live app trades its key for a one-minute ticket (same as IDA's /api/v1/voice/ticket)."""
+        key = web.app_key(s.voice_secret)
+        if not (key and x_live_key and hmac.compare_digest(x_live_key, key)):
+            return JSONResponse({"detail": "Nicht erlaubt"}, status_code=403)
+        return {"ticket": web.make_ticket(s.voice_secret), "name": "Stella"}
+
+    for d in ("css", "fonts", "icons", "live"):  # only what the page needs
+        app.mount(f"/static/{d}", StaticFiles(directory=front / d), name=f"static-{d}")
 
     @app.websocket("/live")
     async def live_ws(ws: WebSocket):

@@ -40,6 +40,22 @@ def check_ticket(ticket: str, secret: str, now: float | None = None) -> bool:
     return True
 
 
+TICKET_S = 60
+
+
+def make_ticket(secret: str, now: float | None = None) -> str:
+    """exp.nonce.sig – checked by check_ticket with the same secret (no call back to IDA needed)."""
+    exp = int((now or time.time()) + TICKET_S)
+    nonce = secrets.token_hex(8)
+    sig = hmac.new(secret.encode(), f"{exp}.{nonce}".encode(), hashlib.sha256).hexdigest()
+    return f"{exp}.{nonce}.{sig}"
+
+
+def app_key(secret: str) -> str:
+    """Key of the stand-alone live app (PWA on the voice host): IDA hands it out inside the install link, the app keeps it."""
+    return hmac.new(secret.encode(), b"live-pwa", hashlib.sha256).hexdigest()[:40] if secret else ""
+
+
 class WebSink:
     def __init__(self, ws):
         self.ws = ws
