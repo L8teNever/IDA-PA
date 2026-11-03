@@ -35,7 +35,6 @@ class Down16k extends AudioWorkletProcessor {
 registerProcessor("down16k", Down16k);`;
 
 const RING = 2 * Math.PI * 88; // same ring as the tracker timer
-const STATES = { connect: "Verbinde …", listen: "Hört zu", speak: "spricht", tool: "Schaut nach …", muted: "Stumm" };
 let cur = null; // the running conversation
 let gestureCtx = null; // AudioContext made in the tap on the live button (iPhone only allows sound after a tap)
 
@@ -66,10 +65,7 @@ export async function livePage() {
           <div class="props"></div>
         </div>
       </div>
-      <div class="lv-status" id="lvStatus">
-        <span class="lv-pill" id="lvPill"><span class="ms" id="lvIcon">graphic_eq</span><span id="lvState">${STATES.connect}</span></span>
-        <span class="lv-time" id="lvTime">0:00</span>
-      </div>
+      <div class="lv-status lv-corner" id="lvStatus"><span class="lv-time" id="lvTime">0:00</span></div>
       <div class="lv-tool" id="lvTool" hidden><span class="ms">travel_explore</span><span id="lvToolText"></span></div>
       <div class="lv-chat" id="lvChat" aria-live="polite"></div>
       <div class="lv-btns" id="lvBtns">
@@ -86,7 +82,6 @@ export async function livePage() {
   if (!gestureCtx) { // opened directly (link, reload): the browser needs a tap before it may play sound
     $("lvBtns").innerHTML = `<button class="es-btn primary" id="lvGo"><span class="ms">graphic_eq</span>Gespräch starten</button>
       <button class="es-btn" id="lvBack"><span class="ms">close</span>Zurück</button>`;
-    $("lvState").textContent = "bereit";
     $("lvBuddyWrap").dataset.state = "idle";
     $("lvGo").onclick = () => { prime(); livePage(); };
     $("lvBack").onclick = leave;
@@ -119,12 +114,6 @@ function draw(c) {
   if (!wrap) return;
   const st = c.muted && c.state === "listen" ? "muted" : c.state;
   wrap.dataset.state = st;
-  const pill = $("lvPill");
-  if (pill) pill.className = `lv-pill ${st}`;
-  const stateEl = $("lvState");
-  if (stateEl) stateEl.textContent = st === "speak" ? `${c.name} spricht` : STATES[st] || "";
-  const iconEl = $("lvIcon");
-  if (iconEl) iconEl.textContent = { speak: "record_voice_over", tool: "travel_explore", muted: "mic_off" }[st] || "graphic_eq";
 }
 
 // full chat history with speaker bubbles
@@ -301,6 +290,7 @@ function ended(c, problem) {
   if (wrap) wrap.dataset.state = problem ? "fail" : "done";
   const status = $("lvStatus");
   if (status) {
+    status.classList.remove("lv-corner");   // Ergebnis steht wieder mittig unter dem Maskottchen
     status.innerHTML = problem
       ? `<span class="lv-pill fail"><span class="ms">error</span>Das hat nicht geklappt</span><span class="lv-time">${esc(problem)}</span>`
       : `<span class="lv-pill done"><span class="ms">call_end</span>Gespräch beendet</span><span class="lv-time">${took ? `${took} min` : ""}</span>`;

@@ -28,7 +28,6 @@ registerProcessor("down16k", Down16k);`;
 const PINK = { "--accent": "#ff8fc8", "--accent-rgb": "255,143,200", "--on-accent": "#5c0036", "--container": "#3a1029", "--on-container": "#ffd8ea", "--face-top": "#ffe9f4", "--face-bottom": "#f6bfdc", "--glow": "rgba(255,90,170,.38)" };
 for (const [k, v] of Object.entries(PINK)) document.documentElement.style.setProperty(k, v);
 
-const STATES = { connect: "Verbinde …", listen: "Hört zu", speak: "spricht", tool: "Schaut nach …", muted: "Stumm" };
 const $ = (id) => document.getElementById(id);
 const esc = (t) => String(t).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const fmt = (ms) => { const s = Math.floor(ms / 1000); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`; };
@@ -69,9 +68,6 @@ function prime() {
 function draw(c) {
   const st = c.muted && c.state === "listen" ? "muted" : c.state;
   $("lvBuddyWrap").dataset.state = st;
-  $("lvPill").className = `lv-pill ${st}`;
-  $("lvState").textContent = st === "speak" ? `${c.name} spricht` : STATES[st] || "";
-  $("lvIcon").textContent = { speak: "record_voice_over", tool: "travel_explore", muted: "mic_off" }[st] || "graphic_eq";
 }
 const setState = (c, st) => { c.state = st; draw(c); };
 
@@ -143,7 +139,7 @@ async function start() {
               inLevel: 0, shown: 0, t0: 0, muted: false, ctx: gestureCtx, lines: [] };
   cur = c;
   gestureCtx = null;
-  shell(`<div class="lv-status"><span class="lv-pill" id="lvPill"><span class="ms" id="lvIcon">graphic_eq</span><span id="lvState"></span></span><span class="lv-time" id="lvTime">0:00</span></div>
+  shell(`<div class="lv-status lv-corner"><span class="lv-time" id="lvTime">0:00</span></div>
     <div class="lv-tool" id="lvTool" hidden><span class="ms">travel_explore</span><span id="lvToolText"></span></div>
     <div class="lv-chat" id="lvChat" aria-live="polite"></div>
     <div class="lv-btns"><button class="es-btn" id="lvMute"><span class="ms">mic</span>Stumm</button>
