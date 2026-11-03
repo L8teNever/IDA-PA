@@ -424,9 +424,10 @@ body[data-mood="sleep"] .live-b.intro .lv-buddy-wrap .buddy { animation: breathe
 /* Zuhören („Lauschen“): Kopf neigt sich neugierig hin und her, aufmerksames langsames Blinzeln,
    Augen schauen leicht nach oben und werden größer, je lauter Simon spricht; bei Lautstärke ein kleines „Mhm“-Nicken. */
 .lv-buddy-wrap[data-state="listen"] .buddy .face { animation: lv-lausch 4.2s ease-in-out infinite; }
-/* Live: Augen kleiner als auf der IDA-Startseite (wirkten nach dem Aufwachen zu groß) */
-.lv-buddy-wrap .buddy .eyes { transform: translate(-50%, -50%) scale(.78); }
-.lv-buddy-wrap[data-state="listen"] .buddy .eyes { transform: translate(calc(-50% + 4%), -56%) scale(calc(.78 + var(--lvl, 0) * .06)); transition: transform .14s ease-out; }
+/* Live: kleinere Augen, weiter auseinander (je ~12 % der Gesichtsbreite, ~17 % Abstand) – kein fester Mindestwert in px */
+.lv-buddy-wrap .buddy .eyes { width: 50%; gap: 34%; transform: translate(-50%, -50%); }
+.lv-buddy-wrap .buddy .eye { width: 24%; min-width: 0; }
+.lv-buddy-wrap[data-state="listen"] .buddy .eyes { transform: translate(calc(-50% + 4%), -56%) scale(calc(1 + var(--lvl, 0) * .06)); transition: transform .14s ease-out; }
 .lv-buddy-wrap[data-state="listen"] .buddy .eye { animation: lv-aufmerksam 3.6s ease-in-out infinite; }
 .lv-buddy-wrap[data-state="listen"] .buddy .eye + .eye { animation-delay: .04s; }
 @keyframes lv-lausch {
