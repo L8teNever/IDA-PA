@@ -1,9 +1,9 @@
 // App-Updates ohne Datenverlust: Der neue Service Worker wartet, bis die Änderungen aus der Warteschlange gesendet sind;
 // erst dann wird die App neu geladen. (Siehe docs/KALENDER-OFFLINE-AUFGABEN.md, Paket 4.)
-import { S, flushQueue, queued } from "./store.js";
+import { S, flushQueue, queued, refreshQ } from "./store.js";
 import { toast } from "./sheets.js";
 
-let reg = null, waitingForSync = false, offered = false;
+let reg = null, waitingForSync = false, offered = false, applying = false;
 
 /** Anzahl wartender Offline-Änderungen (heute die alte Warteschlange; mit der Outbox kommt deren Zähler dazu). */
 export const pendingCount = () => queued();
@@ -16,6 +16,8 @@ async function apply() {
     if (pendingCount() > 0) { waitingForSync = true; toast("Wird nach dem Abgleich aktualisiert"); return; }
   }
   waitingForSync = false;
+  if (applying) return;
+  applying = true;
   navigator.serviceWorker.addEventListener("controllerchange", () => location.reload(), { once: true });
   w.postMessage({ type: "skip" });
 }
@@ -40,4 +42,7 @@ export function start({ scope = "/" } = {}) {
   navigator.serviceWorker.addEventListener("message", (e) => { if (e.data?.type === "synced") window.dispatchEvent(new CustomEvent("kal:sw-synced", { detail: e.data.result })); });
   addEventListener("kal:net", () => { if (S.net === "online" && waitingForSync) apply(); });
   addEventListener("kal:synced", () => { if (waitingForSync) apply(); });
+  // egal wer gesendet hat (diese Seite, ein anderes Fenster oder der Service Worker): ist die Outbox leer, kommt das Update
+  addEventListener("kal:outbox", (e) => { if (waitingForSync && !e.detail?.count) apply(); });
+  addEventListener("kal:sw-synced", () => { if (waitingForSync) refreshQ().catch(() => {}); });
 }
