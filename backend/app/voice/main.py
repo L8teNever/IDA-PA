@@ -98,7 +98,7 @@ def create_app(phone: Phone | None = None, connect=None) -> FastAPI:
 
     # Stand-alone live app (PWA) on the voice host: its own install, opens straight into the conversation.
     front = s.frontend_dir
-    icon = "/static/icons"
+    icon = "/static/live/icons"
 
     @app.get("/", include_in_schema=False)
     async def live_app():

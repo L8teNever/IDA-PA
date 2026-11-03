@@ -214,4 +214,14 @@ async function stop(c, problem) {
   home(problem || "", !problem);
 }
 
-home();
+// Opened as the installed app: the talk starts by itself (Chrome lets installed apps play sound without a tap;
+// if the browser still blocks the sound, the start button stays).
+async function boot() {
+  const installed = matchMedia("(display-mode: standalone)").matches || navigator.standalone;
+  if (!installed || !localStorage.getItem("liveKey")) return home();
+  prime();
+  if (gestureCtx) await Promise.race([gestureCtx.resume().catch(() => {}), new Promise((r) => setTimeout(r, 600))]);
+  if (gestureCtx?.state === "running") start();
+  else { gestureCtx?.close().catch(() => {}); gestureCtx = null; home(); }
+}
+boot();
