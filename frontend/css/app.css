@@ -491,7 +491,7 @@ body[data-mood="sleep"] .live-b.intro .lv-buddy-wrap .buddy { animation: breathe
   .lv-buddy-wrap { height: clamp(76px, 15vh, 110px); }
   .live-b .lv-buddy-wrap { margin-top: 12px; }
   .lv-buddy-wrap .buddy { width: clamp(70px, 22vw, 100px); }
-  .lv-chat { padding: 4px 2px; gap: 6px; margin: 2px 0; }
+  .lv-chat { padding: 26px 2px 4px; gap: 6px; margin: 2px 0; }
   .lv-msg { font-size: 13px; padding: 6px 10px; }
   .lv-btns { gap: 6px; padding-top: 2px; }
   .lv-btns .es-btn { height: 40px; padding: 0 16px; font-size: 13.5px; }
