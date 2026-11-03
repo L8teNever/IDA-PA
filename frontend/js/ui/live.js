@@ -8,6 +8,7 @@ import { agentById, colors, mainAgent, state } from "../store.js";
 import { $, esc, toast } from "./dom.js";
 import { setLive } from "./mascot.js";
 import { setView } from "./shell.js";
+import { connected, disconnected, hungUp, unlockTones } from "../../live/tones.js";
 
 // Runs in the audio thread: averages the mic signal down to 16 kHz and hands over ~40 ms Int16 blocks.
 const WORKLET = `
@@ -148,6 +149,7 @@ function note(text) {
 
 // ---------- audio ----------
 function prime() {
+  unlockTones();
   try { gestureCtx = new (window.AudioContext || window.webkitAudioContext)(); gestureCtx.resume?.(); } catch { gestureCtx = null; }
 }
 
@@ -237,6 +239,7 @@ async function start(a) {
         };
         src.connect(c.node);
         setState(c, "listen");
+        connected();
         if (m.offline) note("IDA ist gerade nicht erreichbar – Stella hat keinen Zugriff auf deine Daten.");
       } else if (m.type === "text") {
         const last = c.lines[c.lines.length - 1];
@@ -266,6 +269,7 @@ async function start(a) {
 async function stop(c, problem) {
   if (!c || c.closed) return;
   c.closed = true;
+  (problem ? disconnected : hungUp)();
   try { c.ws?.readyState === 1 && c.ws.send(JSON.stringify({ type: "end" })); } catch { /* closed */ }
   try { c.ws?.close(); } catch { /* closed */ }
   c.stream?.getTracks().forEach((t) => t.stop());

@@ -1,6 +1,7 @@
 // Stand-alone live app "IDA Live" (PWA on the voice host): opens straight into the conversation with Stella.
 // The key comes once through the install link from IDA (https://<voice host>/#key=…) and stays in localStorage.
 // With it the app gets a one-minute ticket from this host and talks to Gemini Live over /live (same protocol as IDA's /live page).
+import { connected, disconnected, hungUp, unlockTones } from "./tones.js";
 const WORKLET = `
 class Down16k extends AudioWorkletProcessor {
   constructor() { super(); this.step = sampleRate / 16000; this.pos = 0; this.acc = 0; this.n = 0; this.buf = new Int16Array(640); this.len = 0; this.muted = false;
@@ -60,6 +61,7 @@ function home(problem, ended) {
 }
 
 function prime() {
+  unlockTones();
   try { gestureCtx = new (window.AudioContext || window.webkitAudioContext)(); gestureCtx.resume?.(); } catch { gestureCtx = null; }
 }
 
@@ -207,6 +209,7 @@ async function start() {
         };
         src.connect(c.node);
         setState(c, "listen");
+        connected();
         c.endIntro();
       } else if (m.type === "text") addLine(c, m.who, m.text);
       else if (m.type === "interrupted") { flush(c); setState(c, "listen"); }
@@ -229,6 +232,7 @@ async function start() {
 async function stop(c, problem, note) {
   if (!c || c.closed) return;
   c.closed = true;
+  (problem ? disconnected : hungUp)();
   try { c.ws?.readyState === 1 && c.ws.send(JSON.stringify({ type: "end" })); } catch { /* closed */ }
   try { c.ws?.close(); } catch { /* closed */ }
   c.stream?.getTracks().forEach((t) => t.stop());
