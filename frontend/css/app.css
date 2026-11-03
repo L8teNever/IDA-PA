@@ -468,9 +468,12 @@ body[data-mood="sleep"] .live-b.intro .lv-buddy-wrap .buddy { animation: breathe
   display: flex;
   flex-direction: column;
   gap: 8px;
-  padding: 6px 4px;
+  padding: 26px 4px 6px;   /* oben Platz, damit die erste Nachricht nicht im Verlauf liegt */
   margin: 4px 0;
   scroll-behavior: smooth;
+  /* Nachrichten laufen oben weich aus, statt an einer harten Kante abgeschnitten zu werden */
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 34px);
+  mask-image: linear-gradient(to bottom, transparent 0, #000 34px);
 }
 .lv-msg { max-width: 86%; padding: 8px 13px; border-radius: 16px; font-size: 14px; line-height: 1.42; word-break: break-word; }
 .lv-msg small { display: block; font-size: 11px; margin-bottom: 2px; font-weight: 500; }
