@@ -29,7 +29,7 @@ from ..db import session_scope, utcnow
 from ..models import Account, Agent, Chat, ChatMessage, CodeProject, Skill
 from . import code as code_area
 from . import files as file_svc
-from . import autoroute, providers, runs
+from . import autoroute, chat_queue, providers, runs
 from .code import approvals, git, github
 from .claude import runner
 from .errors import Invalid, NotFound
@@ -130,14 +130,21 @@ _live: dict[str, _Live] = {}
 _tasks: set[asyncio.Task] = set()  # keeps the background runs referenced
 
 
-def running(chat_id: str) -> bool:
+_starting: dict[str, object] = {}  # chat id -> finished run; the next message from the queue is being started
+
+
+def _busy(chat_id: str) -> bool:
     live = _live.get(chat_id)
     return bool(live and not live.done)
 
 
+def running(chat_id: str) -> bool:
+    return chat_id in _starting or _busy(chat_id)
+
+
 def running_since(chat_id: str):
     live = _live.get(chat_id)
-    return live.started if live and not live.done else None
+    return live.started if live and not live.done else utcnow() if chat_id in _starting else None
 
 
 async def push(chat_id: str, ev: dict) -> None:
@@ -149,15 +156,45 @@ async def push(chat_id: str, ev: dict) -> None:
 
 def follow(chat_id: str, after: int = 0) -> AsyncIterator[dict] | None:
     """The events of the chat's current (or just finished) answer; None = nothing running."""
+    if chat_id in _starting:
+        return _follow_next(chat_id, after)
     live = _live.get(chat_id)
     return live.follow(after) if live else None
 
 
+async def _follow_next(chat_id: str, after: int) -> AsyncIterator[dict]:
+    """The next queued message is just being started: wait for its run and follow that one."""
+    old = _starting.get(chat_id)
+    while chat_id in _starting:
+        await asyncio.sleep(0.1)
+    live = _live.get(chat_id)
+    if not live or live is old:
+        yield {"done": {"ok": False, "error": "Die nächste Nachricht aus der Warteschlange konnte nicht starten"}}
+        return
+    async for ev in live.follow(after):
+        yield ev
+
+
+async def _run_queued(chat_id: str, item: dict) -> None:
+    """Starts the next message from the chat's queue (the user may long be gone)."""
+    try:
+        await start_chat(chat_id=chat_id, agent_id=None, text=item.get("text") or "", model=item.get("model"),
+                         account_id=item.get("account_id"), skill_id=None, effort=item.get("effort"),
+                         file_ids=item.get("files") or [], _queued=True)
+    except Exception as e:  # noqa: BLE001 – the message must not get lost
+        log.warning("queued message for %s did not start: %s", chat_id, e)
+        await chat_queue.put_back(chat_id, item, str(e) or e.__class__.__name__)
+    finally:
+        _starting.pop(chat_id, None)
+
+
 async def start_chat(*, chat_id: str | None, agent_id: str | None, text: str, model: str | None, account_id: str | None,
                      skill_id: str | None, effort: str | None = None, file_ids: list[str] | None = None,
-                     project_id: str | None = None, permission_mode: str | None = None) -> dict:
+                     project_id: str | None = None, permission_mode: str | None = None, _queued: bool = False) -> dict:
     """Saves the message and starts the answer in the background; returns the chat (follow it with follow()).
     project_id: a new thread of this code project; permission_mode: rights of a code thread (ask | edits | full)."""
+    if chat_id and chat_id in _starting and not _queued:
+        raise Invalid("Hier läuft noch eine Antwort – warte kurz oder stoppe sie")
     state, order, prompt, skill_id, attachments, info = await _prepare(chat_id=chat_id, agent_id=agent_id, text=text, model=model,
                                                                        account_id=account_id, skill_id=skill_id, file_ids=file_ids or [],
                                                                        project_id=project_id, permission_mode=permission_mode)
@@ -173,6 +210,13 @@ async def start_chat(*, chat_id: str | None, agent_id: str | None, text: str, mo
             await live.push({"done": {"ok": False, "error": f"Fehler: {str(e)[:300] or e.__class__.__name__}"}})
         finally:
             approvals.cancel_chat(state["chat_id"])
+            nxt = None
+            try:  # waits something in the queue? then it goes out next (also when nobody looks)
+                nxt = await chat_queue.take(state["chat_id"], user_stopped=stopped.is_set())
+            except Exception:
+                log.exception("queue of %s", state["chat_id"])
+            if nxt:
+                _starting[state["chat_id"]] = live  # browsers that come back now wait for the next run
             await live.finish()
             if _stops.get(state["chat_id"]) is stopped:
                 del _stops[state["chat_id"]]
@@ -181,12 +225,17 @@ async def start_chat(*, chat_id: str | None, agent_id: str | None, text: str, mo
                 wiki_sync.enqueue_chat(state["chat_id"])
             except Exception:
                 pass
+            if nxt:
+                _keep(asyncio.create_task(_run_queued(state["chat_id"], nxt)))
             asyncio.get_running_loop().call_later(KEEP_FINISHED, lambda: _live.pop(state["chat_id"], None) if _live.get(state["chat_id"]) is live else None)
 
-    task = asyncio.create_task(drive())
+    _keep(asyncio.create_task(drive()))
+    return info
+
+
+def _keep(task: asyncio.Task) -> None:
     _tasks.add(task)
     task.add_done_callback(_tasks.discard)
-    return info
 
 
 async def stream_chat(*, chat_id: str | None, agent_id: str | None, text: str, model: str | None,
@@ -204,7 +253,7 @@ async def stream_chat(*, chat_id: str | None, agent_id: str | None, text: str, m
 async def _prepare(*, chat_id, agent_id, text, model, account_id, skill_id, file_ids, project_id=None, permission_mode=None):
     s = get_settings()
     text = (text or "").strip()
-    if chat_id and running(chat_id):
+    if chat_id and _busy(chat_id):
         raise Invalid("Hier läuft noch eine Antwort – warte kurz oder stoppe sie")
     if not text and not skill_id and not file_ids:
         raise Invalid("Nachricht fehlt")

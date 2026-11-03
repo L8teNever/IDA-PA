@@ -281,6 +281,15 @@ class Draft(BaseModel):
     text: str = Field("", max_length=200_000)
 
 
+class QueueItem(BaseModel):
+    """A message that waits in a code thread's queue (same fields as POST /chat)."""
+    text: str = Field("", max_length=200_000)
+    model: str | None = None
+    account_id: str | None = None
+    effort: str | None = None
+    files: list[str] = Field(default_factory=list, max_length=20)
+
+
 class ThreadUpdate(BaseModel):
     title: str | None = None
     permission_mode: Mode | None = None

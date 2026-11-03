@@ -453,3 +453,54 @@ def test_github_actions_runs_jobs_and_log(client, code_on, github, monkeypatch):
     monkeypatch.setattr(git, "full_name", lambda url: None)
     r = client.get(f"{base}/runs")
     assert r.status_code == 400 and "GitHub-Repo" in r.json()["detail"]
+
+
+def test_queue_is_kept_on_the_server_and_sent_by_it(client, code_on, github):
+    """Messages written while the AI works wait on the server; it sends them itself – also with no browser open."""
+    p = _project(client, github)
+    cid = _start(client, {"project_id": p["id"], "text": "SLOW eins", "permission_mode": "full"})
+    q = f"{API}/code/queue/{cid}"
+    assert client.post(q, json={"text": "zwei"}).json()["items"][0]["text"] == "zwei"
+    client.post(q, json={"text": "drei", "model": "claude-haiku-5-5"})
+    assert [x["text"] for x in client.get(f"{API}/chats/{cid}").json()["queue"]["items"]] == ["zwei", "drei"]
+    # nobody follows the thread: the server works through the queue by itself
+    wait(lambda: (c := client.get(f"{API}/chats/{cid}").json()) and not c["running"] and not c["queue"]["items"], timeout=40)
+    msgs = client.get(f"{API}/chats/{cid}").json()["messages"]
+    assert [m["text"] for m in msgs if m["role"] == "user"] == ["SLOW eins", "zwei", "drei"]
+    assert "haiku" in msgs[-1]["text"] and msgs[-1]["text"].endswith("drei")
+    # nothing runs: a queued message goes out right away
+    client.post(q, json={"text": "vier"})
+    wait(lambda: not client.get(f"{API}/chats/{cid}").json()["running"])
+    assert client.get(f"{API}/chats/{cid}").json()["messages"][-2]["text"] == "vier"
+    # a deliberate stop pauses the queue; "Jetzt senden" stops and sends that one next
+    _start(client, {"chat_id": cid, "text": "SLOW fünf"})
+    a = client.post(q, json={"text": "sechs"}).json()["items"][0]
+    b = client.post(q, json={"text": "sieben"}).json()["items"][1]
+    client.post(f"{API}/chats/{cid}/stop")
+    wait(lambda: not client.get(f"{API}/chats/{cid}").json()["running"])
+    time.sleep(0.5)
+    assert len(client.get(q).json()["items"]) == 2  # paused
+    assert client.delete(f"{q}/{a['id']}").json()["items"][0]["text"] == "sieben"
+    client.post(q, json={"text": "SLOW acht"})  # nothing runs: "sieben" goes out first, "SLOW acht" waits
+    wait(lambda: client.get(q).json()["running"])
+    c = client.get(f"{API}/chats/{cid}").json()
+    assert [x["text"] for x in c["queue"]["items"]] == ["SLOW acht"]
+    wait(lambda: (c := client.get(f"{API}/chats/{cid}").json()) and not c["running"] and not c["queue"]["items"], timeout=40)
+    users = [m["text"] for m in client.get(f"{API}/chats/{cid}").json()["messages"] if m["role"] == "user"]
+    assert users[-2:] == ["sieben", "SLOW acht"] and "sechs" not in users
+    _start(client, {"chat_id": cid, "text": "SLOW neun"})
+    n = client.post(q, json={"text": "zehn"}).json()["items"][0]
+    client.post(f"{q}/{n['id']}/now")
+    wait(lambda: (c := client.get(f"{API}/chats/{cid}").json()) and not c["running"] and not c["queue"]["items"], timeout=40)
+    msgs = client.get(f"{API}/chats/{cid}").json()["messages"]
+    assert msgs[-2]["text"] == "zehn" and msgs[-1]["text"].endswith("zehn")
+    # a browser that comes back while the next one starts follows the new run
+    _start(client, {"chat_id": cid, "text": "SLOW elf"})
+    client.post(q, json={"text": "zwölf"})
+    wait(lambda: client.get(f"{API}/chats/{cid}").json()["messages"][-1]["text"] == "zwölf", timeout=30)
+    with client.stream("GET", f"{API}/chats/{cid}/live") as r:
+        ev = [json.loads(x) for x in r.iter_lines() if x]
+    assert text(ev).endswith("zwölf") and done(ev)["ok"]
+    # the thread goes, its queue too
+    client.delete(f"{API}/chats/{cid}")
+    assert client.get(q).status_code == 404

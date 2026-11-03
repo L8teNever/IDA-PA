@@ -7,6 +7,7 @@ from sqlalchemy import or_, select
 from ..models import Chat, ChatMessage
 from ..schemas import ChatSend, ChatUpdate
 from ..services import chat as chat_service
+from ..services import chat_queue
 from ..services import files as file_svc
 from ..services import settings_store
 from ..services.chat import stream_chat
@@ -42,7 +43,8 @@ async def get_chat(chat_id: str, db: DB):
         raise NotFound("Chat nicht gefunden")
     msgs = (await db.scalars(select(ChatMessage).where(ChatMessage.chat_id == chat_id).order_by(ChatMessage.at))).all()
     return {**ser.chat(c), "messages": [ser.chat_message(m) for m in msgs], "running": chat_service.running(chat_id),
-            "running_since": ser.iso(chat_service.running_since(chat_id)), "approvals": approvals.waiting(chat_id)}
+            "running_since": ser.iso(chat_service.running_since(chat_id)), "approvals": approvals.waiting(chat_id),
+            **({"queue": await chat_queue.get(db, chat_id)} if c.kind == "code" else {})}
 
 
 @router.patch("/chats/{chat_id}")
@@ -71,6 +73,7 @@ async def delete(chat_id: str, db: DB):
     approvals.forget(chat_id)
     await file_svc.delete_for_chat(db, chat_id)
     await settings_store.delete(db, f"code_draft:t-{chat_id}")
+    await chat_queue.clear(db, chat_id)
     await db.delete(c)
     try:
         from ..services import wiki_sync

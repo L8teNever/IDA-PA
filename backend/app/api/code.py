@@ -8,9 +8,10 @@ from fastapi.responses import FileResponse
 from sqlalchemy import select
 
 from ..models import Chat, ChatMessage
-from ..db import utcnow
-from ..schemas import ApprovalAnswer, CodeSettings, CommitMessageSuggest, Draft, GitBranch, GitCommit, ProjectCreate, ProjectUpdate, Publish, PullRequest, ThreadUpdate
+from ..db import session_scope, utcnow
+from ..schemas import ApprovalAnswer, CodeSettings, CommitMessageSuggest, Draft, QueueItem, GitBranch, GitCommit, ProjectCreate, ProjectUpdate, Publish, PullRequest, ThreadUpdate
 from ..services import chat as chat_service
+from ..services import chat_queue
 from ..services import code as code_area
 from ..services import settings_store
 from ..services.code import approvals, commit_msg, git, github, projects
@@ -210,6 +211,80 @@ async def put_draft(key: str, body: Draft, db: DB):
         return {"text": body.text, "at": at}
     await settings_store.delete(db, k)
     return {"text": "", "at": None}
+
+
+# ---- queue: messages written while the AI still works; the server sends them one after another ----
+
+async def _thread(db, chat_id: str) -> Chat:
+    await code_area.require(db)
+    c = await db.get(Chat, chat_id)
+    if not c or c.kind != "code":
+        raise NotFound("Thread nicht gefunden")
+    return c
+
+
+async def _kick(db, chat_id: str) -> None:
+    """Nothing running: the first waiting message goes out right away."""
+    await db.commit()  # the queue must be saved before the run takes from it
+    if chat_service.running(chat_id):
+        return
+    item = await chat_queue.take(chat_id, user_stopped=False)
+    if item:
+        try:
+            await chat_service.start_chat(chat_id=chat_id, agent_id=None, text=item.get("text") or "", model=item.get("model"),
+                                          account_id=item.get("account_id"), skill_id=None, effort=item.get("effort"),
+                                          file_ids=item.get("files") or [])
+        except Exception as e:
+            await chat_queue.put_back(chat_id, item, str(e) or e.__class__.__name__)
+            raise
+
+
+async def _queue_out(db, chat_id: str) -> dict:
+    await db.commit()
+    async with session_scope() as fresh:  # the run may have taken from it in its own session
+        return {**await chat_queue.get(fresh, chat_id), "running": chat_service.running(chat_id)}
+
+
+@router.get("/queue/{chat_id}")
+async def get_queue(chat_id: str, db: DB):
+    await _thread(db, chat_id)
+    return await _queue_out(db, chat_id)
+
+
+@router.post("/queue/{chat_id}")
+async def add_to_queue(chat_id: str, body: QueueItem, db: DB):
+    """Waits until the running answer is done; if none runs (just finished), it goes out right away."""
+    await _thread(db, chat_id)
+    if not body.text.strip() and not body.files:
+        raise Invalid("Nachricht fehlt")
+    async with chat_queue.lock(chat_id):
+        await chat_queue.add(db, chat_id, body.model_dump())
+        await _kick(db, chat_id)
+    return await _queue_out(db, chat_id)
+
+
+@router.delete("/queue/{chat_id}/{item_id}")
+async def remove_from_queue(chat_id: str, item_id: str, db: DB):
+    await _thread(db, chat_id)
+    async with chat_queue.lock(chat_id):
+        await chat_queue.remove(db, chat_id, item_id)
+    return await _queue_out(db, chat_id)
+
+
+@router.post("/queue/{chat_id}/{item_id}/now")
+async def send_now(chat_id: str, item_id: str, db: DB):
+    """"Jetzt senden": stops the running answer (what was written stays) and sends this message next."""
+    await _thread(db, chat_id)
+    async with chat_queue.lock(chat_id):
+        if not await chat_queue.to_front(db, chat_id, item_id):
+            raise NotFound("Diese Nachricht wartet nicht mehr")
+        if chat_service.running(chat_id):
+            await db.commit()
+            chat_queue.steer(chat_id)
+            chat_service.stop(chat_id)
+        else:
+            await _kick(db, chat_id)
+    return await _queue_out(db, chat_id)
 
 
 # ---- git ----

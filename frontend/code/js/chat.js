@@ -6,7 +6,7 @@ import { userHtml } from "./quote.js";
 import { $, attempt, esc, fmtDateTime, fmtDur, md, toast } from "./ui.js";
 
 // aktueller Thread: id (null = neu), project, mode (Rechte), busy (Antwort läuft)
-export const ctx = { id: null, project: null, mode: "ask", busy: false, model: null, accountId: null };
+export const ctx = { id: null, project: null, mode: "ask", busy: false, model: null, accountId: null, lastId: null };
 let following = null; // AbortController der Antwort, der wir gerade folgen
 
 const fire = (name, detail) => document.dispatchEvent(new CustomEvent(name, { detail }));
@@ -28,7 +28,7 @@ function scroll(force = false) {
 // neuer Thread in einem Projekt
 export function mountNew(project, mode = "ask") {
   detach();
-  Object.assign(ctx, { id: null, project, mode, busy: false, model: null, accountId: null });
+  Object.assign(ctx, { id: null, project, mode, busy: false, model: null, accountId: null, lastId: null });
   const a = mainAgent();
   box().innerHTML = `<div class="code-intro"><span class="ms">terminal</span><b>Neuer Thread in ${esc(project.name)}</b>
     <small>${esc(a?.name || "Ida")} arbeitet direkt im Projekt – liest Code, ändert Dateien, führt Befehle aus. Was soll gemacht werden?</small></div>`;
@@ -51,10 +51,31 @@ export async function mountThread(project, id) {
     else addSys(m.text);
   }
   scroll(true);
+  ctx.lastId = c.messages.at(-1)?.id || null;
   if (c.running) follow((onEvent, signal) => followChat(c.id, onEvent, signal), c.running_since);
   fire("code:mounted");
   return c;
 }
+
+// Zurück in der App (Handy entsperrt, Tab wieder vorne, Netz wieder da): die alte Verbindung hängt oft still,
+// ohne Fehler. Läuft etwas oder hat sich etwas getan, den Thread neu laden – er liest die laufende Antwort von vorn mit.
+let hiddenAt = 0, resyncing = false;
+async function resync() {
+  const id = ctx.id, project = ctx.project;
+  if (!id || !project || resyncing) return;
+  resyncing = true;
+  try {
+    const c = await api.get(`/chats/${encodeURIComponent(id)}`).catch(() => null);
+    if (!c || ctx.id !== id) return;
+    if (ctx.busy || c.running || (c.messages.at(-1)?.id || null) !== ctx.lastId) await mountThread(project, id);
+  } catch { /* nächstes Mal */ } finally { resyncing = false; }
+}
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) hiddenAt = Date.now();
+  else if (Date.now() - hiddenAt > 1500) resync();
+});
+addEventListener("online", resync);
+addEventListener("pageshow", (e) => { if (e.persisted) resync(); }); // aus dem Zurück-Cache des Browsers
 
 function row(role) {
   const r = document.createElement("div");
@@ -235,7 +256,7 @@ async function follow(start, since = null) {
       addSys(ev.sys, "swap_horiz");
     } else if (ev.done) {
       ok = ev.done.ok;
-      if (ev.done.message_id) meta.id = ev.done.message_id;
+      if (ev.done.message_id) meta.id = ctx.lastId = ev.done.message_id;
       if (ev.done.ms != null) meta.ms = ev.done.ms;
       if (ev.done.stopped) meta.stopped = true;
       else if (!ok) meta.error = ev.done.error;
