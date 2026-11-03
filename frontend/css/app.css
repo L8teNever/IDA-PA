@@ -399,6 +399,7 @@ body.live-view .stage {
   z-index: 1;
   width: clamp(86px, 26vw, 136px);
 }
+.live-b .lv-buddy-wrap { margin-top: clamp(28px, 10vh, 96px); }  /* Maskottchen nicht ganz oben unter der Statusleiste */
 .lv-glow { position: absolute; inset: -20%; border-radius: 50%; background: radial-gradient(closest-side, rgba(var(--accent-rgb), .35), transparent 70%); filter: blur(20px); z-index: 0; pointer-events: none; transition: opacity .3s; }
 .lv-wave { position: absolute; border-radius: 50%; border: 2px solid var(--accent); pointer-events: none; opacity: 0; transition: transform .12s linear, opacity .2s; }
 .lv-w1 { width: clamp(105px, 30vw, 150px); height: clamp(105px, 30vw, 150px); }
@@ -455,6 +456,7 @@ body.live-view .stage {
 @media (max-height: 640px) {
   .live-b { padding: max(6px, env(safe-area-inset-top)) 10px max(6px, env(safe-area-inset-bottom)); }
   .lv-buddy-wrap { height: clamp(76px, 15vh, 110px); }
+  .live-b .lv-buddy-wrap { margin-top: 12px; }
   .lv-buddy-wrap .buddy { width: clamp(70px, 22vw, 100px); }
   .lv-w1 { width: 95px; height: 95px; }
   .lv-w2 { width: 120px; height: 120px; }
