@@ -481,10 +481,8 @@ def test_queue_is_kept_on_the_server_and_sent_by_it(client, code_on, github):
     time.sleep(0.5)
     assert len(client.get(q).json()["items"]) == 2  # paused
     assert client.delete(f"{q}/{a['id']}").json()["items"][0]["text"] == "sieben"
-    client.post(q, json={"text": "SLOW acht"})  # nothing runs: "sieben" goes out first, "SLOW acht" waits
-    wait(lambda: client.get(q).json()["running"])
-    c = client.get(f"{API}/chats/{cid}").json()
-    assert [x["text"] for x in c["queue"]["items"]] == ["SLOW acht"]
+    r = client.post(q, json={"text": "SLOW acht"}).json()  # nothing runs: "sieben" goes out first, "SLOW acht" waits
+    assert r["running"] and [x["text"] for x in r["items"]] == ["SLOW acht"]
     wait(lambda: (c := client.get(f"{API}/chats/{cid}").json()) and not c["running"] and not c["queue"]["items"], timeout=40)
     users = [m["text"] for m in client.get(f"{API}/chats/{cid}").json()["messages"] if m["role"] == "user"]
     assert users[-2:] == ["sieben", "SLOW acht"] and "sechs" not in users
@@ -496,11 +494,11 @@ def test_queue_is_kept_on_the_server_and_sent_by_it(client, code_on, github):
     assert msgs[-2]["text"] == "zehn" and msgs[-1]["text"].endswith("zehn")
     # a browser that comes back while the next one starts follows the new run
     _start(client, {"chat_id": cid, "text": "SLOW elf"})
-    client.post(q, json={"text": "zwölf"})
-    wait(lambda: client.get(f"{API}/chats/{cid}").json()["messages"][-1]["text"] == "zwölf", timeout=30)
+    client.post(q, json={"text": "SLOW zwölf"})  # slow, so the test sees it running
+    wait(lambda: client.get(f"{API}/chats/{cid}").json()["messages"][-1]["text"] == "SLOW zwölf", timeout=30)
     with client.stream("GET", f"{API}/chats/{cid}/live") as r:
         ev = [json.loads(x) for x in r.iter_lines() if x]
-    assert text(ev).endswith("zwölf") and done(ev)["ok"]
+    assert text(ev).endswith("SLOW zwölf") and done(ev)["ok"]
     # the thread goes, its queue too
     client.delete(f"{API}/chats/{cid}")
     assert client.get(q).status_code == 404
