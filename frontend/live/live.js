@@ -46,7 +46,7 @@ const buddy = `<div class="buddy" aria-hidden="true"><i class="lv-wave lv-w1"></
 
 function shell(inner) {
   $("page").innerHTML = `<div class="live live-b">
-    <div class="lv-buddy-wrap" id="lvBuddyWrap" data-state="idle"><div class="lv-glow"></div>${buddy}</div>${inner}</div>`;
+    <div class="lv-buddy-wrap" id="lvBuddyWrap" data-state="idle">${buddy}</div>${inner}</div>`;
   const el = $("page").querySelector(".live-b");
   el.addEventListener("touchmove", (e) => { if (!e.target.closest(".lv-chat")) e.preventDefault(); }, { passive: false });
 }

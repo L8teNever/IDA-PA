@@ -409,8 +409,8 @@ body.live-view .stage {
 .live-b.waking .buddy .eye { animation: wake .7s ease-out 1; }   /* schlafen = exakt die Schlaf-Stimmung von IDA (body[data-mood=sleep]) */
 .live-b .buddy .eye::after { display: none; }   /* Live: rein schwarze Augen, ohne weiße Lichtpunkte */
 @keyframes wake { 0% { transform: scaleY(.1) } 35% { transform: scaleY(1) } 60% { transform: scaleY(.1) } 100% { transform: scaleY(1) } }
-.lv-glow { display: none; }  /* Leuchten wie auf der IDA-Startseite: nur das eigene ::before der .buddy */
-.lv-buddy-wrap .buddy::before { inset: -40%; }
+
+.live-b .buddy::before { display: none; }   /* kein pinker Kreis/Leuchten hinter Stella */
 /* Wellen in Stellas Gesichtsform (gleiche Rundung wie .face), sitzen in der .buddy und schweben mit.
    Sprechen: Wellen laufen vom Gesicht nach außen, Gesicht wippt mit der Lautstärke.
    Zuhören: Wellen fließen von außen ins Gesicht hinein, Kopf leicht schräg, Augen etwas größer. */
@@ -427,7 +427,6 @@ body.live-view .stage {
 .lv-buddy-wrap[data-state="speak"] .buddy .face { transform: scale(calc(1 + var(--lvl, 0) * .05), calc(1 - var(--lvl, 0) * .035)); box-shadow: 0 0 calc(40px + var(--lvl, 0) * 40px) rgba(var(--accent-rgb), calc(.25 + var(--lvl, 0) * .4)), inset 0 -10px 24px rgba(0,0,0,.08); }
 .lv-buddy-wrap[data-state="listen"] .buddy .face { transform: rotate(-5deg); transition: transform .6s cubic-bezier(.3, 1.4, .5, 1); }
 .lv-buddy-wrap[data-state="listen"] .buddy .eyes { transform: translate(-50%, -54%) scale(calc(1.06 + var(--lvl, 0) * .1)); }
-.lv-buddy-wrap[data-state="listen"] .buddy::before, .lv-buddy-wrap[data-state="speak"] .buddy::before { opacity: calc(.75 + var(--lvl, 0) * .25); transform: scale(calc(1 + var(--lvl, 0) * .12)); transition: transform .15s, opacity .15s; }
 @media (prefers-reduced-motion: reduce) { .lv-wave { animation: none !important; } }
 .lv-buddy-wrap[data-state="tool"] .buddy { animation: breathe 1.2s ease-in-out infinite; }
 .lv-buddy-wrap[data-state="fail"] .buddy .face { filter: saturate(.4) brightness(.85); }
