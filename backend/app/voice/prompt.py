@@ -1,6 +1,31 @@
 """Sprech-Regeln für Gemini Live. Das Profil (Rolle, Persönlichkeit, Gedächtnis, Tools) kommt aus IDA, hier steht nur,
 wie gesprochen wird – übernommen aus dem alten Stella, das sich am Telefon bewährt hat."""
 
+import random
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
+GREETINGS = [
+    "Da bist du ja.", "Ich hab schon auf dich gewartet.", "Na, was gibt's?", "Zu Diensten.", "Schön, dass du da bist.",
+    "Ich bin ganz Ohr.", "Na du.", "Immer her damit.", "Was kann ich für dich tun?", "Schön, deine Stimme zu hören.",
+    "Bereit, wenn du es bist.", "Du hast meine volle Aufmerksamkeit.", "Wie kann ich dir den Tag erleichtern?", "Hey, da bist du.",
+    "Ich bin da, schieß los.", "Na, wieder was zu erledigen?", "Gerade passend, ich hatte nichts Besseres vor.", "Was steht an?",
+    "Perfektes Timing.", "Ich höre.", "Los geht's, was brauchst du?", "Moin, äh, hallo – je nachdem, was du brauchst.",
+    "Dein Wunsch ist mir Befehl, na ja, fast.", "Schön, dich zu hören.", "Alles bereit auf meiner Seite.", "Na, was haben wir heute vor?",
+    "Da ist ja mein Lieblingsmensch zum Reden.", "Ich bin wach und sortiert. Was gibt's?", "Hallo du, schieß los.", "Kaum gerufen, schon da.",
+    "Ich dachte schon, du meldest dich nie.", "Wie läuft's?", "Was darf's sein?", "Sag nur, wohin die Reise geht.",
+    "Willkommen zurück.", "Schön, dass du dich meldest.", "Ich hab die Lage im Blick. Was brauchst du?", "Na, den Kopf voll? Dann sortieren wir mal.",
+]
+DAYPART = [(5, "Guten Morgen."), (11, "Schönen Vormittag."), (14, "Guten Mittag."), (18, "Guten Abend."), (23, "Noch wach, hm?")]
+
+
+def greeting_hint() -> str:
+    h = datetime.now(ZoneInfo("Europe/Berlin")).hour
+    part = next((s for lim, s in reversed(DAYPART) if h >= lim), "Noch wach, hm?")
+    picks = random.sample(GREETINGS, 3) + [part]
+    return "Nimm als Anregung eine davon (oder etwas Eigenes in dem Stil, nie zweimal dasselbe): " + " | ".join(picks)
+
+
 VOICE_RULES = """
 SO SPRICHST DU (Live-Gespräch, Gemini spricht für dich):
 - Kurze, gesprochene Sätze (ein bis zwei pro Antwort), keine Aufzählungen, kein Markdown, keine Links vorlesen.
@@ -43,9 +68,9 @@ def instructions(context: str, *, owner: bool, kind: str, brief: str = "", read_
 
 def kickoff(*, owner: bool, kind: str, brief: str = "") -> str:
     if kind == "web":
-        return "Der Nutzer hat gerade das Live-Gespräch geöffnet. Sag eine ganz kurze, lockere Begrüßung (ein paar Wörter). Gibt es etwas wirklich Relevantes für heute (Konflikt, Frist, Offenes), erwähne es in einem Satz, sonst hör einfach zu."
+        return "Der Nutzer hat gerade das Live-Gespräch geöffnet. Sag eine ganz kurze, charmante Begrüßung (ein paar Wörter, jedes Mal anders). " + greeting_hint() + " Gibt es etwas wirklich Relevantes für heute (Konflikt, Frist, Offenes), erwähne es in einem Satz, sonst hör einfach zu."
     if kind == "in":
-        return "Der Anruf ist angenommen. Melde dich mit einer ganz kurzen Zeile wie „Ja?“ (mit seinem Namen, wenn du ihn kennst) – jedes Mal etwas anders."
+        return "Der Anruf ist angenommen. Melde dich mit einer ganz kurzen, charmanten Zeile (mit seinem Namen, wenn du ihn kennst) – jedes Mal anders. " + greeting_hint()
     if owner:
         return "Der Nutzer hat abgenommen. Komm ohne Vorstellung direkt zum Anlass, z. B. „Kurz wegen …“."
     return "Die Person hat abgenommen. Stell dich kurz als Stella (Assistentin, im Auftrag) vor und erledige den Auftrag."
