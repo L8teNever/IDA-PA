@@ -141,6 +141,10 @@ async function start() {
     <div class="lv-btns"><button class="es-btn" id="lvMute"><span class="ms">mic</span>Stumm</button>
       <button class="es-btn" id="lvPhone"><span class="ms">phone_forwarded</span>Am Telefon weiter</button>
       <button class="es-btn lv-end" id="lvEnd"><span class="ms">call_end</span>Auflegen</button></div>`);
+  const root = $("page").querySelector(".live-b");   // intro: Stella wacht groß in der Mitte auf, danach wandert sie nach oben
+  root.classList.add("intro");
+  c.introEnd = Date.now() + 2800;
+  c.endIntro = () => { const left = Math.max(0, c.introEnd - Date.now()); setTimeout(() => root.classList.remove("intro"), left); };
   $("lvEnd").onclick = () => stop(c);
   $("lvPhone").onclick = async () => {  // only on tap – never switches by itself
     const b = $("lvPhone");
@@ -195,6 +199,7 @@ async function start() {
         };
         src.connect(c.node);
         setState(c, "listen");
+        c.endIntro();
       } else if (m.type === "text") addLine(c, m.who, m.text);
       else if (m.type === "interrupted") { flush(c); setState(c, "listen"); }
       else if (m.type === "tool") {
