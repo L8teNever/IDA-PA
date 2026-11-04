@@ -1,8 +1,8 @@
-// Files and pictures for the next message: 📎 button, paste (Ctrl+V a screenshot) or drag & drop onto the input.
+// Files and pictures for the next message: 📎 menu (camera, photos, files, clipboard), paste (Ctrl+V a screenshot) or drag & drop onto the input.
 // Every file is uploaded right away; sending only passes the ids. Big photos are made smaller first
 // (the model takes pictures up to 5 MB – and phones take much bigger ones).
 import { api } from "../api.js";
-import { $, esc, toast } from "./dom.js";
+import { $, closeSheet, esc, openSheet, toast } from "./dom.js";
 
 let items = []; // { key, name, kind, url, id?, state: "up" | "ok" }
 let seq = 0;
@@ -58,6 +58,34 @@ export async function addFiles(list) {
   }
 }
 
+const ATTACH = [{ value: "camera", icon: "photo_camera", label: "Foto aufnehmen" }, { value: "photo", icon: "image", label: "Bild auswählen" },
+                { value: "file", icon: "attach_file", label: "Datei auswählen" }, { value: "clip", icon: "content_paste", label: "Bild aus Zwischenablage" }];
+
+// for phones: many keyboards cannot paste a picture into the text field
+async function pasteImages() {
+  try {
+    const out = [];
+    for (const item of await navigator.clipboard.read()) {
+      const type = item.types.find((t) => t.startsWith("image/"));
+      if (type) out.push(new File([await item.getType(type)], `bild.${type.split("/")[1]}`, { type }));
+    }
+    if (out.length) addFiles(out); else toast("In der Zwischenablage ist kein Bild");
+  } catch { toast("Kein Zugriff auf die Zwischenablage"); }
+}
+
+function attachMenu() {
+  const rows = ATTACH.filter((x) => x.value !== "clip" || navigator.clipboard?.read);
+  const s = openSheet(`<h2 class="cs-title">Anhängen</h2><div class="slist">${rows.map((x) => `<button type="button" class="srow" data-a="${x.value}">
+    <span class="sic"><span class="ms">${x.icon}</span></span><span class="smain"><b>${x.label}</b></span></button>`).join("")}</div>`);
+  s.onclick = (e) => {
+    const a = e.target.closest("[data-a]")?.dataset.a;
+    if (!a) return;
+    closeSheet();
+    if (a === "clip") pasteImages();
+    else $({ camera: "cameraInput", photo: "photoInput", file: "fileInput" }[a]).click();
+  };
+}
+
 function remove(key) {
   const it = items.find((x) => x.key === key);
   if (!it) return;
@@ -81,12 +109,13 @@ function render() {
 }
 
 export function initAttach() {
-  $("attachBtn").onclick = () => $("fileInput").click();
-  $("fileInput").onchange = () => { addFiles($("fileInput").files); $("fileInput").value = ""; };
+  $("attachBtn").onclick = attachMenu;
+  for (const id of ["fileInput", "photoInput", "cameraInput"]) $(id).onchange = (e) => { addFiles(e.target.files); e.target.value = ""; };
   $("attList").onclick = (e) => { const b = e.target.closest("[data-rm]"); if (b) remove(+b.dataset.rm); };
   // a screenshot from the clipboard
   $("input").addEventListener("paste", (e) => {
-    const fs = [...(e.clipboardData?.files || [])];
+    const d = e.clipboardData; // some phones hand pictures over in items only, not in files
+    const fs = d?.files?.length ? [...d.files] : [...(d?.items || [])].filter((i) => i.kind === "file").map((i) => i.getAsFile()).filter(Boolean);
     if (fs.length) { e.preventDefault(); addFiles(fs); }
   });
   const comp = $("composer");
