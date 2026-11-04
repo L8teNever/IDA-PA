@@ -531,3 +531,107 @@ def test_live_session_says_late_answer_of_ida():
         assert ("ida", "Im Wiki steht IDA-PA.") in said and not any(w == "hangup" for w, _ in said)
         assert {"who": "ida", "text": "Im Wiki steht IDA-PA."} in s.transcript
     asyncio.run(go())
+
+
+def test_ida_gets_the_conversation_and_may_do_what_the_user_asked(client, voice):
+    """ida_fragen mit Verlauf: Ida sieht, was der Nutzer vorher gesagt hat; was er selbst verlangt hat, zählt als Ja."""
+    call = "wverlauf1"
+    client.post(f"{API}/voice/internal/start", headers=SECRET, json={"call_id": call, "direction": "web", "number": "", "owner": True, "purpose": ""})
+    verlauf = [{"who": "user", "text": "Mein Leitsatz: ein KI-Tool, das mein Leben organisiert."},
+               {"who": "stella", "text": "Verstanden."}, {"who": "ida_frage", "text": "nicht an Ida"}, {"who": "user", "text": "Schreib das ins Wiki."}]
+    out = client.post(f"{API}/voice/internal/tool", headers=SECRET, timeout=60, json={
+        "call_id": call, "name": "ida_fragen", "args": {"frage": "Leitsatz ins private Wiki schreiben", "verlauf": verlauf}}).json()
+    text = out["result"]
+    assert "Gesprächsverlauf bis jetzt:\nNutzer: Mein Leitsatz: ein KI-Tool" in text and "Nutzer: Schreib das ins Wiki." in text
+    assert "nicht an Ida" not in text  # nur Nutzer, Stella und Idas Antworten
+    assert "das zählt als Ja" in text
+    from app.services import voice_bridge
+    ida = client.get(f"{API}/chats/{voice_bridge._sessions[call].ida_chat}").json()
+    assert [m["text"] for m in ida["messages"] if m["role"] == "user"] == ["Leitsatz ins private Wiki schreiben"]  # Verlauf nicht im Chat
+    client.post(f"{API}/voice/internal/finish", headers=SECRET, json={"call_id": call, "direction": "web", "number": "", "transcript": [],
+                                                                       "outcome": "", "status": "done"})
+
+
+def test_open_tasks_after_the_call_go_to_ida(client, voice, monkeypatch):
+    """Stella hat „ich gebe das an Ida weiter“ gesagt, aber nichts getan: die Auswertung findet es, Ida erledigt es sofort,
+    der Nutzer bekommt ihre Antwort als Nachricht (nicht agent_delegate, dessen Ergebnis nur bei Stella ankäme)."""
+    from app.services import runs, voice_bridge
+    from app.services.claude.runner import RunResult
+    summary, tasks = voice_bridge.open_tasks("Wir haben über die Projektarbeit gesprochen.\n\nOFFEN: Leitsatz ins Wiki\n- **OFFEN:** Mailentwurf ablegen\nOFFEN: nichts")
+    assert summary == "Wir haben über die Projektarbeit gesprochen." and tasks == ["Leitsatz ins Wiki", "Mailentwurf ablegen"]
+
+    seen = {}
+
+    async def fake_run(agent_id, prompt, **kw):
+        seen["prompt"] = prompt
+        return RunResult(ok=True, text="Es ging um die Projektarbeit.\nOFFEN: Leitsatz „KI-Tool fürs Leben“ ins private Wiki schreiben", tools=[])
+    monkeypatch.setattr(runs, "run_agent", fake_run)
+    call = "wopen1"
+    client.post(f"{API}/voice/internal/start", headers=SECRET, json={"call_id": call, "direction": "web", "number": "", "owner": True, "purpose": ""})
+    title = "Ida: offen aus dem Gespräch mit Stella"
+    before = len([m for m in client.get(f"{API}/messages").json() if m.get("title") == title])
+    transcript = [{"who": "user", "text": "Schreib meinen Leitsatz ins Wiki."}, {"who": "stella", "text": "Ich gebe das an Ida weiter."}]
+    done = client.post(f"{API}/voice/internal/finish", headers=SECRET, json={
+        "call_id": call, "direction": "web", "number": "", "transcript": transcript, "outcome": "", "status": "done"}).json()
+    notes = wait(lambda: (lambda n: n if len(n) > before else None)([m for m in client.get(f"{API}/messages").json() if m.get("title") == title]))
+    assert "Leitsatz" in notes[0]["text"] and "Gesprächsverlauf bis jetzt:\nNutzer: Schreib meinen Leitsatz ins Wiki." in notes[0]["text"]
+    assert "agent_delegate" in seen["prompt"] and "OFFEN:" in seen["prompt"]
+    msgs = wait(lambda: (lambda m: m if any(x.get("meta", {}).get("voice_summary") for x in m) else None)(
+        client.get(f"{API}/chats/{done['chat_id']}").json()["messages"]))
+    summ = next(x["text"] for x in msgs if x.get("meta", {}).get("voice_summary"))
+    assert summ.startswith("Es ging um die Projektarbeit.") and "An Ida übergeben" in summ and "\nOFFEN:" not in summ
+
+
+def test_live_session_nudges_stella_when_she_promises_without_a_tool():
+    """„Ich gebe das an Ida weiter“ ohne Tool-Aufruf: kurz danach bekommt Gemini einen Hinweis. Mit Tool, bei einer Rückfrage
+    um Erlaubnis oder wenn der Nutzer gleich weiterredet: kein Hinweis. ida_fragen bekommt den Verlauf mit."""
+    async def go():
+        from types import SimpleNamespace
+        from app.voice import live
+        from app.voice.live import LiveSession
+        live.PROMISE_WAIT_S = 0.05
+        sent, asked = [], []
+
+        class Sink:
+            async def audio(self, *a): pass
+            async def interrupted(self): pass
+            async def text(self, *a): pass
+            async def tool(self, *a): pass
+            def hang_up(self, o): pass
+
+        class Ws:
+            async def send(self, raw): sent.append(json.loads(raw))
+
+        async def run_tool(name, args):
+            asked.append((name, args))
+            return {"result": "ok"}
+        tools = [{"name": "ida_fragen", "parameters": {"type": "object", "properties": {"frage": {"type": "string"}}}}]
+        s = LiveSession(SimpleNamespace(), instructions="x", tools=tools, run_tool=run_tool, sink=Sink(), kickoff="k", client_vad=False)
+        s.ws = Ws()
+        nudges = lambda: [m for m in sent if "clientContent" in m and "[System" in m["clientContent"]["turns"][0]["parts"][0]["text"]]
+
+        async def turn(said, tool=False, user_after=False):
+            await s._event({"serverContent": {"inputTranscription": {"text": "Schreib den Leitsatz ins Wiki."}}})
+            await s._event({"serverContent": {"outputTranscription": {"text": said}}})
+            if tool:
+                await s._event({"toolCall": {"functionCalls": [{"id": "t", "name": "ida_fragen", "args": {"frage": "Leitsatz ins Wiki"}}]}})
+            await s._event({"serverContent": {"turnComplete": True}})
+            if user_after:
+                await s._event({"serverContent": {"inputTranscription": {"text": "Und noch was"}}})
+            await asyncio.sleep(0.2)
+
+        await turn("Alles klar. Ich gebe das an Ida weiter.")
+        assert len(nudges()) == 1 and "Ich gebe das an Ida weiter." in nudges()[0]["clientContent"]["turns"][0]["parts"][0]["text"]
+        await turn("Moment, ich frag Ida.", tool=True)
+        assert len(nudges()) == 1
+        name, args = asked[-1]
+        assert name == "ida_fragen" and {"who": "user", "text": "Schreib den Leitsatz ins Wiki."} in args["verlauf"]
+        await turn("Ich erstelle die Seite Projektarbeit. Soll ich das tun?")
+        await turn("Ich speichere das.", user_after=True)
+        await turn("Dein nächster Termin ist morgen um acht.")
+        assert len(nudges()) == 1
+        for _ in range(5):
+            await turn("Wird erledigt.")
+        assert len(nudges()) == live.MAX_NUDGES  # keine Endlosschleife
+        live.PROMISE_WAIT_S = 2.5
+    asyncio.run(go())

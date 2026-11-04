@@ -22,6 +22,23 @@ _TYPES = {"object": "OBJECT", "string": "STRING", "integer": "INTEGER", "number"
 _NAME = re.compile(r"[^A-Za-z0-9_]+")
 FAREWELL = re.compile(r"(tsch+ü+ss|tschuss|auf wiederh[öo]ren|auf wiedersehen|\bbye\b|ciao|bis (?:bald|später|dann|zum nächsten mal)|"
                       r"mach(?:'s| es) gut|pass auf dich auf|wir hören voneinander|ich bin dann mal weg)", re.IGNORECASE)
+# Stella kündigt etwas an oder behauptet, es sei erledigt („ich gebe das an Ida weiter“, „ich speichere das“) – Gemini
+# sagt das oft, ohne ein Tool aufzurufen. Dann passiert nichts. Ohne Tool-Aufruf in diesem Zug wird sie darauf hingewiesen.
+PROMISE = re.compile(
+    r"(\bgebe? (?:ich )?(?:das|es|dies|den auftrag)\b.{0,40}\bweiter|\ban ida (?:weiter|ab)|\bida (?:kümmert|wird|macht|erledigt|schaut|sucht|übernimmt|"
+    r"meldet|ist dran|hat (?:es|das)\b)|\b(?:sie|ida) (?:schaut|kümmert|meldet|sucht|macht|erledigt)\b|\bübergeb\w* (?:ich )?(?:das|es)|"
+    r"\b(?:sag\w*|geb\w*) (?:ich )?dir bescheid|\b(?:leg|speicher|schreib|trag|schick|send|erstell|änder|notier)\w* ich\b|\bmelde mich\b|\bhab(?:e)? (?:ich )?ida (?:gebeten|beauftragt|gesagt|bescheid)|\bich (?:speicher|erstell|leg\w* (?:das|es|die|den|eine?n?)\b"
+    r"|trag\w* (?:das|es)|schreib\w* (?:das|es|dir)|notier|merk\w* (?:mir|das)|schick|send|änder|aktualisier|such|prüf|schau\w* (?:mal |kurz |gleich )?nach"
+    r"|kümmer|frag\w* (?:mal |kurz |gleich )?ida)|\bwird erledigt\b|\bist erledigt\b|\bhab(?:e)? (?:ich )?(?:es|das|sie|ihn|die \w+) (?:\w+ )?"
+    r"(?:gespeichert|erstellt|angelegt|eingetragen|notiert|geschickt|gesendet|geändert|weitergegeben|abgelegt|aufgeschrieben)\b)",
+    re.IGNORECASE)
+# … außer der Zug endet mit einer Rückfrage um Erlaubnis („Soll ich das tun?“) – dann wartet sie zu Recht auf das Ja
+ASKS_YES = re.compile(r"(?:(?:\bsoll\w*\b|möchtest du|willst du|darf ich|einverstanden|passt (?:das|so)|ist das (?:so )?(?:ok|okay|gut|richtig|besser))"
+                      r"[^.!?]*\?|(?:okay|ok|oder|richtig|besser(?: jetzt| so)?)\?)\s*$", re.IGNORECASE)
+PROMISE_WAIT_S = 2.5  # so lange darf der Tool-Aufruf nach dem Satz noch kommen
+MAX_NUDGES = 4
+HISTORY_LINES = 24  # so viele Zeilen der Mitschrift bekommt Ida bei ida_fragen mit
+HISTORY_CHARS = 5000
 
 
 class Sink(Protocol):
@@ -140,6 +157,12 @@ class LiveSession:
         self._farewell: asyncio.Task | None = None
         self._hung = False
         self._ida_waiting: asyncio.Task | None = None  # Ida braucht länger: ihre Antwort wird nachgereicht
+        self.has_tools = any(d["name"] != "auflegen" for d in self.decl)
+        self._turn_said = ""  # was Stella in diesem Zug gesagt hat (für die Ankündigungs-Prüfung)
+        self._tool_seq = 0  # zählt Tool-Aufrufe
+        self._user_seq = 0  # zählt, wann der Nutzer zuletzt etwas gesagt hat
+        self._turn_tools = 0  # Tool-Zähler zu Beginn des Zugs
+        self.nudges = 0
 
     # ---------- setup ----------
     def setup_payload(self, model: str) -> dict:
@@ -243,6 +266,7 @@ class LiveSession:
             log.info("Gemini Live goAway: %s", ev["goAway"])
         sc = ev.get("serverContent") or {}
         if sc.get("interrupted"):
+            self._turn_said = ""
             await self.sink.interrupted()
         for part in (sc.get("modelTurn") or {}).get("parts") or []:
             inline = part.get("inlineData") or {}
@@ -253,21 +277,62 @@ class LiveSession:
             # part.text is often the model's scratch work, not what it said – the spoken text is outputTranscription
         heard = (sc.get("inputTranscription") or {}).get("text") or ""
         if heard:
+            self._user_seq += 1
             self._note("user", heard)
             await self.sink.text("user", heard)
         said = (sc.get("outputTranscription") or {}).get("text") or ""
         if said:
             self.heard_audio = True
+            if not self._turn_said:
+                self._turn_tools = self._tool_seq
+            self._turn_said += said
             self._note("stella", said)
             await self.sink.text("stella", said)
             if self.farewell_hangup and FAREWELL.search(said):
                 self._arm_farewell()
         if self.heard_audio and (sc.get("turnComplete") or sc.get("generationComplete")):
             self.first_turn_done.set()
+        if sc.get("turnComplete"):
+            said_turn, self._turn_said = self._turn_said, ""
+            if said_turn and self.has_tools and self._tool_seq == self._turn_tools and self.nudges < MAX_NUDGES and unkept_promise(said_turn):
+                self._spawn(self._check_promise(said_turn, self._tool_seq, self._user_seq))
         for fc in (ev.get("toolCall") or {}).get("functionCalls") or []:
+            self._tool_seq += 1
             self._spawn(self._tool(fc))
         for cid in (ev.get("toolCallCancellation") or {}).get("ids") or []:
             log.info("Gemini hat Tool-Aufruf %s abgebrochen", cid)
+
+    async def _check_promise(self, said: str, tools: int, user: int) -> None:
+        """Stella hat etwas angekündigt, aber kein Tool aufgerufen: kurz warten (der Aufruf kann noch kommen), dann erinnern."""
+        await asyncio.sleep(PROMISE_WAIT_S)
+        if self.closed or self._hung or self._tool_seq != tools or self._user_seq != user or self.nudges >= MAX_NUDGES:
+            return
+        if self._ida_waiting and not self._ida_waiting.done():
+            return  # Ida arbeitet schon daran
+        self.nudges += 1
+        self._cancel_farewell()
+        log.info("voice: Ankündigung ohne Tool – Stella wird erinnert (%d)", self.nudges)
+        quote = " ".join(said.split())[-240:]
+        await self._send({"clientContent": {"turns": [{"role": "user", "parts": [{"text": (
+            f"[System, nicht vorlesen] Du hast gerade gesagt: „{quote}“ – aber kein Tool aufgerufen, es ist also noch NICHTS passiert. "
+            "Hol das jetzt sofort nach: ruf das passende Tool auf oder ida_fragen mit dem kompletten Auftrag (Ida sieht den Gesprächsverlauf). "
+            "Sag nicht, dass etwas erledigt ist oder Ida sich kümmert, bevor ein Tool es bestätigt hat. Entschuldige dich nicht lang, "
+            "sag höchstens kurz „Moment“.")}]}], "turnComplete": True}})
+
+    def history(self) -> list[dict]:
+        """Die letzten Zeilen der Mitschrift (für Ida, damit sie Bezüge wie „von vorhin“ versteht)."""
+        out, size = [], 0
+        for x in reversed(self.transcript):
+            if x["who"] not in ("user", "stella", "ida"):
+                continue
+            text = " ".join(str(x.get("text") or "").split())[:1200]
+            if not text:
+                continue
+            size += len(text)
+            if out and (len(out) >= HISTORY_LINES or size > HISTORY_CHARS):
+                break
+            out.append({"who": x["who"], "text": text})
+        return out[::-1]
 
     def _note(self, who: str, text: str) -> None:
         if self.transcript and self.transcript[-1]["who"] == who:
@@ -291,6 +356,7 @@ class LiveSession:
         asks_ida = name == "ida_fragen"
         if asks_ida:  # im Chat soll zu sehen sein, dass Stella Ida gefragt hat
             question = str((args or {}).get("frage") or "") if isinstance(args, dict) else ""
+            args = {**args, "verlauf": self.history()} if isinstance(args, dict) else {"verlauf": self.history()}
             self._note("ida_frage", question)
             await self.sink.text("ida_frage", question)
         await self.sink.tool(name, True)
@@ -380,6 +446,12 @@ class LiveSession:
                 await self.ws.close()
             except Exception:  # noqa: BLE001
                 pass
+
+
+def unkept_promise(said: str) -> bool:
+    """Kündigt der Satz eine Aktion an (oder behauptet sie), ohne um Erlaubnis zu fragen?"""
+    said = " ".join((said or "").split())
+    return bool(PROMISE.search(said)) and not ASKS_YES.search(said)
 
 
 def _decode(raw) -> dict | None:

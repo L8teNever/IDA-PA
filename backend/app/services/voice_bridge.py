@@ -43,8 +43,15 @@ META = ("tool_suchen", "tool_ausfuehren", "ida_fragen")
 LIVE_SKIP = ("agent_delegate", "agent_send")
 LATE_HAND_OVER_S = 30  # so lange darf das Gespräch eine späte Antwort Idas abholen, sonst kommt sie als Nachricht
 IDA_INTRO = ("Stella spricht gerade live mit dem Nutzer und wartet auf dich. Alle Nachrichten in diesem Chat sind ihre Fragen aus demselben Gespräch. "
-             "Antworte immer schnell und so kurz wie möglich, höchstens drei gesprochene Sätze, ohne Markdown und ohne Links, Stella sagt das laut weiter. "
-             "Weißt du etwas nicht, sag das.")
+             "Unten steht der bisherige Gesprächsverlauf: Nutze ihn für Bezüge wie „das von vorhin“ oder „mein Leitsatz“, Stellas Frage kann ungenau sein – "
+             "gemeint ist, was der Nutzer will. Antworte immer schnell und so kurz wie möglich, höchstens drei gesprochene Sätze, ohne Markdown und ohne Links, "
+             "Stella sagt das laut weiter. Hast du etwas erledigt, sag konkret was (z. B. wo die Seite liegt). Weißt du etwas nicht, sag das.")
+# Was der Nutzer im Gespräch selbst klar verlangt, darf Ida tun – auch wenn Stella bestaetigt vergessen hat. Folgenreiches nur mit Ja.
+IDA_RULE_ASK = ("Verändere nur, was der Nutzer im Verlauf selbst klar verlangt hat (z. B. „schreib das ins Wiki“, „merk dir …“, „leg den Termin an“) – "
+                "das zählt als Ja. Etwas senden (Mail, Nachricht), jemanden anrufen, löschen oder etwas kaufen nur, wenn er genau dazu im Verlauf "
+                "ausdrücklich Ja gesagt hat; sonst schreib, was du tun würdest, und Stella fragt ihn.")
+IDA_RULE_YES = "Der Nutzer hat im Gespräch ausdrücklich zugestimmt, du darfst das Verlangte ausführen."
+WHO = {"user": "Nutzer", "stella": "Stella", "ida": "Ida (deine frühere Antwort)"}
 LINE_PREFIX = {"ida_frage": "Stella hat Ida gefragt: ", "ida": "Ida: "}  # Rückfragen an Ida in der Mitschrift
 # Never need a yes: saving what the user just said, ticking off a tracker he reports done
 NO_CONFIRM = {"memory_save", "tracker_check"}
@@ -174,27 +181,35 @@ def _meta_tools() -> list[dict]:
              "argumente_json": {"type": "string", "description": "Parameter als JSON-Objekt, z. B. {\"query\": \"Rechnung\"}"},
              "bestaetigt": {"type": "boolean", "description": "Nur true, wenn der Nutzer genau diese Aktion ausdrücklich mit Ja bestätigt hat."}},
              "required": ["name"]}},
-        {"name": "ida_fragen", "description": "Fragt Ida live und wartet auf ihre Antwort: wenn du etwas nicht weißt, nichts Passendes findest oder "
-                                              "die Frage mehr Überlegen oder mehrere Quellen braucht. Dauert meist einige Sekunden bis eine Minute.",
+        {"name": "ida_fragen", "description": "Fragt Ida live und wartet auf ihre Antwort, oder gibt ihr einen Auftrag, den sie sofort erledigt: wenn du "
+                                              "etwas nicht weißt, nichts Passendes findest, es mehrere Schritte oder einen längeren Text braucht (z. B. Wiki-Seite "
+                                              "anlegen). Dauert meist einige Sekunden bis eine Minute.",
          "parameters": {"type": "object", "properties": {
-             "frage": {"type": "string", "description": "Die Frage. Ida hört das Gespräch nicht mit, kennt aber deine früheren Fragen aus diesem Gespräch; wiederhole nur, was neu ist."},
+             "frage": {"type": "string", "description": "Was Ida herausfinden oder tun soll, klar und vollständig. Ida bekommt den Gesprächsverlauf mit, "
+                                                        "Bezüge wie „den Leitsatz von vorhin“ versteht sie also."},
              "bestaetigt": {"type": "boolean", "description": "Nur true, wenn Ida etwas verändern soll und der Nutzer genau das ausdrücklich mit Ja bestätigt hat."}},
              "required": ["frage"]}},
     ]
 
 
 TOOL_RULES = """
-Tools im Gespräch: Lesen (Termine, Stundenplan, Wiki, Gedächtnis …) darfst du sofort. Bevor du etwas veränderst (Termin anlegen,
-Mail senden, Licht schalten, Erinnerung setzen …), sag dem Nutzer in einem Satz genau, was du tun würdest, und frag kurz nach.
-Erst nach seinem klaren Ja rufst du das Tool mit bestaetigt=true auf – nie ohne sein Ja. „Merk dir …“ speicherst du ohne
-Nachfrage mit memory_save. Passt keins der direkten Tools, such mit tool_suchen und führe mit tool_ausfuehren aus.
-Weißt du etwas nicht, braucht eine Frage mehr Überlegen oder soll Ida etwas nachschauen oder erledigen (auch im Wiki),
-frag Ida live mit ida_fragen und WARTE auf ihre Antwort: Sag vorher kurz „Moment, ich frag Ida.“, gib ihre Antwort danach
-knapp in deinen Worten wieder und erfinde nichts dazu. Sag nie „Ida meldet sich“ oder „ich gebe das an Ida ab“, du holst
-die Antwort selbst. Braucht Ida länger, sag das kurz und red normal weiter; ihre Antwort kommt von selbst in dieses Gespräch
-(als „[Ida hat jetzt geantwortet] …“), dann gibst du sie sofort weiter. Soll Ida etwas verändern, gilt dieselbe Regel: erst
-sein klares Ja, dann bestaetigt=true. Beende das Gespräch nie von dir aus, solange der Nutzer sich nicht verabschiedet,
-und erst recht nicht, während du auf Ida wartest. Sag vor einem Tool kurz „Moment“ o. Ä. Erfinde nie Ergebnisse; Fehler oder nichts gefunden sagst du ehrlich.
+Tools im Gespräch – die wichtigste Regel: Etwas ist nur passiert, wenn du in diesem Moment ein Tool dafür aufrufst. Sag nie
+„ich speichere das“, „ich gebe das an Ida weiter“, „Ida kümmert sich“ oder „wird erledigt“, ohne im selben Zug das Tool
+aufzurufen – sonst passiert nichts. Lesen (Termine, Stundenplan, Wiki, Gedächtnis …) darfst du sofort.
+Verändern (Termin anlegen, ins Wiki schreiben, Erinnerung setzen …): Hat der Nutzer es gerade selbst verlangt („schreib das ins
+Wiki“, „leg den Termin an“), ist das schon sein Ja – dann mach es direkt mit bestaetigt=true, ohne nochmal zu fragen. Nur wenn
+du etwas von dir aus vorschlägst oder es unklar ist, sag in einem Satz, was du tun würdest, und frag kurz. Senden (Mail, Nachricht),
+Löschen und Anrufen immer erst nach seinem ausdrücklichen Ja zu genau dieser Aktion. „Merk dir …“ speicherst du ohne Nachfrage
+mit memory_save. Passt keins der direkten Tools, such mit tool_suchen und führe mit tool_ausfuehren aus.
+Ida ist dein Kopf für alles Größere: Weißt du etwas nicht, braucht es mehr Überlegen, mehrere Schritte oder einen längeren Text
+(Wiki-Seite anlegen, Entwurf ablegen, recherchieren, im Wiki nachschauen), frag Ida live mit ida_fragen und WARTE auf ihre Antwort.
+Ida sieht den Gesprächsverlauf, schreib in die Frage trotzdem klar, was genau sie tun oder herausfinden soll. Sag vorher kurz
+„Moment, ich frag Ida.“, gib ihre Antwort danach knapp in deinen Worten wieder und erfinde nichts dazu. Sag nie „Ida meldet
+sich“, du holst die Antwort selbst. Braucht Ida länger, sag das kurz und red normal weiter; ihre Antwort kommt von selbst in
+dieses Gespräch (als „[Ida hat jetzt geantwortet] …“), dann gibst du sie sofort weiter. Für Ida gilt bei Änderungen dieselbe
+Ja-Regel wie für dich (bestaetigt=true). Beende das Gespräch nie von dir aus, solange der Nutzer sich nicht verabschiedet, und
+erst recht nicht, während du auf Ida wartest. Erfinde nie Ergebnisse; Fehler oder nichts gefunden sagst du ehrlich.
+Nachrichten in eckigen Klammern wie „[System …]“ kommen vom System, nicht vom Nutzer: befolge sie, lies sie nicht vor.
 """
 
 
@@ -272,16 +287,32 @@ async def _chat_turn(sess: Session, agent_id: str, text: str, model: str | None,
     return bool(done.get("ok")), answer if done.get("ok") else str(done.get("error") or answer or "Keine Antwort")
 
 
-async def _ida_answer(sess: Session, question: str, yes: bool) -> tuple[str, bool, str]:
+def talk_text(history: list | None, limit: int = 6000) -> str:
+    """Mitschrift-Zeilen [{who, text}] -> „Nutzer: …\nStella: …“ (die neuesten zuerst behalten)."""
+    lines = []
+    for x in history or []:
+        if not isinstance(x, dict):
+            continue
+        who, text = str(x.get("who") or ""), " ".join(str(x.get("text") or "").split())
+        if who in WHO and text:
+            lines.append(f"{WHO[who]}: {text[:1200]}")
+    out = "\n".join(lines)
+    return out[-limit:]
+
+
+async def _ida_answer(sess: Session, question: str, yes: bool, history: list | None = None,
+                      intro: str = IDA_INTRO) -> tuple[str, bool, str]:
     """Ida answers in her own chat with the model "Auto", like a chat message. -> (her id, ok, text)"""
     async with session_scope() as db:
         main = await db.scalar(select(Agent).where(Agent.is_main.is_(True)))
         if not main:
             raise NotFound("Kein Haupt-Agent")
         main_id, own_model = main.id, main.model or get_settings().default_model
-    rule = ("Der Nutzer hat im Gespräch ausdrücklich zugestimmt, du darfst das Verlangte ausführen." if yes else
-            "Nur nachschauen und antworten: Verändere nichts (nichts senden, anlegen, löschen, schalten). Wäre dafür eine Aktion nötig, sag das.")
-    text = f"{IDA_INTRO}\n\nStella fragt: {question}\n\n{rule}"  # jedes Mal: der Chat zeigt (und merkt sich) nur die Frage
+    rule = IDA_RULE_YES if yes else IDA_RULE_ASK
+    talk = talk_text(history)
+    # jedes Mal: der Chat zeigt (und merkt sich) nur die Frage; Verlauf und Regeln gehen nur an Ida
+    text = (f"{intro}\n\n" + (f"Gesprächsverlauf bis jetzt:\n{talk}\n\n" if talk else "")
+            + f"Stella fragt: {question}\n\n{rule}")
     try:
         ok, answer = await _chat_turn(sess, main_id, text, autoroute.AUTO, shown=question)
     except Invalid as e:  # Auto hat nichts zur Auswahl: dann Idas eigenes Modell
@@ -310,7 +341,7 @@ async def _late_answer(sess: Session, task: asyncio.Task, question: str) -> None
         log.exception("voice: late answer of Ida failed")
 
 
-async def _ask_ida(sess: Session, question: str, yes: bool) -> dict:
+async def _ask_ida(sess: Session, question: str, yes: bool, history: list | None = None) -> dict:
     question = " ".join((question or "").split())[:1500]
     if not question:
         return _out("Die Frage fehlt.", True)
@@ -320,7 +351,7 @@ async def _ask_ida(sess: Session, question: str, yes: bool) -> dict:
     sess.ida_late = None
     sess.ida_said.clear()
     sess.ida_ready.clear()
-    task = sess.ida_task = asyncio.create_task(_ida_answer(sess, question, yes))
+    task = sess.ida_task = asyncio.create_task(_ida_answer(sess, question, yes, history))
     done, _ = await asyncio.wait({task}, timeout=get_settings().voice_ida_ask_s)
     activity.step(sess.run, "thinking")
     if not done:
@@ -408,7 +439,8 @@ async def call_tool(call_id: str, name: str, args: dict) -> dict:
         return await _wait_late(sess)
     yes = args.pop("bestaetigt", False) is True
     if name == "ida_fragen":
-        return await _ask_ida(sess, str(args.get("frage") or ""), yes)
+        history = args.get("verlauf")
+        return await _ask_ida(sess, str(args.get("frage") or ""), yes, history if isinstance(history, list) else None)
     if name == "tool_ausfuehren":
         name = str(args.get("name") or "")
         raw = args.get("argumente_json") or args.get("argumente") or {}
@@ -489,12 +521,47 @@ async def finish(call_id: str, transcript: list[dict], outcome: str = "", status
                                  text=f"{outcome or 'Gespräch beendet.'}\nDie Mitschrift steht im Chat „{_title(direction, owner, number)}“.")
     if lines and owner:
         used = sess.used if sess else []
-        jobs.submit(f"voice summary {call_id}", lambda: _evaluate(agent_id, chat_id, direction, purpose, lines, used))
+        handover = sess or Session(call_id=call_id, agent_id=agent_id, owner=True, direction=direction, number=number, purpose=purpose)
+        history = [{"who": w, "text": " ".join(str(x.get("text") or "").split())} for x in transcript or []
+                   if (w := str(x.get("who") or "")) in WHO]
+        jobs.submit(f"voice summary {call_id}", lambda: _evaluate(agent_id, chat_id, direction, purpose, lines, used, handover, history))
     return {"ok": True, "chat_id": chat_id}
 
 
-async def _evaluate(agent_id: str, chat_id: str, direction: str, purpose: str, lines: list[tuple[str, str]], used: list[str]) -> None:
-    """After a conversation with the user: the agent's normal model writes the summary and keeps what matters."""
+OPEN_LINE = re.compile(r"^\s*[-*]?\s*\**OFFEN\**\s*:\s*\**\s*(.+)$", re.IGNORECASE | re.MULTILINE)
+IDA_AFTER = ("Stella hatte gerade ein Gespräch mit dem Nutzer, das jetzt vorbei ist. Darin ist etwas offen geblieben, das der Nutzer wollte "
+             "(Stella hat es zugesagt, aber nicht erledigt). Erledige es jetzt anhand des Verlaufs. Deine Antwort bekommt der Nutzer als "
+             "Nachricht: 1–3 Sätze, was du gemacht hast und wo es liegt.")
+
+
+def open_tasks(text: str) -> tuple[str, list[str]]:
+    """Endausgabe der Auswertung -> (Zusammenfassung ohne OFFEN-Zeilen, offene Aufträge)."""
+    tasks = [t.strip() for t in OPEN_LINE.findall(text or "") if t.strip() and t.strip().lower() not in ("-", "nichts", "keine", "keiner")]
+    return OPEN_LINE.sub("", text or "").strip(), tasks[:5]
+
+
+async def _hand_over(sess: Session, tasks: list[str], history: list) -> str:
+    """Nach dem Gespräch: Ida erledigt, was offen blieb – im selben „Stella fragt“-Chat (pink), Ergebnis als Nachricht."""
+    question = "Nach dem Gespräch noch offen: " + " | ".join(tasks)
+    try:
+        main_id, ok, answer = await _ida_answer(sess, question, False, history, intro=IDA_AFTER)
+    except Exception as e:  # noqa: BLE001
+        log.exception("voice: hand-over to Ida failed")
+        main_id, ok, answer = "", False, str(e) or e.__class__.__name__
+    async with session_scope() as db:
+        if not main_id:
+            main = await db.scalar(select(Agent).where(Agent.is_main.is_(True)))
+            main_id = main.id if main else sess.agent_id
+        await agent_svc.send(db, from_id=main_id, to=USER, kind="notice", title="Ida: offen aus dem Gespräch mit Stella",
+                             text="\n".join(f"- {t}" for t in tasks) + "\n\n"
+                             + (answer if ok else "Das hat nicht geklappt: " + answer[:300]))
+    return answer if ok else ""
+
+
+async def _evaluate(agent_id: str, chat_id: str, direction: str, purpose: str, lines: list[tuple[str, str]], used: list[str],
+                    sess: Session | None = None, history: list | None = None) -> None:
+    """After a conversation with the user: the agent's normal model writes the summary and keeps what matters.
+    What the user wanted but nobody did goes to Ida right away (not as agent_delegate: its result would only reach Stella)."""
     from .runs import run_agent
 
     talk = "\n".join(f"{'Nutzer' if w == 'user' else 'Du'}: {t}" for w, t in lines)[-12000:]
@@ -504,9 +571,11 @@ async def _evaluate(agent_id: str, chat_id: str, direction: str, purpose: str, l
               + (f"Im Gespräch schon ausgeführte Tools: {', '.join(used)} – NICHT nochmal ausführen.\n" if used else "")
               + f"\nMitschrift:\n{talk}\n\n"
               "Aufgaben:\n1. Speichere mit memory_save nur dauerhaft Wichtiges, das neu ist (Fakten, Vorlieben, Pläne, Entscheidungen) – "
-              "nichts Flüchtiges, nichts doppelt.\n2. Hat der Nutzer etwas verlangt, das im Gespräch NICHT erledigt wurde, gib es mit "
-              "agent_delegate an Ida ab (nur, was er klar wollte).\n3. Deine Endausgabe ist nur die Zusammenfassung in 2–4 Sätzen "
-              "(was besprochen wurde, was erledigt ist, was offen ist) – sie steht danach im Chat.")
+              "nichts Flüchtiges, nichts doppelt.\n2. Hat der Nutzer etwas verlangt, das im Gespräch NICHT wirklich erledigt wurde "
+              "(auch wenn du „ich gebe das an Ida weiter“ oder „wird erledigt“ gesagt hast, aber kein passendes Tool oben steht), "
+              "schreib es NICHT per agent_delegate, sondern ans Ende deiner Ausgabe, je Auftrag eine Zeile „OFFEN: <Auftrag mit allem, "
+              "was man dafür aus dem Gespräch wissen muss>“. Nur, was er klar wollte; Ida erledigt das dann sofort.\n"
+              "3. Davor steht die Zusammenfassung in 2–4 Sätzen (was besprochen wurde, was erledigt ist, was offen ist) – sie steht danach im Chat.")
     try:
         out = await run_agent(agent_id, prompt)
     except Exception as e:  # noqa: BLE001
@@ -514,9 +583,13 @@ async def _evaluate(agent_id: str, chat_id: str, direction: str, purpose: str, l
         from .claude.runner import RunResult
         out = RunResult(ok=False, text=str(e), tools=[])
     await agent_svc.record_run(agent_id, "Gespräch", out.ok, out.text, out.tools, out.account)
-    if chat_id and out.text:
+    summary, tasks = open_tasks(out.text) if out.ok else (out.text, [])
+    if tasks and sess:
+        done = await _hand_over(sess, tasks, history or [])
+        summary += "\n\n**An Ida übergeben:** " + "; ".join(tasks) + (f"\n\n**Ida:** {done}" if done else "")
+    if chat_id and summary:
         async with session_scope() as db:
-            text = out.text if out.ok else f"(Auswertung fehlgeschlagen: {out.text[:300]})"
+            text = summary if out.ok else f"(Auswertung fehlgeschlagen: {out.text[:300]})"
             db.add(ChatMessage(chat_id=chat_id, role="assistant", text=text, parts=[{"t": "text", "text": text}],
                                meta={"voice_summary": True, "account": out.account}))
 
