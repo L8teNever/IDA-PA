@@ -239,6 +239,15 @@ def test_stella_asks_ida_live(client, voice):
     out = client.post(f"{API}/voice/internal/tool", headers=SECRET, timeout=60,
                       json={"call_id": call, "name": "ida_fragen", "args": {"frage": "Wann ist Ostern?"}}).json()
     assert out.get("result") and "error" not in out
+    from app.services import voice_bridge
+    first = voice_bridge._sessions[call].ida_chat
+    assert first
+    client.post(f"{API}/voice/internal/tool", headers=SECRET, timeout=60,
+                json={"call_id": call, "name": "ida_fragen", "args": {"frage": "Und Pfingsten?"}})
+    assert voice_bridge._sessions[call].ida_chat == first  # zweite Frage bleibt im selben Chat
+    ida = client.get(f"{API}/chats/{first}").json()
+    asked = [m["text"] for m in ida["messages"] if m["role"] == "user"]
+    assert len(asked) == 2 and "Ostern" in asked[0] and "Pfingsten" in asked[1] and "live mit dem Nutzer" not in asked[1]
     empty = client.post(f"{API}/voice/internal/tool", headers=SECRET, json={"call_id": call, "name": "ida_fragen", "args": {}}).json()
     assert "error" in empty
     transcript = [{"who": "user", "text": "Frag Ida"}, {"who": "ida_frage", "text": "Wann ist Ostern?"}, {"who": "ida", "text": "Im April."},

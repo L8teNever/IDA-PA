@@ -15,6 +15,7 @@ import json
 import logging
 import re
 import time
+from contextlib import aclosing
 from dataclasses import dataclass, field
 from datetime import datetime
 
@@ -38,6 +39,9 @@ RESULT_LIMIT = 2500
 MAX_DECLARED = 40
 DEF_TTL = 600  # connector tool definitions are cached this long (listing them costs a round trip per server)
 META = ("tool_suchen", "tool_ausfuehren", "ida_fragen")
+IDA_INTRO = ("Stella spricht gerade live mit dem Nutzer und wartet auf dich. Alle Nachrichten in diesem Chat sind ihre Fragen aus demselben Gespräch. "
+             "Antworte immer schnell und so kurz wie möglich, höchstens drei gesprochene Sätze, ohne Markdown und ohne Links, Stella sagt das laut weiter. "
+             "Weißt du etwas nicht, sag das.")
 LINE_PREFIX = {"ida_frage": "Stella hat Ida gefragt: ", "ida": "Ida: "}  # Rückfragen an Ida in der Mitschrift
 # Never need a yes: saving what the user just said, ticking off a tracker he reports done
 NO_CONFIRM = {"memory_save", "tracker_check"}
@@ -84,6 +88,8 @@ class Session:
     tools: dict[str, Tool] = field(default_factory=dict)
     run: int = 0  # activity id (mascot)
     used: list[str] = field(default_factory=list)  # "name ok|fehler" in order
+    ida_chat: str | None = None  # this conversation's chat with Ida (ida_fragen)
+    ida_task: asyncio.Task | None = None
 
 
 _sessions: dict[str, Session] = {}
@@ -165,7 +171,7 @@ def _meta_tools() -> list[dict]:
         {"name": "ida_fragen", "description": "Fragt Ida live und wartet auf ihre Antwort: wenn du etwas nicht weißt, nichts Passendes findest oder "
                                               "die Frage mehr Überlegen oder mehrere Quellen braucht. Dauert meist einige Sekunden bis eine Minute.",
          "parameters": {"type": "object", "properties": {
-             "frage": {"type": "string", "description": "Die vollständige Frage mit allem Nötigen aus dem Gespräch; Ida hört das Gespräch nicht mit."},
+             "frage": {"type": "string", "description": "Die Frage. Ida hört das Gespräch nicht mit, kennt aber deine früheren Fragen aus diesem Gespräch; wiederhole nur, was neu ist."},
              "bestaetigt": {"type": "boolean", "description": "Nur true, wenn Ida etwas verändern soll und der Nutzer genau das ausdrücklich mit Ja bestätigt hat."}},
              "required": ["frage"]}},
     ]
@@ -233,37 +239,54 @@ async def start(call_id: str, direction: str, number: str, owner: bool, purpose:
 
 
 # ---------------- Stella asks Ida ----------------
-async def _ida_answer(question: str, yes: bool):
-    """One run of the main agent; its model comes from Auto like a chat message set to "Auto"."""
-    from .runs import run_agent
+async def _chat_turn(sess: Session, agent_id: str, text: str, model: str | None) -> tuple[bool, str]:
+    """One message in this conversation's chat with Ida. The chat keeps her context from question to question."""
+    from .chat import stream_chat
 
+    parts: list[str] = []
+    done: dict = {}
+    async with aclosing(stream_chat(chat_id=sess.ida_chat, agent_id=agent_id, text=text, model=model, account_id=None, skill_id=None)) as events:
+        async for ev in events:
+            if "chat" in ev and not sess.ida_chat:
+                sess.ida_chat = ev["chat"]["id"]
+                async with session_scope() as db:
+                    chat = await db.get(Chat, sess.ida_chat)
+                    if chat:
+                        chat.title = f"Stella fragt · {datetime.now(tz()).strftime('%d.%m. %H:%M')}"
+            elif "text" in ev:
+                parts.append(ev["text"])
+            elif "done" in ev:
+                done = ev["done"]
+    answer = "".join(parts).strip()
+    return bool(done.get("ok")), answer if done.get("ok") else str(done.get("error") or answer or "Keine Antwort")
+
+
+async def _ida_answer(sess: Session, question: str, yes: bool) -> tuple[str, bool, str]:
+    """Ida answers in her own chat with the model "Auto", like a chat message. -> (her id, ok, text)"""
     async with session_scope() as db:
         main = await db.scalar(select(Agent).where(Agent.is_main.is_(True)))
         if not main:
             raise NotFound("Kein Haupt-Agent")
-        main_id = main.id
-        try:
-            route = await autoroute.route(db, question)
-        except Invalid as e:  # Auto hat nichts zur Auswahl: dann Idas eigenes Modell
-            log.info("voice: Auto nicht verfügbar: %s", e)
-            route = {}
+        main_id, own_model = main.id, main.model or get_settings().default_model
     rule = ("Der Nutzer hat im Gespräch ausdrücklich zugestimmt, du darfst das Verlangte ausführen." if yes else
             "Nur nachschauen und antworten: Verändere nichts (nichts senden, anlegen, löschen, schalten). Wäre dafür eine Aktion nötig, sag das.")
-    prompt = (f"Stella spricht gerade live mit dem Nutzer und wartet auf dich. Ihre Frage:\n{question}\n\n{rule}\n"
-              "Antworte schnell und so kurz wie möglich, höchstens drei gesprochene Sätze, ohne Markdown und ohne Links – Stella sagt das laut weiter. "
-              "Weißt du es nicht, sag das.")
-    out = await run_agent(main_id, prompt, model=route.get("model"), effort=route.get("effort"), depth=1)
-    await agent_svc.record_run(main_id, "Frage von Stella", out.ok, out.text, out.tools, out.account)
-    return main_id, out
+    intro = "" if sess.ida_chat else IDA_INTRO + "\n\n"
+    text = f"{intro}Stella fragt: {question}\n\n{rule}"
+    try:
+        ok, answer = await _chat_turn(sess, main_id, text, autoroute.AUTO)
+    except Invalid as e:  # Auto hat nichts zur Auswahl: dann Idas eigenes Modell
+        log.info("voice: Auto nicht verfügbar: %s", e)
+        ok, answer = await _chat_turn(sess, main_id, text, own_model)
+    return main_id, ok, answer
 
 
 async def _late_answer(task: asyncio.Task, question: str) -> None:
     """Ida was slower than Stella may wait: the answer still reaches the user, as a message."""
     try:
-        main_id, out = await task
+        main_id, ok, answer = await task
         async with session_scope() as db:
             await agent_svc.send(db, from_id=main_id, to=USER, kind="notice", title="Ida zu Stellas Frage",
-                                 text=f"{question}\n\n{out.text if out.ok else 'Das hat nicht geklappt: ' + out.text[:300]}")
+                                 text=f"{question}\n\n{answer if ok else 'Das hat nicht geklappt: ' + answer[:300]}")
     except Exception:  # noqa: BLE001
         log.exception("voice: late answer of Ida failed")
 
@@ -272,8 +295,10 @@ async def _ask_ida(sess: Session, question: str, yes: bool) -> dict:
     question = " ".join((question or "").split())[:1500]
     if not question:
         return _out("Die Frage fehlt.", True)
+    if sess.ida_task and not sess.ida_task.done():
+        return _out("Ida arbeitet noch an deiner letzten Frage. Ihre Antwort kommt als Nachricht in IDA, frag danach nochmal.")
     activity.step(sess.run, "tool", "ida_fragen", "ida")
-    task = asyncio.create_task(_ida_answer(question, yes))
+    task = sess.ida_task = asyncio.create_task(_ida_answer(sess, question, yes))
     done, _ = await asyncio.wait({task}, timeout=get_settings().voice_ida_ask_s)
     activity.step(sess.run, "thinking")
     if not done:
@@ -283,13 +308,13 @@ async def _ask_ida(sess: Session, question: str, yes: bool) -> dict:
         sess.used.append("ida_fragen läuft noch")
         return _out("Ida braucht länger. Sag dem Nutzer, dass ihre Antwort gleich als Nachricht in IDA kommt.")
     try:
-        _, out = task.result()
+        _, ok, answer = task.result()
     except Exception as e:  # noqa: BLE001
         log.exception("voice: Ida could not answer")
         sess.used.append("ida_fragen Fehler")
         return _out(f"Ida ist gerade nicht erreichbar ({e.__class__.__name__}).", True)
-    sess.used.append(f"ida_fragen {'ok' if out.ok else 'Fehler'}")
-    return _out(out.text, not out.ok)
+    sess.used.append(f"ida_fragen {'ok' if ok else 'Fehler'}")
+    return _out(answer, not ok)
 
 
 # ---------------- tools ----------------
