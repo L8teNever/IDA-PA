@@ -7,7 +7,7 @@ import { loadUsage, mainAgent, modelInfo, state } from "./store.js";
 import { initQuote, withQuote } from "./quote.js";
 import { bindQueue, enqueue } from "./queue.js";
 import { bindDraft, draftSent } from "./draft.js";
-import { $, esc, toast } from "./ui.js";
+import { $, esc, popMenu, toast } from "./ui.js";
 
 let sel = JSON.parse(localStorage.getItem("code-model") || "null"); // { model, account, effort }
 let files = []; // { key, name, kind, url, id?, state: "up"|"ok" }
@@ -48,6 +48,8 @@ export function composerHtml(placeholder) {
     <div class="comp-row">
       <button type="button" class="icon-btn sm" id="attachBtn" title="Datei oder Bild anhängen" aria-label="Datei anhängen"><span class="ms">attach_file</span></button>
       <input type="file" id="fileInput" multiple hidden>
+      <input type="file" id="photoInput" accept="image/*" multiple hidden>
+      <input type="file" id="cameraInput" accept="image/*" capture="environment" hidden>
       <button type="button" class="model-chip" id="modelBtn" aria-haspopup="menu"><span class="ms" id="modelIcon">psychology</span><span id="modelName">Modell</span><span id="limNow" class="lim-now"></span><span class="ms dd-chev">expand_more</span></button>
       <span class="comp-space"></span>
       <button class="send" id="send" type="submit" disabled aria-label="Senden"><span class="ms">arrow_upward</span></button>
@@ -165,6 +167,19 @@ async function shrink(file) {
 }
 const MAX_FILE = 100 * 1024 * 1024; // so viel nimmt Ida (und Cloudflare) pro Datei
 const FILE_ICON = { pdf: "picture_as_pdf", text: "description", file: "draft" };
+const ATTACH = [{ value: "camera", icon: "photo_camera", label: "Foto aufnehmen" }, { value: "photo", icon: "image", label: "Bild auswählen" },
+                { value: "file", icon: "attach_file", label: "Datei auswählen" }, { value: "clip", icon: "content_paste", label: "Bild aus Zwischenablage" }];
+// für Handys: dort gibt es oft kein Einfügen von Bildern ins Textfeld
+async function pasteImages() {
+  try {
+    const out = [];
+    for (const item of await navigator.clipboard.read()) {
+      const type = item.types.find((t) => t.startsWith("image/"));
+      if (type) out.push(new File([await item.getType(type)], `bild.${type.split("/")[1]}`, { type }));
+    }
+    if (out.length) addFiles(out); else toast("In der Zwischenablage ist kein Bild");
+  } catch { toast("Kein Zugriff auf die Zwischenablage"); }
+}
 async function addFiles(list) {
   for (const raw of [...list]) {
     if (files.length >= 10) { toast("Höchstens 10 Dateien pro Nachricht"); break; }
@@ -210,12 +225,19 @@ export function bindComposer() {
   input.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && !e.shiftKey && !e.isComposing && !matchMedia("(pointer: coarse)").matches) { e.preventDefault(); form.requestSubmit(); }
   });
-  input.addEventListener("paste", (e) => { const fs = [...(e.clipboardData?.files || [])]; if (fs.length) { e.preventDefault(); addFiles(fs); } });
+  input.addEventListener("paste", (e) => { // manche Handys liefern Bilder nur in items, nicht in files
+    const d = e.clipboardData;
+    const fs = d?.files?.length ? [...d.files] : [...(d?.items || [])].filter((i) => i.kind === "file").map((i) => i.getAsFile()).filter(Boolean);
+    if (fs.length) { e.preventDefault(); addFiles(fs); }
+  });
   form.addEventListener("dragover", (e) => { if ([...e.dataTransfer.types].includes("Files")) { e.preventDefault(); form.classList.add("drop"); } });
   form.addEventListener("dragleave", () => form.classList.remove("drop"));
   form.addEventListener("drop", (e) => { if (e.dataTransfer.files.length) { e.preventDefault(); addFiles(e.dataTransfer.files); } form.classList.remove("drop"); });
-  $("attachBtn").onclick = () => $("fileInput").click();
-  $("fileInput").onchange = () => { addFiles($("fileInput").files); $("fileInput").value = ""; };
+  $("attachBtn").onclick = () => popMenu($("attachBtn"), ATTACH.filter((x) => x.value !== "clip" || navigator.clipboard?.read), (v) => {
+    if (v === "clip") pasteImages();
+    else $({ camera: "cameraInput", photo: "photoInput", file: "fileInput" }[v]).click();
+  });
+  for (const id of ["fileInput", "photoInput", "cameraInput"]) $(id).onchange = (e) => { addFiles(e.target.files); e.target.value = ""; };
   $("attList").onclick = (e) => {
     const b = e.target.closest("[data-rm]");
     if (!b) return;
