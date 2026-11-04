@@ -248,7 +248,7 @@ async function follow(start, since = null) {
   const t0 = since ? new Date(since).getTime() : Date.now();
   const clock = document.createElement("div");
   clock.className = "msg-note live";
-  el.after(clock);
+  el.closest(".row").after(clock); // neben der Nachricht würde die Uhr sie schmaler machen, solange sie läuft
   // nur der Text tickt – das Symbol bleibt stehen (sonst startet die Animation jede Sekunde neu)
   clock.innerHTML = `<span class="ms spin">progress_activity</span><span></span>`;
   const label = clock.lastChild;

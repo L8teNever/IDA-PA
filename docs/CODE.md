@@ -39,3 +39,4 @@ Die KI nutzt sie mit `sandbox_ausfuehren`, der Nutzer im Tab „Sandbox“ der C
 - 2 GB RAM und 2 CPUs. Mehr RAM (bis `SANDBOX_MAX_GB`, Standard 6) fragt die KI mit `sandbox_mehr_ram`, der Nutzer bestätigt im Thread. Das gilt bis zum nächsten Stopp.
 - 15 Minuten ohne Befehl: Die Sandbox stoppt samt allem, was darin läuft. Dateien bleiben, nach 7 Tagen ohne Nutzung wird alles gelöscht.
 - Eingeschaltet wird sie mit `SANDBOX_SECRET` in der `.env`.
+- Netz: Internet ja, Server und lokales Netz nein. Das regelt die Firewall des Servers über die Schnittstelle `ida-sandbox0` (`ida-sandbox-firewall.service`, auf dem Server eingerichtet). Auf einem neuen Server muss sie dort neu eingerichtet werden, sonst erreicht die Sandbox interne Dienste.

@@ -72,7 +72,8 @@ class Sandboxes:
                 async for _ in s.aiter_raw():
                     pass
         r = await self.docker.post("/networks/create", json={"Name": NETWORK, "CheckDuplicate": True,
-                                                             "Options": {"com.docker.network.bridge.enable_icc": "false"}})
+                                                             "Options": {"com.docker.network.bridge.enable_icc": "false",
+                                                                         "com.docker.network.bridge.name": "ida-sandbox0"}})  # an diesem Namen hängt die Firewall
         if r.status_code not in (201, 409):  # 409: gibt es schon
             r.raise_for_status()
 

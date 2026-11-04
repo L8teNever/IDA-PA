@@ -20,7 +20,7 @@ class Settings(BaseSettings):
     default_model: str = "claude-sonnet-5-5"
     cheap_model: str = "claude-haiku-5-5"
     timezone: str = "Europe/Berlin"  # routines with fixed times run in this zone  # memory consolidation and other housekeeping
-    run_timeout_s: int = 600
+    run_timeout_s: int = 3600
 
     # Optional embeddings for the memory (Ollama on the host)
     ollama_url: str = "http://host.docker.internal:11434"

@@ -143,6 +143,10 @@ def running(chat_id: str) -> bool:
     return chat_id in _starting or _busy(chat_id)
 
 
+def running_count() -> int:
+    return sum(1 for c in {*_live, *_starting} if running(c))
+
+
 def running_since(chat_id: str):
     live = _live.get(chat_id)
     return live.started if live and not live.done else utcnow() if chat_id in _starting else None

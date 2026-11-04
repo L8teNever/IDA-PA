@@ -9,6 +9,7 @@ from ..db import utcnow
 from ..models import USER, Account, Agent, Connector, Message, Reminder, Routine, RoutineRun, Skill, Tracker
 from ..schemas import HomeCalendar
 from ..services import activity, home_calendar, jobs, kalender_client, providers, settings_store, trackers
+from ..services import chat as chat_service
 from ..services import code as code_area
 from ..services.agents import PALETTES
 from ..services.claude.usage import logged_in
@@ -23,7 +24,7 @@ router = APIRouter(tags=["system"])
 
 @router.get("/api/v1/health")
 async def health():
-    return {"ok": True}
+    return {"ok": True, "antworten": chat_service.running_count()}  # Updates warten, bis keine Antwort mehr läuft
 
 
 @router.get("/api/v1/activity")
