@@ -10,7 +10,8 @@
 // ctx: { top(html) – Kopfzeile setzen, scroll – Inhaltsbereich, navigate(url), openDrawer() }
 import overview from "./overview.js";
 import stacks from "./stacks.js";
+import files from "./files.js";
 import monitor from "./monitor.js";
 import storage from "./storage.js";
 
-export const TOOLS = [overview, stacks, monitor, storage];
+export const TOOLS = [overview, stacks, files, monitor, storage];

@@ -100,7 +100,9 @@ def create_app(*, docker: Docker | None = None, store: Store | None = None, back
         # Schutz vor fremden Seiten (CSRF): ändernde Aufrufe nur als JSON – das kann ein fremdes Formular nicht schicken,
         # und fetch() von fremden Seiten scheitert an der CORS-Vorabfrage.
         if request.method in ("POST", "PUT", "PATCH", "DELETE") and request.url.path.startswith("/api/"):
-            if not request.headers.get("content-type", "").startswith("application/json"):
+            # Hochladen schickt rohe Daten: dort schützt der eigene Header genauso, fremde Seiten dürfen ihn nicht setzen.
+            upload = request.url.path == "/api/v1/fs/upload" and request.method == "PUT" and request.headers.get("x-ida-upload") == "1"
+            if not upload and not request.headers.get("content-type", "").startswith("application/json"):
                 return JSONResponse({"detail": "Nur JSON"}, status_code=415)
         return await call_next(request)
 

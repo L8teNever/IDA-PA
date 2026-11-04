@@ -15,6 +15,8 @@ class Settings(BaseSettings):
     stacks_dirs: str = "/opt/stacks"
     host_proc: str = "/host/proc"     # /proc des Servers (CPU, RAM, Netz des ganzen Servers); fehlt es, gilt /proc
     host_root: str = "/hostfs"        # / des Servers, nur lesend (Belegung der Platte); fehlt es, gilt /
+    files_root: str = "/hostfs"       # / des Servers mit Schreibrecht (Tool „Dateien“)
+    files_fallback: str = "/opt"      # fehlt files_root: nur dieser Ordner, unter demselben Pfad eingebunden
     net_ifaces: str = ""              # Netzwerkkarten fürs Internet (Komma-getrennt); leer = alle echten Karten (ohne lo, veth, br-, docker, wg, tailscale …)
     sample_seconds: int = 15         # so oft wird gemessen
     raw_keep_hours: int = 48          # so lange bleiben die Einzelwerte, danach nur noch 10-Minuten-Mittel

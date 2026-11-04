@@ -23,6 +23,7 @@ export const api = {
   get: (p, q) => request("GET", q ? `${p}?${new URLSearchParams(Object.entries(q).filter(([, v]) => v != null && v !== ""))}` : p),
   post: (p, b) => request("POST", p, b),
   put: (p, b) => request("PUT", p, b),
+  del: (p, b) => request("DELETE", p, b),
 };
 
 // Einem Vorgang folgen (NDJSON): onEvent bekommt {job} / {line} / {done}

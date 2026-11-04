@@ -192,6 +192,7 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       - ${STACKS_ROOT:-/opt}:${STACKS_ROOT:-/opt}        # Stack-Ordner unter DEMSELBEN Pfad wie auf dem Server (sonst stimmen die Pfade für Compose nicht)
       - /proc:/host/proc:ro                              # CPU, RAM und Netz des ganzen Servers
+      - /:/hostfs:rslave                                 # Tool „Dateien“: der ganze Server mit Schreibrecht (rslave: auch später eingehängte Platten)
       - ${DOCKER_CONFIG_DIR:-~/.docker}:/root/.docker:ro # Login für private Images (ghcr.io) beim Aktualisieren
     labels:
       ida.dashboard: "self"   # daran erkennt sich das Dashboard selbst (stoppt sich nie selbst)

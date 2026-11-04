@@ -21,5 +21,5 @@ class Tool:
 
 
 def all_tools() -> list[Tool]:
-    from . import monitor, stacks, storage  # Reihenfolge = Reihenfolge in der Leiste
-    return [stacks.tool, monitor.tool, storage.tool]
+    from . import files, monitor, stacks, storage  # Reihenfolge = Reihenfolge in der Leiste
+    return [stacks.tool, files.tool, monitor.tool, storage.tool]

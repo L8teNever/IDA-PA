@@ -15,6 +15,15 @@ Es zeigt alles, was auf dem Server läuft, und lässt es bedienen:
     Ordner, Zielpfad, nur lesen). Die URLs liest das Dashboard bei `cloudflared` (Metrics-Port, `/config`, kein Token nötig) und
     ordnet sie über den Port dem Container zu. Dafür tritt es bei Bedarf selbst dem Netz von `cloudflared` bei.
   * Verbrauch des Stacks in den letzten 24 Stunden.
+* **Dateien**: Datei-Explorer für den ganzen Server (`/` ist unter `/hostfs` eingebunden, mit Schreibrecht). Ordner ansehen
+  (Liste oder Kacheln mit Bildvorschau, sortieren, suchen, versteckte Dateien), Bilder, Videos, Audio, PDF und HTML ansehen,
+  Textdateien im Code-Editor bearbeiten (CodeMirror, lokal gebündelt unter `frontend/dashboard/vendor/`, neu bauen mit
+  `dashboard/editor`), hochladen (viele Dateien und ganze Ordner, in 32-MB-Stücken wegen Cloudflare), ZIP/TAR entpacken, als ZIP
+  packen, umbenennen, kopieren, verschieben (auch per Ziehen) und löschen. Am PC: Klick wählt, Doppelklick öffnet, Strg/Shift
+  für mehrere, Rechtsklick fürs Menü, Strg+C/X/V, Entf, F2. Am Handy: Tippen öffnet, langes Drücken wählt aus.
+  Schutz: `/`, Ordner direkt darunter (`/etc`, `/var` …) lassen sich nicht löschen oder verschieben, `/proc`, `/sys` und `/dev`
+  nur ansehen. Symlinks löst das Dashboard selbst auf, damit sie auf dem Server landen und nicht im Container. Entpacken
+  lässt nichts aus dem Zielordner heraus. Neues gehört dem Besitzer des Ordners darüber. Fehlt der Mount, zeigt das Tool nur `/opt`.
 * **Leistung**: CPU, RAM und Netz des Servers als Diagramm. Zeitraum von 1 Std bis 1 Jahr, vor- und zurückblättern,
   einen Zeitpunkt wählen oder mit der Maus einen Bereich **aufziehen, um hineinzuzoomen**. Dazu kommen die übertragene
   Datenmenge im Zeitraum und der **Verbrauch je Stack oder Container** (Diagramm der größten 6 plus sortierbare Tabelle;
@@ -76,7 +85,7 @@ dashboard/app/
   hostinfo.py     CPU/RAM/Netz/Platte des Servers aus /proc
   store.py        Messwerte in SQLite, Verdichtung, Abfragen für Diagramme
   jobs.py         Hintergrund-Vorgänge mit Live-Ausgabe (NDJSON)
-  tools/          ein Modul je Tool: stacks.py, monitor.py, storage.py
+  tools/          ein Modul je Tool: stacks.py, files.py, monitor.py, storage.py
 frontend/dashboard/
   js/app.js       Rahmen (Leiste, Seitenleiste, Kopfzeile, Navigation)
   js/chart.js     Diagramme (SVG, ohne Bibliothek)

@@ -88,5 +88,5 @@ async def test_frontend_and_app(client):
     assert "__VERSION__" not in sw.text and "__SHELL__" not in sw.text
     assert (await client.get("/manifest.webmanifest")).json()["name"] == "IDA Dashboard"
     a = (await client.get("/api/v1/app")).json()
-    assert [t["id"] for t in a["tools"]] == ["stacks", "monitor", "storage"]
+    assert [t["id"] for t in a["tools"]] == ["stacks", "files", "monitor", "storage"]
     assert (await client.get("/api/v1/unbekannt")).status_code == 404
