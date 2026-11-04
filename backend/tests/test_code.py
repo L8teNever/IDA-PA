@@ -378,7 +378,10 @@ def test_files_stay_in_drafts_and_queues(client, code_on, github):
     """Attached files wait with the draft or the queued message: shown with their name, not cleaned up after a day."""
     import asyncio
     from datetime import timedelta
-    from app.db import session_scope, utcnow
+    from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+    from sqlalchemy.pool import NullPool
+    from app.config import get_settings
+    from app.db import utcnow
     from app.models import ChatFile
     from app.services import files as file_svc
 
@@ -402,13 +405,18 @@ def test_files_stay_in_drafts_and_queues(client, code_on, github):
     assert item["attachments"][0]["name"] == "e.txt"
 
     async def age_and_purge():
-        async with session_scope() as db:
-            for i in (a, b, c, e, gone):
-                (await db.get(ChatFile, i["id"])).created_at = utcnow() - timedelta(days=3)
-            await db.commit()
-            await file_svc.purge(db)
-            await db.commit()
-            return {i["name"]: (await db.get(ChatFile, i["id"])) is not None for i in (a, b, c, e, gone)}
+        # eigene Verbindung ohne Pool: die der App gehören zu ihrer Event-Loop (asyncpg stürzt sonst ab)
+        eng = create_async_engine(get_settings().db_url, poolclass=NullPool)
+        try:
+            async with AsyncSession(eng, expire_on_commit=False) as db:
+                for i in (a, b, c, e, gone):
+                    (await db.get(ChatFile, i["id"])).created_at = utcnow() - timedelta(days=3)
+                await db.commit()
+                await file_svc.purge(db)
+                await db.commit()
+                return {i["name"]: (await db.get(ChatFile, i["id"])) is not None for i in (a, b, c, e, gone)}
+        finally:
+            await eng.dispose()
 
     assert asyncio.run(age_and_purge()) == {"a.txt": True, "b.txt": True, "c.txt": True, "e.txt": True, "weg.txt": False}
     # queued files go out with their message
