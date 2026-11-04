@@ -688,3 +688,14 @@ body.pane-resizing iframe { pointer-events: none; }
   color: var(--muted); font: inherit; font-size: 12px; cursor: pointer; opacity: .7; }
 .msg-branch:hover { opacity: 1; color: var(--accent); background: rgba(255,255,255,.06); }
 .msg-branch .ms { font-size: 15px; }
+
+/* Was die KI im Chat zeigt (chat_zeigen) */
+.shown { margin: 10px 0; border: 1px solid rgba(255,255,255,.1); border-radius: 16px; overflow: hidden; background: rgba(255,255,255,.04); }
+.shown-head { display: flex; align-items: center; gap: 8px; padding: 8px 12px; font-size: 13px; }
+.shown-head b { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.shown-head a { display: inline-flex; color: inherit; opacity: .75; }
+.shown-head a:hover { opacity: 1; }
+.shown-head .ms { font-size: 18px; }
+.shown iframe { display: block; width: 100%; height: min(420px, 60vh); border: 0; background: #fff; }
+.shown img { display: block; width: 100%; max-height: 520px; object-fit: contain; }
+.shown-wait { padding: 26px 12px; text-align: center; font-size: 13px; opacity: .7; }

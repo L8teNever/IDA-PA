@@ -27,7 +27,7 @@ ALLOWED = [re.compile(p) for p in (
     r"bootstrap", r"usage",
     r"chat", r"chats/[^/]+", r"chats/[^/]+/(live|stop)",
     r"code(/.*)?", r"github(/.*)?",
-    r"uploads(/[^/]+)?", r"files/[^/]+",
+    r"uploads(/[^/]+)?", r"files/[^/]+(/preview)?",
 )]
 # Kopfzeilen, die nur für eine einzelne Verbindung gelten (werden nicht weitergereicht)
 HOP = {"connection", "keep-alive", "proxy-authenticate", "proxy-authorization", "te", "trailer", "transfer-encoding", "upgrade",

@@ -139,6 +139,22 @@ function toolHtml(p) {
     <pre>${esc(JSON.stringify(p.input ?? {}, null, 2))}</pre>${p.out !== undefined ? `<pre>${esc(p.out)}</pre>` : ""}</details>`;
 }
 
+// Was die KI mit chat_zeigen zeigt: Bild, Live-Vorschau (HTML/SVG, isoliert) oder Datei. Die Vorschau lädt erst, wenn die Antwort fertig ist,
+// sonst würde sie bei jedem neuen Textstück neu laden.
+function shownFile(p) {
+  if (!/(^|_)chat_zeigen$/.test(p.name || "") || p.error || p.out === undefined) return null;
+  try { return JSON.parse(p.out).datei || null; } catch { return null; }
+}
+function shownHtml(f, ready) {
+  const url = `/api/v1/files/${esc(f.id)}`, open = f.vorschau ? `${url}/preview` : url;
+  const body = f.kind === "image" ? `<a href="${url}" target="_blank" rel="noopener"><img src="${url}" alt="${esc(f.name)}" loading="lazy"></a>`
+    : f.vorschau ? (ready ? `<iframe src="${url}/preview" sandbox="allow-scripts allow-forms allow-popups" loading="lazy" title="${esc(f.name)}"></iframe>` : `<div class="shown-wait">Vorschau lädt, sobald die Antwort fertig ist …</div>`)
+    : "";
+  return `<div class="shown"><div class="shown-head"><span class="ms">${f.kind === "image" ? "image" : f.vorschau ? "web" : "description"}</span><b>${esc(f.titel || f.name)}</b>
+    <a href="${open}" target="_blank" rel="noopener" title="Groß öffnen" aria-label="Groß öffnen"><span class="ms">open_in_new</span></a>
+    <a href="${url}" download="${esc(f.name)}" title="Herunterladen" aria-label="Herunterladen"><span class="ms">download</span></a></div>${body}</div>`;
+}
+
 // "12 s" / "1 Min 05 s"
 export function fmtDur(ms) {
   const s = Math.max(0, Math.round(ms / 1000));
@@ -172,7 +188,7 @@ document.addEventListener("click", (e) => {
 });
 const EFFORT_NAMES = { low: "Niedrig", medium: "Mittel", high: "Hoch", xhigh: "Extra", max: "Max" };
 function renderBot(el, parts, text, meta) {
-  const html = (parts || []).map((p) => (p.t === "text" ? `<div class="md-text">${md(p.text)}</div>` : p.t === "approval" ? approvalHtml(p) : toolHtml(p))).join("");
+  const html = (parts || []).map((p) => (p.t === "text" ? `<div class="md-text">${md(p.text)}</div>` : p.t === "approval" ? approvalHtml(p) : shownFile(p) ? shownHtml(shownFile(p), !!meta?.id) : toolHtml(p))).join("");
   el.innerHTML = html || (text ? `<div class="md-text">${md(text)}</div>` : "");
   if (meta?.stopped) el.insertAdjacentHTML("beforeend", `<div class="msg-stopped"><span class="ms">stop_circle</span>Gestoppt</div>`);
   if (meta?.error) el.insertAdjacentHTML("beforeend", `<div class="msg-err"><span class="ms">error</span>${esc(meta.error)}</div>`);

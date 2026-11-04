@@ -793,3 +793,29 @@ def test_kalender_endpoints_need_the_token(client):
     # ohne das richtige Token nimmt IDA nichts vom Kalender an
     assert client.post(f"{API}/ext/kalender", json={"type": "alarm"}).status_code == 401
     assert client.post(f"{API}/ext/kalender/ask", json={"text": "Hallo"}, headers={"Authorization": "Bearer falsch"}).status_code == 401
+
+
+def test_chat_shows_files_and_html_previews(client):
+    """chat_zeigen: die KI legt Dateien in den Chat, HTML läuft nur isoliert."""
+    import base64
+    import json as _json
+
+    def show(args):
+        ev = chat(client, text="TOOL chat_zeigen " + _json.dumps(args))
+        return next(e["tool_result"] for e in ev if "tool_result" in e)
+
+    res = show({"titel": "Version 1", "name": "design-1.html", "inhalt": "<!doctype html><h1>Hallo</h1>"})
+    f = _json.loads(res["content"])["datei"]
+    assert f["titel"] == "Version 1" and f["vorschau"] is True and f["kind"] == "text"
+    page = client.get(f"/api/v1/files/{f['id']}/preview")
+    assert page.status_code == 200 and "<h1>Hallo</h1>" in page.text and page.headers["content-type"].startswith("text/html")
+    assert page.headers["content-security-policy"].startswith("sandbox") and "allow-same-origin" not in page.headers["content-security-policy"]
+    assert client.get(f"/api/v1/files/{f['id']}").headers["content-type"].startswith("text/plain")  # ohne Vorschau nie als Seite
+
+    png = base64.b64encode(b"\x89PNG\r\n\x1a\n" + b"0" * 32).decode()
+    pic = _json.loads(show({"name": "bild.png", "base64": png})["content"])["datei"]
+    assert pic["kind"] == "image" and pic["vorschau"] is False
+    assert client.get(f"/api/v1/files/{pic['id']}/preview").status_code == 404
+
+    assert "error" in _json.loads(show({"name": "x.txt"})["content"])                # nichts angegeben
+    assert "error" in _json.loads(show({"pfad": "../../../etc/passwd"})["content"])  # raus aus dem Arbeitsordner geht nicht

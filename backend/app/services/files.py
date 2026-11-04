@@ -23,6 +23,7 @@ LIMITS = {"image": 5 * 1024 * 1024, "pdf": 25 * 1024 * 1024, "text": 1024 * 1024
 ANY_LIMIT = 100 * 1024 * 1024  # any other file (code threads); Cloudflare takes at most 100 MB per request
 ATTACH_DIR = ".ida/anhaenge"  # where code threads find such files in the project
 MAX_PER_MESSAGE = 10
+PREVIEW_EXT = {".html", ".htm", ".svg"}
 KEEP_UNSENT = timedelta(days=1)
 
 
@@ -108,6 +109,11 @@ async def take(db: AsyncSession, ids: list[str], chat_id: str) -> list[ChatFile]
         f.chat_id = chat_id
         out.append(f)
     return out
+
+
+def previewable(f: ChatFile) -> bool:
+    """HTML and SVG the chat can show as a live preview (isolated, see api/files.py)."""
+    return f.kind == "text" and Path(f.name).suffix.lower() in PREVIEW_EXT
 
 
 def info(f: ChatFile) -> dict:

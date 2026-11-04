@@ -5,7 +5,7 @@ from fastapi import APIRouter, Query, UploadFile
 from fastapi.responses import FileResponse
 
 from ..services import files as svc
-from ..services.errors import Invalid
+from ..services.errors import Invalid, NotFound
 from .deps import DB
 
 router = APIRouter(prefix="/api/v1", tags=["files"])
@@ -27,6 +27,17 @@ async def remove(file_id: str, db: DB):
     """Takes an attached file out again before sending."""
     await svc.remove_unsent(db, file_id)
     return {"ok": True}
+
+
+@router.get("/files/{file_id}/preview")
+async def preview_file(file_id: str, db: DB):
+    """HTML or SVG shown as a page, always isolated: the sandbox header gives it no origin, so it reaches neither cookies nor the API."""
+    f = await svc.get(db, file_id)
+    if not svc.previewable(f):
+        raise NotFound("Für diese Datei gibt es keine Vorschau")
+    return FileResponse(svc.path(f), media_type="text/html; charset=utf-8",
+                        headers={"content-security-policy": "sandbox allow-scripts allow-forms allow-popups", "x-content-type-options": "nosniff",
+                                 "cache-control": "private, max-age=3600"})
 
 
 @router.get("/files/{file_id}")

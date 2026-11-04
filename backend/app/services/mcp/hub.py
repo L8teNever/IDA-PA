@@ -8,7 +8,10 @@ Rights depend on the caller (see identity.Identity):
   code_*:      code_projects for the main agent; code_approve / code_commit only inside a code thread.
 Triggers and connector access are never settable here – only by the user in the UI.
 """
+import base64
 import json
+
+from pathlib import Path
 
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -17,6 +20,7 @@ from ...config import get_settings
 from ...db import session_scope
 from ...models import USER, Agent, Chat, ChatMessage, CodeProject, Routine, RoutineRun, Skill
 from .. import agents as agent_svc
+from .. import files as file_svc
 from .. import antigravity
 from ..claude import models as claude_models
 from .. import reminders as reminder_svc
@@ -69,6 +73,14 @@ def _spec(ids: list[str]) -> list[tuple[str, str, str, dict]]:
     obj = lambda props, req=(): {"type": "object", "properties": props, **({"required": list(req)} if req else {})}  # noqa: E731
     tools = [
         (ALL, "agent_list", "Listet alle Agenten mit Aufgabe und Modell.", obj({})),
+        (ALL, "chat_zeigen", "Zeigt dem Nutzer direkt hier im Chat eine Datei, ein Bild oder eine HTML-Vorschau. Nutze das immer, wenn etwas gezeigt statt "
+                             "beschrieben werden soll, z. B. Designs, Grafiken, Berichte. Mehrere Versionen: je Version ein Aufruf. HTML und SVG erscheinen als "
+                             "Live-Vorschau in einem isolierten Rahmen: Schreib eine vollständige Datei mit CSS, JS und Bildern inline. Gib genau eins an: inhalt, base64 oder pfad.",
+         obj({"titel": {"type": "string", "description": "Überschrift über der Vorschau, z. B. Version 1: Hell und ruhig"},
+              "name": {"type": "string", "description": "Dateiname mit Endung, z. B. design-1.html; bei pfad optional"},
+              "inhalt": {"type": "string", "description": "Text, HTML oder SVG der Datei"},
+              "base64": {"type": "string", "description": "Binärdaten als Base64, z. B. ein Bild"},
+              "pfad": {"type": "string", "description": "Vorhandene Datei: im Code-Thread im Projektordner, sonst in deinem Arbeitsordner"}}, ())),
         (ALL, "agent_send", "Schickt eine Nachricht an einen Agenten. Nur senden, was nötig ist; priority=high nur für Wichtiges.", obj({"to": to, "text": E, "priority": {"type": "string", "enum": ["normal", "high"]}}, ("to", "text"))),
         (ALL, "agent_delegate", "Gibt einem Agenten eine Aufgabe. Sein Ergebnis kommt automatisch als Nachricht zurück (asynchron).", obj({"to": to, "task": E}, ("to", "task"))),
         (ALL, "notify_user", "Benachrichtigung an den Nutzer (erscheint in der App unter Infos/Nachrichten). Nur für Wichtiges, kein Spam.", obj({"text": E, "title": {**E, "description": "kurze Überschrift"}, "priority": {"type": "string", "enum": ["normal", "high"]}}, ("text",))),
@@ -121,6 +133,8 @@ def _spec(ids: list[str]) -> list[tuple[str, str, str, dict]]:
 def _allowed(who: str, name: str, me: Identity) -> bool:
     if name.startswith("memory_") and not me.memory:
         return False
+    if name == "chat_zeigen":
+        return bool(me.chat_id)  # nur dort gibt es einen Chat zum Zeigen, nicht im Telefonat oder in Hintergrundläufen
     if who == CODE:
         return me.code and bool(me.chat_id)
     if who == VOICE:
@@ -251,6 +265,36 @@ async def _chat_read(db: AsyncSession, chat_id: str, limit: int, offset: int, la
             **({"aelter": f"offset={offset + limit} für ältere"} if offset + limit < (total or 0) else {})}
 
 
+async def _show(db: AsyncSession, me: Identity, a: dict) -> dict:
+    """chat_zeigen: saves the file to this chat; the chat page draws it from the tool's result."""
+    given = [k for k in ("inhalt", "base64", "pfad") if a.get(k)]
+    if len(given) != 1:
+        raise Invalid("Gib genau eins an: inhalt, base64 oder pfad")
+    name = str(a.get("name") or "").strip()
+    if given[0] == "inhalt":
+        data = str(a["inhalt"]).encode("utf-8")
+    elif given[0] == "base64":
+        try:
+            data = base64.b64decode(str(a["base64"]).split(",")[-1], validate=True)
+        except ValueError as e:
+            raise Invalid("base64 ist nicht lesbar") from e
+    else:
+        chat = await db.get(Chat, me.chat_id)
+        project = await db.get(CodeProject, chat.project_id) if chat and chat.project_id else None
+        root = (code_projects.path_of(project) if project else get_settings().sandbox_dir / "work").resolve()
+        raw = Path(str(a["pfad"]))
+        target = code_projects.resolve_file(root, str(raw.relative_to(root)) if raw.is_absolute() and raw.is_relative_to(root) else str(raw))
+        if not target.is_file():
+            raise NotFound(f"Datei {a['pfad']} gibt es nicht")
+        if target.stat().st_size > file_svc.ANY_LIMIT:
+            raise Invalid("Die Datei ist zu groß")
+        data, name = target.read_bytes(), name or target.name
+    f = await file_svc.save(db, name or "datei.txt", "", data, any_file=True)
+    f.chat_id = me.chat_id
+    return {"ok": True, "datei": {**file_svc.info(f), "titel": str(a.get("titel") or "")[:200], "vorschau": file_svc.previewable(f)},
+            "hinweis": "Der Nutzer sieht das jetzt im Chat. Nicht nochmal beschreiben oder den Inhalt wiederholen."}
+
+
 async def _call(db: AsyncSession, me: Identity, name: str, a: dict) -> dict:
     spec = {n: who for who, n, _, _ in _spec(await _ids(db))}
     if name not in spec or not _allowed(spec[name], name, me):
@@ -353,6 +397,8 @@ async def _call(db: AsyncSession, me: Identity, name: str, a: dict) -> dict:
         return await _code_projects(db, a.get("project_id"))
     if name == "code_commit":
         return await _code_commit(db, me, a)
+    if name == "chat_zeigen":
+        return await _show(db, me, a)
     if name == "chat_read":
         return await _chat_read(db, str(a.get("chat_id")), int(a.get("limit") or 30), int(a.get("offset") or 0), labels)
     if name == "skill_list":

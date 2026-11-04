@@ -134,6 +134,22 @@ function toolHtml(p) {
     <pre>${esc(JSON.stringify(p.input ?? {}, null, 2))}</pre>${p.out !== undefined ? `<pre class="out">${esc(p.out)}</pre>` : ""}</details>`;
 }
 
+// Was die KI mit chat_zeigen zeigt: Bild, Live-Vorschau (HTML/SVG, isoliert) oder Datei. Die Vorschau lädt erst, wenn die Antwort fertig ist,
+// sonst würde sie bei jedem neuen Textstück neu laden.
+function shownFile(p) {
+  if (!/(^|_)chat_zeigen$/.test(p.name || "") || p.error || p.out === undefined) return null;
+  try { return JSON.parse(p.out).datei || null; } catch { return null; }
+}
+function shownHtml(f, ready) {
+  const url = `/api/v1/files/${esc(f.id)}`, open = f.vorschau ? `${url}/preview` : url;
+  const body = f.kind === "image" ? `<a href="${url}" target="_blank" rel="noopener"><img src="${url}" alt="${esc(f.name)}" loading="lazy"></a>`
+    : f.vorschau ? (ready ? `<iframe src="${url}/preview" sandbox="allow-scripts allow-forms allow-popups" loading="lazy" title="${esc(f.name)}"></iframe>` : `<div class="shown-wait">Vorschau lädt, sobald die Antwort fertig ist …</div>`)
+    : "";
+  return `<div class="shown"><div class="shown-head"><span class="ms">${f.kind === "image" ? "image" : f.vorschau ? "web" : "description"}</span><b>${esc(f.titel || f.name)}</b>
+    <a href="${open}" target="_blank" rel="noopener" title="Groß öffnen" aria-label="Groß öffnen"><span class="ms">open_in_new</span></a>
+    <a href="${url}" download="${esc(f.name)}" title="Herunterladen" aria-label="Herunterladen"><span class="ms">download</span></a></div>${body}</div>`;
+}
+
 function approvalBody(a) {
   const i = a.input || {};
   if (i.command) return `<pre class="ap-cmd">${esc(i.command)}</pre>${i.description ? `<small>${esc(i.description)}</small>` : ""}`;
@@ -165,7 +181,7 @@ document.addEventListener("click", async (e) => {
 });
 
 function renderBot(el, parts, text, meta) {
-  const html = (parts || []).map((p) => (p.t === "text" ? `<div class="md">${md(p.text)}</div>` : p.t === "approval" ? approvalHtml(p) : toolHtml(p))).join("");
+  const html = (parts || []).map((p) => (p.t === "text" ? `<div class="md">${md(p.text)}</div>` : p.t === "approval" ? approvalHtml(p) : shownFile(p) ? shownHtml(shownFile(p), !!meta?.id) : toolHtml(p))).join("");
   // aufgeklappte Werkzeuge bleiben beim Neuzeichnen offen
   const open = new Set([...el.querySelectorAll("details")].flatMap((d, i) => (d.open ? [i] : [])));
   el.innerHTML = html || (text ? `<div class="md">${md(text)}</div>` : "");
