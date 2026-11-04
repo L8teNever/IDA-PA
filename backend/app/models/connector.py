@@ -19,6 +19,8 @@ class Connector(Timestamps, Base):
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     tools: Mapped[list] = mapped_column(Json, default=list)  # all tool names of the server
     disabled_tools: Mapped[list] = mapped_column(Json, default=list)  # switched off for everybody
+    # Was der Dienst ist und wie der Nutzer ihn nennt ("Sofia = meine Schul-App ...") – steht im Kontext jedes Agenten mit Zugriff.
+    context: Mapped[str] = mapped_column(Text, default="")
     status: Mapped[str] = mapped_column(String(16), default="new")  # new | ok | error
     status_text: Mapped[str] = mapped_column(Text, default="")
     checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)

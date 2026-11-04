@@ -1,3 +1,4 @@
+import logging
 import re
 from urllib.parse import urlsplit
 
@@ -8,12 +9,14 @@ from ..db import utcnow
 from ..models import AgentConnector, Connector
 from ..schemas import ConnectorCreate, ConnectorUpdate
 from ..services.errors import Invalid, NotFound
+from ..services.mcp import context as mcp_context
 from ..services.mcp.client import list_tools
 from . import serializers as ser
 from .deps import DB
 
 router = APIRouter(prefix="/api/v1/connectors", tags=["connectors"])
 RESERVED = {"ida"}  # name of the internal MCP server
+log = logging.getLogger(__name__)
 
 
 async def _agents(db, cid: str) -> list[str]:
@@ -31,6 +34,16 @@ async def _refresh(c: Connector) -> None:
         c.disabled_tools = [t for t in c.disabled_tools if t in names] + [t for t in names if t not in c.tools]
     c.tools = names
     c.status, c.status_text, c.checked_at = "ok", f"{len(names)} Tools", utcnow()
+
+
+async def _describe(db, c: Connector) -> None:
+    """Drafts the context text once, as long as there is none (the user's own text is never overwritten)."""
+    if (c.context or "").strip() or c.status != "ok" or not c.tools:
+        return
+    try:
+        c.context = await mcp_context.describe(db, c)
+    except Exception as e:  # noqa: BLE001 – the connector works without it
+        log.warning("connector %s: no context drafted: %s", c.id, e)
 
 
 @router.get("")
@@ -62,6 +75,7 @@ async def create(body: ConnectorCreate, db: DB):
     c = Connector(id=cid, name=name[:60], url=url, headers={"Authorization": f"Bearer {body.token}"} if body.token else {})
     db.add(c)
     await _refresh(c)
+    await _describe(db, c)
     await db.flush()
     for aid in body.agents:
         db.add(AgentConnector(agent_id=aid, connector_id=cid, tools=None))
@@ -77,6 +91,8 @@ async def update(connector_id: str, body: ConnectorUpdate, db: DB):
     data = body.model_dump(exclude_unset=True)
     if data.get("name"):
         c.name = data["name"].strip()[:60]
+    if data.get("context") is not None:
+        c.context = data["context"].strip()[:2000]
     if data.get("enabled") is not None:
         c.enabled = data["enabled"]
     if data.get("disabled_tools") is not None:
@@ -90,6 +106,23 @@ async def refresh(connector_id: str, db: DB):
     if not c:
         raise NotFound("Connector nicht gefunden")
     await _refresh(c)
+    await _describe(db, c)
+    return ser.connector(c, await _agents(db, c.id))
+
+
+@router.post("/{connector_id}/describe")
+async def describe(connector_id: str, db: DB):
+    """Drafts the context text again from the current tools (replaces the old one)."""
+    c = await db.get(Connector, connector_id)
+    if not c:
+        raise NotFound("Connector nicht gefunden")
+    try:
+        text = await mcp_context.describe(db, c)
+    except Exception as e:  # noqa: BLE001
+        raise Invalid(f"Beschreibung fehlgeschlagen: {str(e)[:200] or e.__class__.__name__}")
+    if not text:
+        raise Invalid("Der Server hat keine Tools")
+    c.context = text
     return ser.connector(c, await _agents(db, c.id))
 
 

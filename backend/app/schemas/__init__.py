@@ -192,6 +192,7 @@ class ConnectorCreate(BaseModel):
 
 class ConnectorUpdate(BaseModel):
     name: str | None = None
+    context: str | None = None
     enabled: bool | None = None
     disabled_tools: list[str] | None = None
 

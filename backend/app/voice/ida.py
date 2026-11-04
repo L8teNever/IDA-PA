@@ -22,17 +22,21 @@ class Ida:
         r.raise_for_status()
         return r.json()
 
-    async def start(self, call_id: str, direction: str, number: str, owner: bool, purpose: str) -> dict:
+    async def start(self, call_id: str, direction: str, number: str, owner: bool, purpose: str, resume: str = "") -> dict:
         try:
-            return await self._post("start", {"call_id": call_id, "direction": direction, "number": number, "owner": owner, "purpose": purpose}, 20)
+            return await self._post("start", {"call_id": call_id, "direction": direction, "number": number, "owner": owner, "purpose": purpose,
+                                              "resume": resume}, 20)
         except Exception as e:  # noqa: BLE001
             log.warning("IDA start failed: %s", e)
             return {"context": FALLBACK_CONTEXT, "tools": [], "owner": owner, "offline": True}
 
+    async def recent(self) -> list[dict]:
+        """The user's last conversations for "Gespräch weiterführen"."""
+        return (await self._post("recent", {}, 10)).get("calls") or []
+
     async def tool(self, call_id: str, name: str, args: dict) -> dict:
         try:
-            wait = self.s.voice_ida_ask_s + 15 if name == "ida_fragen" else 40  # Ida denkt länger als ein Tool braucht
-            return await self._post("tool", {"call_id": call_id, "name": name, "args": args}, wait)
+            return await self._post("tool", {"call_id": call_id, "name": name, "args": args}, 40)
         except httpx.TimeoutException:
             return {"error": "Das hat zu lange gedauert."}
         except Exception as e:  # noqa: BLE001

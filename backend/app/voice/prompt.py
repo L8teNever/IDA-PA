@@ -100,7 +100,10 @@ def instructions(context: str, *, owner: bool, kind: str, brief: str = "", read_
     return "\n\n".join(p for p in parts if p)
 
 
-def kickoff(*, owner: bool, kind: str, brief: str = "") -> str:
+def kickoff(*, owner: bool, kind: str, brief: str = "", resumed: bool = False) -> str:
+    if kind == "web" and resumed:
+        return ("Der Nutzer führt ein früheres Gespräch mit dir weiter (der Verlauf steht oben im Kontext). Begrüß ihn ganz kurz und knüpf "
+                "in einem Satz an, wo ihr aufgehört habt (z. B. „Da sind wir wieder, wir waren bei …“) – dann stopp und hör zu.")
     if kind == "web":
         return "Der Nutzer hat gerade das Live-Gespräch geöffnet. Sag eine ganz kurze, charmante Begrüßung (ein paar Wörter, jedes Mal anders). " + greeting_hint() + " Sag NUR die Begrüßung (ein Satz, höchstens zwei Wörter mehr), erwähne nichts Inhaltliches und sag nicht, dass nichts anliegt – dann stopp und hör zu."
     if kind == "in":

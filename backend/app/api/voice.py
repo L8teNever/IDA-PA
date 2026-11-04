@@ -38,7 +38,15 @@ async def internal_start(request: Request, x_voice_secret: str | None = Header(N
         return _denied()
     b = await request.json()
     return await voice_bridge.start(str(b["call_id"]), str(b.get("direction") or "out"), str(b.get("number") or ""),
-                                    bool(b.get("owner")), str(b.get("purpose") or ""))
+                                    bool(b.get("owner")), str(b.get("purpose") or ""), str(b.get("resume") or ""))
+
+
+@router.post("/api/v1/voice/internal/recent", include_in_schema=False)
+async def internal_recent(x_voice_secret: str | None = Header(None)):
+    """The live app's list "Gespräch weiterführen"."""
+    if not _ok(x_voice_secret):
+        return _denied()
+    return {"calls": await voice_bridge.resumable()}
 
 
 @router.post("/api/v1/voice/internal/tool", include_in_schema=False)

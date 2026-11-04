@@ -53,12 +53,14 @@ export async function api(path, { method = "GET", body, form, headers = {}, time
 export function live(onChange, onState) {
   let es, closed = false, timer = null, waitingAuth = false;
   const open = () => {
-    if (closed || waitingAuth) return;
+    clearTimeout(timer); timer = null;
+    if (closed || waitingAuth || document.visibilityState !== "visible") return;
+    es?.close();
     es = new EventSource(base + "/stream");
     es.onopen = () => onState?.(true);
     es.onmessage = (m) => { try { onChange(JSON.parse(m.data)); } catch { /* ping */ } };
     es.onerror = async () => {
-      onState?.(false); es.close();
+      onState?.(false); es?.close(); es = null;
       if (navigator.onLine !== false) {
         let k = "ok"; try { k = await probe(); } catch { /* offline */ }
         if (k === "auth") { waitingAuth = true; tell("auth"); onState?.(false, "auth"); return; }
@@ -66,8 +68,15 @@ export function live(onChange, onState) {
       timer = setTimeout(open, 3000);
     };
   };
-  const retry = () => { if (waitingAuth && navigator.onLine !== false && document.visibilityState === "visible") { waitingAuth = false; open(); } };
+  // Akku: im Hintergrund keine offene Verbindung (der Server pingt sonst alle 20 s und weckt das Funkmodul).
+  // Erinnerungen kommen dann per Web Push; beim Zurückkommen neu verbinden – onopen gleicht alles Verpasste ab.
+  const pause = () => { clearTimeout(timer); timer = null; if (es) { es.onerror = null; es.close(); es = null; } };
+  const retry = () => {
+    if (document.visibilityState !== "visible") { pause(); return; }
+    if (waitingAuth && navigator.onLine !== false) waitingAuth = false;
+    if (!es && !waitingAuth) open();
+  };
   addEventListener("visibilitychange", retry); addEventListener("online", retry);
-  open();
+  if (document.visibilityState === "visible") open();
   return () => { closed = true; clearTimeout(timer); es?.close(); removeEventListener("visibilitychange", retry); removeEventListener("online", retry); };
 }

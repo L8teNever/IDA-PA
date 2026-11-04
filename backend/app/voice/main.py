@@ -9,6 +9,7 @@ import contextlib
 import hashlib
 import hmac
 import logging
+import re
 
 from fastapi import FastAPI, Header, Request, WebSocket
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
@@ -24,11 +25,17 @@ log = logging.getLogger("ida.voice")
 
 
 class _NoCache(StaticFiles):
-    """Static files of the live app: always re-validate (Cloudflare must not keep an old app.css for hours)."""
+    """Static files of the live app: always re-validate (Cloudflare must not keep an old app.css for hours).
+    Links with ?v=… change with every deploy and fonts never change: those stay on the phone, the app starts without asking the server."""
 
     async def get_response(self, path, scope):
         resp = await super().get_response(path, scope)
-        resp.headers["cache-control"] = "no-cache"
+        if scope.get("query_string", b"").startswith(b"v="):
+            resp.headers["cache-control"] = "public, max-age=31536000, immutable"
+        elif path.endswith(".woff2"):
+            resp.headers["cache-control"] = "public, max-age=2592000"
+        else:
+            resp.headers["cache-control"] = "no-cache"
         return resp
 
 
@@ -117,6 +124,7 @@ def create_app(phone: Phone | None = None, connect=None) -> FastAPI:
     # Stand-alone live app (PWA) on the voice host: its own install, opens straight into the conversation.
     front = s.frontend_dir
     icon = "/static/live/icons"
+    icon_rev = "?v=2"  # nur hochzählen, wenn sich die Icons ändern (eine neue Adresse holt Android das neue Icon)
 
     @app.get("/", include_in_schema=False)
     async def live_app():
@@ -132,10 +140,10 @@ def create_app(phone: Phone | None = None, connect=None) -> FastAPI:
             "lang": "de", "start_url": "/", "scope": "/", "display": "fullscreen", "display_override": ["fullscreen", "standalone"],
             "background_color": "#000000", "theme_color": "#000000",
             "icons": [
-                {"src": f"{icon}/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any"},
-                {"src": f"{icon}/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any"},
-                {"src": f"{icon}/maskable-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable"},
-                {"src": f"{icon}/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable"},
+                {"src": f"{icon}/icon-192.png{icon_rev}", "sizes": "192x192", "type": "image/png", "purpose": "any"},
+                {"src": f"{icon}/icon-512.png{icon_rev}", "sizes": "512x512", "type": "image/png", "purpose": "any"},
+                {"src": f"{icon}/maskable-192.png{icon_rev}", "sizes": "192x192", "type": "image/png", "purpose": "maskable"},
+                {"src": f"{icon}/maskable-512.png{icon_rev}", "sizes": "512x512", "type": "image/png", "purpose": "maskable"},
             ],
         }, media_type="application/manifest+json", headers={"cache-control": "no-cache"})
 
@@ -150,6 +158,17 @@ def create_app(phone: Phone | None = None, connect=None) -> FastAPI:
         if not (key and x_live_key and hmac.compare_digest(x_live_key, key)):
             return JSONResponse({"detail": "Nicht erlaubt"}, status_code=403)
         return {"ticket": web.make_ticket(s.voice_secret), "name": "Stella"}
+
+    @app.post("/pwa/recent", include_in_schema=False)
+    async def pwa_recent(x_live_key: str | None = Header(None)):
+        """Button "Gespräch weiterführen": the last conversations to pick from."""
+        key = web.app_key(s.voice_secret)
+        if not (key and x_live_key and hmac.compare_digest(x_live_key, key)):
+            return JSONResponse({"detail": "Nicht erlaubt"}, status_code=403)
+        try:
+            return {"calls": await phone.ida.recent()}
+        except Exception:  # noqa: BLE001
+            return JSONResponse({"detail": "IDA ist gerade nicht erreichbar"}, status_code=502)
 
     @app.post("/pwa/phone", include_in_schema=False)
     async def pwa_phone(request: Request, x_live_key: str | None = Header(None)):
@@ -184,7 +203,8 @@ def create_app(phone: Phone | None = None, connect=None) -> FastAPI:
             await ws.close(code=1013)
             return
         await ws.accept()
-        await web.run(ws, s, ida=phone.ida, connect=connect, active=live)
+        resume = ws.query_params.get("resume", "")
+        await web.run(ws, s, ida=phone.ida, connect=connect, active=live, resume=resume if re.fullmatch(r"[\w-]{1,24}", resume) else "")
 
     return app
 

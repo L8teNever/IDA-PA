@@ -132,6 +132,8 @@ def create_app() -> FastAPI:
         if fonts.exists():
             app.mount(f"/s/{version}/shared/fonts", Static(directory=fonts, cache=imm), name="shared-fonts")
         app.mount(f"/s/{version}", Static(directory=own, cache=imm), name="assets")
+        # Icons unter fester Adresse: das Manifest ändert sich so nicht bei jedem Update (sonst baut Android die installierte App über den Play Store neu)
+        app.mount("/icons", Static(directory=own / "icons", cache="public, max-age=86400"), name="icons")
         shell_json = json.dumps(shell_files(own, css, fonts, version))
         index = (own / "index.html").read_text(encoding="utf-8") if (own / "index.html").exists() else "<h1>IDA Wiki</h1>"
         index_html = index.replace('"/static/', f'"/s/{version}/')
@@ -172,7 +174,8 @@ def create_app() -> FastAPI:
 
 
 def build_manifest(version: str) -> dict:
-    icon = f"/s/{version}/icons"
+    # feste Adressen; ICON_REV nur hochzählen, wenn sich die Icons wirklich ändern
+    icon, rev = "/icons", "?v=1"
     return {
         "id": "/wiki-app",
         "name": "IDA Wiki",
@@ -187,15 +190,15 @@ def build_manifest(version: str) -> dict:
         "theme_color": "#000000",
         "categories": ["productivity", "education"],
         "icons": [
-            {"src": f"{icon}/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any"},
-            {"src": f"{icon}/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any"},
-            {"src": f"{icon}/maskable-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable"},
-            {"src": f"{icon}/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable"},
+            {"src": f"{icon}/icon-192.png{rev}", "sizes": "192x192", "type": "image/png", "purpose": "any"},
+            {"src": f"{icon}/icon-512.png{rev}", "sizes": "512x512", "type": "image/png", "purpose": "any"},
+            {"src": f"{icon}/maskable-192.png{rev}", "sizes": "192x192", "type": "image/png", "purpose": "maskable"},
+            {"src": f"{icon}/maskable-512.png{rev}", "sizes": "512x512", "type": "image/png", "purpose": "maskable"},
         ],
         "shortcuts": [
-            {"name": "Neue Notiz", "url": "/?neu=1", "icons": [{"src": f"{icon}/icon-192.png", "sizes": "192x192"}]},
-            {"name": "Wissensgraph", "url": "/?ansicht=graph", "icons": [{"src": f"{icon}/icon-192.png", "sizes": "192x192"}]},
-            {"name": "Verlauf", "url": "/?ansicht=verlauf", "icons": [{"src": f"{icon}/icon-192.png", "sizes": "192x192"}]},
+            {"name": "Neue Notiz", "url": "/?neu=1", "icons": [{"src": f"{icon}/icon-192.png{rev}", "sizes": "192x192"}]},
+            {"name": "Wissensgraph", "url": "/?ansicht=graph", "icons": [{"src": f"{icon}/icon-192.png{rev}", "sizes": "192x192"}]},
+            {"name": "Verlauf", "url": "/?ansicht=verlauf", "icons": [{"src": f"{icon}/icon-192.png{rev}", "sizes": "192x192"}]},
         ],
     }
 

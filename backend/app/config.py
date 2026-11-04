@@ -96,7 +96,6 @@ class Settings(BaseSettings):
     # des Browsers Sprechpausen stumm macht und 120 ms sonst mitten im Satz das Ende melden würden.
     sandbox_url: str = ""  # Sandbox-Dienst der Code-Threads, leer = aus
     sandbox_secret: str = ""
-    voice_ida_ask_s: int = 45  # so lange wartet Stella still auf Idas Antwort (ida_fragen); danach redet sie weiter und die Antwort kommt nach
     voice_web_vad: bool = True
     voice_web_vad_silence_ms: int = 500
     # Die Telefon-Schwelle (500) wäre hier zu hoch: normal laute Sprache käme nicht drüber. Gegen Geräusche hilft die mitlernende Grundlinie.

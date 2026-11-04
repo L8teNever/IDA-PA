@@ -3,9 +3,11 @@
 // With it the app gets a one-minute ticket from this host and talks to Gemini Live over /live (same protocol as IDA's /live page).
 import { connected, disconnected, hungUp, unlockTones } from "./tones.js";
 import { follow, outputMeter } from "./meter.js";
+const AWAY_MS = 30000;   // so lange darf die App im Hintergrund sein, dann legt sie auf: Mikro, Verbindung und Audio sind dann aus
+const FRAME_MS = 33;     // Maskottchen: 30 Bilder pro Sekunde reichen für Silben, auch auf 120-Hz-Displays
 const WORKLET = `
 class Down16k extends AudioWorkletProcessor {
-  constructor() { super(); this.step = sampleRate / 16000; this.pos = 0; this.acc = 0; this.n = 0; this.buf = new Int16Array(640); this.len = 0; this.muted = false;
+  constructor() { super(); this.step = sampleRate / 16000; this.pos = 0; this.acc = 0; this.n = 0; this.buf = new Int16Array(1280); this.len = 0; this.muted = false;
     this.port.onmessage = (e) => { this.muted = !!e.data.muted; }; }
   process(inputs) {
     const ch = inputs[0] && inputs[0][0];
@@ -56,8 +58,33 @@ function home(problem, ended) {
   const key = localStorage.getItem("liveKey");
   shell(`<div class="lv-status"><span class="lv-pill ${problem && !ended ? "fail" : ""}"><span class="ms">${ended ? "call_end" : problem ? "error" : "graphic_eq"}</span>${esc(ended ? "Gespräch beendet" : problem || (key ? "bereit" : "Nicht eingerichtet"))}</span></div>
     <div class="lv-chat" id="lvChat">${key ? "" : `<div class="lv-msg bot"><small>IDA Live</small>Öffne diese App einmal über den Link aus IDA (Einstellungen → Stella-Stimme → Live-App), dann ist sie eingerichtet.</div>`}</div>
-    <div class="lv-btns">${key ? `<button class="es-btn primary" id="lvGo"><span class="ms">graphic_eq</span>Gespräch starten</button>` : ""}</div>`);
-  if (key) $("lvGo").onclick = () => { prime(); start(); };
+    <div class="lv-btns">${key ? `<button class="es-btn primary" id="lvGo"><span class="ms">graphic_eq</span>Gespräch starten</button>
+      <button class="es-btn" id="lvResume"><span class="ms">history</span>Gespräch weiterführen</button>` : ""}</div>`);
+  if (!key) return;
+  $("lvGo").onclick = () => { prime(); start(); };
+  $("lvResume").onclick = pickEarlier;
+}
+
+// "Gespräch weiterführen": die letzten Gespräche, eins antippen und Stella macht mit dessen Verlauf weiter
+async function pickEarlier() {
+  const box = $("lvChat"), b = $("lvResume");
+  if (!box || !b) return;
+  b.disabled = true;
+  box.innerHTML = `<div class="lv-msg bot"><small>IDA Live</small>Lade die letzten Gespräche …</div>`;
+  try {
+    const r = await fetch("/pwa/recent", { method: "POST", headers: { "x-live-key": localStorage.getItem("liveKey") || "" } });
+    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || "Die Liste geht gerade nicht");
+    const { calls = [] } = await r.json();
+    if (!$("lvChat")) return;
+    box.innerHTML = calls.length ? `<div class="lv-list">${calls.map((c) => {
+      const d = new Date(c.start);
+      const when = d.toLocaleDateString("de-DE", { weekday: "short", day: "2-digit", month: "2-digit" }) + " " + d.toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" });
+      return `<button class="lv-pick" data-id="${esc(c.id)}"><span class="ms">${c.web ? "graphic_eq" : "call"}</span><span><small>${esc(when)}</small>${esc(c.topic || "Gespräch")}</span></button>`;
+    }).join("")}</div>` : `<div class="lv-msg bot"><small>IDA Live</small>Noch keine Gespräche zum Weiterführen.</div>`;
+    box.querySelectorAll(".lv-pick").forEach((el) => { el.onclick = () => { prime(); start(el.dataset.id); }; });
+  } catch (e) {
+    if ($("lvChat")) box.innerHTML = `<div class="lv-msg bot"><small>IDA Live</small>${esc(e.message)}</div>`;
+  } finally { if ($("lvResume")) b.disabled = false; }
 }
 
 function prime() {
@@ -104,6 +131,7 @@ function play(c, buf) {
   c.sources.add(src);
   src.onended = () => { c.sources.delete(src); if (!c.sources.size && !c.closing && c.state === "speak") setState(c, "listen"); };
   if (c.state !== "speak") setState(c, "speak");
+  animate(c);
 }
 
 function flush(c) {
@@ -112,28 +140,57 @@ function flush(c) {
   c.next = 0;
 }
 
-// Maskottchen: läuft pro Bildschirmbild (nicht im 100-ms-Takt der Uhr), sonst sind einzelne Silben nicht zu sehen
+// Maskottchen: läuft nur, solange jemand spricht. In der Stille und im Hintergrund steht es, dann zeichnet das Handy gar nichts neu.
+function animate(c) {
+  if (c.anim || c.closed || document.hidden) return;
+  $("lvBuddyWrap")?.removeAttribute("data-calm");
+  c.anim = setTimeout(() => frame(c), 0);
+}
+
 function frame(c) {
+  c.anim = 0;
   const wrap = $("lvBuddyWrap");
-  if (c.closed || !wrap) return;
+  if (c.closed || !wrap || document.hidden) return;
   const speak = c.state === "speak";
   const lvl = speak ? c.meter.level() : c.state === "listen" && !c.muted ? c.inLevel : 0;
   c.shown = follow(c.shown, lvl, speak);
   wrap.style.setProperty("--lvl", c.shown.toFixed(3));
-  c.inLevel *= 0.94;
-  requestAnimationFrame(() => frame(c));
+  c.inLevel *= 0.88;
+  if (speak || lvl > 0.01 || c.shown > 0.01) c.anim = setTimeout(() => frame(c), FRAME_MS);
+  else {
+    c.shown = 0;
+    wrap.style.setProperty("--lvl", "0");
+    wrap.setAttribute("data-calm", "");
+  }
 }
 
 function tick(c) {
-  if (c.t0) $("lvTime").textContent = fmt(Date.now() - c.t0);
+  const ms = Date.now() - c.t0;
+  $("lvTime").textContent = fmt(ms);
+  const wrap = $("lvBuddyWrap");
+  if (Math.floor(ms / 1000) % 4 === 0 && (c.state === "listen" || c.state === "speak") && !c.muted) {   // Blinzeln nur alle paar Sekunden statt als Daueranimation
+    wrap.setAttribute("data-blink", "");
+    setTimeout(() => wrap.removeAttribute("data-blink"), 320);
+  }
+}
+
+function clock(c, on) {
+  clearInterval(c.clock);
+  c.clock = 0;
+  if (!on || !c.t0) return;
+  tick(c);
+  c.clock = setInterval(() => tick(c), 1000);
 }
 
 async function wake(c) {
   if (!("wakeLock" in navigator)) return;
-  try { c.lock = await navigator.wakeLock.request("screen"); } catch { /* only over HTTPS */ }
+  try {
+    c.lock = await navigator.wakeLock.request("screen");
+    if (c.closed) c.lock.release().catch(() => {});
+  } catch { /* only over HTTPS */ }
 }
 
-async function start() {
+async function start(resume = "") {
   if (!navigator.mediaDevices?.getUserMedia || !window.AudioWorkletNode) return home("Dieser Browser kann kein Live-Gespräch.");
   const c = { name: "Stella", sources: new Set(), next: 0, rate: 24000, closed: false, closing: false, state: "connect",
               inLevel: 0, shown: 0, t0: 0, muted: false, ctx: gestureCtx, lines: [] };
@@ -178,10 +235,19 @@ async function start() {
     draw(c);
   };
   draw(c);
-  c.clock = setInterval(() => tick(c), 100);
+  $("lvBuddyWrap").setAttribute("data-calm", "");
   c.meter = outputMeter(c.ctx);
-  frame(c);
-  c.onVisible = () => { if (document.visibilityState === "visible") wake(c); };
+  c.onVisible = () => {
+    if (document.hidden) {
+      clock(c, false);
+      c.away = setTimeout(() => stop(c, "", "Aufgelegt, weil die App im Hintergrund war."), AWAY_MS);
+      return;
+    }
+    clearTimeout(c.away);
+    clock(c, true);
+    wake(c);
+    animate(c);
+  };
   document.addEventListener("visibilitychange", c.onVisible);
   wake(c);
   try {
@@ -199,7 +265,7 @@ async function start() {
     const url = URL.createObjectURL(new Blob([WORKLET], { type: "text/javascript" }));
     await c.ctx.audioWorklet.addModule(url);
     URL.revokeObjectURL(url);
-    c.ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/live?ticket=${t.ticket}`);
+    c.ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/live?ticket=${t.ticket}${resume ? `&resume=${encodeURIComponent(resume)}` : ""}`);
     c.ws.binaryType = "arraybuffer";
     c.ws.onmessage = (e) => {
       if (typeof e.data !== "string") return play(c, e.data);
@@ -207,10 +273,14 @@ async function start() {
       if (m.type === "ready") {
         c.rate = m.rate || 24000;
         c.t0 = Date.now();
+        if (!document.hidden) clock(c, true);
         const src = c.ctx.createMediaStreamSource(stream);
         c.node = new AudioWorkletNode(c.ctx, "down16k");
         c.node.port.onmessage = (ev) => {
-          if (!c.muted) c.inLevel = Math.max(c.inLevel, rms(new Int16Array(ev.data)));
+          if (!c.muted) {
+            c.inLevel = Math.max(c.inLevel, rms(new Int16Array(ev.data)));
+            if (c.inLevel > 0.05) animate(c);
+          }
           if (c.ws.readyState === 1) c.ws.send(ev.data);
         };
         src.connect(c.node);
@@ -243,7 +313,9 @@ async function stop(c, problem, note) {
   try { c.ws?.readyState === 1 && c.ws.send(JSON.stringify({ type: "end" })); } catch { /* closed */ }
   try { c.ws?.close(); } catch { /* closed */ }
   c.stream?.getTracks().forEach((t) => t.stop());
-  clearInterval(c.clock);
+  clock(c, false);
+  clearTimeout(c.anim);
+  clearTimeout(c.away);
   document.removeEventListener("visibilitychange", c.onVisible);
   c.lock?.release().catch(() => {});
   try { await c.ctx?.close(); } catch { /* closed */ }
@@ -256,10 +328,11 @@ async function stop(c, problem, note) {
 // if the browser still blocks the sound, the start button stays).
 async function boot() {
   const installed = matchMedia("(display-mode: standalone)").matches || matchMedia("(display-mode: fullscreen)").matches || navigator.standalone;
-  if (!installed || !localStorage.getItem("liveKey")) return home();
+  if (!installed || !localStorage.getItem("liveKey") || document.hidden) return home();   // nie unsichtbar das Mikro öffnen
   prime();
   if (gestureCtx) await Promise.race([gestureCtx.resume().catch(() => {}), new Promise((r) => setTimeout(r, 600))]);
   if (gestureCtx?.state === "running") start();
   else { gestureCtx?.close().catch(() => {}); gestureCtx = null; home(); }
 }
+window.addEventListener("pagehide", () => { if (cur) stop(cur); });   // App zu: Mikro und Verbindung sofort frei
 boot();

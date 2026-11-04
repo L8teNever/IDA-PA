@@ -95,20 +95,22 @@ def create_app() -> FastAPI:
     @app.get("/manifest.webmanifest", include_in_schema=False)
     async def manifest():
         """Makes IDA installable as an app (PWA) with the mascot as icon."""
-        icon = f"/s/{version}/icons"
+        # feste Adressen (sonst baut Android die installierte App bei jedem Update über den Play Store neu);
+        # rev nur hochzählen, wenn sich die Icons wirklich ändern
+        icon, rev = "/static/icons", "?v=1"
         return JSONResponse({
             "id": "/", "name": "IDA", "short_name": "IDA", "description": "Deine persönliche Assistentin",
             "lang": "de", "start_url": "/", "scope": "/", "display": "standalone",
             "background_color": "#000000", "theme_color": "#000000",
             "icons": [
-                {"src": f"{icon}/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any"},
-                {"src": f"{icon}/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any"},
-                {"src": f"{icon}/maskable-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable"},
-                {"src": f"{icon}/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable"},
+                {"src": f"{icon}/icon-192.png{rev}", "sizes": "192x192", "type": "image/png", "purpose": "any"},
+                {"src": f"{icon}/icon-512.png{rev}", "sizes": "512x512", "type": "image/png", "purpose": "any"},
+                {"src": f"{icon}/maskable-192.png{rev}", "sizes": "192x192", "type": "image/png", "purpose": "maskable"},
+                {"src": f"{icon}/maskable-512.png{rev}", "sizes": "512x512", "type": "image/png", "purpose": "maskable"},
             ],
             "shortcuts": [
-                {"name": "Chats", "url": "/chats", "icons": [{"src": f"{icon}/icon-192.png", "sizes": "192x192"}]},
-                {"name": "Routinen", "url": "/routinen", "icons": [{"src": f"{icon}/icon-192.png", "sizes": "192x192"}]},
+                {"name": "Chats", "url": "/chats", "icons": [{"src": f"{icon}/icon-192.png{rev}", "sizes": "192x192"}]},
+                {"name": "Routinen", "url": "/routinen", "icons": [{"src": f"{icon}/icon-192.png{rev}", "sizes": "192x192"}]},
             ],
         }, media_type="application/manifest+json", headers={"cache-control": "no-cache"})
 

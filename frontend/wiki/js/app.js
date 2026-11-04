@@ -1344,6 +1344,12 @@ export async function startWikiApp(rootEl) {
   }
 
   sync.startStream();
+  // Akku: im Hintergrund keine offene Live-Verbindung (der Server pingt sonst alle 25 s).
+  // Beim Zurückkommen neu verbinden – der Server meldet dann selbst, wenn sich inzwischen etwas geändert hat.
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) sync.stopStream();
+    else sync.startStream();
+  });
 }
 
 function formatDate(iso) {

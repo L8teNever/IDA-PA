@@ -76,6 +76,7 @@ Kalender-PWA ─:8082─> kalender (eigenes Image, eigener Prozess)             
 * Jede Änderung schreibt eine Zeile in `changes` (die Tabelle braucht es fürs Rückgängig ohnehin) und weckt einen In-Memory-Bus.
   Das funktioniert hier, weil es nur **einen** Kalender-Prozess gibt.
 * `GET /api/v1/stream` (SSE) sendet `{"type":"changed","ids":[…],"by":"ida"}`. Die Oberfläche lädt dann den sichtbaren Bereich neu.
+  Aus Akku-Gründen ist die Verbindung nur offen, solange die App sichtbar ist. Im Hintergrund kommen Erinnerungen nur per Web Push; beim Zurückkommen wird neu verbunden und abgeglichen.
   Legt Ida im Chat einen Termin an, erscheint er sofort in der offenen App.
 * Beim Neuverbinden schickt der Client `Last-Event-ID`. Der Server liefert die verpassten Änderungen aus `changes` nach.
 

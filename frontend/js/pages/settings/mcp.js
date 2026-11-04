@@ -64,6 +64,10 @@ async function detail(el, id) {
     </div><div>
     <div class="slist toggles"><div class="srow"><span class="smain"><b>Aktiv</b><small>Aus = kein Agent kann ihn benutzen</small></span>${sw(m.enabled, 'id="mEnabled"')}</div></div>
     <div class="btn-row"><button class="es-btn" id="mRefresh"><span class="ms">refresh</span>Tools neu laden</button><button class="es-btn danger" id="mDel"><span class="ms">delete</span>Entfernen</button></div></div></div>
+    <div class="grp">Was ist das? – Kontext für die KI</div>
+    <p class="sub-intro">Steht bei jedem Agent mit Zugriff und bei Stella im Kontext, z. B. „Sofia = meine Schul-App: Hausaufgaben, Termine …“. So wissen sie bei „Schulapp“ sofort, was gemeint ist.</p>
+    <label class="fld"><textarea id="mCtx" rows="6" placeholder="Noch leer – „Neu erstellen“ schreibt einen Vorschlag aus den Tools.">${esc(m.context || "")}</textarea></label>
+    <div class="btn-row"><button class="es-btn primary" id="mCtxSave"><span class="ms">save</span>Speichern</button><button class="es-btn" id="mCtxGen"><span class="ms">auto_awesome</span>Neu erstellen</button></div>
     <div class="grp">Agents mit Zugriff</div>
     <div class="chipset" id="mAgents">${state.boot.agents.map((a) => `<button data-a="${a.id}" class="${m.agents.includes(a.id) ? "on" : ""}">${esc(a.name)}</button>`).join("")}</div>
     <p class="sub-intro" style="margin-top:8px">Welche Tools ein Agent davon nutzen darf, stellst du beim Agent ein.</p>
@@ -75,6 +79,14 @@ async function detail(el, id) {
     <div class="slist tool-grid" id="mTools">${m.tools.map((t) => `<div class="srow" data-name="${esc(t.toLowerCase())}"><span class="smain"><b class="mono" title="${esc(t)}">${esc(t)}</b></span>${sw(!m.disabled_tools.includes(t), `data-tool="${esc(t)}"`)}</div>`).join("") || `<div class="empty">Keine Tool-Liste – „Tools neu laden“.</div>`}</div>`;
   $("mEnabled").onclick = async () => { await attempt(() => api.patch(`/connectors/${id}`, { enabled: !m.enabled })); detail(el, id); };
   $("mRefresh").onclick = async () => { const r = await attempt(() => api.post(`/connectors/${id}/refresh`)); if (r) toast(r.status === "ok" ? r.status_text : "Fehler: " + r.status_text); detail(el, id); };
+  $("mCtxSave").onclick = () => attempt(() => api.patch(`/connectors/${id}`, { context: $("mCtx").value }), "Gespeichert");
+  $("mCtxGen").onclick = async () => {
+    if ($("mCtx").value.trim() && !confirm("Deinen Text durch einen neuen Vorschlag ersetzen?")) return;
+    $("mCtxGen").disabled = true;
+    const r = await attempt(() => api.post(`/connectors/${id}/describe`));
+    $("mCtxGen").disabled = false;
+    if (r) { $("mCtx").value = r.context; toast("Neu erstellt"); }
+  };
   $("mDel").onclick = async () => { if (confirm(`${m.name} entfernen?`) && (await attempt(() => api.del(`/connectors/${id}`), "Entfernt"))) navigate(BASE); };
   $("mAgents").onclick = async (e) => {
     const b = e.target.closest("[data-a]");

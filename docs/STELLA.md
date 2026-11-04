@@ -48,6 +48,13 @@ Telnyx ──► voice:/telnyx/webhook + /media ──┼─► Gemini Live (Web
 - **Eigenes Wissen:** `wissen_suchen` durchsucht Gedächtnis und Wiki (`memory/`, `privat/`) in einem Schritt und liefert
   die Inhalte gleich mit. Stella fragt dafür nicht Ida und nicht den Nutzer. Beim Anruf bekommt sie außerdem deutlich mehr
   Gedächtnis mit als ein normaler Lauf, weil es da noch keine Frage gibt, nach der man auswählen könnte.
+- **Ida im Gespräch:** `ida_fragen` kommt sofort zurück, Ida arbeitet im Hintergrund und Stella redet normal weiter. Der
+  Voice-Container holt die Antwort mit `ida_warten` ab, zeigt sie gleich im Chat und gibt sie Gemini in der nächsten Sprechpause.
+  Der Aufruf darf nicht auf Ida warten: Redet der Nutzer weiter, bricht Gemini offene Tool-Aufrufe ab und die Antwort ginge
+  verloren. Aufträge laufen nacheinander. Ist das Gespräch vorbei, kommt die Antwort als Nachricht.
+  Bleibt Stella nach `ida_fragen` still, wird sie nach 3,5 s angestoßen weiterzureden.
+- **Gespräch weiterführen (Live-App):** Der Knopf holt über `/pwa/recent` die letzten eigenen Gespräche (`internal/recent`).
+  Antippen startet `/live?…&resume=<id>`, IDA hängt den alten Verlauf an den Kontext und Stella knüpft kurz daran an.
 - **Lesen geht sofort.** Für Schreib-Aktionen (alles, was laut Name nicht nur liest) gilt `bestaetigt=true`. Ohne diesen
   Wert führt IDA nichts aus und sagt Gemini, dass es erst nachfragen soll. Ausgenommen sind `memory_save` („merk dir …“)
   und `tracker_check`.

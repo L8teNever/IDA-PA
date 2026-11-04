@@ -227,6 +227,7 @@ export async function stopAnswer() {
 }
 
 // Shows an answer while it streams in. start(onEvent, signal) opens the stream (new message or following a running one).
+const RENDER_MS = 150;
 async function follow(start, since = null) {
   const el = addBot();
   // runs for … (counts on while the answer is written; from the server's start time when we come back later)
@@ -234,7 +235,7 @@ async function follow(start, since = null) {
   const clock = document.createElement("div");
   clock.className = "msg-meta live";
   el.closest(".row").after(clock);
-  const tick = () => { clock.innerHTML = `<span class="ms">timer</span>läuft seit ${fmtDur(Date.now() - t0)}`; };
+  const tick = () => { if (!document.hidden) clock.innerHTML = `<span class="ms">timer</span>läuft seit ${fmtDur(Date.now() - t0)}`; };
   tick();
   const timer = setInterval(tick, 1000);
   const parts = [];
@@ -247,6 +248,20 @@ async function follow(start, since = null) {
   document.dispatchEvent(new CustomEvent("chat:busy"));
   renderBot(el, parts);
   setLive("thinking");
+  // Akku: höchstens alle RENDER_MS neu zeichnen statt bei jedem Wortschnipsel (das ganze Markdown neu aufzubauen
+  // kostet viel), im Hintergrund gar nicht – beim Zurückkommen einmal nachzeichnen.
+  let drawTimer = null, dirty = false;
+  const draw = () => {
+    clearTimeout(drawTimer);
+    drawTimer = null;
+    if (!dirty || document.hidden) return;
+    dirty = false;
+    renderBot(el, parts, "", meta);
+    scroll();
+  };
+  const later = () => { dirty = true; if (!drawTimer) drawTimer = setTimeout(draw, RENDER_MS); };
+  const onVisible = () => { if (!document.hidden) { tick(); draw(); } };
+  document.addEventListener("visibilitychange", onVisible);
   const onEvent = (ev) => {
     if (ev.chat) {
       if (!ctx.id) {
@@ -285,8 +300,8 @@ async function follow(start, since = null) {
       if (ev.done.stopped) meta.stopped = true;
       else if (!ok) meta.error = ev.done.error;
     }
-    renderBot(el, parts, "", meta);
-    scroll();
+    // Freigaben, Rückfragen und das Ende sofort zeigen, alles andere gebündelt
+    if (ev.approval || ev.approval_done || ev.done || (ev.tool && isAsk(ev.tool))) { dirty = true; draw(); } else later();
   };
   try {
     await start(onEvent, ctrl.signal);
@@ -300,9 +315,13 @@ async function follow(start, since = null) {
       return;
     }
     meta.error = e.message;
+    dirty = false;
     renderBot(el, parts, "", meta);
   } finally {
     clearInterval(timer);
+    clearTimeout(drawTimer);
+    document.removeEventListener("visibilitychange", onVisible);
+    if (dirty && !ctrl.signal.aborted && el.isConnected) { dirty = false; renderBot(el, parts, "", meta); }
     clock.remove();
     if (following === ctrl) {
       following = null;

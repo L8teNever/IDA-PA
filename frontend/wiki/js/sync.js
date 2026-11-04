@@ -83,10 +83,15 @@ export async function syncAll({ full = false } = {}) {
   return pull({ full });
 }
 
+let connecting = false;
+
 export function startStream() {
-  if (typeof EventSource === "undefined" || sse) return;
+  if (typeof EventSource === "undefined" || sse || connecting) return;
+  connecting = true;
   const connect = async () => {
-    const cursor = (await getMeta("cursor", 0)) || 0;
+    const cursor = (await getMeta("cursor", 0).catch(() => 0)) || 0;
+    connecting = false;
+    if (sse || (typeof document !== "undefined" && document.hidden)) return;   // inzwischen im Hintergrund
     sse = new EventSource(apiUrl(`/api/v1/stream?since=${cursor}`));
     sse.onmessage = async (ev) => {
       let msg = {};

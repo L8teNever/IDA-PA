@@ -85,4 +85,8 @@ async def test_frontend_served(client):
     assert sw.status_code == 200 and "__VERSION__" not in sw.text and "__SHELL__" not in sw.text
     m = await client.get("/manifest.webmanifest")
     assert m.json()["name"] == "IDA Code"
+    # Icons unter fester Adresse (ohne Version), sonst baut Android die App bei jedem Update neu
+    for i in m.json()["icons"]:
+        assert i["src"].startswith("/icons/") and "/s/" not in i["src"]
+        assert (await client.get(i["src"])).headers["content-type"] == "image/png"
     assert (await client.get("/api/v1/unbekannt")).status_code == 404

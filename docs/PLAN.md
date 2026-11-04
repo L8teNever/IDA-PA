@@ -94,7 +94,7 @@ legacy/node-app/       alter Prototyp (nur noch Referenz / Import)
 | `accounts` | Claude-Accounts (Name, Config-Ordner im Volume, optional OAuth-Token) |
 | `agents` | alle Agenten inkl. Haupt-Agent (`is_main`), Name, Slug, Farbe, Startseite, Chips, Rolle, Persönlichkeit, Anweisungen, Modell, Account, Fallback, Gedächtnis, an/aus, Notizen |
 | `agent_runs` | letzte Läufe je Agent |
-| `connectors` | MCP-Server (URL, Header, an/aus, Status, Tool-Liste, abgeschaltete Tools) |
+| `connectors` | MCP-Server (URL, Header, an/aus, Status, Tool-Liste, abgeschaltete Tools, `context` = was der Dienst ist und wie der Nutzer ihn nennt; vom kleinen Modell aus den Tools vorgeschlagen, editierbar, steht im Systemprompt jedes Agenten mit Zugriff und bei Stella) |
 | `agent_connectors` | welcher Agent welchen Connector (und welche Tools) nutzen darf |
 | `skills`, `agent_skills` | Skills und welche Agents sie nutzen dürfen |
 | `chats`, `chat_messages` | Chats mit allen Nachrichten und Tool-Aufrufen, Claude-Session |

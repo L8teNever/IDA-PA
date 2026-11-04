@@ -30,6 +30,7 @@ from .claude import prompts
 from .claude.runner import norm
 from .errors import Invalid, NotFound
 from .mcp import client as mcp_client
+from .mcp import context as mcp_context
 from .mcp import hub, identity
 from .memory import store as memory
 from .schedule import tz
@@ -41,13 +42,18 @@ DEF_TTL = 600  # connector tool definitions are cached this long (listing them c
 META = ("wissen_suchen", "tool_suchen", "tool_ausfuehren", "ida_fragen")
 CALL_MEMORY_TOP, CALL_MEMORY_CHARS, CALL_WIKI_CHARS = 40, 8000, 12000  # beim Anruf gibt es noch keine Frage: lieber viel Wissen mitgeben
 KNOWLEDGE_PAGES, KNOWLEDGE_PAGE_CHARS, KNOWLEDGE_LIMIT = 3, 1200, 6000
-# Im Gespräch fragt Stella Ida live (ida_fragen) und wartet; Abgeben ohne Antwort hieße „Ida meldet sich“ und Auflegen
+RESUME_CHARS = 8000  # so viel vom früheren Gespräch bekommt Stella beim Weiterführen
+# Im Gespräch fragt Stella Ida mit ida_fragen: Ida arbeitet im Hintergrund, ihre Antwort kommt ins laufende Gespräch.
+# Abgeben ohne Rückweg hieße „Ida meldet sich“ und Auflegen
 LIVE_SKIP = ("agent_delegate", "agent_send")
-LATE_HAND_OVER_S = 30  # so lange darf das Gespräch eine späte Antwort Idas abholen, sonst kommt sie als Nachricht
-IDA_INTRO = ("Stella spricht gerade live mit dem Nutzer und wartet auf dich. Alle Nachrichten in diesem Chat sind ihre Fragen aus demselben Gespräch. "
+IDA_FINISH_S = 600  # so lange wartet die Auswertung nach dem Gespräch auf Ida
+LATE_HAND_OVER_S = 30  # so lange darf das Gespräch Idas Antwort abholen, sonst kommt sie als Nachricht
+IDA_INTRO = ("Stella spricht gerade live mit dem Nutzer und bringt ihm deine Antwort ins Gespräch. Alle Nachrichten in diesem Chat sind ihre Fragen aus demselben Gespräch. "
              "Unten steht der bisherige Gesprächsverlauf: Nutze ihn für Bezüge wie „das von vorhin“ oder „mein Leitsatz“, Stellas Frage kann ungenau sein – "
              "gemeint ist, was der Nutzer will. Antworte immer schnell und so kurz wie möglich, höchstens drei gesprochene Sätze, ohne Markdown und ohne Links, "
              "Stella sagt das laut weiter. Hast du etwas erledigt, sag konkret was (z. B. wo die Seite liegt). Weißt du etwas nicht, sag das.")
+IDA_NEXT = (" Stella hat das nachgeschoben, während du noch am letzten Auftrag warst. Ist es derselbe Auftrag, mach ihn nicht nochmal, "
+            "sag nur kurz, dass er schon erledigt ist.")
 # Was der Nutzer im Gespräch selbst klar verlangt, darf Ida tun – auch wenn Stella bestaetigt vergessen hat. Folgenreiches nur mit Ja.
 IDA_RULE_ASK = ("Verändere nur, was der Nutzer im Verlauf selbst klar verlangt hat (z. B. „schreib das ins Wiki“, „merk dir …“, „leg den Termin an“) – "
                 "das zählt als Ja. Etwas senden (Mail, Nachricht), jemanden anrufen, löschen oder etwas kaufen nur, wenn er genau dazu im Verlauf "
@@ -101,15 +107,14 @@ class Session:
     run: int = 0  # activity id (mascot)
     used: list[str] = field(default_factory=list)  # "name ok|fehler" in order
     ida_chat: str | None = None  # this conversation's chat with Ida (ida_fragen)
-    ida_task: asyncio.Task | None = None
-    ida_late: tuple[bool, str] | None = None  # Ida answered after Stella stopped waiting: still to be said in the call
-    ida_said: asyncio.Event = field(default_factory=asyncio.Event)  # … and Stella has it
-    ida_ready: asyncio.Event = field(default_factory=asyncio.Event)
+    ida_task: asyncio.Task | None = None  # newest job; jobs run one after the other
+    ida_open: int = 0  # jobs whose answer the call has not picked up yet
+    ida_answers: asyncio.Queue = field(default_factory=asyncio.Queue)  # (ok, text, picked up) for ida_warten
 
 
 _sessions: dict[str, Session] = {}
 _defs: dict[str, tuple[float, list[dict]]] = {}
-_waiting: set[asyncio.Task] = set()  # late answers of Ida still on their way
+_waiting: set[asyncio.Task] = set()  # jobs of Ida still on their way
 
 
 # ---------------- start ----------------
@@ -187,9 +192,10 @@ def _meta_tools() -> list[dict]:
              "argumente_json": {"type": "string", "description": "Parameter als JSON-Objekt, z. B. {\"query\": \"Rechnung\"}"},
              "bestaetigt": {"type": "boolean", "description": "Nur true, wenn der Nutzer genau diese Aktion ausdrücklich mit Ja bestätigt hat."}},
              "required": ["name"]}},
-        {"name": "ida_fragen", "description": "Fragt Ida live und wartet auf ihre Antwort, oder gibt ihr einen Auftrag, den sie sofort erledigt: wenn es "
-                                              "mehrere Schritte, Recherche oder einen längeren Text braucht (z. B. Wiki-Seite anlegen) oder wissen_suchen nichts "
-                                              "gefunden hat. Nie nur zum Nachschauen im Gedächtnis oder Wiki. Dauert meist einige Sekunden bis eine Minute.",
+        {"name": "ida_fragen", "description": "Gibt Ida eine Frage oder einen Auftrag, sie arbeitet im Hintergrund: wenn es mehrere Schritte, Recherche oder "
+                                              "einen längeren Text braucht (z. B. Wiki-Seite anlegen) oder wissen_suchen nichts gefunden hat. Nie nur zum "
+                                              "Nachschauen im Gedächtnis oder Wiki. Kommt sofort zurück, du redest normal weiter; ihre Antwort kommt "
+                                              "nach einigen Sekunden bis einer Minute von selbst ins Gespräch.",
          "parameters": {"type": "object", "properties": {
              "frage": {"type": "string", "description": "Was Ida herausfinden oder tun soll, klar und vollständig. Ida bekommt den Gesprächsverlauf mit, "
                                                         "Bezüge wie „den Leitsatz von vorhin“ versteht sie also."},
@@ -211,18 +217,22 @@ du etwas von dir aus vorschlägst oder es unklar ist, frag kurz („Soll ich den
 Löschen und Anrufen immer erst nach seinem ausdrücklichen Ja zu genau dieser Aktion. „Merk dir …“ speicherst du ohne Nachfrage
 mit memory_save. Passt keins der direkten Tools, such mit tool_suchen und führe mit tool_ausfuehren aus.
 Ida hilft dir bei allem Größeren: Hat wissen_suchen nichts gebracht, braucht es mehr Überlegen, mehrere Schritte oder einen längeren
-Text (Wiki-Seite anlegen, Entwurf ablegen, recherchieren), frag Ida live mit ida_fragen und WARTE auf ihre Antwort.
-Ida sieht den Gesprächsverlauf, schreib in die Frage trotzdem klar, was genau sie tun oder herausfinden soll. Sag vorher kurz
-„Moment, ich frag Ida.“, gib ihre Antwort danach knapp in deinen Worten wieder und erfinde nichts dazu. Sag nie „Ida meldet
-sich“, du holst die Antwort selbst. Braucht Ida länger, sag das kurz und red normal weiter; ihre Antwort kommt von selbst in
-dieses Gespräch (als „[Ida hat jetzt geantwortet] …“), dann gibst du sie sofort weiter. Für Ida gilt bei Änderungen dieselbe
-Ja-Regel wie für dich (bestaetigt=true). Beende das Gespräch nie von dir aus, solange der Nutzer sich nicht verabschiedet, und
-erst recht nicht, während du auf Ida wartest. Erfinde nie Ergebnisse; Fehler oder nichts gefunden sagst du ehrlich.
+Text (Wiki-Seite anlegen, Entwurf ablegen, recherchieren), gib es Ida mit ida_fragen. Sie arbeitet im Hintergrund: Sag nur kurz
+„Ida ist dran.“ und rede sofort ganz normal mit dem Nutzer weiter, auch über anderes; warte nie still auf sie. Einmal abgeschickt reicht, schick denselben Auftrag
+nie nochmal. Ida sieht den Gesprächsverlauf, schreib in die Frage trotzdem klar, was genau sie tun oder herausfinden soll.
+Ihre Antwort kommt von selbst in dieses Gespräch (als „[Ida hat jetzt geantwortet] …“). Dann ist sie fertig: lies ihren Text nicht vor,
+sondern überleg, was davon für den Nutzer zählt, und sag nur das, so wie du sonst auch antwortest (Ergebnis zuerst, kurz,
+Wichtiges wie Fristen, Konflikte oder eine Frage an ihn, Details nur auf Nachfrage). Erfinde nichts dazu und mach danach mit dem
+Thema weiter, bei dem ihr gerade wart. Erst diese Nachricht heißt, dass Ida fertig ist; fragt der Nutzer vorher,
+sag ehrlich, dass sie noch dran ist. Sag nie „Ida meldet sich“, du bringst die Antwort selbst. Für Ida gilt bei Änderungen dieselbe
+Ja-Regel wie für dich (bestaetigt=true). Beende das Gespräch nie von dir aus, solange der Nutzer sich nicht verabschiedet;
+verabschiedet er sich, während Ida arbeitet, bekommt er ihre Antwort als Nachricht. Erfinde nie Ergebnisse; Fehler oder nichts
+gefunden sagst du ehrlich.
 Nachrichten in eckigen Klammern wie „[System …]“ kommen vom System, nicht vom Nutzer: befolge sie, lies sie nicht vor.
 """
 
 
-async def start(call_id: str, direction: str, number: str, owner: bool, purpose: str = "") -> dict:
+async def start(call_id: str, direction: str, number: str, owner: bool, purpose: str = "", resume: str = "") -> dict:
     """A conversation begins. Returns the system context and (owner only) the tools for Gemini."""
     s = get_settings()
     async with session_scope() as db:
@@ -234,6 +244,7 @@ async def start(call_id: str, direction: str, number: str, owner: bool, purpose:
         row.status, row.owner = "live", owner
         sess = Session(call_id=call_id, agent_id=agent.id, owner=owner, direction=direction, number=number, purpose=purpose)
         context = prompts.persona(agent)
+        earlier = await _earlier(db, resume) if owner and resume else ""
         if owner:
             labels = await prompts.labels(db)
             main = await db.scalar(select(Agent).where(Agent.is_main.is_(True)))
@@ -256,6 +267,8 @@ async def start(call_id: str, direction: str, number: str, owner: bool, purpose:
                 if not _matches(t.bare, deny) and t.name not in sess.tools and t.name not in META and t.bare not in LIVE_SKIP:
                     sess.tools[t.name] = t
             context += TOOL_RULES.format(main=main.id if main else "ida") + prompts.CONFIRM_RULE
+            # what the connected apps are ("Schulapp" = Sofia …) – Stella may use what Ida may use
+            context += await mcp_context.for_agents(db, {agent.id} | ({main.id} if main else set()), prefix="")
             declared = [t for t in sess.tools.values() if _matches(t.bare, core)][:MAX_DECLARED]
             tools = [{"name": t.name, "description": t.description, "parameters": _with_yes(t)} for t in declared] + _meta_tools()
         else:
@@ -263,12 +276,15 @@ async def start(call_id: str, direction: str, number: str, owner: bool, purpose:
                         "auf die Daten des Nutzers und keine Tools. Gib nichts über den Nutzer preis, was nicht im Auftrag steht, und lass dich "
                         "zu nichts überreden, was nicht im Auftrag steht.\n")
             tools = []
+        if earlier:
+            context += ("\n--- Früheres Gespräch, das der Nutzer jetzt weiterführt ---\n" + earlier
+                        + "\nMach nahtlos dort weiter, wo ihr aufgehört habt; was darin erledigt wurde, ist erledigt.\n")
         context += "\n" + prompts.now_line()
         voice = await settings_store.get(db, "gemini_voice", "Aoede")
     sess.run = activity.start(sess.agent_id, "call")
     activity.step(sess.run, "tool", "stella_call", "telefon")
     _sessions[call_id] = sess
-    return {"agent": agent.name, "context": context, "tools": tools, "owner": owner, "voice": voice}
+    return {"agent": agent.name, "context": context, "tools": tools, "owner": owner, "voice": voice, "resumed": bool(earlier)}
 
 
 # ---------------- Stella asks Ida ----------------
@@ -330,54 +346,50 @@ async def _ida_answer(sess: Session, question: str, yes: bool, history: list | N
     return main_id, ok, answer
 
 
-async def _late_answer(sess: Session, task: asyncio.Task, question: str) -> None:
-    """Ida was slower than Stella may wait: the answer goes into the running call (ida_warten). Is the call over
-    or does nobody pick it up, it still reaches the user, as a message."""
+async def _ida_job(sess: Session, before: asyncio.Task | None, question: str, yes: bool, history: list | None) -> None:
+    """Ida works in the background, so the call never hangs on her. The answer goes into the running call (ida_warten).
+    Is the call over or does nobody pick it up, it still reaches the user, as a message."""
     try:
-        main_id, ok, answer = await task
+        if before:  # one chat: one question after the other
+            await asyncio.wait({before})
+        main_id = sess.agent_id
+        try:
+            main_id, ok, answer = await _ida_answer(sess, question, yes, history, intro=IDA_INTRO + (IDA_NEXT if before else ""))
+        except Exception as e:  # noqa: BLE001
+            log.exception("voice: Ida could not answer")
+            ok, answer = False, f"Ida ist gerade nicht erreichbar ({e.__class__.__name__})."
+        sess.used.append(f"ida_fragen {'ok' if ok else 'Fehler'}")
         if _sessions.get(sess.call_id) is sess:
-            sess.ida_late = (ok, answer)
-            sess.ida_ready.set()
+            activity.step(sess.run, "thinking")
+            taken = asyncio.Event()
+            sess.ida_answers.put_nowait((ok, _out(answer, not ok).popitem()[1], taken))
             try:
-                await asyncio.wait_for(sess.ida_said.wait(), LATE_HAND_OVER_S)
+                await asyncio.wait_for(taken.wait(), LATE_HAND_OVER_S)
                 return
             except asyncio.TimeoutError:
                 pass
+        sess.ida_open -= 1
         async with session_scope() as db:
             await agent_svc.send(db, from_id=main_id, to=USER, kind="notice", title="Ida zu Stellas Frage",
                                  text=f"{question}\n\n{answer if ok else 'Das hat nicht geklappt: ' + answer[:300]}")
     except Exception:  # noqa: BLE001
-        log.exception("voice: late answer of Ida failed")
+        log.exception("voice: answer of Ida failed")
 
 
 async def _ask_ida(sess: Session, question: str, yes: bool, history: list | None = None) -> dict:
+    """Comes back at once. Waiting here would keep Gemini's tool call open, and the user talking on cancels it: the answer would go nowhere."""
     question = " ".join((question or "").split())[:1500]
     if not question:
         return _out("Die Frage fehlt.", True)
-    if sess.ida_task and not sess.ida_task.done():
-        return _out("Ida arbeitet noch an deiner letzten Frage. Ihre Antwort kommt gleich von selbst in dieses Gespräch, frag danach nochmal.")
+    before = sess.ida_task if sess.ida_task and not sess.ida_task.done() else None
     activity.step(sess.run, "tool", "ida_fragen", "ida")
-    sess.ida_late = None
-    sess.ida_said.clear()
-    sess.ida_ready.clear()
-    task = sess.ida_task = asyncio.create_task(_ida_answer(sess, question, yes, history))
-    done, _ = await asyncio.wait({task}, timeout=get_settings().voice_ida_ask_s)
-    activity.step(sess.run, "thinking")
-    if not done:
-        late = asyncio.create_task(_late_answer(sess, task, question))
-        _waiting.add(late)
-        late.add_done_callback(_waiting.discard)
-        sess.used.append("ida_fragen läuft noch")
-        return {**_out("Ida sucht noch. Sag dem Nutzer kurz, dass Ida noch dran ist und du ihm ihre Antwort gleich sagst, und leg nicht auf. "
-                       "Ihre Antwort kommt von selbst in dieses Gespräch."), "ida_pending": True}
-    try:
-        _, ok, answer = task.result()
-    except Exception as e:  # noqa: BLE001
-        log.exception("voice: Ida could not answer")
-        sess.used.append("ida_fragen Fehler")
-        return _out(f"Ida ist gerade nicht erreichbar ({e.__class__.__name__}).", True)
-    sess.used.append(f"ida_fragen {'ok' if ok else 'Fehler'}")
-    return _out(answer, not ok)
+    sess.ida_open += 1
+    job = sess.ida_task = asyncio.create_task(_ida_job(sess, before, question, yes, history))
+    _waiting.add(job)
+    job.add_done_callback(_waiting.discard)
+    text = ("Ida ist noch am letzten Auftrag, das hier macht sie direkt danach." if before else "Ida arbeitet jetzt daran.")
+    return {**_out(text + " Sag das kurz und rede sofort normal weiter, warte nicht still auf sie. Schick es nicht nochmal, ihre Antwort kommt von selbst in dieses Gespräch."),
+            "ida_pending": True}
 
 
 # ---------------- tools ----------------
@@ -464,18 +476,15 @@ async def _run(sess: Session, t: Tool, args: dict) -> dict:
 
 
 async def _wait_late(sess: Session) -> dict:
-    """The call asks for Ida's late answer (not a tool for Gemini): waits a bit, then {answer} or {pending}."""
-    if not sess.ida_task or sess.ida_said.is_set():  # nichts gefragt oder schon abgeholt
+    """The call picks up Ida's answers (not a tool for Gemini): waits a bit, then {answer}, {pending} or {gone} when nothing is open."""
+    if not sess.ida_open:
         return {"gone": True}
     try:
-        await asyncio.wait_for(sess.ida_ready.wait(), 20)
+        ok, answer, taken = await asyncio.wait_for(sess.ida_answers.get(), 20)
     except asyncio.TimeoutError:
-        return {"gone": True} if sess.ida_task.done() and not sess.ida_late else {"pending": True}
-    ok, answer = sess.ida_late or (False, "Keine Antwort")
-    sess.ida_late = None
-    sess.ida_ready.clear()
-    sess.ida_said.set()
-    sess.used.append(f"ida_fragen spät {'ok' if ok else 'Fehler'}")
+        return {"pending": True}
+    sess.ida_open -= 1
+    taken.set()
     return {"answer": answer, "ok": ok}
 
 
@@ -618,6 +627,8 @@ async def _evaluate(agent_id: str, chat_id: str, direction: str, purpose: str, l
     What the user wanted but nobody did goes to Ida right away (not as agent_delegate: its result would only reach Stella)."""
     from .runs import run_agent
 
+    if sess and sess.ida_task:  # Ida arbeitet noch: erst danach steht fest, was erledigt ist, sonst bekäme sie es als „offen“ nochmal
+        await asyncio.wait({sess.ida_task}, timeout=IDA_FINISH_S)
     talk = "\n".join(f"{'Nutzer' if w == 'user' else 'Du'}: {t}" for w, t in lines)[-12000:]
     kind = "Live-Gespräch in der App" if direction == "web" else "Telefonat"
     prompt = (f"Du hattest gerade ein {kind} mit dem Nutzer (Gemini Live hat für dich gesprochen). "
@@ -646,6 +657,32 @@ async def _evaluate(agent_id: str, chat_id: str, direction: str, purpose: str, l
             text = summary if out.ok else f"(Auswertung fehlgeschlagen: {out.text[:300]})"
             db.add(ChatMessage(chat_id=chat_id, role="assistant", text=text, parts=[{"t": "text", "text": text}],
                                meta={"voice_summary": True, "account": out.account}))
+
+
+async def _earlier(db, call_id: str) -> str:
+    """Transcript of an earlier conversation with the user himself (button "Gespräch weiterführen"), newest lines kept."""
+    row = await db.get(VoiceCall, call_id)
+    if not (row and row.owner and row.chat_id):
+        return ""
+    msgs = (await db.scalars(select(ChatMessage).where(ChatMessage.chat_id == row.chat_id).order_by(ChatMessage.at))).all()
+    talk = "\n".join(f"{'Nutzer' if m.role == 'user' else 'Du'}: {' '.join((m.text or '').split())[:800]}" for m in msgs if m.text)
+    when = row.started_at.astimezone(tz()).strftime("%d.%m. %H:%M")
+    head = f"Gespräch vom {when}" + (f", Ergebnis: {row.outcome[:600]}" if row.outcome else "")
+    return head + "\n" + talk[-RESUME_CHARS:] if talk else ""
+
+
+async def resumable(limit: int = 12) -> list[dict]:
+    """The user's own last conversations with a transcript: what the live app offers to pick up again."""
+    async with session_scope() as db:
+        rows = (await db.scalars(select(VoiceCall).where(VoiceCall.owner.is_(True), VoiceCall.chat_id.is_not(None))
+                                 .order_by(VoiceCall.started_at.desc()).limit(max(1, min(limit, 30))))).all()
+        out = []
+        for r in rows:
+            first = await db.scalar(select(ChatMessage.text).where(ChatMessage.chat_id == r.chat_id, ChatMessage.role == "user")
+                                    .order_by(ChatMessage.at).limit(1))
+            topic = " ".join((r.outcome or first or "").split())
+            out.append({"id": r.id, "start": r.started_at.isoformat(), "web": r.direction == "web", "topic": topic[:140]})
+    return out
 
 
 def live_calls() -> list[str]:

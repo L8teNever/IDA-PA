@@ -133,6 +133,11 @@ export function mountGraph(canvas, data, { onSelectNode, highlightQuery = "", in
   let raf = 0;
   let destroyed = false;
   let dirty = true;
+  // Akku: die Zeichenschleife läuft nur, solange sich etwas bewegt oder neu gezeichnet werden muss; wake() startet sie wieder.
+  function wake() {
+    dirty = true;
+    if (!raf && !destroyed) raf = requestAnimationFrame(loop);
+  }
   const pointers = new Map();
   let pinch = null;
 
@@ -143,7 +148,7 @@ export function mountGraph(canvas, data, { onSelectNode, highlightQuery = "", in
     canvas.width = Math.round(width * dpr);
     canvas.height = Math.round(height * dpr);
     if (!touched) fit(false);
-    dirty = true;
+    wake();
   }
 
   function bounds() {
@@ -370,6 +375,7 @@ export function mountGraph(canvas, data, { onSelectNode, highlightQuery = "", in
   }
 
   function loop() {
+    raf = 0;
     if (destroyed) return;
     const moving = tick();
     if (moving && !touched) fit(true);
@@ -377,7 +383,7 @@ export function mountGraph(canvas, data, { onSelectNode, highlightQuery = "", in
       draw();
       dirty = false;
     }
-    raf = requestAnimationFrame(loop);
+    if (moving || alphaTarget) raf = requestAnimationFrame(loop);   // steht alles still: Schleife schläft
   }
 
   function pointerCoords(ev) {
@@ -390,7 +396,7 @@ export function mountGraph(canvas, data, { onSelectNode, highlightQuery = "", in
     scale = Math.max(0.03, Math.min(4, scale * factor));
     camX = p.x - width / 2 - before.x * scale;
     camY = p.y - height / 2 - before.y * scale;
-    dirty = true;
+    wake();
   }
 
   const onDown = (ev) => {
@@ -413,6 +419,7 @@ export function mountGraph(canvas, data, { onSelectNode, highlightQuery = "", in
       dragging = hit;
       alphaTarget = 0.3;
       alpha = Math.max(alpha, 0.3);
+      wake();
     } else {
       panning = true;
       panStart = { x: p.x, y: p.y, camX, camY };
@@ -436,19 +443,19 @@ export function mountGraph(canvas, data, { onSelectNode, highlightQuery = "", in
       const w = screenToWorld(p.x, p.y);
       dragging.x = w.x;
       dragging.y = w.y;
-      dirty = true;
+      wake();
       return;
     }
     if (panning) {
       if (Math.hypot(p.x - panStart.x, p.y - panStart.y) > 3) { moved = true; touched = true; }
       camX = panStart.camX + (p.x - panStart.x);
       camY = panStart.camY + (p.y - panStart.y);
-      dirty = true;
+      wake();
       return;
     }
     if (ev.pointerType === "mouse") {
       const h = findNodeAt(p.x, p.y);
-      if (h !== hovered) { hovered = h; dirty = true; }
+      if (h !== hovered) { hovered = h; wake(); }
       canvas.style.cursor = hovered ? "pointer" : "grab";
     }
   };
@@ -469,7 +476,7 @@ export function mountGraph(canvas, data, { onSelectNode, highlightQuery = "", in
   };
 
   const onLeave = () => {
-    if (hovered && !dragging) { hovered = null; dirty = true; }
+    if (hovered && !dragging) { hovered = null; wake(); }
   };
 
   const onWheel = (ev) => {
@@ -493,18 +500,18 @@ export function mountGraph(canvas, data, { onSelectNode, highlightQuery = "", in
   canvas.addEventListener("pointercancel", onUp);
   canvas.addEventListener("pointerleave", onLeave);
   canvas.addEventListener("wheel", onWheel, { passive: false });
-  loop();
+  wake();
 
   return {
     setQuery(q) {
       query = String(q || "").trim().toLowerCase();
-      dirty = true;
+      wake();
     },
     resetView() {
       touched = false;
       fit(false);
       alpha = Math.max(alpha, 0.15);
-      dirty = true;
+      wake();
     },
     destroy() {
       destroyed = true;

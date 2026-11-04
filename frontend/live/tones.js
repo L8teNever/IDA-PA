@@ -3,9 +3,12 @@
 //   connected()    – verbunden:  heller Dreiklang aufwärts („ding-ding-ding“)
 //   hungUp()       – aufgelegt:  drei Töne abwärts mit langem Ausklingen
 //   disconnected() – getrennt/Fehler: tiefer, abwärts gleitender Ton mit leichtem Moll
+// Der AudioContext läuft nur, solange ein Ton klingt: ein laufender Context hält den Audio-Thread des Handys wach, auch ohne Ton.
 let ctx = null;
+let quiet = 0;
 
 function audio() {
+  clearTimeout(quiet);
   try {
     if (!ctx || ctx.state === "closed") ctx = new (window.AudioContext || window.webkitAudioContext)();
     ctx.resume?.();
@@ -13,8 +16,13 @@ function audio() {
   return ctx;
 }
 
+function quietIn(ms) {
+  clearTimeout(quiet);
+  quiet = setTimeout(() => ctx?.suspend?.().catch(() => {}), ms);
+}
+
 // beim ersten Tippen aufrufen, damit der Browser die Töne später abspielen darf
-export function unlockTones() { audio(); }
+export function unlockTones() { audio(); quietIn(300); }
 
 function bell(a, out, freq, at, len, vol, glideTo) {
   for (const [mult, gain, type] of [[1, 1, "sine"], [2, 0.18, "sine"], [3, 0.05, "triangle"]]) {
@@ -51,6 +59,7 @@ function play(notes) {
   fb.connect(a.destination);
   const t = a.currentTime + 0.03;
   for (const [freq, start, len, vol, glide] of notes) bell(a, out, freq, t + start, len, vol, glide);
+  quietIn((Math.max(...notes.map(([, start, len]) => start + len)) + 0.8) * 1000);   // + Nachhall
 }
 
 export const connected = () => play([[659.3, 0, 0.5, 0.16], [830.6, 0.09, 0.5, 0.15], [987.8, 0.18, 0.9, 0.17]]);   // E5 Gis5 H5

@@ -14,6 +14,7 @@ from .claude import prompts, runner, usage
 from .claude.runner import CodeRun, RunResult, RunSpec, norm
 from .errors import Invalid
 from .memory import store as memory
+from .mcp import context as mcp_context
 from .mcp import identity
 
 log = logging.getLogger("ida.runs")
@@ -78,6 +79,7 @@ async def prepare(db: AsyncSession, agent: Agent, prompt: str, *, model: str | N
         system = prompts.persona(agent) + prompts.team_section(agent, main.id, unread, interactive)
     if interactive:
         system += prompts.CONFIRM_RULE
+    system += await mcp_context.for_agents(db, {agent.id})
     system += prompts.skills_section(await prompts.skills_for(db, agent.id), forced_skill)
     if memory_on:
         system += "\n" + await memory.block(db, agent.id, agent.is_main, prompt, labels)

@@ -21,7 +21,8 @@ export const MOODS = [
 // The mood follows what the shown agent is really doing. Priority:
 // picked by hand > short reaction (happy/sad) > live chat in this tab > server activity > user typing > awake/asleep.
 const SLEEP_AFTER = 60000; // nothing going on for a minute -> falls asleep
-const POLL_MS = 2500;
+// am Handy steht es still (Akku), da reicht seltener Nachsehen
+const POLL_MS = matchMedia("(hover: none) and (pointer: coarse)").matches ? 10000 : 2500;
 let mood = "";
 let manual = null, manualUntil = 0;
 let flash = null, flashUntil = 0;

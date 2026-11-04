@@ -86,7 +86,10 @@ async def test_frontend_and_app(client):
     assert r.status_code == 200 and "IDA Dashboard" in r.text and '"/static/' not in r.text
     sw = await client.get("/sw.js")
     assert "__VERSION__" not in sw.text and "__SHELL__" not in sw.text
-    assert (await client.get("/manifest.webmanifest")).json()["name"] == "IDA Dashboard"
+    man = (await client.get("/manifest.webmanifest")).json()
+    assert man["name"] == "IDA Dashboard"
+    for i in man["icons"]:   # feste Adresse, Bild kommt an
+        assert i["src"].startswith("/icons/") and (await client.get(i["src"])).headers["content-type"] == "image/png"
     a = (await client.get("/api/v1/app")).json()
     assert [t["id"] for t in a["tools"]] == ["stacks", "files", "monitor", "storage"]
     assert (await client.get("/api/v1/unbekannt")).status_code == 404

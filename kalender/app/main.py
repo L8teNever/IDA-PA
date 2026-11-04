@@ -117,6 +117,8 @@ def create_app() -> FastAPI:
         app.mount(f"/s/{version}/shared/css", Static(directory=css, cache=imm), name="shared-css")
         app.mount(f"/s/{version}/shared/fonts", Static(directory=fonts, cache=imm), name="shared-fonts")
         app.mount(f"/s/{version}", Static(directory=own, cache=imm), name="assets")
+        # Icons unter fester Adresse: das Manifest ändert sich so nicht bei jedem Update (sonst baut Android die installierte App über den Play Store neu)
+        app.mount("/icons", Static(directory=own / "icons", cache="public, max-age=86400"), name="icons")
         shell_json = json.dumps(shell_files(own, css, fonts, version))
         index = (own / "index.html").read_text(encoding="utf8") if (own / "index.html").exists() else "<h1>IDA Kalender</h1>"
         index_html = index.replace('"/static/', f'"/s/{version}/')
@@ -145,20 +147,21 @@ def create_app() -> FastAPI:
 
 
 def build_manifest(version: str) -> dict:
-    icon = f"/s/{version}/icons"
+    # feste Adressen; ICON_REV nur hochzählen, wenn sich die Icons wirklich ändern
+    icon, rev = "/icons", "?v=1"
     return {
         "id": "/kalender-app", "name": "IDA Kalender", "short_name": "Kalender", "description": "Dein Kalender – lokal, mit Ida",
         "lang": "de", "start_url": "/", "scope": "/", "display": "standalone", "display_override": ["window-controls-overlay", "standalone"],
         "background_color": "#000000", "theme_color": "#000000", "categories": ["productivity"],
         "icons": [
-            {"src": f"{icon}/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any"},
-            {"src": f"{icon}/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any"},
-            {"src": f"{icon}/maskable-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable"},
-            {"src": f"{icon}/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable"},
+            {"src": f"{icon}/icon-192.png{rev}", "sizes": "192x192", "type": "image/png", "purpose": "any"},
+            {"src": f"{icon}/icon-512.png{rev}", "sizes": "512x512", "type": "image/png", "purpose": "any"},
+            {"src": f"{icon}/maskable-192.png{rev}", "sizes": "192x192", "type": "image/png", "purpose": "maskable"},
+            {"src": f"{icon}/maskable-512.png{rev}", "sizes": "512x512", "type": "image/png", "purpose": "maskable"},
         ],
         "shortcuts": [
-            {"name": "Neuer Termin", "url": "/?neu=1", "icons": [{"src": f"{icon}/icon-192.png", "sizes": "192x192"}]},
-            {"name": "Heute", "url": "/?heute=1", "icons": [{"src": f"{icon}/icon-192.png", "sizes": "192x192"}]},
+            {"name": "Neuer Termin", "url": "/?neu=1", "icons": [{"src": f"{icon}/icon-192.png{rev}", "sizes": "192x192"}]},
+            {"name": "Heute", "url": "/?heute=1", "icons": [{"src": f"{icon}/icon-192.png{rev}", "sizes": "192x192"}]},
         ],
     }
 

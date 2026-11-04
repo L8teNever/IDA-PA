@@ -36,6 +36,7 @@ def test_installable_as_app(client):
     data = m.json()
     assert data["display"] == "standalone" and {"192x192", "512x512"} <= {i["sizes"] for i in data["icons"]}
     for i in data["icons"]:
+        assert "/s/" not in i["src"]   # feste Adresse: das Manifest bleibt bei Updates gleich
         assert client.get(i["src"]).headers["content-type"] == "image/png"
     sw = client.get("/sw.js")
     assert sw.status_code == 200 and "javascript" in sw.headers["content-type"]
@@ -219,6 +220,13 @@ def test_trigger_end_to_end_with_mock_mcp(client):
     try:
         c = client.post(f"{API}/connectors", json={"name": "Mailbox", "url": f"http://127.0.0.1:{srv.server_port}/mcp?token=geheim1234"}).json()
         assert c["status"] == "ok" and c["tools"] == ["mails_suchen"] and "geheim" not in c["url"]
+        # what the server is: drafted from the tools by the cheap model, editable, and in the context of every agent with access
+        assert "mails_suchen" in c["context"]
+        client.patch(f"{API}/connectors/{c['id']}", json={"context": "- Mailbox (mein Postfach, Mails): Zebramail-Konto – Tools: mails_*"})
+        client.put(f"{API}/agents/lea/connectors/{c['id']}", json={"allowed": True, "tools": None})
+        sys_text = "".join(e.get("text", "") for e in chat(client, agent_id="lea", text="SHOWSYS was ist im Postfach?"))
+        assert "Zebramail-Konto" in sys_text and f"mcp__{c['id']}__*" in sys_text and "verbundenen Dienste" in sys_text
+        assert "Zebramail" not in "".join(e.get("text", "") for e in chat(client, text="SHOWSYS hallo"))  # no access, no context
         t = client.post(f"{API}/routines/test-trigger", json={"trigger": {"connector": c["id"], "tool": "mails_suchen"}}).json()
         assert t["items"] == 1
         r = client.post(f"{API}/routines", json={"name": "Mails", "prompt": "Neue Mail bearbeiten", "agent_id": "lea",
