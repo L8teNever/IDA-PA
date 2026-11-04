@@ -61,7 +61,10 @@ def team_section(a: Agent, main_id: str, unread: int, interactive: bool) -> str:
             + (" (lies sie mit inbox_read und erwaehne sie)." if unread else ".")
             + (" Termine des Nutzers liegen im lokalen IDA Kalender: lege sie mit den calendar_*-Tools an, aendere und suche sie (keine Erinnerung dafuer)." if kalender_tools.enabled() else "")
             + (" Dauerhaftes Wissen liegt im lokalen IDA Wiki: memory/ mit wiki_search/wiki_read/wiki_memory_save/wiki_memory_patch pflegen; "
-               "privat/ nur lesen bzw. mit wiki_private_write vorschlagen (Nutzer muss freigeben); ki/ ist der Chat-/Code-Spiegel (nur lesen)."
+               "privat/ sind die Ordner des Nutzers fuer alles, was er selbst schnell nachschlagen will (Notizen, Listen, Projektarbeit, Dokumente) – "
+               "dort liest, legst an und aenderst du direkt wie im Gedaechtnis (wiki_private_save/wiki_private_patch/wiki_private_move/wiki_private_folder), "
+               "nimmst den passenden vorhandenen Ordner (sagt er \"Ordner Projektarbeit\", gehoert es dorthin) und fragst nur vor dem Loeschen (wiki_private_write); "
+               "memory/ ist dein eigenes Gedaechtnis, privat/ sein Nachschlagewerk; ki/ ist der Chat-/Code-Spiegel (nur lesen)."
                if wiki_tools.enabled() else "")
             + ("" if interactive else " Dies ist ein Lauf im Hintergrund: niemand antwortet live, erledige die Aufgabe selbststaendig und gib am Ende ein kurzes Ergebnis aus.")
             + "\n"

@@ -9,6 +9,7 @@ class FakeWiki:
     def __init__(self):
         self.requests: list[dict] = []
         self.mode = "ok"  # ok | drop | error
+        self.missing: set[str] = set()  # Pfade, für die /page 404 liefert
         outer = self
 
         class H(BaseHTTPRequestHandler):
@@ -36,8 +37,19 @@ class FakeWiki:
                 if p == "/search":
                     return self._json({"results": [{"path": "memory/kern/ueber-mich", "title": "Über mich", "snippet": "Fake"}]})
                 if p == "/page":
-                    path = q.get("path", "memory/_index")
-                    return self._json({"path": path, "title": path.split("/")[-1], "body": "# Fake\n\nInhalt.", "links": [], "backlinks": []})
+                    if "ref" not in q:  # wie der echte Dienst: Pflichtparameter ref
+                        return self._json({"detail": [{"type": "missing", "loc": ["query", "ref"]}]}, 422)
+                    path = q["ref"]
+                    if path in outer.missing:
+                        return self._json({"detail": f"Seite „{path}“ nicht gefunden"}, 404)
+                    return self._json({"path": path, "title": path.split("/")[-1], "body": "# Fake\n\nInhalt.", "raw": "---\n---\n# Fake",
+                                       "frontmatter": {"title": path.split("/")[-1], "tags": ["eigen"]},
+                                       "outgoing_links": [{"target_path": "memory/kern/ueber-mich"}], "backlinks": []})
+                if p == "/pages/move" and self.command == "POST":
+                    b = body or {}
+                    return self._json({"page": {"id": "pg1", "path": b.get("to_path"), "title": "Seite", "revision": 3}, "rewritten_backlinks": 2})
+                if p == "/folders" and self.command == "POST":
+                    return self._json({"ok": True, "folder": (body or {}).get("folder"), "space": "privat"})
                 if p == "/tree":
                     return self._json({"spaces": ["privat", "memory", "ki"], "folders": [], "pages": []})
                 if p == "/pages" and self.command == "POST":

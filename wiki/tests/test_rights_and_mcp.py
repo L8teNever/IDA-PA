@@ -11,13 +11,31 @@ def _mcp_rpc(mc, method: str, params: dict | None = None, req_id: int = 1):
 def test_ida_agent_rights_and_private_proposal_flow(client, agent_client):
     ag = agent_client("main")
 
-    # 1. Agent darf `privat/` lesen, aber NIEMALS direkt schreiben (403 Forbidden)
+    # 1. Agent pflegt `privat/` wie `memory/` direkt: lesen, anlegen (auch in neuen Ordnern), ändern, verschieben
     assert ag.get(f"{API}/page", params={"ref": "privat/_start"}).status_code == 200
-    denied = ag.post(
+    made = ag.post(
         f"{API}/pages",
-        json={"path": "privat/00-inbox/heimlich", "title": "Heimlich", "body": "Darf nicht klappen"},
+        json={"path": "privat/04-arbeit-projekte/projektarbeit/gliederung", "title": "Gliederung", "body": "# Gliederung\n\n1. Einleitung\n"},
     )
-    assert denied.status_code == 403
+    assert made.status_code == 200, made.text
+    patched = ag.post(f"{API}/pages/patch", json={
+        "ref": "privat/04-arbeit-projekte/projektarbeit/gliederung", "mode": "append", "new_text": "2. Hauptteil",
+    })
+    assert patched.status_code == 200 and "2. Hauptteil" in patched.json()["page"]["body"]
+    moved = ag.post(f"{API}/pages/move", json={
+        "ref": "privat/04-arbeit-projekte/projektarbeit/gliederung", "to_path": "privat/04-arbeit-projekte/projektarbeit/aufbau",
+    })
+    assert moved.status_code == 200, moved.text
+    assert ag.post(f"{API}/folders", json={"folder": "privat/05-wissen-lernen/mathe"}).status_code == 200
+    revs0 = client.get(f"{API}/pages/{made.json()['page']['id']}/revisions").json()["revisions"]
+    assert {r["by"] for r in revs0} == {"main"}
+
+    # Ordnerübersicht von `privat/` steht im Prompt-Kontext, passende Seiten zur Anfrage dazu
+    ctx = ag.get(f"{API}/memory/context", params={"agent_id": "main", "q": "Schreib das in meine Projektarbeit"}).json()["text"]
+    assert "`privat/04-arbeit-projekte/projektarbeit` (1 Seite)" in ctx
+    assert "`privat/05-wissen-lernen/mathe`" in ctx
+    assert "_templates" not in ctx
+    assert "privat/04-arbeit-projekte/projektarbeit/aufbau" in ctx.split("Passend zur Anfrage:")[1]
 
     # 2. Agent darf auch `ki/` nicht direkt überschreiben
     assert ag.post(f"{API}/pages", json={"path": "ki/main/manipuliert", "title": "X", "body": "Y"}).status_code == 403

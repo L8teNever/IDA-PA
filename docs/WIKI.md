@@ -9,7 +9,7 @@ Ein **eigenes, vollständiges Markdown-Wiki & KI-Gedächtnis**, das komplett lok
   3. **`ki/`** – Automatischer Echtzeit-Spiegel aller IDA-Agents, Chats und Code-Projekt-Threads (inkl. Bildern, PDFs und Textdateien).
 * **Obsidian-Funktionalität**: `[[Wikilinks]]` (auch bereichsübergreifend), `![[Datei- & Seiten-Embeds]]`, Callouts, `#Tags`, YAML-Frontmatter, Backlinks, automatisches Link-Umschreiben beim Verschieben, Dateianhänge und interaktiver **Wissensgraph**.
 * **Externer MCP-Server (`/mcp`)**: Token-geschützter Streamable-HTTP-MCP-Endpunkt für externe KI-Clients (Cursor, Claude Desktop, T3 Code …). In `memory/` dürfen KIs lesen & strukturiert schreiben; in `privat/` und `ki/` haben externe MCPs **strikt nur Lesezugriff**.
-* **IDA-Freigabe für `privat/`**: Über IDA kann nach **expliziter Nutzer-Freigabe** (Inline-Diff-Karte im IDA-Chat bzw. Freigabe-Vorschlag im Wiki) auch im privaten Bereich angelegt oder geändert werden.
+* **IDA in `privat/`**: IDA-Agents lesen, legen an, ändern und verschieben im privaten Bereich direkt wie in `memory/` (`wiki_private_save/_patch/_move/_folder`), nur in deinen freien Ordnern statt fester Kategorien. Jede Änderung steht im Versionsverlauf. Nur **Löschen** fragt vorher im IDA-Chat nach (Freigabe-Karte, `wiki_private_write`). Der System-Prompt enthält eine Ordnerübersicht von `privat/`, damit IDA weiß, wohin etwas gehört.
 * **Eigenständige Android-17-PWA**: Gehostet unter `https://wiki.kulbarts.com` hinter **Cloudflare Zero Trust** (keine eigene Login-Maske), offline-fähig und direkt aus der IDA-Seitenleiste verlinkt.
 
 ---
@@ -50,7 +50,7 @@ Unter **Einstellungen → MCP-Zugänge** in der Wiki-App können zusätzlich ein
 
 | Bereich | Oberfläche (`user`) | Externes MCP (`/mcp`) | IDA-Agents (`WIKI_IDA_TOKEN`) |
 |---|---|---|---|
-| **`privat/`** | Lesen & Schreiben | **Nur Lesen** (`403` bei jedem Schreibversuch) | Lesen + **Schreiben nur nach expliziter Nutzer-Freigabe** (Proposal + Diff-Bestätigung) |
+| **`privat/`** | Lesen & Schreiben | **Nur Lesen** (`403` bei jedem Schreibversuch) | **Lesen & direkt Schreiben** (freie Ordner, Verlauf); Löschen fragt IDA vorher im Chat nach |
 | **`memory/`** | Lesen & Schreiben | **Lesen & strukturiert Schreiben** (Pflichtkategorien, Dubletten-Schutz, Secret-Scanner, Auto-`_index.md`) | **Lesen & strukturiert Schreiben** + automatischer System-Prompt-Kontext in IDA |
 | **`ki/`** | Lesen, Suchen, Verlinken | **Nur Lesen** | Lesen + automatischer Echtzeit-Spiegel (`system:sync`) aller Agents, Chats & Code-Threads |
 

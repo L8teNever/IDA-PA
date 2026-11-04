@@ -61,20 +61,18 @@ def require_read(c: Caller, space: str) -> None:
 
 
 def require_write(c: Caller, space: str, *, approved_proposal: bool = False) -> None:
-    """Prüft Schreibzugriff (Anlegen, Ändern, Verschieben, Löschen, Anhänge)."""
+    """Prüft Schreibzugriff (Anlegen, Ändern, Verschieben, Löschen, Anhänge).
+
+    `approved_proposal` bleibt für freigegebene Vorschläge erhalten, ist für `privat/` aber nicht mehr nötig.
+    """
     if space not in SPACES:
         raise Invalid(f"Unbekannter Bereich „{space}“")
 
     if space == "privat":
-        if c.kind == "user":
+        # Wie `memory/`: IDA-Agents pflegen `privat/` direkt (jede Änderung landet im Verlauf, Gelöschtes im Papierkorb).
+        # Löschen fragt IDA selbst vorher im Chat nach (`wiki_private_write`).
+        if c.kind in ("user", "ida"):
             return
-        if c.kind == "ida" and approved_proposal:
-            return
-        if c.kind == "ida":
-            raise Forbidden(
-                "Änderungen im privaten Bereich (`privat/`) erfordern die ausdrückliche Freigabe des Nutzers "
-                "(nutze die `wiki_private_*`-Tools für eine Freigabe-Anfrage im Chat)."
-            )
         raise Forbidden("Externe MCP-Zugänge haben im privaten Bereich (`privat/`) ausschließlich Lesezugriff.")
 
     if space == "memory":

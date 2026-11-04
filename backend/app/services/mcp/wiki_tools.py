@@ -1,13 +1,14 @@
 """wiki_*-Tools des internen MCP: Ida bedient den lokalen Wiki-Dienst (siehe docs/WIKI.md).
 
 * memory/: direkt lesen & strukturiert schreiben
-* privat/: nur lesen; Schreiben erzeugt ein Freigabe-Proposal und wartet im Live-Chat auf den Nutzer
+* privat/: direkt lesen, anlegen, ändern, verschieben und Ordner anlegen (wie memory/, aber freie Ordner des Nutzers);
+  nur Löschen erzeugt ein Freigabe-Proposal und wartet im Live-Chat auf den Nutzer
 * ki/: nur lesen (Spiegel kommt aus IDA, nicht aus den Tools)
 """
 from ...config import get_settings
 from .. import wiki_client as wc
 from ..code import approvals
-from ..errors import Invalid
+from ..errors import Invalid, NotFound
 
 ALL = "all"
 E = {"type": "string"}
@@ -43,9 +44,27 @@ def spec() -> list[tuple[str, str, str, dict]]:
          obj({"path": path, "heading": E, "old_text": E, "new_text": E,
               "mode": {"type": "string", "enum": ["append", "replace", "prepend"], "description": "Standard append unter heading"},
               "title": E, "summary": E}, ("path",))),
+        (ALL, "wiki_private_save",
+         "Legt eine Seite im privaten Wiki (privat/) an oder überschreibt sie – direkt, ohne Freigabe. privat/ sind die Ordner des "
+         "Nutzers für alles, was er selbst schnell nachschlagen will (z. B. privat/04-arbeit-projekte/projektarbeit/...). "
+         "Nimm einen vorhandenen Ordner, wenn einer passt (siehe Ordnerübersicht im Kontext oder wiki_list space=privat); "
+         "neue Ordner entstehen automatisch mit dem Pfad. Bestehende Seiten lieber mit wiki_private_patch ergänzen.",
+         obj({"path": path, "title": E, "body": E, "tags": {"type": "array", "items": E}, "summary": E}, ("path", "body"))),
+        (ALL, "wiki_private_patch",
+         "Ändert gezielt einen Abschnitt oder Text einer Seite in privat/ (direkt, ohne Freigabe).",
+         obj({"path": path, "heading": E, "old_text": E, "new_text": E,
+              "mode": {"type": "string", "enum": ["append", "replace", "prepend"], "description": "Standard append unter heading"},
+              "title": E}, ("path",))),
+        (ALL, "wiki_private_move",
+         "Verschiebt oder benennt eine Seite in privat/ um (direkt); [[Links]] auf die Seite werden automatisch angepasst.",
+         obj({"path": path, "to_path": {**E, "description": "Neuer Pfad unter privat/"}, "title": E}, ("path", "to_path"))),
+        (ALL, "wiki_private_folder",
+         "Legt einen (auch leeren) Ordner in privat/ an, z. B. privat/04-arbeit-projekte/projektarbeit.",
+         obj({"folder": E}, ("folder",))),
         (ALL, "wiki_private_write",
-         "Schlägt eine Änderung im privaten Wiki (privat/) vor. Im Live-Chat erscheint eine Freigabe-Karte mit Diff; "
-         "erst nach Erlaubnis des Nutzers wird geschrieben. action: create|patch|update|move|delete.",
+         "Löschen im privaten Wiki (privat/): Im Live-Chat erscheint eine Freigabe-Karte, erst nach Erlaubnis des Nutzers wird gelöscht "
+         "(die Seite landet im Papierkorb). Zum Anlegen/Ändern/Verschieben NICHT nötig – dafür wiki_private_save/_patch/_move. "
+         "Andere Aktionen (create|patch|update|move) gehen hier nur, wenn der Nutzer ausdrücklich vorher sehen will, was sich ändert.",
          obj({"action": {"type": "string", "enum": ["create", "patch", "update", "move", "delete"]},
               "path": path, "to_path": E, "title": E, "body": E, "heading": E, "old_text": E, "new_text": E,
               "mode": {"type": "string", "enum": ["append", "replace", "prepend"]},
@@ -64,17 +83,25 @@ async def call(db, me, name: str, a: dict) -> dict:
                 }.items() if v is not None and v != ""
             })
         if name == "wiki_read":
-            return await wc.request("GET", "/api/v1/page", by=by, params={"path": a.get("path")})
+            page = await wc.request("GET", "/api/v1/page", by=by, params={"ref": a.get("path")})
+            page.pop("raw", None)  # doppelt zu body + frontmatter
+            return page
         if name == "wiki_list":
-            return await wc.request("GET", "/api/v1/tree", by=by, params={
-                k: v for k, v in {"space": a.get("space"), "folder": a.get("folder")}.items() if v
+            tree = await wc.request("GET", "/api/v1/tree", by=by, params={
+                k: v for k, v in {"space": a.get("space")}.items() if v
             })
+            folder = str(a.get("folder") or "").strip().strip("/")
+            if folder:  # der Wiki-Dienst filtert /tree nicht nach Ordner
+                inside = lambda f: f == folder or f.startswith(folder + "/")  # noqa: E731
+                tree["folders"] = [f for f in tree.get("folders") or [] if inside(f)]
+                tree["pages"] = [p for p in tree.get("pages") or [] if inside(p.get("folder") or "")]
+            return tree
         if name == "wiki_backlinks":
-            page = await wc.request("GET", "/api/v1/page", by=by, params={"path": a.get("path")})
-            return {"path": page.get("path") or a.get("path"), "links": page.get("links") or [],
+            page = await wc.request("GET", "/api/v1/page", by=by, params={"ref": a.get("path")})
+            return {"path": page.get("path") or a.get("path"), "links": page.get("outgoing_links") or page.get("links") or [],
                     "backlinks": page.get("backlinks") or []}
         if name == "wiki_memory_index":
-            return await wc.request("GET", "/api/v1/page", by=by, params={"path": "memory/_index"})
+            return await wc.request("GET", "/api/v1/page", by=by, params={"ref": "memory/_index"})
         if name == "wiki_memory_save":
             cat = str(a.get("category") or "").strip()
             slug = str(a.get("slug") or "").strip().strip("/")
@@ -118,13 +145,62 @@ async def call(db, me, name: str, a: dict) -> dict:
             out = await wc.request("POST", "/api/v1/pages/patch", by=by, json=patch)
             wc.invalidate()
             return _page_ok(out, "Aktualisiert")
+        if name == "wiki_private_save":
+            path = _private_path(a.get("path"))
+            fm = {}
+            try:  # bestehende Seite: ihr Frontmatter (Tags, eigene Felder des Nutzers) bleibt erhalten
+                old = await wc.request("GET", "/api/v1/page", by=by, params={"ref": path})
+                fm = dict(old.get("frontmatter") or {})
+            except NotFound:
+                pass
+            fm.update({k: v for k, v in {"tags": a.get("tags"), "summary": a.get("summary")}.items() if v})
+            body = {
+                "path": path,
+                "title": a.get("title") or None,
+                "body": a.get("body") or "",
+                "frontmatter": fm,
+                "note": f"von Agent {by}",
+            }
+            out = await wc.request("POST", "/api/v1/pages", by=by, json=body)
+            wc.invalidate()
+            return _page_ok(out, "Privat gespeichert")
+        if name == "wiki_private_patch":
+            out = await wc.request("POST", "/api/v1/pages/patch", by=by, json={
+                "ref": _private_path(a.get("path")),
+                "heading": a.get("heading"), "old_text": a.get("old_text"), "new_text": a.get("new_text"),
+                "mode": a.get("mode") or "append", "title": a.get("title"), "note": f"von Agent {by}",
+            })
+            wc.invalidate()
+            return _page_ok(out, "Privat aktualisiert")
+        if name == "wiki_private_move":
+            out = await wc.request("POST", "/api/v1/pages/move", by=by, json={
+                "ref": _private_path(a.get("path")), "to_path": _private_path(a.get("to_path")), "title": a.get("title"),
+            })
+            wc.invalidate()
+            return {**_page_ok(out, "Verschoben"), "angepasste_links": out.get("rewritten_backlinks", 0)}
+        if name == "wiki_private_folder":
+            folder = str(a.get("folder") or "").strip().strip("/")
+            if not folder.startswith("privat/"):
+                raise Invalid("wiki_private_folder nur für Ordner unter privat/")
+            out = await wc.request("POST", "/api/v1/folders", by=by, json={"folder": folder})
+            wc.invalidate()
+            return {"ok": True, "folder": out.get("folder") or folder}
         if name == "wiki_private_write":
             return await _private_write(me, a)
     except wc.WikiOffline as e:
         return {"error": str(e), "hinweis": "Das Wiki ist gerade nicht erreichbar – später erneut versuchen."}
-    except Invalid as e:
+    except (Invalid, NotFound) as e:
         return {"error": str(e)}
     return {"error": f"Unbekanntes Wiki-Tool: {name}"}
+
+
+def _private_path(raw) -> str:
+    path = str(raw or "").strip().strip("/")
+    if path.lower().endswith(".md"):
+        path = path[:-3]
+    if not path.startswith("privat/") or path.count("/") < 1 or path == "privat/":
+        raise Invalid("Nur Pfade unter privat/ (z. B. privat/00-inbox/notiz)")
+    return path
 
 
 def _page_ok(out: dict, verb: str) -> dict:

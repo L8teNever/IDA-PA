@@ -350,8 +350,75 @@ async def memory_context_for_ida(db: AsyncSession, caller: Caller, agent_id: str
             "weitere Details jederzeit über `wiki_search` / `wiki_read`, Neues strukturiert über `wiki_memory_*` speichern):\n"
             + "\n".join(sections)
         )
+    private_block = await private_overview(db, caller, query) if perm.can_read_space(caller, "privat") else ""
+    if private_block:
+        text_block = (text_block + "\n\n" if text_block else "") + private_block
     return {
         "text": text_block,
         "core_count": len(core_pages),
         "matched_count": len(ranked_extra),
     }
+
+
+_QWORD = re.compile(r"[\wÄÖÜäöüß]{4,}", re.UNICODE)
+
+
+def _norm(s: str) -> str:
+    return re.sub(r"[^a-z0-9äöüß]+", "", (s or "").lower())
+
+
+async def private_overview(db: AsyncSession, caller: Caller, query: str = "", *, max_folders: int = 40,
+                           max_chars: int = 1600) -> str:
+    """Ordnerübersicht von `privat/` (+ Seiten, deren Ordner oder Titel zur Anfrage passt) für den System-Prompt.
+
+    Damit weiß der Agent, wohin etwas gehört („Ordner Projektarbeit“ → `privat/04-arbeit-projekte/projektarbeit`),
+    ohne erst suchen zu müssen.
+    """
+    from ..config import get_settings
+
+    pages = (await db.scalars(
+        select(Page).where(Page.space == "privat", Page.deleted_at.is_(None)).order_by(Page.path)
+    )).all()
+    counts: dict[str, int] = {}
+    for p in pages:
+        parts = p.folder.split("/")
+        for i in range(2, len(parts) + 1):
+            f = "/".join(parts[:i])
+            counts[f] = counts.get(f, 0) + (1 if i == len(parts) else 0)
+    root = get_settings().vault_dir / "privat"
+    if root.is_dir():
+        for d in root.rglob("*"):
+            if d.is_dir() and not any(x.startswith((".", "_")) for x in d.relative_to(root).parts):
+                counts.setdefault("privat/" + d.relative_to(root).as_posix(), 0)
+    folders = sorted(f for f in counts if "/_" not in f)
+    if not folders:
+        return ""
+
+    lines = []
+    for f in folders[:max_folders]:
+        depth = f.count("/") - 1
+        n = counts[f]
+        lines.append(f"{'  ' * depth}- `{f}`" + (f" ({n} Seite{'n' if n != 1 else ''})" if n else ""))
+    if len(folders) > max_folders:
+        lines.append(f"- … und {len(folders) - max_folders} weitere Ordner (`wiki_list` space=privat)")
+
+    words = {_norm(w) for w in _QWORD.findall(query or "")}
+    words.discard("")
+    hits = []
+    if words:
+        for p in pages:
+            hay = _norm(p.title) + "|" + _norm(p.folder.split("/", 1)[-1])
+            if any(w in hay for w in words):
+                hits.append(f"- {p.title} (`{p.path}`)")
+            if len(hits) >= 8:
+                break
+
+    out = (
+        "Privates Wiki (`privat/`) – die Ordner des Nutzers. Hier gehört hin, was er selbst schnell nachschlagen will "
+        "(Notizen, Listen, Projektarbeit, Dokumente). Nennt er einen Ordner (z. B. „Projektarbeit“), nimm den passenden von hier; "
+        "lesen mit `wiki_read`, anlegen/ändern mit `wiki_private_save` / `wiki_private_patch`:\n"
+        + "\n".join(lines)
+    )
+    if hits:
+        out += "\nPassend zur Anfrage:\n" + "\n".join(hits)
+    return out[:max_chars] + (" …" if len(out) > max_chars else "")

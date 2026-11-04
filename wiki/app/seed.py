@@ -13,7 +13,7 @@ PRIVAT_START_MD = """# Willkommen in deinem persönlichen Wiki
 Dein privater Wissensspeicher ist wie ein lebenslanges zweites Gehirn aufgebaut: echte Markdown-Dateien, verknüpft über `[[Wikilinks]]`, mit Dateianhängen, interaktivem Wissensgraph und lückenlosem Versionsverlauf.
 
 > [!tip] Drei klar getrennte Bereiche
-> - **Privat (`privat/`)** – gehört ausschließlich dir. Externe MCP-Werkzeuge können hier nur lesen; IDA darf Änderungen nur mit deiner ausdrücklichen Freigabe vornehmen.
+> - **Privat (`privat/`)** – gehört ausschließlich dir. IDA liest, legt an und ändert hier direkt (jede Änderung steht im Verlauf), fragt aber vor dem Löschen; externe MCP-Werkzeuge können nur lesen.
 > - **KI-Gedächtnis (`memory/`)** – das gemeinsame, streng strukturierte Langzeitgedächtnis aller deiner KIs (siehe [[memory/_index|Gedächtnis-Index]]).
 > - **KI & Chats (`ki/`)** – das automatische Live-Archiv deiner IDA-Agenten, Chats und Code-Projekte (siehe [[ki/_uebersicht|KI-Übersicht]]).
 
