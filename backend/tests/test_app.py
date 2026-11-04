@@ -121,6 +121,11 @@ def test_delegate_wakes_agent_and_reply_comes_back(client):
     msgs = wait(lambda: [m for m in client.get(f"{API}/messages?box=all").json() if m["from"] == "stella" and m["kind"] == "result"])
     assert "Sag hallo" in msgs[0]["text"] and msgs[0]["to"] == "ida"
     assert client.get(f"{API}/agents/stella").json()["runs"][0]["trigger"] == "Nachricht"
+    # the chat's card finds the answer through the task it belongs to
+    task = next(m for m in client.get(f"{API}/messages?box=all").json() if m["kind"] == "task" and m["to"] == "stella")
+    other = client.get(f"{API}/messages/tasks?ids={task['id']},nix").json()
+    assert len(other) == 1 and other[0]["status"] == "done" and "Sag hallo" in other[0]["answer"]
+    assert client.get(f"{API}/messages/tasks").json() == []
 
 
 def test_account_fallback(client):

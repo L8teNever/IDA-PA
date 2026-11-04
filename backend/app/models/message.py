@@ -23,6 +23,7 @@ class Message(Base):
     title: Mapped[str] = mapped_column(String(120), default="")
     text: Mapped[str] = mapped_column(Text)
     expect_reply: Mapped[bool] = mapped_column(Boolean, default=False)
+    reply_to: Mapped[str | None] = mapped_column(String(12), default=None, index=True)  # result: the task it answers
     depth: Mapped[int] = mapped_column(default=0)  # length of the chain of messages triggering each other
     at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
     read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)

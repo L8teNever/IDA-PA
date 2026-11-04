@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 from fastapi import APIRouter
 from sqlalchemy import or_, select, update
 
@@ -8,6 +10,7 @@ from . import serializers as ser
 from .deps import DB
 
 router = APIRouter(prefix="/api/v1/messages", tags=["messages"])
+TASK_WAIT = timedelta(hours=1)  # no answer by then: the chat stops waiting for one
 
 
 @router.get("")
@@ -19,6 +22,21 @@ async def list_messages(db: DB, box: str = "user", agent: str | None = None, lim
     if agent:
         stmt = stmt.where(or_(Message.to_id == agent, Message.from_id == agent))
     return [ser.message(m) for m in (await db.scalars(stmt)).all()]
+
+
+@router.get("/tasks")
+async def tasks(db: DB, ids: str = ""):
+    """How delegated tasks are doing, for the cards in the chat: waiting · working · done (with the answer) · silent (none came)."""
+    wanted = [i for i in ids.split(",") if i][:50]
+    rows = (await db.scalars(select(Message).where(Message.id.in_(wanted)))).all()
+    answers = {r.reply_to: r for r in (await db.scalars(select(Message).where(Message.reply_to.in_(wanted)).order_by(Message.at))).all()}
+    old = set((await db.scalars(select(Message.id).where(Message.id.in_(wanted), Message.at < utcnow() - TASK_WAIT))).all())
+    out = []
+    for m in rows:
+        a = answers.get(m.id)
+        status = "done" if a else "silent" if m.id in old else "working" if m.read_at else "waiting"
+        out.append({"id": m.id, "status": status, "answer": a.text if a else None, "at": ser.iso(a.at) if a else None})
+    return out
 
 
 @router.post("/read-all")

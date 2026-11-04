@@ -192,7 +192,7 @@ async def resolve(db: AsyncSession, to: str) -> str | None:
 
 
 async def send(db: AsyncSession, *, from_id: str, to: str, text: str, priority: str = "normal", expect_reply: bool = False,
-               depth: int = 0, kind: str | None = None, title: str = "") -> Message:
+               depth: int = 0, kind: str | None = None, title: str = "", reply_to: str | None = None) -> Message:
     body = str(text or "").strip()
     if not body:
         raise Invalid("text fehlt")
@@ -209,7 +209,7 @@ async def send(db: AsyncSession, *, from_id: str, to: str, text: str, priority: 
         if sent >= MAX_PER_HOUR:
             raise Invalid(f"Limit erreicht: höchstens {MAX_PER_HOUR} Nachrichten pro Stunde")
     m = Message(from_id=from_id, to_id=target, text=body[:4000], title=str(title or "")[:120], priority="high" if priority == "high" else "normal",
-                kind=kind or ("task" if expect_reply else "message"), expect_reply=expect_reply, depth=depth)
+                kind=kind or ("task" if expect_reply else "message"), expect_reply=expect_reply, depth=depth, reply_to=reply_to)
     db.add(m)
     await db.flush()
     if target != USER:
@@ -255,10 +255,10 @@ async def _wake(agent_id: str) -> None:
             return
         await mark_read(db, [m.id for m in msgs])
         labels = await prompts.labels(db)
-        snapshot = [(m.from_id, m.text, m.kind, m.priority, m.expect_reply) for m in msgs]
+        snapshot = [(m.from_id, m.text, m.kind, m.priority, m.expect_reply, m.id) for m in msgs]
         depth = max(m.depth for m in msgs)
     lines = []
-    for frm, text, kind, prio, _ in snapshot:
+    for frm, text, kind, prio, _, _ in snapshot:
         how = "AUFGABE, Antwort erwartet – deine Endausgabe wird automatisch zurueckgeschickt" if kind == "task" else "WICHTIG" if prio == "high" else "Nachricht"
         lines.append(f"- Von {labels.get(frm, frm)} ({how}): {text}")
     prompt = "Du hast neue Nachrichten:\n" + "\n".join(lines) + "\n\nBearbeite sie jetzt."
@@ -270,10 +270,10 @@ async def _wake(agent_id: str) -> None:
         out = RunResult(ok=False, text=str(e), tools=[])
     await record_run(agent_id, "Nachricht", out.ok, out.text, out.tools, out.account)
     async with session_scope() as db:
-        for frm, _, _, prio, expect in snapshot:
+        for frm, _, _, prio, expect, task in snapshot:
             if expect:
                 try:
-                    await send(db, from_id=agent_id, to=frm, text=out.text or "(kein Ergebnis)", depth=depth + 1, kind="result", priority=prio)
+                    await send(db, from_id=agent_id, to=frm, text=out.text or "(kein Ergebnis)", depth=depth + 1, kind="result", priority=prio, reply_to=task)
                 except Invalid as e:
                     log.warning("reply from %s not sent: %s", agent_id, e)
 

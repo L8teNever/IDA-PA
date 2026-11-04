@@ -3,6 +3,7 @@
 import { api, followChat, streamChat } from "../api.js";
 import { setUrl } from "../router.js";
 import { agentById, agentOf, mainAgent, modelInfo, state } from "../store.js";
+import { askHtml, isAsk, watchAsks } from "../ui/askcard.js";
 import { approvalHtml, bindCodeBar, codeBar, refreshBar } from "../ui/codebar.js";
 import { mountCodePanes } from "../ui/codepanes.js";
 import { $, esc, fmtDateTime, md, toast } from "../ui/dom.js";
@@ -191,8 +192,9 @@ document.addEventListener("click", (e) => {
 });
 const EFFORT_NAMES = { low: "Niedrig", medium: "Mittel", high: "Hoch", xhigh: "Extra", max: "Max" };
 function renderBot(el, parts, text, meta) {
-  const html = (parts || []).map((p) => (p.t === "text" ? `<div class="md-text">${md(p.text)}</div>` : p.t === "approval" ? approvalHtml(p) : shownFile(p) ? shownHtml(shownFile(p), !!meta?.id) : toolHtml(p))).join("");
+  const html = (parts || []).map((p) => (p.t === "text" ? `<div class="md-text">${md(p.text)}</div>` : p.t === "approval" ? approvalHtml(p) : isAsk(p) ? askHtml(p, ctx.agentId) : shownFile(p) ? shownHtml(shownFile(p), !!meta?.id) : toolHtml(p))).join("");
   el.innerHTML = html || (text ? `<div class="md-text">${md(text)}</div>` : "");
+  watchAsks();
   if (meta?.stopped) el.insertAdjacentHTML("beforeend", `<div class="msg-stopped"><span class="ms">stop_circle</span>Gestoppt</div>`);
   if (meta?.error) el.insertAdjacentHTML("beforeend", `<div class="msg-err"><span class="ms">error</span>${esc(meta.error)}</div>`);
   if (!el.innerHTML) el.innerHTML = `<div class="typing"><i></i><i></i><i></i></div>`;
