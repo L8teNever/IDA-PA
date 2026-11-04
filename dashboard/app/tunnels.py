@@ -18,7 +18,7 @@ TTL = 60  # so lange (Sekunden) gilt die gelesene Zuordnung
 DEFAULT_PORTS = (2000, 20241, 20242, 20243, 20244, 20245)  # 20241 ff. nimmt cloudflared selbst, wenn nichts eingestellt ist
 LOCAL_ONLY = ("127.0.0.1", "::1")
 
-_cache: tuple[float, list[dict]] = (0.0, [])
+_cache: tuple[float, list[dict]] | None = None  # (Zeitpunkt, Adressen); None = noch nie gelesen
 
 
 async def fetch_config(url: str) -> dict:
@@ -78,7 +78,7 @@ async def _read(docker: Docker, containers: list[dict]) -> list[dict]:
 
 async def routes(docker: Docker, containers: list[dict]) -> list[dict]:
     global _cache
-    if time.monotonic() - _cache[0] < TTL:
+    if _cache and time.monotonic() - _cache[0] < TTL:  # nicht gegen 0 rechnen: monotonic zählt ab Systemstart
         return _cache[1]
     found = await _read(docker, containers)
     _cache = (time.monotonic(), found)
@@ -87,7 +87,7 @@ async def routes(docker: Docker, containers: list[dict]) -> list[dict]:
 
 def reset() -> None:
     global _cache
-    _cache = (0.0, [])
+    _cache = None
 
 
 def match(found: list[dict], containers: list[dict]) -> dict[str, list[dict]]:
