@@ -210,10 +210,28 @@ function renderFiles() {
     ${x.url ? `<img src="${x.url}" alt="">` : `<span class="ms">${FILE_ICON[x.kind] || "draft"}</span><span class="att-name">${esc(x.name)}</span>`}
     <button type="button" data-rm="${x.key}" aria-label="${esc(x.name)} entfernen"><span class="ms">close</span></button></span>`).join("");
   updateSend();
+  document.dispatchEvent(new CustomEvent("code:attach")); // der Entwurf merkt sich die Dateien
 }
-export function dropFiles() {
-  files.forEach((x) => { if (x.id) api.del(`/uploads/${x.id}`).catch(() => {}); if (x.url) URL.revokeObjectURL(x.url); });
+// was fertig hochgeladen ist (für den Entwurf)
+export const draftFiles = () => files.filter((x) => x.state === "ok").map(({ id, name, kind }) => ({ id, name, kind }));
+// Dateien aus Entwurf oder Warteschlange: sie liegen schon auf dem Server
+export function restoreFiles(list = []) {
+  for (const f of list) {
+    if (files.some((x) => x.id === f.id)) continue;
+    if (files.length >= 10) { toast("Höchstens 10 Dateien pro Nachricht"); break; }
+    files.push({ key: ++seq, id: f.id, name: f.name, kind: f.kind, url: f.kind === "image" ? `/api/v1/files/${encodeURIComponent(f.id)}` : null, state: "ok" });
+  }
+  renderFiles();
+}
+// Thread verlassen: die Dateien bleiben auf dem Server im Entwurf, nur das Feld wird frei (kein renderFiles: das wäre eine Änderung am Entwurf)
+export function forgetFiles() {
+  files.forEach((x) => { if (x.url?.startsWith("blob:")) URL.revokeObjectURL(x.url); });
   files = [];
+}
+// der Entwurf kam von einem anderen Gerät
+export function setFiles(list) {
+  forgetFiles();
+  restoreFiles(list);
 }
 
 // nach dem Zeichnen der Thread-Ansicht aufrufen
@@ -244,7 +262,7 @@ export function bindComposer() {
     const it = files.find((x) => x.key === +b.dataset.rm);
     files = files.filter((x) => x !== it);
     if (it?.id) api.del(`/uploads/${it.id}`).catch(() => {});
-    if (it?.url) URL.revokeObjectURL(it.url);
+    if (it?.url?.startsWith("blob:")) URL.revokeObjectURL(it.url);
     renderFiles();
   };
   $("modelBtn").onclick = openModelMenu;
@@ -253,10 +271,9 @@ export function bindComposer() {
     if (ctx.busy && $("send").dataset.mode === "stop") return e.submitter ? stopAnswer() : undefined; // leeres Feld: der Knopf stoppt
     if (files.some((x) => x.state === "up")) return toast("Moment – die Dateien werden noch hochgeladen");
     const text = input.value.trim();
-    const ready = files.filter((x) => x.state === "ok").map(({ id, name, kind }) => ({ id, name, kind }));
+    const ready = draftFiles();
     if (!text && !ready.length) return;
-    files.forEach((x) => x.url && URL.revokeObjectURL(x.url));
-    files = [];
+    forgetFiles();
     renderFiles();
     input.value = "";
     grow();

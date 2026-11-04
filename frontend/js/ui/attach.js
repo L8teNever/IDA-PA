@@ -15,11 +15,11 @@ export const uploading = () => items.some((x) => x.state === "up");
 // the files for sending: [{ id, name, kind }] – the list is empty afterwards
 export function takeFiles() {
   const out = items.filter((x) => x.state === "ok").map(({ id, name, kind }) => ({ id, name, kind }));
-  items.forEach((x) => x.url && URL.revokeObjectURL(x.url));
-  items = [];
-  render();
+  forgetFiles();
   return out;
 }
+
+const revoke = (x) => { if (x.url?.startsWith("blob:")) URL.revokeObjectURL(x.url); };
 
 async function shrink(file) {
   if (!/^image\/(png|jpeg|webp)$/.test(file.type)) return file;
@@ -33,6 +33,26 @@ async function shrink(file) {
   c.getContext("2d").drawImage(bmp, 0, 0, c.width, c.height);
   const blob = await new Promise((res) => c.toBlob(res, "image/jpeg", 0.85));
   return blob ? new File([blob], file.name.replace(/\.\w+$/, "") + ".jpg", { type: "image/jpeg" }) : file;
+}
+
+// what is uploaded and ready (for the draft)
+export const draftFiles = () => items.filter((x) => x.state === "ok").map(({ id, name, kind }) => ({ id, name, kind }));
+
+// files from a draft or the queue: they are on the server already
+export function restoreFiles(list = []) {
+  for (const f of list) {
+    if (items.some((x) => x.id === f.id)) continue;
+    if (items.length >= MAX) { toast(`Höchstens ${MAX} Dateien pro Nachricht`); break; }
+    items.push({ key: ++seq, id: f.id, name: f.name, kind: f.kind, url: f.kind === "image" ? `/api/v1/files/${encodeURIComponent(f.id)}` : null, state: "ok" });
+  }
+  render();
+}
+
+// the open chat changes: the files stay on the server in that chat's draft, only the field is cleared
+export function forgetFiles() {
+  items.forEach(revoke);
+  items = [];
+  render();
 }
 
 export async function addFiles(list) {
@@ -91,7 +111,7 @@ function remove(key) {
   if (!it) return;
   items = items.filter((x) => x !== it);
   if (it.id) api.del(`/uploads/${it.id}`).catch(() => {});
-  if (it.url) URL.revokeObjectURL(it.url);
+  revoke(it);
   render();
 }
 
@@ -122,6 +142,4 @@ export function initAttach() {
   comp.addEventListener("dragover", (e) => { if ([...e.dataTransfer.types].includes("Files")) { e.preventDefault(); comp.classList.add("drop"); } });
   comp.addEventListener("dragleave", () => comp.classList.remove("drop"));
   comp.addEventListener("drop", (e) => { if (e.dataTransfer.files.length) { e.preventDefault(); addFiles(e.dataTransfer.files); } comp.classList.remove("drop"); });
-  // the open chat changes: files waiting for the old one are dropped
-  document.addEventListener("chat:switch", () => { items.forEach((x) => x.id && api.del(`/uploads/${x.id}`).catch(() => {})); items = []; render(); });
 }

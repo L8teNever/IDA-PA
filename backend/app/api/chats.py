@@ -1,11 +1,12 @@
 import json
+import re
 
 from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 from sqlalchemy import or_, select
 
 from ..models import Chat, ChatMessage
-from ..schemas import ChatFork, ChatSend, ChatUpdate
+from ..schemas import ChatDraft, ChatFork, ChatSend, ChatUpdate
 from ..services import chat as chat_service
 from ..services import chat_queue
 from ..services import files as file_svc
@@ -18,6 +19,40 @@ from . import serializers as ser
 from .deps import DB
 
 router = APIRouter(prefix="/api/v1", tags=["chats"])
+
+
+# ---- drafts of normal chats: input field, its files and the waiting messages – nothing is lost when the app closes ----
+# key "c-<chat id>", "n-<agent id>" for a new chat, "p-<project id>" for a new code thread
+
+_DRAFT_KEY = re.compile(r"[cnp]-[A-Za-z0-9_-]{1,64}")
+
+
+def _draft_key(key: str) -> str:
+    if not _DRAFT_KEY.fullmatch(key):
+        raise NotFound("Entwurf nicht gefunden")
+    return f"chat_draft:{key}"
+
+
+async def _draft_out(db, d: dict) -> dict:
+    queue = [{**x, "files": await file_svc.infos(db, x.get("files") or [])} for x in d.get("queue") or []]
+    return {"text": d.get("text", ""), "files": await file_svc.infos(db, d.get("files") or []), "queue": queue}
+
+
+@router.get("/chat-drafts/{key}")
+async def get_chat_draft(key: str, db: DB):
+    return await _draft_out(db, await settings_store.get(db, _draft_key(key)) or {})
+
+
+@router.put("/chat-drafts/{key}")
+async def put_chat_draft(key: str, body: ChatDraft, db: DB):
+    """Nothing left (sent or cleared) removes the draft."""
+    k = _draft_key(key)
+    d = body.model_dump()
+    if body.text.strip() or body.files or body.queue:
+        await settings_store.put(db, k, d)
+    else:
+        await settings_store.delete(db, k)
+    return await _draft_out(db, d)
 
 
 @router.get("/chats")
@@ -102,6 +137,7 @@ async def delete(chat_id: str, db: DB):
     approvals.forget(chat_id)
     await file_svc.delete_for_chat(db, chat_id)
     await settings_store.delete(db, f"code_draft:t-{chat_id}")
+    await settings_store.delete(db, f"chat_draft:c-{chat_id}")
     await chat_queue.clear(db, chat_id)
     await db.delete(c)
     try:

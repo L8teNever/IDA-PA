@@ -2,7 +2,7 @@
 // schwebende Kopfzeile, Inhalt darunter; rechts (am PC) Dateien / Änderungen des Projekts.
 import { api } from "./api.js";
 import { ctx, detach, mountNew, mountThread } from "./chat.js";
-import { bindComposer, composerHtml, dropFiles, refreshChip } from "./composer.js";
+import { bindComposer, composerHtml, forgetFiles, refreshChip } from "./composer.js";
 import { fillTab, openPaneModal, tabsHtml } from "./panes.js";
 import { stashQueue } from "./queue.js";
 import { navigate, parse, setUrl, startRouter, urlOf } from "./router.js";
@@ -248,7 +248,7 @@ async function refreshProject() {
 async function show(r) {
   closeDrawer();
   const leavingThread = route.view === "thread" && (r.view !== "thread" || r.thread !== route.thread || r.project !== route.project);
-  if (leavingThread) { stashQueue(); detach(); dropFiles(); }
+  if (leavingThread) { stashQueue(); detach(); forgetFiles(); }
   route = r;
   if (r.project) open.add(r.project);
   if (r.project && cur?.id !== r.project) cur = null;

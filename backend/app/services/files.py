@@ -8,12 +8,12 @@ import shutil
 from datetime import timedelta
 from pathlib import Path
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import get_settings
 from ..db import utcnow
-from ..models import ChatFile
+from ..models import ChatFile, Setting
 from .errors import Invalid, NotFound
 
 IMAGES = {"image/png", "image/jpeg", "image/gif", "image/webp"}
@@ -25,6 +25,7 @@ ATTACH_DIR = ".ida/anhaenge"  # where code threads find such files in the projec
 MAX_PER_MESSAGE = 10
 PREVIEW_EXT = {".html", ".htm", ".svg"}
 KEEP_UNSENT = timedelta(days=1)
+HOLDING = ("code_draft:", "code_queue:", "chat_draft:")  # settings that hold files which are wanted but not sent yet
 
 
 def folder() -> Path:
@@ -111,6 +112,28 @@ async def take(db: AsyncSession, ids: list[str], chat_id: str) -> list[ChatFile]
     return out
 
 
+async def infos(db: AsyncSession, ids: list[str]) -> list[dict]:
+    """What a draft or a queue shows of its files; files that are gone are left out."""
+    out = []
+    for i in dict.fromkeys(ids):
+        f = await db.get(ChatFile, str(i))
+        if f and path(f).exists():
+            out.append(info(f))
+    return out
+
+
+async def _held(db: AsyncSession) -> set[str]:
+    """Files waiting in a draft or a queue: not sent yet, but they must stay as long as the message waits."""
+    rows = await db.scalars(select(Setting).where(or_(*[Setting.key.startswith(p) for p in HOLDING])))
+    out: set[str] = set()
+    for row in rows.all():
+        v = row.value or {}
+        out.update(v.get("files") or [])
+        for item in (v.get("items") or []) + (v.get("queue") or []):
+            out.update(item.get("files") or [])
+    return out
+
+
 def previewable(f: ChatFile) -> bool:
     """HTML and SVG the chat can show as a live preview (isolated, see api/files.py)."""
     return f.kind == "text" and Path(f.name).suffix.lower() in PREVIEW_EXT
@@ -148,8 +171,11 @@ async def delete_for_chat(db: AsyncSession, chat_id: str) -> None:
 
 
 async def purge(db: AsyncSession) -> None:
-    """Uploads that were never sent (after a day) and files whose chat is gone."""
+    """Uploads that were never sent (after a day, unless a draft or a queue still holds them) and files whose chat is gone."""
+    held = await _held(db)
     for f in (await db.scalars(select(ChatFile).where(ChatFile.chat_id.is_(None), ChatFile.created_at < utcnow() - KEEP_UNSENT))).all():
+        if f.id in held:
+            continue
         path(f).unlink(missing_ok=True)
         await db.delete(f)
     known = set((await db.scalars(select(ChatFile.id))).all())

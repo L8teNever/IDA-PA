@@ -357,7 +357,7 @@ def test_drafts_are_kept_on_the_server(client, code_on, github):
     """Unsent text in the input field: stored per thread / new thread, same on every device, gone when sent or deleted."""
     p = client.post(f"{API}/code/projects", json={"name": "Entwurf"}).json()
     new = f"{API}/code/drafts/p-{p['id']}"
-    assert client.get(new).json() == {"text": "", "at": None}
+    assert client.get(new).json() == {"text": "", "files": [], "at": None}
     r = client.put(new, json={"text": "Bau mir\neinen Test"}).json()
     assert r["text"] == "Bau mir\neinen Test" and r["at"]
     assert client.get(new).json()["text"] == "Bau mir\neinen Test"
@@ -372,6 +372,50 @@ def test_drafts_are_kept_on_the_server(client, code_on, github):
     for bad in ("x-1", "t-", "t-a.b", "t-" + "a" * 40):
         assert client.get(f"{API}/code/drafts/{bad}").status_code == 404
     client.delete(f"{API}/code/projects/{p['id']}")
+
+
+def test_files_stay_in_drafts_and_queues(client, code_on, github):
+    """Attached files wait with the draft or the queued message: shown with their name, not cleaned up after a day."""
+    import asyncio
+    from datetime import timedelta
+    from app.db import session_scope, utcnow
+    from app.models import ChatFile
+    from app.services import files as file_svc
+
+    up = lambda name: client.post(f"{API}/uploads", files={"file": (name, b"hallo", "text/plain")}).json()
+    a, b, c, gone = up("a.txt"), up("b.txt"), up("c.txt"), up("weg.txt")
+    p = _project(client, github)
+    new = f"{API}/code/drafts/p-{p['id']}"
+    # only files, no text: still a draft
+    assert [f["name"] for f in client.put(new, json={"text": "", "files": [a["id"]]}).json()["files"]] == ["a.txt"]
+    assert client.get(new).json()["files"][0]["id"] == a["id"]
+    # a normal chat keeps the field, its files and the waiting messages
+    d = f"{API}/chat-drafts/n-ida"
+    client.put(d, json={"text": "hi", "files": [b["id"]], "queue": [{"text": "später", "skill": None, "files": [c["id"]]}]})
+    got = client.get(d).json()
+    assert got["text"] == "hi" and got["files"][0]["name"] == "b.txt" and got["queue"][0]["files"][0]["name"] == "c.txt"
+    assert client.get(f"{API}/chat-drafts/x-1").status_code == 404
+
+    cid = _start(client, {"project_id": p["id"], "text": "SLOW eins", "permission_mode": "full"})
+    e = up("e.txt")
+    item = client.post(f"{API}/code/queue/{cid}", json={"text": "mit Datei", "files": [e["id"]]}).json()["items"][0]
+    assert item["attachments"][0]["name"] == "e.txt"
+
+    async def age_and_purge():
+        async with session_scope() as db:
+            for i in (a, b, c, e, gone):
+                (await db.get(ChatFile, i["id"])).created_at = utcnow() - timedelta(days=3)
+            await db.commit()
+            await file_svc.purge(db)
+            await db.commit()
+            return {i["name"]: (await db.get(ChatFile, i["id"])) is not None for i in (a, b, c, e, gone)}
+
+    assert asyncio.run(age_and_purge()) == {"a.txt": True, "b.txt": True, "c.txt": True, "e.txt": True, "weg.txt": False}
+    # queued files go out with their message
+    wait(lambda: (x := client.get(f"{API}/chats/{cid}").json()) and not x["running"] and not x["queue"]["items"], timeout=40)
+    last = [m for m in client.get(f"{API}/chats/{cid}").json()["messages"] if m["role"] == "user"][-1]
+    assert last["text"] == "mit Datei" and last["meta"]["files"][0]["name"] == "e.txt"
+    assert client.put(d, json={}).json() == {"text": "", "files": [], "queue": []}
 
 
 def test_project_files_listing_and_preview(client, code_on, github):

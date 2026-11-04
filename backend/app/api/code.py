@@ -12,6 +12,7 @@ from ..db import session_scope, utcnow
 from ..schemas import SandboxRun, ApprovalAnswer, CodeSettings, CommitMessageSuggest, Draft, QueueItem, GitBranch, GitCommit, ProjectCreate, ProjectUpdate, Publish, PullRequest, ThreadUpdate
 from ..services import chat as chat_service
 from ..services import chat_queue
+from ..services import files as file_svc
 from ..services import code as code_area
 from ..services import settings_store
 from ..services.code import approvals, commit_msg, git, github, projects, sandbox
@@ -181,7 +182,7 @@ async def update_thread(cid: str, body: ThreadUpdate, db: DB):
     return ser.chat(c)
 
 
-# ---- drafts: unsent text in the input field, kept on the server so every device sees the same ----
+# ---- drafts: unsent text and files in the input field, kept on the server so every device sees the same ----
 # key "t-<thread id>" for a thread, "p-<project id>" for a new thread in a project
 
 _DRAFT_KEY = re.compile(r"[tp]-[A-Za-z0-9_-]{1,32}")
@@ -197,20 +198,20 @@ def _draft_key(key: str) -> str:
 async def get_draft(key: str, db: DB):
     await code_area.require(db)
     d = await settings_store.get(db, _draft_key(key)) or {}
-    return {"text": d.get("text", ""), "at": d.get("at")}
+    return {"text": d.get("text", ""), "files": await file_svc.infos(db, d.get("files") or []), "at": d.get("at")}
 
 
 @router.put("/drafts/{key}")
 async def put_draft(key: str, body: Draft, db: DB):
-    """Empty text removes the draft (sent or cleared)."""
+    """No text and no files removes the draft (sent or cleared)."""
     await code_area.require(db)
     k = _draft_key(key)
-    if body.text.strip():
+    if body.text.strip() or body.files:
         at = ser.iso(utcnow())
-        await settings_store.put(db, k, {"text": body.text, "at": at})
-        return {"text": body.text, "at": at}
+        await settings_store.put(db, k, {"text": body.text, "files": body.files, "at": at})
+        return {"text": body.text, "files": await file_svc.infos(db, body.files), "at": at}
     await settings_store.delete(db, k)
-    return {"text": "", "at": None}
+    return {"text": "", "files": [], "at": None}
 
 
 # ---- queue: messages written while the AI still works; the server sends them one after another ----
@@ -242,7 +243,7 @@ async def _kick(db, chat_id: str) -> None:
 async def _queue_out(db, chat_id: str) -> dict:
     await db.commit()
     async with session_scope() as fresh:  # the run may have taken from it in its own session
-        return {**await chat_queue.get(fresh, chat_id), "running": chat_service.running(chat_id)}
+        return {**await chat_queue.shown(fresh, await chat_queue.get(fresh, chat_id)), "running": chat_service.running(chat_id)}
 
 
 @router.get("/queue/{chat_id}")

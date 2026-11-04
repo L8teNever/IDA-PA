@@ -581,6 +581,9 @@ body.answering .send .ms { font-variation-settings: "FILL" 1; }
 .q-head small { color: var(--muted); font-weight: 400; margin-left: auto; font-size: 12px; }
 .q-item { display: flex; align-items: center; gap: 6px; padding: 6px 4px 6px 8px; border-radius: 14px; background: rgba(255,255,255,.04); }
 .q-n { flex: none; width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; font-size: 11px; background: rgba(var(--accent-rgb), .18); color: var(--accent); }
+.q-files { display: flex; gap: 3px; flex: none; align-items: center; }
+.q-files img { width: 28px; height: 28px; border-radius: 6px; object-fit: cover; display: block; }
+.q-files .ms { font-size: 18px; color: var(--muted); }
 .q-text { flex: 1; min-width: 0; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .q-btn { flex: none; display: inline-flex; align-items: center; gap: 4px; height: 32px; min-width: 32px; padding: 0 8px; border: 0; border-radius: 16px;
   background: transparent; color: var(--muted); cursor: pointer; font: inherit; font-size: 12px; justify-content: center; }

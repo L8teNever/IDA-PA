@@ -31,6 +31,7 @@ export function newChat(agent) {
   detach();
   Object.assign(ctx, { id: null, agentId: agent.id, busy: false, project: null });
   document.dispatchEvent(new CustomEvent("chat:switch"));
+  document.dispatchEvent(new CustomEvent("chat:opened"));
   idle();
   $("messages").innerHTML = "";
 }
@@ -60,6 +61,7 @@ export function newCodeThread(project, mode = "ask") {
   setAgent(a);
   document.dispatchEvent(new CustomEvent("chat:switch"));
   Object.assign(ctx, { id: null, agentId: a.id, busy: false, project, mode });
+  document.dispatchEvent(new CustomEvent("chat:opened"));
   idle();
   setView("chat", { agentStage: "code" });
   $("messages").innerHTML = `<div class="code-intro"><span class="ms">terminal</span><b>Neuer Thread in ${esc(project.name)}</b>
@@ -77,6 +79,7 @@ export async function openChat(id) {
   setAgent(a);
   if (c.id !== ctx.id) document.dispatchEvent(new CustomEvent("chat:switch")); // waiting messages belong to the old chat
   Object.assign(ctx, { id: c.id, agentId: a.id, model: c.model, accountId: c.account_id, busy: false, project, mode: c.permission_mode || "ask" });
+  document.dispatchEvent(new CustomEvent("chat:opened"));
   document.dispatchEvent(new CustomEvent("chat:model", { detail: { model: c.model, account: c.account_id } }));
   setView("chat", { agentStage: project ? "code" : stageOf(a) });
   const box = $("messages");
@@ -240,6 +243,7 @@ async function follow(start, since = null) {
     if (ev.chat) {
       if (!ctx.id) {
         ctx.id = ev.chat.id;
+        document.dispatchEvent(new CustomEvent("chat:id"));
         if (ctx.project) setUrl(`/code/${ctx.project.id}/${ev.chat.id}`); // replaces /code/:project/neu
         else setUrl(`/chat/${ev.chat.id}`, { push: !location.pathname.startsWith("/chat/") });
       }

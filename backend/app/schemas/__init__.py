@@ -279,6 +279,22 @@ class ProjectUpdate(BaseModel):
 
 class Draft(BaseModel):
     text: str = Field("", max_length=200_000)
+    files: list[str] = Field(default_factory=list, max_length=20)
+
+
+class ChatDraftItem(BaseModel):
+    """A waiting message of a normal chat (same fields as POST /chat)."""
+    text: str = Field("", max_length=200_000)
+    skill: str | None = None
+    model: str | None = None
+    account_id: str | None = None
+    effort: str | None = None
+    files: list[str] = Field(default_factory=list, max_length=20)
+
+
+class ChatDraft(Draft):
+    """What is unsent in a normal chat: the input field, its files and the waiting messages."""
+    queue: list[ChatDraftItem] = Field(default_factory=list, max_length=50)
 
 
 class ChatFork(BaseModel):

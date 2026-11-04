@@ -7,7 +7,7 @@ import itertools
 import time
 
 from ..db import session_scope
-from . import settings_store
+from . import files, settings_store
 
 MAX_ITEMS = 50
 _locks: dict[str, asyncio.Lock] = {}
@@ -26,6 +26,11 @@ def lock(chat_id: str) -> asyncio.Lock:
 async def get(db, chat_id: str) -> dict:
     d = await settings_store.get(db, key(chat_id)) or {}
     return {"items": list(d.get("items") or []), "error": d.get("error")}
+
+
+async def shown(db, q: dict) -> dict:
+    """For the app: each message also says which files it carries (name, kind) – it only stores their ids."""
+    return {**q, "items": [{**x, "attachments": await files.infos(db, x.get("files") or [])} for x in q["items"]]}
 
 
 async def _put(db, chat_id: str, items: list[dict], error: str | None = None) -> dict:

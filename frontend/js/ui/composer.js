@@ -2,6 +2,7 @@
 import { ctx, send, addSys, stopAnswer } from "../pages/chat.js";
 import { enqueue, initQueue } from "./queue.js";
 import { hasFiles, initAttach, takeFiles, uploading } from "./attach.js";
+import { initDraft } from "./draft.js";
 import { loadUsage, modelInfo, onChange, state } from "../store.js";
 import { initQuote, withQuote } from "./quote.js";
 import { $, esc } from "./dom.js";
@@ -209,6 +210,7 @@ export function initComposer() {
   };
   initQueue();
   initAttach();
+  initDraft();
   document.addEventListener("attach:change", updateSend);
   document.addEventListener("chat:busy", () => busy(true));
   document.addEventListener("chat:done", () => busy(false));
