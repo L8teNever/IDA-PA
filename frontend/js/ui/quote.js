@@ -75,6 +75,100 @@ function update() {
   place(s.rect);
 }
 
+// ---- Lange auf eine Nachricht drücken (wie bei WhatsApp): sie tritt hervor, darunter stehen Antworten, Kopieren und Auswählen ----
+const HOLD_MS = 420;   // kürzer als das Markieren des Systems, das sonst zuerst käme
+let holdTimer = null;
+let holdStart = null;
+let held = null;
+
+function messageText(m) {
+  const blocks = [...m.querySelectorAll(":scope > .md-text, :scope > .md")].map((b) => b.innerText.trim()).filter(Boolean);
+  if (blocks.length) return blocks.join("\n\n");
+  const c = m.cloneNode(true);
+  c.querySelectorAll(".msg-quote, .msg-meta, .toolcall, .shown, .approval, .route-rate").forEach((x) => x.remove());
+  return (c.textContent || "").trim();
+}
+
+async function copyText(text) {
+  try { await navigator.clipboard.writeText(text); return true; } catch { /* unten der alte Weg */ }
+  const t = document.createElement("textarea");
+  t.value = text;
+  t.style.cssText = "position:fixed;opacity:0";
+  document.body.appendChild(t);
+  t.select();
+  const ok = document.execCommand("copy");
+  t.remove();
+  return ok;
+}
+
+function closeHold() {
+  held?.remove();
+  held = null;
+  removeEventListener("keydown", holdKey);
+}
+function holdKey(e) { if (e.key === "Escape") closeHold(); }
+
+function openHold(msg) {
+  const text = messageText(msg);
+  if (!text) return;
+  closeHold();
+  navigator.vibrate?.(12);
+  getSelection()?.removeAllRanges();
+  const r = msg.getBoundingClientRect();
+  held = document.createElement("div");
+  held.className = "hold";
+  held.innerHTML = `<div class="hold-copy"></div><div class="hold-menu" role="menu">
+    <button type="button" role="menuitem" data-hold="reply"><span class="ms">reply</span>Antworten</button>
+    <button type="button" role="menuitem" data-hold="copy"><span class="ms">content_copy</span>Kopieren</button>
+    <button type="button" role="menuitem" data-hold="select"><span class="ms">select_all</span>Auswählen</button></div>`;
+  const copy = held.firstElementChild, menu = held.lastElementChild;
+  const twin = msg.cloneNode(true);
+  twin.querySelectorAll("iframe").forEach((x) => x.remove());
+  const line = document.createElement("div");
+  line.className = `row ${msg.classList.contains("me") ? "me" : "bot"}`;
+  line.appendChild(twin);
+  copy.appendChild(line);
+  document.body.appendChild(held);
+  // die Nachricht bleibt, wo sie war; lange Nachrichten werden gekürzt, damit das Menü immer Platz hat
+  const room = 190, maxH = Math.max(120, innerHeight - room);
+  const h = Math.min(r.height, maxH);
+  const top = Math.max(12, Math.min(r.top, innerHeight - h - room + 40));
+  copy.style.cssText = `left:${Math.max(8, r.left)}px;top:${top}px;width:${r.width}px;max-height:${maxH}px`;
+  menu.style.top = `${top + h + 10}px`;
+  menu.style[msg.classList.contains("me") ? "right" : "left"] = msg.classList.contains("me") ? `${Math.max(8, innerWidth - r.right)}px` : `${Math.max(8, r.left)}px`;
+  requestAnimationFrame(() => held?.classList.add("show"));
+  held.addEventListener("click", async (e) => {
+    const b = e.target.closest("[data-hold]");
+    if (!b) return closeHold();
+    if (b.dataset.hold === "reply") { closeHold(); setQuote(text); return; }
+    if (b.dataset.hold === "select") { closeHold(); getSelection()?.selectAllChildren(msg); return; }
+    const ok = await copyText(text);
+    b.innerHTML = `<span class="ms">${ok ? "check" : "error"}</span>${ok ? "Kopiert" : "Ging nicht"}`;
+    setTimeout(closeHold, 550);
+  });
+  addEventListener("keydown", holdKey);
+}
+
+function cancelHold() { clearTimeout(holdTimer); holdTimer = null; holdStart = null; }
+
+function bindHold() {
+  document.addEventListener("pointerdown", (e) => {
+    cancelHold();
+    if (e.button || held) return;
+    const msg = e.target.closest?.(".msg.me, .msg.bot");
+    if (!msg || e.target.closest("a, button, summary, input, textarea, select, iframe, pre.out")) return;
+    holdStart = { x: e.clientX, y: e.clientY };
+    holdTimer = setTimeout(() => { holdTimer = null; holdStart = null; openHold(msg); }, HOLD_MS);
+  });
+  document.addEventListener("pointermove", (e) => {
+    if (holdStart && Math.hypot(e.clientX - holdStart.x, e.clientY - holdStart.y) > 10) cancelHold();
+  });
+  for (const ev of ["pointerup", "pointercancel"]) document.addEventListener(ev, cancelHold);
+  addEventListener("scroll", cancelHold, true);
+  // das Kontextmenü des Handys soll beim Halten nicht dazwischenfunken
+  document.addEventListener("contextmenu", (e) => { if ((holdTimer || held) && e.target.closest?.(".msg, .hold")) e.preventDefault(); });
+}
+
 export function initQuote() {
   // Zitat-Feld über dem Eingabefeld (wird bei jedem Neuaufbau der Eingabe neu angelegt)
   quote = "";
@@ -106,4 +200,5 @@ export function initQuote() {
   document.addEventListener("selectionchange", () => { clearTimeout(timer); timer = setTimeout(update, 120); });
   addEventListener("scroll", () => { if (!fab.hidden) update(); }, true);
   addEventListener("resize", () => { if (!fab.hidden) update(); });
+  bindHold();
 }
