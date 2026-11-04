@@ -1169,6 +1169,10 @@ body.view-timeline #btnBack { display: none; }
 .hold.show .hold-copy { transform: scale(1.02); }
 .hold-copy .row { animation: none; margin: 0; }
 .hold-copy .msg { max-width: 100%; }
+.hold-copy.cut { -webkit-mask-image: linear-gradient(#000 calc(100% - 64px), transparent); mask-image: linear-gradient(#000 calc(100% - 64px), transparent); }
+.hold-tools { display: inline-flex; align-items: center; gap: 6px; align-self: flex-start; margin-bottom: 8px; padding: 3px 10px; border-radius: 10px; background: rgba(255, 255, 255, .07); color: var(--muted); font-size: 12px; white-space: nowrap; }
+.hold-tools .ms { font-size: 15px; color: var(--accent); }
+.hold-copy .msg.bot > .hold-tools { display: flex; width: fit-content; }
 .hold-menu { position: fixed; min-width: 190px; padding: 6px; border-radius: 16px; background: var(--surface-highest, #24262c); border: 1px solid rgba(255, 255, 255, .1); box-shadow: 0 10px 30px rgba(0, 0, 0, .5); opacity: 0; transform: translateY(-6px); transition: opacity .16s ease, transform .16s ease; }
 .hold.show .hold-menu { opacity: 1; transform: none; }
 .hold-menu button { display: flex; align-items: center; gap: 12px; width: 100%; padding: 11px 12px; border: 0; border-radius: 10px; background: transparent; color: inherit; font: inherit; font-size: 15px; text-align: left; cursor: pointer; }

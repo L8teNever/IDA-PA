@@ -85,7 +85,7 @@ function messageText(m) {
   const blocks = [...m.querySelectorAll(":scope > .md-text, :scope > .md")].map((b) => b.innerText.trim()).filter(Boolean);
   if (blocks.length) return blocks.join("\n\n");
   const c = m.cloneNode(true);
-  c.querySelectorAll(".msg-quote, .msg-meta, .toolcall, .shown, .approval, .route-rate").forEach((x) => x.remove());
+  c.querySelectorAll(".msg-quote, .msg-meta, .toolcall, .ask, .shown, .approval, .route-rate").forEach((x) => x.remove());
   return (c.textContent || "").trim();
 }
 
@@ -105,8 +105,25 @@ function closeHold() {
   held?.remove();
   held = null;
   removeEventListener("keydown", holdKey);
+  removeEventListener("resize", closeHold);
 }
 function holdKey(e) { if (e.key === "Escape") closeHold(); }
+
+// Lange Antworten mit vielen Befehlen: in der Vorschau stehen nur Text und ein Hinweis, wie viele Befehle es waren
+function previewOf(msg) {
+  const twin = msg.cloneNode(true);
+  const tools = twin.querySelectorAll(".toolcall, .ask").length;
+  twin.querySelectorAll("iframe, .toolcall, .ask, .approval, .route-rate").forEach((x) => x.remove());
+  if (tools) {
+    const n = document.createElement("div");
+    n.className = "hold-tools";
+    n.innerHTML = `<span class="ms">terminal</span>${tools} ${tools === 1 ? "Befehl" : "Befehle"} genutzt`;
+    twin.prepend(n);
+  }
+  return twin;
+}
+
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(v, hi));
 
 function openHold(msg) {
   const text = messageText(msg);
@@ -114,6 +131,7 @@ function openHold(msg) {
   closeHold();
   navigator.vibrate?.(12);
   getSelection()?.removeAllRanges();
+  const me = msg.classList.contains("me");
   const r = msg.getBoundingClientRect();
   held = document.createElement("div");
   held.className = "hold";
@@ -122,20 +140,40 @@ function openHold(msg) {
     <button type="button" role="menuitem" data-hold="copy"><span class="ms">content_copy</span>Kopieren</button>
     <button type="button" role="menuitem" data-hold="select"><span class="ms">select_all</span>Auswählen</button></div>`;
   const copy = held.firstElementChild, menu = held.lastElementChild;
-  const twin = msg.cloneNode(true);
-  twin.querySelectorAll("iframe").forEach((x) => x.remove());
   const line = document.createElement("div");
-  line.className = `row ${msg.classList.contains("me") ? "me" : "bot"}`;
-  line.appendChild(twin);
+  line.className = `row ${me ? "me" : "bot"}`;
+  line.appendChild(previewOf(msg));
   copy.appendChild(line);
   document.body.appendChild(held);
-  // die Nachricht bleibt, wo sie war; lange Nachrichten werden gekürzt, damit das Menü immer Platz hat
-  const room = 190, maxH = Math.max(120, innerHeight - room);
-  const h = Math.min(r.height, maxH);
-  const top = Math.max(12, Math.min(r.top, innerHeight - h - room + 40));
-  copy.style.cssText = `left:${Math.max(8, r.left)}px;top:${top}px;width:${r.width}px;max-height:${maxH}px`;
-  menu.style.top = `${top + h + 10}px`;
-  menu.style[msg.classList.contains("me") ? "right" : "left"] = msg.classList.contains("me") ? `${Math.max(8, innerWidth - r.right)}px` : `${Math.max(8, r.left)}px`;
+
+  // Bildschirm messen (sichtbarer Bereich, also ohne Tastatur), Vorschau und Menü darin unterbringen
+  const vw = visualViewport?.width || innerWidth, vh = visualViewport?.height || innerHeight;
+  const pad = 12, gap = 10;
+  const w = Math.min(r.width, vw - 2 * pad);
+  const left = clamp(r.left, pad, vw - pad - w);
+  copy.style.left = `${left}px`;
+  copy.style.width = `${w}px`;
+  const mw = menu.offsetWidth, mh = menu.offsetHeight;
+  const room = vh - 2 * pad - gap - mh;   // so hoch darf die Vorschau höchstens werden
+  let menuTop;
+  if (room < 72) {
+    // sehr flach (Handy quer mit Tastatur): nur das Menü, mittig
+    copy.hidden = true;
+    menuTop = (vh - mh) / 2;
+    menu.style.left = `${(vw - mw) / 2}px`;
+  } else {
+    const natural = copy.scrollHeight;
+    const h = Math.min(natural, room);
+    if (natural > room) copy.classList.add("cut");   // lange Nachricht: unten ausgeblendet statt hart abgeschnitten
+    // die Nachricht bleibt möglichst, wo sie war
+    const top = clamp(r.top, pad, vh - pad - gap - mh - h);
+    copy.style.top = `${top}px`;
+    copy.style.height = `${h}px`;
+    menuTop = top + h + gap;
+    const ml = me ? left + w - mw : left;
+    menu.style.left = `${clamp(ml, pad, vw - pad - mw)}px`;
+  }
+  menu.style.top = `${Math.max(pad, menuTop)}px`;
   requestAnimationFrame(() => held?.classList.add("show"));
   held.addEventListener("click", async (e) => {
     const b = e.target.closest("[data-hold]");
@@ -147,6 +185,7 @@ function openHold(msg) {
     setTimeout(closeHold, 550);
   });
   addEventListener("keydown", holdKey);
+  addEventListener("resize", closeHold, { once: true });   // Drehen des Geräts: neu öffnen statt schief stehen lassen
 }
 
 function cancelHold() { clearTimeout(holdTimer); holdTimer = null; holdStart = null; }
