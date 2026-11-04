@@ -21,6 +21,7 @@ services:
       WIKI_PUBLIC_URL: ${WIKI_PUBLIC_URL:-https://wiki.kulbarts.com}
       CODE_PUBLIC_URL: ${CODE_PUBLIC_URL:-}         # Code-App (siehe unten); leer = Code-Bereich bleibt in IDA unter /code
       VOICE_URL: http://voice:8000                # Stella (siehe unten); ohne VOICE_SECRET bleibt Stella aus
+      SANDBOX_URL: http://sandbox:8000            # Sandbox der Code-Threads; ohne SANDBOX_SECRET bleibt sie aus
     ports:
       - "${IDA_PORT:-8080}:8000"
     volumes:
@@ -154,6 +155,21 @@ services:
       com.centurylinklabs.watchtower.enable: "true"
       com.centurylinklabs.watchtower.lifecycle.pre-update: "python -m app.voice.idle"   # Exit 75 = gerade im Gespräch -> später
       com.centurylinklabs.watchtower.lifecycle.pre-update-timeout: "1"
+
+  # Sandbox der Code-Threads: nur dieser Dienst hat den Docker-Socket für IDA, und er kann nur Sandbox-Container anlegen. Bewusst ohne
+  # env_file: er kennt keine Zugangsdaten. Ohne eigenen Port, nur app erreicht ihn. Siehe docs/CODE.md
+  sandbox:
+    image: ${IDA_IMAGE:-ghcr.io/l8tenever/ida-pa:latest}
+    pull_policy: always
+    restart: unless-stopped
+    user: root
+    environment:
+      SANDBOX_SECRET: ${SANDBOX_SECRET:-}
+    command: ["uvicorn", "app.sandbox.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"
 
   # Dashboard – eigene App (eigener Port, eigene PWA) für den Server: alle Docker-Stacks sehen, starten/stoppen/aktualisieren,
   # Compose und .env bearbeiten, Logs; Leistung (CPU/RAM/Netz im Verlauf) und Speicher. Siehe docs/DASHBOARD.md

@@ -325,6 +325,12 @@ class Publish(BaseModel):
     private: bool = True
 
 
+class SandboxRun(BaseModel):
+    befehl: str = Field(min_length=1, max_length=20000)
+    timeout_s: int = Field(default=120, ge=1, le=600)
+    projekt_kopieren: bool = False
+
+
 class ApprovalAnswer(BaseModel):
     decision: Literal["allow", "deny", "always"]
 

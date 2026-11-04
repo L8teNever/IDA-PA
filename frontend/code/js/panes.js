@@ -4,8 +4,9 @@ import { api, rawUrl } from "./api.js";
 import { esc, fmtBytes, fmtRel, formDialog, md, openModal, popMenu, toast } from "./ui.js";
 import { modelInfo, state } from "./store.js";
 import { mountActions } from "./actions.js";
+import { ctx } from "./chat.js";
 
-export const TABS = [["files", "folder_open", "Dateien"], ["changes", "difference", "Änderungen"], ["actions", "play_circle", "Actions"]];
+export const TABS = [["files", "folder_open", "Dateien"], ["changes", "difference", "Änderungen"], ["actions", "play_circle", "Actions"], ["sandbox", "terminal", "Sandbox"]];
 
 export function tabsHtml(tab, extra = "") {
   return `<div class="pane-tabs" role="tablist">${TABS.map(([k, ic, t]) => `<button type="button" role="tab" data-pane-tab="${k}" class="${tab === k ? "on" : ""}" title="${t}" aria-label="${t}">
@@ -18,7 +19,43 @@ export function fillTab(el, projectId, tab, { onChange } = {}) {
   const isCurrent = () => el.isConnected && el.dataset.tok === token;
   if (tab === "files") mountFiles(el, projectId, isCurrent);
   else if (tab === "actions") mountActions(el, projectId, isCurrent);
+  else if (tab === "sandbox") mountSandbox(el, isCurrent);
   else renderChanges(el, projectId, { onChange, isCurrent });
+}
+
+// ---- Sandbox des Threads: Befehle von Hand, dieselbe Sandbox wie die der KI ----
+async function mountSandbox(el, isCurrent) {
+  if (!ctx.id) { el.innerHTML = `<div class="sb-note">Die Sandbox gehört zu einem Thread. Öffne einen Thread oder schick die erste Nachricht.</div>`; return; }
+  const thread = ctx.id;
+  el.innerHTML = `<div class="sb"><div class="sb-head"><span id="sbState">…</span><button type="button" class="btn-tonal sm" id="sbStop"><span class="ms">stop_circle</span>Stoppen</button></div>
+    <pre class="sb-out" id="sbOut"></pre>
+    <form class="sb-in" id="sbForm"><span>$</span><input id="sbCmd" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Befehl" aria-label="Befehl"><label title="Vorher den aktuellen Projektstand kopieren"><input type="checkbox" id="sbCopy">Projekt kopieren</label></form></div>`;
+  const out = el.querySelector("#sbOut"), state = el.querySelector("#sbState"), cmd = el.querySelector("#sbCmd");
+  const log = (t) => { out.textContent += t; out.scrollTop = out.scrollHeight; };
+  const show = async () => {
+    try {
+      const s = await api.get(`/code/sandbox/${thread}`);
+      if (!isCurrent()) return;
+      state.textContent = !s.eingerichtet ? "Nicht eingerichtet" : s.laeuft ? `Läuft · ${s.ram_gb} GB RAM · stoppt in ${Math.ceil((s.stoppt_in_s || 0) / 60)} Min` : s.vorhanden ? "Gestoppt" : "Noch nicht gestartet";
+    } catch (e) { state.textContent = e.message; }
+  };
+  el.querySelector("#sbForm").onsubmit = async (e) => {
+    e.preventDefault();
+    const line = cmd.value.trim();
+    if (!line) return;
+    cmd.value = "";
+    cmd.disabled = true;
+    log(`$ ${line}\n`);
+    try {
+      const r = await api.post(`/code/sandbox/${thread}/run`, { befehl: line, timeout_s: 600, projekt_kopieren: el.querySelector("#sbCopy").checked });
+      log(`${r.ausgabe}${r.ausgabe.endsWith("\n") || !r.ausgabe ? "" : "\n"}${r.exit ? `[Exit ${r.exit}] ` : ""}${r.hinweis ? `${r.hinweis}\n` : r.exit ? "\n" : ""}`);
+    } catch (err) { log(`${err.message}\n`); }
+    cmd.disabled = false;
+    cmd.focus();
+    show();
+  };
+  el.querySelector("#sbStop").onclick = async () => { try { await api.post(`/code/sandbox/${thread}/stop`); log("Sandbox gestoppt.\n"); } catch (err) { toast(err.message); } show(); };
+  show();
 }
 
 // ---- Dateien ----

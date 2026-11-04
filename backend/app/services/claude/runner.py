@@ -45,6 +45,7 @@ def account_dir(account_id: str) -> Path:
 
 def account_env(account: Account, code: bool = False) -> dict[str, str]:
     env = {**os.environ, "CLAUDE_CONFIG_DIR": str(account_dir(account.id)), "CLAUDE_CODE_DISABLE_AUTO_MEMORY": "1"}
+    env.pop("SANDBOX_SECRET", None)  # die KI darf mehr RAM nur über die Bestätigung des Nutzers bekommen
     if not code:  # code threads work in a real repo: there git instructions help
         env["CLAUDE_CODE_DISABLE_GIT_INSTRUCTIONS"] = "1"
     if account.oauth_token:

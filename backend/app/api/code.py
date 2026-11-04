@@ -9,12 +9,12 @@ from sqlalchemy import select
 
 from ..models import Chat, ChatMessage
 from ..db import session_scope, utcnow
-from ..schemas import ApprovalAnswer, CodeSettings, CommitMessageSuggest, Draft, QueueItem, GitBranch, GitCommit, ProjectCreate, ProjectUpdate, Publish, PullRequest, ThreadUpdate
+from ..schemas import SandboxRun, ApprovalAnswer, CodeSettings, CommitMessageSuggest, Draft, QueueItem, GitBranch, GitCommit, ProjectCreate, ProjectUpdate, Publish, PullRequest, ThreadUpdate
 from ..services import chat as chat_service
 from ..services import chat_queue
 from ..services import code as code_area
 from ..services import settings_store
-from ..services.code import approvals, commit_msg, git, github, projects
+from ..services.code import approvals, commit_msg, git, github, projects, sandbox
 from ..services.errors import Invalid, NotFound
 from . import serializers as ser
 from .deps import DB
@@ -399,3 +399,34 @@ async def waiting(chat_id: str):
 @router.post("/approvals/{aid}")
 async def answer(aid: str, body: ApprovalAnswer):
     return approvals.answer(aid, body.decision)
+
+
+# ---- Sandbox eines Threads (Terminal in der Code-App) ----
+
+async def _sandbox_chat(db, chat_id: str) -> Chat:
+    await code_area.require(db)
+    c = await db.get(Chat, chat_id)
+    if not c or c.kind != "code":
+        raise NotFound("Thread nicht gefunden")
+    return c
+
+
+@router.get("/sandbox/{chat_id}")
+async def sandbox_status(chat_id: str, db: DB):
+    await _sandbox_chat(db, chat_id)
+    return {"eingerichtet": sandbox.enabled(), **(await sandbox.status(chat_id) if sandbox.enabled() else {})}
+
+
+@router.post("/sandbox/{chat_id}/run")
+async def sandbox_run(chat_id: str, body: SandboxRun, db: DB):
+    c = await _sandbox_chat(db, chat_id)
+    if body.projekt_kopieren and c.project_id:
+        p = await projects.get(db, c.project_id)
+        await sandbox.copy_project(chat_id, projects.path_of(p))
+    return await sandbox.run(chat_id, body.befehl, body.timeout_s)
+
+
+@router.post("/sandbox/{chat_id}/stop")
+async def sandbox_stop(chat_id: str, db: DB):
+    await _sandbox_chat(db, chat_id)
+    return await sandbox.stop(chat_id)

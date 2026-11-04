@@ -29,7 +29,7 @@ from .. import trackers as tracker_svc
 from .. import skills as skill_svc
 from ..claude import prompts
 from ..errors import Invalid, NotFound
-from ..code import approvals, commit_msg, git, github, projects as code_projects
+from ..code import approvals, commit_msg, git, github, projects as code_projects, sandbox
 from ..memory import store as memory
 from . import kalender_tools, voice_tools, wiki_tools
 from .identity import Identity, get
@@ -73,6 +73,16 @@ def _spec(ids: list[str]) -> list[tuple[str, str, str, dict]]:
     obj = lambda props, req=(): {"type": "object", "properties": props, **({"required": list(req)} if req else {})}  # noqa: E731
     tools = [
         (ALL, "agent_list", "Listet alle Agenten mit Aufgabe und Modell.", obj({})),
+        (CODE, "sandbox_ausfuehren", "Führt einen Shell-Befehl in der Sandbox dieses Threads aus: ein eigener Linux-Container mit Root, Node, Python, git und Internet, "
+                                     "2 GB RAM. Nutze sie für Tests, zum Ausprobieren und zum Installieren von Paketen (apt, npm, pip), statt das im Projektordner zu tun. "
+                                     "Arbeitsordner /workspace enthält eine Kopie des Projekts ohne .git und .env; Änderungen dort landen nicht im echten Projekt. "
+                                     "Zustand und Installationen bleiben erhalten. Nach 15 Minuten ohne Befehl stoppt alles, was darin läuft.",
+         obj({"befehl": E, "timeout_s": {"type": "integer", "description": "Abbruch nach so vielen Sekunden, höchstens 600, Standard 120"},
+              "projekt_kopieren": {"type": "boolean", "description": "Vorher den aktuellen Stand des Projekts nach /workspace kopieren (Standard ja)"}}, ("befehl",))),
+        (CODE, "sandbox_mehr_ram", "Fragt den Nutzer nach mehr RAM für die Sandbox. Nur nutzen, wenn 2 GB wirklich nicht reichen. Der Nutzer muss bestätigen; es gilt bis zum nächsten Stopp der Sandbox.",
+         obj({"gb": {"type": "integer", "description": "Gewünschter RAM in GB, 3 bis 6"}, "grund": E}, ("gb", "grund"))),
+        (CODE, "sandbox_status", "Zeigt, ob die Sandbox dieses Threads läuft, wie viel RAM sie hat und wann sie stoppt.", obj({}, ())),
+        (CODE, "sandbox_stoppen", "Stoppt die Sandbox dieses Threads samt allem, was darin läuft. Ihre Dateien bleiben.", obj({}, ())),
         (ALL, "chat_zeigen", "Zeigt dem Nutzer direkt hier im Chat eine Datei, ein Bild oder eine HTML-Vorschau. Nutze das immer, wenn etwas gezeigt statt "
                              "beschrieben werden soll, z. B. Designs, Grafiken, Berichte. Mehrere Versionen: je Version ein Aufruf. HTML und SVG erscheinen als "
                              "Live-Vorschau in einem isolierten Rahmen: Schreib eine vollständige Datei mit CSS, JS und Bildern inline. Gib genau eins an: inhalt, base64 oder pfad.",
@@ -492,6 +502,12 @@ async def handle(token: str, msg: dict) -> dict | None | bool:
         p = msg.get("params") or {}
         if p.get("name") == "code_approve":  # waits for the user – without holding a database session meanwhile
             return reply(await _approve(me, p.get("arguments") or {}))
+        if str(p.get("name") or "").startswith("sandbox_"):  # dauert, auch hier keine Datenbank-Sitzung dabei
+            try:
+                out = await _sandbox(me, p["name"], p.get("arguments") or {})
+            except (Invalid, NotFound) as e:
+                out = {"error": str(e)}
+            return reply({"content": [{"type": "text", "text": json.dumps(out, ensure_ascii=False, default=str)}], "isError": bool(out.get("error"))})
         try:
             async with session_scope() as db:
                 out = await _call(db, me, p.get("name", ""), p.get("arguments") or {})
@@ -503,6 +519,32 @@ async def handle(token: str, msg: dict) -> dict | None | bool:
             out = {"error": str(e)}
         return reply({"content": [{"type": "text", "text": json.dumps(out, ensure_ascii=False, default=str)}], "isError": bool(out.get("error"))})
     return {"jsonrpc": "2.0", "id": msg["id"], "error": {"code": -32601, "message": "Method not found"}}
+
+
+async def _sandbox(me: Identity, name: str, a: dict) -> dict:
+    if not _allowed(CODE, name, me):
+        raise Invalid("Die Sandbox gibt es nur in Code-Threads")
+    thread = me.chat_id
+    if name == "sandbox_status":
+        return await sandbox.status(thread)
+    if name == "sandbox_stoppen":
+        return await sandbox.stop(thread)
+    if name == "sandbox_mehr_ram":
+        gb = int(a.get("gb") or 0)
+        decision = await approvals.ask(thread, f"Sandbox: {gb} GB RAM", {"grund": str(a.get("grund") or "")})
+        if decision.get("behavior") != "allow":
+            return {"error": "Der Nutzer hat mehr RAM abgelehnt."}
+        return await sandbox.memory(thread, gb)
+    if name == "sandbox_ausfuehren":
+        if a.get("projekt_kopieren", True) is not False:
+            async with session_scope() as db:
+                chat = await db.get(Chat, thread)
+                project = await db.get(CodeProject, chat.project_id) if chat and chat.project_id else None
+                root = code_projects.path_of(project) if project else None
+            if root:
+                await sandbox.copy_project(thread, root)
+        return await sandbox.run(thread, str(a.get("befehl") or ""), int(a.get("timeout_s") or 120))
+    raise NotFound(f"Tool {name} gibt es nicht")
 
 
 async def _approve(me: Identity, a: dict) -> dict:

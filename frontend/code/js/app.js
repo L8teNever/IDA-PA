@@ -107,6 +107,7 @@ function drawRail() {
       ${btn('data-pane="files"', paneTab === "files" && wide() && ready, "folder_open", "Dateien", !ready)}
       ${btn('data-pane="changes"', paneTab === "changes" && wide() && ready, "difference", "Änderungen", !ready)}
       ${btn('data-pane="actions"', paneTab === "actions" && wide() && ready, "play_circle", "Actions", !ready)}
+      ${btn('data-pane="sandbox"', paneTab === "sandbox" && wide() && ready, "terminal", "Sandbox", !ready)}
     </div>
     <div class="rail-spacer"></div>
     ${btn('data-act="limits" title="KI-Limits"', false, "data_usage", "Limits")}

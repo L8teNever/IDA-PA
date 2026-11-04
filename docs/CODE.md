@@ -27,3 +27,15 @@ Ist `CODE_PUBLIC_URL` gesetzt, öffnet „Code“ in der IDA-Seitenleiste die ne
 cd code && pip install -r requirements-dev.txt && python -m pytest
 IDA_INTERNAL_URL=http://localhost:8080 FRONTEND_DIR=../frontend uvicorn app.main:app --port 8084
 ```
+
+
+## Sandbox
+
+Jeder Code-Thread bekommt eine eigene Sandbox: einen Linux-Container (`node:22-bookworm`) mit Root, Node, Python, git und Internet.
+Die KI nutzt sie mit `sandbox_ausfuehren`, der Nutzer im Tab „Sandbox“ der Code-App.
+
+- Der Dienst `sandbox` (`app/sandbox/main.py`) hat als einziger für IDA den Docker-Socket und kennt keine Zugangsdaten (kein `env_file`). Er kann nur Sandbox-Container anlegen.
+- Das Projekt kommt als Kopie nach `/workspace`, ohne `.git` und `.env`. Änderungen landen nicht im echten Projekt.
+- 2 GB RAM und 2 CPUs. Mehr RAM (bis `SANDBOX_MAX_GB`, Standard 6) fragt die KI mit `sandbox_mehr_ram`, der Nutzer bestätigt im Thread. Das gilt bis zum nächsten Stopp.
+- 15 Minuten ohne Befehl: Die Sandbox stoppt samt allem, was darin läuft. Dateien bleiben, nach 7 Tagen ohne Nutzung wird alles gelöscht.
+- Eingeschaltet wird sie mit `SANDBOX_SECRET` in der `.env`.
