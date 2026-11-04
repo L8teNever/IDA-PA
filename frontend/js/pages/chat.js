@@ -2,7 +2,7 @@
 // and for the threads of the code area ("/code/:project/:thread"): same view with the code bar on top.
 import { api, followChat, streamChat } from "../api.js";
 import { setUrl } from "../router.js";
-import { agentById, agentOf, mainAgent, modelInfo, state } from "../store.js";
+import { agentById, agentOf, colors, face, mainAgent, modelInfo, state } from "../store.js";
 import { askHtml, isAsk, watchAsks } from "../ui/askcard.js";
 import { approvalHtml, bindCodeBar, codeBar, refreshBar } from "../ui/codebar.js";
 import { mountCodePanes } from "../ui/codepanes.js";
@@ -87,7 +87,7 @@ export async function openChat(id) {
   box.innerHTML = `<div class="chat-day">${esc(c.title)} · ${fmtDateTime(c.created_at)}</div>`;
   if (project) { showCodeBar(); $("input").placeholder = `Was soll ${a.name} in ${project.name} machen?`; }
   for (const m of c.messages) {
-    if (m.role === "user") addUser(m.text, m.meta?.skill, m.meta?.files);
+    if (m.role === "user") addUser(m.text, m.meta?.skill, m.meta?.files, m.meta?.from_agent);
     else if (m.role === "assistant") renderBot(addBot(), m.parts, m.text, { ...m.meta, id: m.id });
     else addSys(m.text);
   }
@@ -113,9 +113,15 @@ function filesHtml(files) {
     : `<a class="mf-file" href="/api/v1/files/${f.id}" target="_blank" rel="noopener"><span class="ms">${FILE_ICON[f.kind] || "description"}</span><span>${esc(f.name)}</span></a>`).join("")}</div>`;
 }
 
-function addUser(text, skill, files) {
+// fromAgent: die Nachricht kam von einem anderen Agenten (z. B. Stella fragt Ida im Gespräch) – in dessen Farbe, mit Namen
+function addUser(text, skill, files, fromAgent) {
   const r = row("me");
-  r.innerHTML = filesHtml(files) + (text || skill ? `<div class="msg me">${skill ? `<span class="skill-tag"><span class="ms">auto_fix_high</span>/${esc(skill)}</span> ` : ""}${userHtml(text)}</div>` : "");
+  const by = fromAgent ? agentById(fromAgent) : null;
+  const c = by ? colors(by) : null;
+  if (by) r.classList.add("by-agent");
+  const style = c ? ` style="--accent:${c["--accent"]};--on-accent:${c["--on-accent"]}"` : "";
+  const who = by ? `<div class="msg-by"${style}><span class="msg-by-dot">${face(by)}</span>${esc(by.name)}</div>` : "";
+  r.innerHTML = who + filesHtml(files) + (text || skill ? `<div class="msg me"${style}>${skill ? `<span class="skill-tag"><span class="ms">auto_fix_high</span>/${esc(skill)}</span> ` : ""}${userHtml(text)}</div>` : "");
   r.querySelectorAll("img").forEach((i) => i.addEventListener("load", scroll, { once: true }));
   scroll();
 }

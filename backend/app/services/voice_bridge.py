@@ -39,6 +39,9 @@ RESULT_LIMIT = 2500
 MAX_DECLARED = 40
 DEF_TTL = 600  # connector tool definitions are cached this long (listing them costs a round trip per server)
 META = ("tool_suchen", "tool_ausfuehren", "ida_fragen")
+# Im Gespräch fragt Stella Ida live (ida_fragen) und wartet; Abgeben ohne Antwort hieße „Ida meldet sich“ und Auflegen
+LIVE_SKIP = ("agent_delegate", "agent_send")
+LATE_HAND_OVER_S = 30  # so lange darf das Gespräch eine späte Antwort Idas abholen, sonst kommt sie als Nachricht
 IDA_INTRO = ("Stella spricht gerade live mit dem Nutzer und wartet auf dich. Alle Nachrichten in diesem Chat sind ihre Fragen aus demselben Gespräch. "
              "Antworte immer schnell und so kurz wie möglich, höchstens drei gesprochene Sätze, ohne Markdown und ohne Links, Stella sagt das laut weiter. "
              "Weißt du etwas nicht, sag das.")
@@ -90,6 +93,9 @@ class Session:
     used: list[str] = field(default_factory=list)  # "name ok|fehler" in order
     ida_chat: str | None = None  # this conversation's chat with Ida (ida_fragen)
     ida_task: asyncio.Task | None = None
+    ida_late: tuple[bool, str] | None = None  # Ida answered after Stella stopped waiting: still to be said in the call
+    ida_said: asyncio.Event = field(default_factory=asyncio.Event)  # … and Stella has it
+    ida_ready: asyncio.Event = field(default_factory=asyncio.Event)
 
 
 _sessions: dict[str, Session] = {}
@@ -182,10 +188,13 @@ Tools im Gespräch: Lesen (Termine, Stundenplan, Wiki, Gedächtnis …) darfst d
 Mail senden, Licht schalten, Erinnerung setzen …), sag dem Nutzer in einem Satz genau, was du tun würdest, und frag kurz nach.
 Erst nach seinem klaren Ja rufst du das Tool mit bestaetigt=true auf – nie ohne sein Ja. „Merk dir …“ speicherst du ohne
 Nachfrage mit memory_save. Passt keins der direkten Tools, such mit tool_suchen und führe mit tool_ausfuehren aus.
-Größere Aufgaben mit mehreren Schritten gibst du mit agent_delegate an Ida (to=„{main}“) ab und sagst dem Nutzer, dass Ida
-sich drum kümmert. Weißt du etwas nicht oder braucht eine Frage mehr Überlegen, frag Ida live mit ida_fragen: Sag vorher kurz
-„Moment, ich frag Ida.“, gib ihre Antwort danach knapp in deinen Worten wieder und erfinde nichts dazu. Soll Ida dabei etwas
-verändern, gilt dieselbe Regel: erst sein klares Ja, dann bestaetigt=true. Sag vor einem Tool kurz „Moment“ o. Ä. Erfinde nie Ergebnisse; Fehler oder nichts gefunden sagst du ehrlich.
+Weißt du etwas nicht, braucht eine Frage mehr Überlegen oder soll Ida etwas nachschauen oder erledigen (auch im Wiki),
+frag Ida live mit ida_fragen und WARTE auf ihre Antwort: Sag vorher kurz „Moment, ich frag Ida.“, gib ihre Antwort danach
+knapp in deinen Worten wieder und erfinde nichts dazu. Sag nie „Ida meldet sich“ oder „ich gebe das an Ida ab“, du holst
+die Antwort selbst. Braucht Ida länger, sag das kurz und red normal weiter; ihre Antwort kommt von selbst in dieses Gespräch
+(als „[Ida hat jetzt geantwortet] …“), dann gibst du sie sofort weiter. Soll Ida etwas verändern, gilt dieselbe Regel: erst
+sein klares Ja, dann bestaetigt=true. Beende das Gespräch nie von dir aus, solange der Nutzer sich nicht verabschiedet,
+und erst recht nicht, während du auf Ida wartest. Sag vor einem Tool kurz „Moment“ o. Ä. Erfinde nie Ergebnisse; Fehler oder nichts gefunden sagst du ehrlich.
 """
 
 
@@ -220,7 +229,7 @@ async def start(call_id: str, direction: str, number: str, owner: bool, purpose:
             internal = [Tool(name=n, bare=n, description=d, schema=schema) for who, n, d, schema in hub._spec(ids)
                         if hub._allowed(who, n, me) and who != hub.CODE]
             for t in internal + await _connector_tools(db, agent):
-                if not _matches(t.bare, deny) and t.name not in sess.tools and t.name not in META:
+                if not _matches(t.bare, deny) and t.name not in sess.tools and t.name not in META and t.bare not in LIVE_SKIP:
                     sess.tools[t.name] = t
             context += TOOL_RULES.format(main=main.id if main else "ida")
             declared = [t for t in sess.tools.values() if _matches(t.bare, core)][:MAX_DECLARED]
@@ -239,13 +248,15 @@ async def start(call_id: str, direction: str, number: str, owner: bool, purpose:
 
 
 # ---------------- Stella asks Ida ----------------
-async def _chat_turn(sess: Session, agent_id: str, text: str, model: str | None) -> tuple[bool, str]:
-    """One message in this conversation's chat with Ida. The chat keeps her context from question to question."""
+async def _chat_turn(sess: Session, agent_id: str, text: str, model: str | None, shown: str | None = None) -> tuple[bool, str]:
+    """One message in this conversation's chat with Ida. The chat keeps her context from question to question.
+    The chat shows only the question (shown), as a message from Stella, not from the user."""
     from .chat import stream_chat
 
     parts: list[str] = []
     done: dict = {}
-    async with aclosing(stream_chat(chat_id=sess.ida_chat, agent_id=agent_id, text=text, model=model, account_id=None, skill_id=None)) as events:
+    async with aclosing(stream_chat(chat_id=sess.ida_chat, agent_id=agent_id, text=text, model=model, account_id=None, skill_id=None,
+                                    shown=shown, extra_meta={"from_agent": sess.agent_id})) as events:
         async for ev in events:
             if "chat" in ev and not sess.ida_chat:
                 sess.ida_chat = ev["chat"]["id"]
@@ -270,20 +281,28 @@ async def _ida_answer(sess: Session, question: str, yes: bool) -> tuple[str, boo
         main_id, own_model = main.id, main.model or get_settings().default_model
     rule = ("Der Nutzer hat im Gespräch ausdrücklich zugestimmt, du darfst das Verlangte ausführen." if yes else
             "Nur nachschauen und antworten: Verändere nichts (nichts senden, anlegen, löschen, schalten). Wäre dafür eine Aktion nötig, sag das.")
-    intro = "" if sess.ida_chat else IDA_INTRO + "\n\n"
-    text = f"{intro}Stella fragt: {question}\n\n{rule}"
+    text = f"{IDA_INTRO}\n\nStella fragt: {question}\n\n{rule}"  # jedes Mal: der Chat zeigt (und merkt sich) nur die Frage
     try:
-        ok, answer = await _chat_turn(sess, main_id, text, autoroute.AUTO)
+        ok, answer = await _chat_turn(sess, main_id, text, autoroute.AUTO, shown=question)
     except Invalid as e:  # Auto hat nichts zur Auswahl: dann Idas eigenes Modell
         log.info("voice: Auto nicht verfügbar: %s", e)
-        ok, answer = await _chat_turn(sess, main_id, text, own_model)
+        ok, answer = await _chat_turn(sess, main_id, text, own_model, shown=question)
     return main_id, ok, answer
 
 
-async def _late_answer(task: asyncio.Task, question: str) -> None:
-    """Ida was slower than Stella may wait: the answer still reaches the user, as a message."""
+async def _late_answer(sess: Session, task: asyncio.Task, question: str) -> None:
+    """Ida was slower than Stella may wait: the answer goes into the running call (ida_warten). Is the call over
+    or does nobody pick it up, it still reaches the user, as a message."""
     try:
         main_id, ok, answer = await task
+        if _sessions.get(sess.call_id) is sess:
+            sess.ida_late = (ok, answer)
+            sess.ida_ready.set()
+            try:
+                await asyncio.wait_for(sess.ida_said.wait(), LATE_HAND_OVER_S)
+                return
+            except asyncio.TimeoutError:
+                pass
         async with session_scope() as db:
             await agent_svc.send(db, from_id=main_id, to=USER, kind="notice", title="Ida zu Stellas Frage",
                                  text=f"{question}\n\n{answer if ok else 'Das hat nicht geklappt: ' + answer[:300]}")
@@ -296,17 +315,21 @@ async def _ask_ida(sess: Session, question: str, yes: bool) -> dict:
     if not question:
         return _out("Die Frage fehlt.", True)
     if sess.ida_task and not sess.ida_task.done():
-        return _out("Ida arbeitet noch an deiner letzten Frage. Ihre Antwort kommt als Nachricht in IDA, frag danach nochmal.")
+        return _out("Ida arbeitet noch an deiner letzten Frage. Ihre Antwort kommt gleich von selbst in dieses Gespräch, frag danach nochmal.")
     activity.step(sess.run, "tool", "ida_fragen", "ida")
+    sess.ida_late = None
+    sess.ida_said.clear()
+    sess.ida_ready.clear()
     task = sess.ida_task = asyncio.create_task(_ida_answer(sess, question, yes))
     done, _ = await asyncio.wait({task}, timeout=get_settings().voice_ida_ask_s)
     activity.step(sess.run, "thinking")
     if not done:
-        late = asyncio.create_task(_late_answer(task, question))
+        late = asyncio.create_task(_late_answer(sess, task, question))
         _waiting.add(late)
         late.add_done_callback(_waiting.discard)
         sess.used.append("ida_fragen läuft noch")
-        return _out("Ida braucht länger. Sag dem Nutzer, dass ihre Antwort gleich als Nachricht in IDA kommt.")
+        return {**_out("Ida sucht noch. Sag dem Nutzer kurz, dass Ida noch dran ist und du ihm ihre Antwort gleich sagst, und leg nicht auf. "
+                       "Ihre Antwort kommt von selbst in dieses Gespräch."), "ida_pending": True}
     try:
         _, ok, answer = task.result()
     except Exception as e:  # noqa: BLE001
@@ -358,6 +381,22 @@ async def _run(sess: Session, t: Tool, args: dict) -> dict:
         return _out(str(e) or e.__class__.__name__, True)
 
 
+async def _wait_late(sess: Session) -> dict:
+    """The call asks for Ida's late answer (not a tool for Gemini): waits a bit, then {answer} or {pending}."""
+    if not sess.ida_task or sess.ida_said.is_set():  # nichts gefragt oder schon abgeholt
+        return {"gone": True}
+    try:
+        await asyncio.wait_for(sess.ida_ready.wait(), 20)
+    except asyncio.TimeoutError:
+        return {"gone": True} if sess.ida_task.done() and not sess.ida_late else {"pending": True}
+    ok, answer = sess.ida_late or (False, "Keine Antwort")
+    sess.ida_late = None
+    sess.ida_ready.clear()
+    sess.ida_said.set()
+    sess.used.append(f"ida_fragen spät {'ok' if ok else 'Fehler'}")
+    return {"answer": answer, "ok": ok}
+
+
 async def call_tool(call_id: str, name: str, args: dict) -> dict:
     sess = _sessions.get(call_id)
     if not sess or not sess.owner or not sess.token:
@@ -365,6 +404,8 @@ async def call_tool(call_id: str, name: str, args: dict) -> dict:
     args = dict(args or {})
     if name == "tool_suchen":
         return _search(sess, str(args.get("suche") or args.get("query") or ""))
+    if name == "ida_warten":
+        return await _wait_late(sess)
     yes = args.pop("bestaetigt", False) is True
     if name == "ida_fragen":
         return await _ask_ida(sess, str(args.get("frage") or ""), yes)

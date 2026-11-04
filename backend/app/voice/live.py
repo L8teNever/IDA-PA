@@ -139,6 +139,7 @@ class LiveSession:
         self._tasks: set[asyncio.Task] = set()
         self._farewell: asyncio.Task | None = None
         self._hung = False
+        self._ida_waiting: asyncio.Task | None = None  # Ida braucht länger: ihre Antwort wird nachgereicht
 
     # ---------- setup ----------
     def setup_payload(self, model: str) -> dict:
@@ -301,11 +302,40 @@ class LiveSession:
             out = {"error": f"Das Tool ist gerade nicht erreichbar ({e.__class__.__name__})."}
         log.info("voice tool=%s ms=%d ok=%s", name, (time.monotonic() - t0) * 1000, "error" not in out)
         await self.sink.tool(name, False)
-        if asks_ida:
+        pending = bool(out.pop("ida_pending", False)) if isinstance(out, dict) else False
+        if asks_ida and not pending:
             answer = str(out.get("result") or out.get("error") or "")
             self._note("ida", answer)
             await self.sink.text("ida", answer)
         await self._respond(fc, name, out)
+        if pending and not (self._ida_waiting and not self._ida_waiting.done()):
+            self._ida_waiting = self._spawn(self._await_ida())
+
+    async def _await_ida(self) -> None:
+        """Holt Idas späte Antwort ab und gibt sie Stella mitten ins Gespräch, damit sie sie gleich sagt."""
+        misses = 0
+        for _ in range(40):  # höchstens rund 15 Minuten
+            if self.closed or self._hung:
+                return
+            try:
+                r = await self.run_tool("ida_warten", {})
+            except Exception:  # noqa: BLE001
+                r = {"error": "nicht erreichbar"}
+            if "answer" in r:
+                answer = str(r.get("answer") or "")
+                self._note("ida", answer)
+                await self.sink.text("ida", answer)
+                head = "[Ida hat jetzt geantwortet]" if r.get("ok") else "[Ida konnte die Frage nicht beantworten]"
+                await self._send({"clientContent": {"turns": [{"role": "user", "parts": [{"text": f"{head} {answer}\n\nGib das dem Nutzer jetzt "
+                                  "kurz in deinen Worten weiter."}]}], "turnComplete": True}})
+                return
+            if r.get("gone"):
+                return
+            if "error" in r:
+                misses += 1
+                if misses >= 3:
+                    return
+                await asyncio.sleep(3)
 
     async def _respond(self, fc: dict, name: str, response: dict) -> None:
         await self._send({"toolResponse": {"functionResponses": [{"id": fc.get("id"), "name": name, "response": response}]}})
@@ -319,8 +349,8 @@ class LiveSession:
 
     # Gemini sometimes says goodbye without calling auflegen: hang up if the other side stays quiet afterwards
     def _arm_farewell(self) -> None:
-        if self._farewell and not self._farewell.done():
-            return
+        if (self._farewell and not self._farewell.done()) or (self._ida_waiting and not self._ida_waiting.done()):
+            return  # wartet noch auf Ida: kein Auflegen nach einem „bis dann“
 
         async def fire():
             await asyncio.sleep(1.5)

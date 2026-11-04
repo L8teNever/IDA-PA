@@ -195,14 +195,17 @@ async def _run_queued(chat_id: str, item: dict) -> None:
 
 async def start_chat(*, chat_id: str | None, agent_id: str | None, text: str, model: str | None, account_id: str | None,
                      skill_id: str | None, effort: str | None = None, file_ids: list[str] | None = None,
-                     project_id: str | None = None, permission_mode: str | None = None, _queued: bool = False) -> dict:
+                     project_id: str | None = None, permission_mode: str | None = None, _queued: bool = False,
+                     shown: str | None = None, extra_meta: dict | None = None) -> dict:
     """Saves the message and starts the answer in the background; returns the chat (follow it with follow()).
-    project_id: a new thread of this code project; permission_mode: rights of a code thread (ask | edits | full)."""
+    project_id: a new thread of this code project; permission_mode: rights of a code thread (ask | edits | full).
+    shown: what the chat shows instead of text (the model still gets text); extra_meta: goes into the message (e.g. from_agent)."""
     if chat_id and chat_id in _starting and not _queued:
         raise Invalid("Hier läuft noch eine Antwort – warte kurz oder stoppe sie")
     state, order, prompt, skill_id, attachments, info = await _prepare(chat_id=chat_id, agent_id=agent_id, text=text, model=model,
                                                                        account_id=account_id, skill_id=skill_id, file_ids=file_ids or [],
-                                                                       project_id=project_id, permission_mode=permission_mode)
+                                                                       project_id=project_id, permission_mode=permission_mode,
+                                                                       shown=shown, extra_meta=extra_meta)
     live = _live[state["chat_id"]] = _Live()
     stopped = _stops[state["chat_id"]] = asyncio.Event()
 
@@ -246,16 +249,18 @@ def _keep(task: asyncio.Task) -> None:
 async def stream_chat(*, chat_id: str | None, agent_id: str | None, text: str, model: str | None,
                       account_id: str | None, skill_id: str | None, effort: str | None = None,
                       file_ids: list[str] | None = None, project_id: str | None = None,
-                      permission_mode: str | None = None) -> AsyncIterator[dict]:
+                      permission_mode: str | None = None, shown: str | None = None, extra_meta: dict | None = None) -> AsyncIterator[dict]:
     """Start + follow: {"chat": …} first, then the answer's events. Leaving early does not stop the answer."""
     info = await start_chat(chat_id=chat_id, agent_id=agent_id, text=text, model=model, account_id=account_id,
-                            skill_id=skill_id, effort=effort, file_ids=file_ids, project_id=project_id, permission_mode=permission_mode)
+                            skill_id=skill_id, effort=effort, file_ids=file_ids, project_id=project_id, permission_mode=permission_mode,
+                            shown=shown, extra_meta=extra_meta)
     yield {"chat": info}
     async for ev in follow(info["id"]):
         yield ev
 
 
-async def _prepare(*, chat_id, agent_id, text, model, account_id, skill_id, file_ids, project_id=None, permission_mode=None):
+async def _prepare(*, chat_id, agent_id, text, model, account_id, skill_id, file_ids, project_id=None, permission_mode=None,
+                   shown=None, extra_meta=None):
     s = get_settings()
     text = (text or "").strip()
     if chat_id and _busy(chat_id):
@@ -315,8 +320,8 @@ async def _prepare(*, chat_id, agent_id, text, model, account_id, skill_id, file
             raise Invalid("Diese Datei kann das Modell hier nicht lesen – beliebige Dateien gehen nur in Code-Threads")
         if fs and not chat_id and not text:
             chat.title = fs[0].name[:60]
-        meta = {**({"skill": skill_id} if skill_id else {}), **({"files": [file_svc.info(f) for f in fs]} if fs else {})}
-        db.add(ChatMessage(chat_id=chat.id, role="user", text=text, meta=meta))
+        meta = {**({"skill": skill_id} if skill_id else {}), **({"files": [file_svc.info(f) for f in fs]} if fs else {}), **(extra_meta or {})}
+        db.add(ChatMessage(chat_id=chat.id, role="user", text=shown if shown is not None else text, meta=meta))
         chat.updated_at = utcnow()
         await db.flush()
         info = chat_dict(chat)

@@ -235,7 +235,10 @@ def test_stella_asks_ida_live(client, voice):
     call = "wasktest1"
     start = client.post(f"{API}/voice/internal/start", headers=SECRET,
                         json={"call_id": call, "direction": "web", "number": "", "owner": True, "purpose": ""}).json()
-    assert "ida_fragen" in [t["name"] for t in start["tools"]] and "ida_fragen" in start["context"]
+    names = [t["name"] for t in start["tools"]]
+    assert "ida_fragen" in names and "ida_fragen" in start["context"]
+    assert not {"agent_delegate", "agent_send"} & set(names)  # im Gespräch nicht abgeben, sondern live fragen
+    assert "agent_delegate" not in start["context"]
     out = client.post(f"{API}/voice/internal/tool", headers=SECRET, timeout=60,
                       json={"call_id": call, "name": "ida_fragen", "args": {"frage": "Wann ist Ostern?"}}).json()
     assert out.get("result") and "error" not in out
@@ -247,7 +250,9 @@ def test_stella_asks_ida_live(client, voice):
     assert voice_bridge._sessions[call].ida_chat == first  # zweite Frage bleibt im selben Chat
     ida = client.get(f"{API}/chats/{first}").json()
     asked = [m["text"] for m in ida["messages"] if m["role"] == "user"]
-    assert len(asked) == 2 and "Ostern" in asked[0] and "Pfingsten" in asked[1] and "live mit dem Nutzer" not in asked[1]
+    assert asked == ["Wann ist Ostern?", "Und Pfingsten?"]  # der Chat zeigt nur die Fragen, nicht die Anweisungen an Ida
+    assert all(m["meta"].get("from_agent") == "stella" for m in ida["messages"] if m["role"] == "user")  # von Stella, nicht vom Nutzer
+    assert "Pfingsten" in ida["messages"][-1]["text"]  # Ida bekam die ganze Frage samt Anweisungen
     empty = client.post(f"{API}/voice/internal/tool", headers=SECRET, json={"call_id": call, "name": "ida_fragen", "args": {}}).json()
     assert "error" in empty
     transcript = [{"who": "user", "text": "Frag Ida"}, {"who": "ida_frage", "text": "Wann ist Ostern?"}, {"who": "ida", "text": "Im April."},
@@ -257,6 +262,33 @@ def test_stella_asks_ida_live(client, voice):
     msgs = wait(lambda: (lambda m: m if len(m) >= 4 else None)(client.get(f"{API}/chats/{done['chat_id']}").json()["messages"]))
     texts = [(m["role"], m["text"]) for m in msgs]
     assert ("assistant", "Stella hat Ida gefragt: Wann ist Ostern?") in texts and ("assistant", "Ida: Im April.") in texts
+
+
+def test_late_answer_of_ida_comes_into_the_call(client, voice):
+    """Braucht Ida länger, redet Stella weiter; die Antwort holt das Gespräch mit ida_warten ab, keine Nachricht nötig."""
+    from app.config import get_settings
+    from app.services import voice_bridge
+    s = get_settings()
+    old_wait, old_hand = s.voice_ida_ask_s, voice_bridge.LATE_HAND_OVER_S
+    s.voice_ida_ask_s, voice_bridge.LATE_HAND_OVER_S = 1, 5
+    try:
+        call = "wlate1"
+        client.post(f"{API}/voice/internal/start", headers=SECRET, json={"call_id": call, "direction": "web", "number": "", "owner": True, "purpose": ""})
+        notes = lambda: [m for m in client.get(f"{API}/messages").json() if "Stellas Frage" in (m.get("title") or "")]
+        before = len(notes())
+        tool = lambda name, args: client.post(f"{API}/voice/internal/tool", headers=SECRET, timeout=60,
+                                              json={"call_id": call, "name": name, "args": args}).json()
+        out = tool("ida_fragen", {"frage": "SLOW Was steht im Wiki zur Projektarbeit?"})
+        assert out["ida_pending"] is True and "leg nicht auf" in out["result"]
+        got = tool("ida_warten", {})
+        while got.get("pending"):
+            got = tool("ida_warten", {})
+        assert got["ok"] and "Projektarbeit" in got["answer"]
+        assert tool("ida_warten", {}) == {"gone": True}
+        time.sleep(6)  # länger als LATE_HAND_OVER_S: abgeholt, also keine Nachricht hinterher
+        assert len(notes()) == before
+    finally:
+        s.voice_ida_ask_s, voice_bridge.LATE_HAND_OVER_S = old_wait, old_hand
 
 
 def test_live_ticket_cannot_be_reused(client, voice):
@@ -459,3 +491,43 @@ def test_live_app_on_voice_host(monkeypatch):
     assert c.post("/pwa/ticket", headers={"x-live-key": "falsch"}).status_code == 403
     r = c.post("/pwa/ticket", headers={"x-live-key": web.app_key("geheim")})
     assert r.status_code == 200 and web.check_ticket(r.json()["ticket"], "geheim")
+
+
+def test_live_session_says_late_answer_of_ida():
+    """ida_fragen kommt mit ida_pending zurück: das Gespräch holt Idas Antwort ab und gibt sie Gemini, kein Auflegen dazwischen."""
+    async def go():
+        from types import SimpleNamespace
+        from app.voice.live import LiveSession
+        sent, said, asked = [], [], []
+
+        class Sink:
+            async def audio(self, *a): pass
+            async def interrupted(self): pass
+            async def text(self, who, text): said.append((who, text))
+            async def tool(self, *a): pass
+            def hang_up(self, o): said.append(("hangup", o))
+
+        class Ws:
+            async def send(self, raw): sent.append(json.loads(raw))
+
+        answers = iter([{"pending": True}, {"answer": "Im Wiki steht IDA-PA.", "ok": True}])
+
+        async def run_tool(name, args):
+            asked.append(name)
+            if name == "ida_fragen":
+                return {"result": "Ida sucht noch.", "ida_pending": True}
+            return next(answers)
+        s = LiveSession(SimpleNamespace(), instructions="x", tools=[], run_tool=run_tool, sink=Sink(), kickoff="k", client_vad=False)
+        s.ws = Ws()
+        await s._tool({"id": "1", "name": "ida_fragen", "args": {"frage": "Projektarbeit?"}})
+        resp = sent[0]["toolResponse"]["functionResponses"][0]["response"]
+        assert resp == {"result": "Ida sucht noch."}  # das Merkmal geht nicht an Gemini
+        s._arm_farewell()  # „bis dann“ während Ida noch sucht: kein Auflegen
+        assert s._farewell is None
+        await asyncio.wait_for(s._ida_waiting, 5)
+        assert asked == ["ida_fragen", "ida_warten", "ida_warten"]
+        turn = sent[-1]["clientContent"]["turns"][0]["parts"][0]["text"]
+        assert turn.startswith("[Ida hat jetzt geantwortet] Im Wiki steht IDA-PA.")
+        assert ("ida", "Im Wiki steht IDA-PA.") in said and not any(w == "hangup" for w, _ in said)
+        assert {"who": "ida", "text": "Im Wiki steht IDA-PA."} in s.transcript
+    asyncio.run(go())
