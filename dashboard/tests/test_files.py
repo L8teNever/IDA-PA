@@ -25,7 +25,7 @@ def root(tmp_path, settings, monkeypatch):
     (r / "home" / "simon" / "a.txt").write_text("hallo\n")
     monkeypatch.setenv("FILES_ROOT", str(r))
     get_settings.cache_clear()
-    fs._users = (0.0, {})
+    fs._users = None
     yield r
     get_settings.cache_clear()
 

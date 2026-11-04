@@ -136,13 +136,13 @@ def errors() -> Iterator[None]:
 
 
 # ---------- ansehen ----------
-_users: tuple[float, dict[int, str]] = (0.0, {})
+_users: tuple[float, dict[int, str]] | None = None  # (Zeitpunkt, Namen); None = noch nie gelesen
 
 
 def users() -> dict[int, str]:
     """Namen aus der /etc/passwd des Servers (die des Containers kennt sie nicht)."""
     global _users
-    if time.monotonic() - _users[0] > 300:
+    if _users is None or time.monotonic() - _users[0] > 300:  # nicht gegen 0 rechnen: monotonic zählt ab Systemstart
         names: dict[int, str] = {}
         try:
             for line in Path(disk("/etc/passwd")).read_text(encoding="utf-8", errors="replace").splitlines():
