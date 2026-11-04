@@ -108,12 +108,45 @@ function grid(el, ctx) {
 }
 
 // ---------- Detail eines Stacks ----------
+// ---------- Adressen, Netze und Daten eines Containers ----------
+const count = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+const infoRow = (icon, title, body) => `<div class="info-row"><span class="ms" title="${esc(title)}">${icon}</span><div class="info-main">${body}</div></div>`;
+const infoBlock = (title, rows) => `<div class="info-block"><h4>${title}</h4>${rows.join("")}</div>`;
+
+function portRow(p) {
+  const proto = p.proto === "tcp" ? "" : ` <span class="muted small">${esc(p.proto)}</span>`;
+  if (!p.public) return infoRow("lock", "Nur im Docker-Netz", `<span class="mono">${p.private}</span>${proto} <span class="pill">nur intern</span>`);
+  const where = p.ip === "127.0.0.1" ? "nur auf dem Server" : p.ip === "0.0.0.0" || !p.ip ? "alle Adressen des Servers" : "";
+  const host = !p.ip || p.ip === "0.0.0.0" ? "" : p.ip.includes(":") ? `[${p.ip}]:` : `${p.ip}:`;
+  return infoRow("settings_ethernet", "Port", `<span class="mono">${esc(host)}${p.public}</span> <span class="ms sm muted">arrow_forward</span> <span class="mono">${p.private}</span>${proto}${where ? ` <span class="pill${where.startsWith("alle") ? " warn" : ""}">${where}</span>` : ""}`);
+}
+
+function mountRow(m) {
+  const volume = m.type === "volume";
+  const icon = volume ? "inventory_2" : m.type === "tmpfs" ? "memory" : "folder";
+  const from = volume ? `${esc(m.name)}` : esc(m.source || m.type);
+  return infoRow(icon, volume ? "Docker-Volume" : m.type === "tmpfs" ? "Im Arbeitsspeicher" : "Ordner vom Server", `<span class="mono">${from}</span>
+    <small class="mono"><span class="ms sm">subdirectory_arrow_right</span>${esc(m.target)}</small>${volume && m.source ? `<small class="mono muted">${esc(m.source)}</small>` : ""}${m.rw ? "" : ` <span class="pill">nur lesen</span>`}`);
+}
+
+function infoHtml(c, urls, open) {
+  const addr = [...urls.map((u) => infoRow("public", "Öffentliche Adresse", `<a class="mono" href="${esc(u.url)}" target="_blank" rel="noopener">${esc(u.url.replace(/^https:\/\//, ""))}</a>`)), ...(c.port_list || []).map(portRow)];
+  const nets = (c.networks || []).map((n) => infoRow("hub", "Netzwerk", `<span class="mono">${esc(n.name)}</span>${n.ip ? ` <small class="mono muted">${esc(n.ip)}</small>` : ""}`));
+  const data = (c.mounts || []).map(mountRow);
+  const off = c.state !== "running" ? `<div class="muted small">Läuft gerade nicht, deshalb sind Ports und IPs eventuell leer.</div>` : "";
+  const sum = [urls.length ? count(urls.length, "URL", "URLs") : "", c.port_list?.length ? count(c.port_list.length, "Port", "Ports") : "", nets.length ? count(nets.length, "Netz", "Netze") : "", data.length ? count(data.length, "Mount", "Mounts") : ""].filter(Boolean).join(" · ");
+  return `<details class="info-ctr" ${open ? "open" : ""}><summary><span class="ms chev">chevron_right</span><span class="info-title"><b>${esc(c.service)}</b><small>${esc(sum || "Keine Ports, Netze oder Mounts")}</small></span></summary>
+    <div class="info-body">${off}${infoBlock("Image", [infoRow("deployed_code", "Image", `<span class="mono">${esc(c.image)}</span>`)])}
+    ${addr.length ? infoBlock("Adressen", addr) : ""}${nets.length ? infoBlock("Netzwerke", nets) : ""}${data.length ? infoBlock("Daten", data) : ""}</div></details>`;
+}
+
 function detail(el, name, ctx) {
   let s = null, files = [], filesDrawn = false, fileIdx = 0, dirty = false, original = "", jobAbort = null, followed = null, chart = null;
   const alive = { v: true };
   el.innerHTML = `<div class="page">
     <section class="card job-card" id="sdJob" hidden></section>
     <section class="card"><div class="card-head"><h3><span class="ms">view_in_ar</span>Container</h3><span class="muted" id="sdCount"></span></div><div id="sdCtrs" class="ctr-list"></div></section>
+    <section class="card" id="sdInfoCard" hidden><div class="card-head"><h3><span class="ms">lan</span>Adressen, Netze und Daten</h3></div><div id="sdInfo" class="info-list"></div></section>
     <section class="card"><div class="card-head"><h3><span class="ms">monitoring</span>Verbrauch (24 Std)</h3>
       <div class="seg-mini" id="sdMetric"><button type="button" class="on" data-m="cpu">CPU</button><button type="button" data-m="mem">RAM</button><button type="button" data-m="net">Netz</button></div></div>
       <div id="sdChart" class="chart-box"></div></section>
@@ -150,12 +183,22 @@ function detail(el, name, ctx) {
     }).join("") : `<div class="muted pad">Gerade keine Container – mit „Starten“ wird der Stack hochgefahren.</div>`;
   }
 
+  // nur neu zeichnen, wenn sich etwas geändert hat: sonst klappen offene Container bei jedem Messwert zu
+  let infoKey = "";
+  function drawInfo() {
+    const key = s ? JSON.stringify([s.urls, s.containers.map((c) => [c.id, c.image, c.state, c.port_list, c.networks, c.mounts])]) : "";
+    if (key === infoKey) return;
+    infoKey = key;
+    el.querySelector("#sdInfoCard").hidden = !s?.containers.length;
+    if (s) el.querySelector("#sdInfo").innerHTML = s.containers.map((c) => infoHtml(c, s.urls?.[c.id] || [], s.containers.length === 1)).join("");
+  }
+
   async function loadDetail() {
     const d = await api.get(`/stacks/${encodeURIComponent(name)}`).catch((e) => { if (e.status === 404) el.innerHTML = `<div class="empty-stage"><span class="ms big">search_off</span><br>Stack „${esc(name)}“ gibt es nicht (mehr).</div>`; return null; });
     if (!d || !alive.v) return;
     s = d;
     if (!filesDrawn || files.map((f) => f.path).join() !== d.files.map((f) => f.path).join()) { files = d.files; filesDrawn = true; drawFiles(); }
-    drawTop(); drawCtrs();
+    drawTop(); drawCtrs(); drawInfo();
     if (d.job && followed !== d.job.id) follow(d.job);
   }
 
@@ -336,7 +379,7 @@ function detail(el, name, ctx) {
     const x = list?.find((y) => y.name === name);
     if (!x || !s) return;
     s = { ...s, ...x };
-    drawTop(); drawCtrs();
+    drawTop(); drawCtrs(); drawInfo();
     if (x.job && followed !== x.job.id) follow(x.job);
   });
   const u2 = live.sub(() => drawCtrs());

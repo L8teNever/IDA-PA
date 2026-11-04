@@ -11,6 +11,9 @@ Es zeigt alles, was auf dem Server läuft, und lässt es bedienen:
   * **Compose-Datei und `.env` bearbeiten** (Editor mit Zeilennummern, Strg+S). Kaputtes YAML wird abgelehnt. Der alte Stand
     landet vor jedem Speichern unter `data/backups/<stack>/` (die letzten 20). Mit „Speichern & übernehmen“ wird direkt `up -d` ausgeführt.
   * Je Container: Logs (filtern, mitlaufen lassen), Starten, Stoppen, Neu starten, CPU/RAM/Netz jetzt.
+  * **Adressen, Netze und Daten** je Container: Image, öffentliche URLs, Ports, Netzwerke mit IP und alle Mounts (Volume oder
+    Ordner, Zielpfad, nur lesen). Die URLs liest das Dashboard bei `cloudflared` (Metrics-Port, `/config`, kein Token nötig) und
+    ordnet sie über den Port dem Container zu. Dafür tritt es bei Bedarf selbst dem Netz von `cloudflared` bei.
   * Verbrauch des Stacks in den letzten 24 Stunden.
 * **Leistung**: CPU, RAM und Netz des Servers als Diagramm. Zeitraum von 1 Std bis 1 Jahr, vor- und zurückblättern,
   einen Zeitpunkt wählen oder mit der Maus einen Bereich **aufziehen, um hineinzuzoomen**. Dazu kommen die übertragene

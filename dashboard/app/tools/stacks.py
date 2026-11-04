@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field
 from ..config import get_settings
 from ..discovery import discover, is_self, stack_files
 from ..docker_api import Docker, DockerError
+from .. import tunnels
 from ..jobs import Job, Jobs, run_cmd
 from . import Tool
 
@@ -70,7 +71,18 @@ async def list_stacks(req: Request):
 @router.get("/api/v1/stacks/{name}")
 async def get_stack(name: str, req: Request):
     s = await find(req, name)
-    return {**with_job(s, jobs(req)), "files": stack_files(s) if s["files_ok"] else []}
+    return {**with_job(s, jobs(req)), "files": stack_files(s) if s["files_ok"] else [], "urls": await public_urls(req, s)}
+
+
+async def public_urls(req: Request, s: dict) -> dict[str, list[dict]]:
+    """Container-Id → öffentliche Adressen. Fehlt der Tunnel, bleibt das leer; der Stack selbst lädt trotzdem."""
+    try:
+        cs = await docker(req).containers()
+        found = tunnels.match(await tunnels.routes(docker(req), cs), cs)
+    except DockerError:
+        return {}
+    ids = {c["id"] for c in s["containers"]}
+    return {k: v for k, v in found.items() if k in ids}
 
 
 class ActionIn(BaseModel):

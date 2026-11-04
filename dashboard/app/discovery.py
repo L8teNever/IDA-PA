@@ -48,11 +48,32 @@ def ports_of(c: dict) -> list[str]:
     return out
 
 
+def port_list(c: dict) -> list[dict]:
+    """Alle Ports: public ist None, wenn der Port nur im Docker-Netz erreichbar ist. IPv4 und IPv6 derselben Freigabe zählen einmal."""
+    out: dict[tuple, dict] = {}
+    for p in c.get("Ports") or []:
+        ip, public = p.get("IP") or "", p.get("PublicPort")
+        key = (public, p.get("PrivatePort"), p.get("Type"), "" if ip in ("0.0.0.0", "::") else ip)
+        out.setdefault(key, {"ip": "0.0.0.0" if ip == "::" else ip, "public": public, "private": p.get("PrivatePort"), "proto": p.get("Type") or "tcp"})
+    return sorted(out.values(), key=lambda x: (x["public"] is None, x["public"] or 0, x["private"] or 0))
+
+
+def networks_of(c: dict) -> list[dict]:
+    nets = (c.get("NetworkSettings") or {}).get("Networks") or {}
+    return [{"name": n, "ip": (v or {}).get("IPAddress") or ""} for n, v in sorted(nets.items())]
+
+
+def mounts_of(c: dict) -> list[dict]:
+    return sorted(({"type": m.get("Type") or "", "name": m.get("Name") or "", "source": m.get("Source") or "", "target": m.get("Destination") or "",
+                    "rw": bool(m.get("RW"))} for m in c.get("Mounts") or []), key=lambda m: m["target"])
+
+
 def ctr_view(c: dict) -> dict:
     lab = c.get("Labels") or {}
     return {"id": c["Id"], "name": ctr_name(c), "service": lab.get(P + "service") or ctr_name(c), "image": c.get("Image", ""),
             "state": c.get("State", ""), "status": c.get("Status", ""), "health": health_of(c.get("Status", "")),
-            "created": c.get("Created"), "ports": ports_of(c), "self": is_self(c)}
+            "created": c.get("Created"), "ports": ports_of(c), "self": is_self(c),
+            "port_list": port_list(c), "networks": networks_of(c), "mounts": mounts_of(c)}
 
 
 def compose_files(d: Path) -> list[Path]:

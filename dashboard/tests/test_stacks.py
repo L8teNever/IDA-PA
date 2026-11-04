@@ -1,6 +1,7 @@
 """Stacks: Erkennung, Aktionen, Dateien bearbeiten, Logs."""
 import asyncio
 
+from app import tunnels
 from app.tools import stacks as stacks_mod
 
 from .conftest import ctr, lines
@@ -130,3 +131,41 @@ async def test_writes_need_json(client, tmp_path, settings):
     r = await client.post("/api/v1/stacks/shop/action", content="action=stop", headers={"content-type": "application/x-www-form-urlencoded"})
     assert r.status_code == 415
     assert client.docker.actions == []
+
+
+async def test_stack_shows_addresses_networks_and_mounts(client, tmp_path, settings, monkeypatch):
+    """Ports, Netze und Mounts kommen aus Docker, die URLs von cloudflared; das Dashboard tritt dafür dessen Netz bei."""
+    tunnels.reset()
+    web = ctr("a", "web", "shop", service="web")
+    web["Ports"] = [{"IP": "0.0.0.0", "PrivatePort": 80, "PublicPort": 8080, "Type": "tcp"}, {"IP": "::", "PrivatePort": 80, "PublicPort": 8080, "Type": "tcp"},
+                    {"IP": "10.7.0.1", "PrivatePort": 443, "PublicPort": 8443, "Type": "tcp"}, {"PrivatePort": 9000, "Type": "tcp"}]
+    web["NetworkSettings"] = {"Networks": {"shop_default": {"IPAddress": "172.20.0.2"}}}
+    web["Mounts"] = [{"Type": "bind", "Source": "/opt/stacks/shop/conf", "Destination": "/etc/conf", "RW": False},
+                     {"Type": "volume", "Name": "shop_data", "Source": "/var/lib/docker/volumes/shop_data/_data", "Destination": "/data", "RW": True}]
+    tunnel = ctr("t", "cloudflared", "cf", service="cloudflared", image="cloudflare/cloudflared:latest")
+    tunnel["NetworkSettings"] = {"Networks": {"cf_default": {"IPAddress": "172.19.0.3"}}}
+    tunnel["Env"] = ["TUNNEL_TOKEN=geheim", "TUNNEL_METRICS=0.0.0.0:2000"]
+    dash = ctr("e", "dash", "ida", service="dashboard", labels={"ida.dashboard": "self"})
+    dash["NetworkSettings"] = {"Networks": {"ida_default": {"IPAddress": "172.16.0.4"}}}
+    client.docker.containers = [web, tunnel, dash]
+    asked = []
+
+    async def fake_config(url):
+        asked.append(url)
+        return {"config": {"ingress": [{"hostname": "shop.example.com", "service": "https://10.7.0.1:8443"}, {"hostname": "name.example.com", "service": "http://web:80"},
+                                       {"hostname": "fremd.example.com", "service": "http://10.7.0.1:1"}, {"service": "http_status:404"}]}}
+
+    monkeypatch.setattr(tunnels, "fetch_config", fake_config)
+    d = (await client.get("/api/v1/stacks/shop")).json()
+    c = d["containers"][0]
+    assert [(p["public"], p["private"]) for p in c["port_list"]] == [(8080, 80), (8443, 443), (None, 9000)]  # IPv4 und IPv6 zählen einmal
+    assert c["networks"] == [{"name": "shop_default", "ip": "172.20.0.2"}]
+    assert [(m["target"], m["rw"]) for m in c["mounts"]] == [("/data", True), ("/etc/conf", False)]
+    assert [u["url"] for u in d["urls"][web["Id"]]] == ["https://shop.example.com", "https://name.example.com"]
+    assert asked == ["http://172.19.0.3:2000/config"] and ("connect", "cf_default") in client.docker.actions
+    # kein Tunnel: alles andere bleibt da
+    tunnels.reset()
+    client.docker.containers = [web]
+    d = (await client.get("/api/v1/stacks/shop")).json()
+    assert d["urls"] == {} and d["containers"][0]["mounts"]
+    tunnels.reset()

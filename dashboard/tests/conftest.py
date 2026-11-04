@@ -45,7 +45,10 @@ class FakeDocker:
             c = next((x for x in self.containers if x["Id"].startswith(cid)), None)
             if not c:
                 return httpx.Response(404, json={"message": "No such container"})
-            return httpx.Response(200, json={"Id": c["Id"], "Name": c["Names"][0], "Config": {"Tty": False}})
+            return httpx.Response(200, json={"Id": c["Id"], "Name": c["Names"][0], "Config": {"Tty": False, "Env": c.get("Env") or []}})
+        if p.startswith("/networks/") and p.endswith("/connect"):
+            self.actions.append(("connect", p.split("/")[2]))
+            return httpx.Response(200)
         if p.startswith("/containers/") and p.endswith("/logs"):
             frames = b"".join(struct.pack(">BxxxI", s, len(t)) + t for s, t in ((1, b"hallo\n"), (2, b"fehler\n")))
             return httpx.Response(200, content=frames, headers={"content-type": "application/vnd.docker.raw-stream"})

@@ -186,6 +186,30 @@ a.tile:hover { background: var(--surface-high); border-color: var(--border-subtl
 .mobile-only-flex { display: none; }
 
 .ctr-list { display: flex; flex-direction: column; gap: 2px; }
+/* Adressen, Netze und Daten je Container */
+.info-list { display: flex; flex-direction: column; gap: 2px; margin-top: 8px; }
+.info-ctr { background: var(--surface-high); border-radius: 6px; }
+.info-ctr:first-child { border-radius: 20px 20px 6px 6px; }
+.info-ctr:last-child { border-radius: 6px 6px 20px 20px; }
+.info-ctr:only-child { border-radius: 20px; }
+.info-ctr summary { display: flex; align-items: center; gap: 8px; padding: 10px 12px; cursor: pointer; list-style: none; min-width: 0; }
+.info-ctr summary::-webkit-details-marker { display: none; }
+.info-ctr .chev { color: var(--muted); font-size: 20px; flex: none; transition: transform .15s; }
+.info-ctr[open] .chev { transform: rotate(90deg); }
+.info-title { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.info-title b { font-weight: 500; font-size: 14.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.info-title small { font-size: 12px; color: var(--muted); }
+.info-body { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); gap: 14px 20px; padding: 2px 14px 14px; }
+.info-body > .muted { grid-column: 1 / -1; }
+.info-block { min-width: 0; }
+.info-block h4 { margin: 0 0 6px; font-size: 12px; font-weight: 500; color: var(--muted); }
+.info-row { display: flex; gap: 8px; padding: 3px 0; font-size: 13px; min-width: 0; }
+.info-row > .ms { font-size: 18px; color: var(--accent); flex: none; }
+.info-main { min-width: 0; overflow-wrap: anywhere; line-height: 1.45; }
+.info-main > small { display: flex; align-items: flex-start; gap: 2px; font-size: 12px; color: var(--muted); }
+.info-main .ms.sm { font-size: 14px; vertical-align: -2px; }
+.info-main a { color: var(--accent); text-decoration: none; }
+.info-main a:hover { text-decoration: underline; }
 .ctr-row { display: flex; align-items: center; gap: 12px; background: var(--surface-high); border-radius: 6px; padding: 10px 8px 10px 12px; min-width: 0; }
 .ctr-row:first-child { border-radius: 20px 20px 6px 6px; }
 .ctr-row:last-child { border-radius: 6px 6px 20px 20px; }

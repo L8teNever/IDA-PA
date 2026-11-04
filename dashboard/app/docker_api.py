@@ -56,6 +56,9 @@ class Docker:
     async def inspect(self, cid: str) -> dict:
         return await self.get(f"/containers/{cid}/json")
 
+    async def connect_network(self, network: str, cid: str) -> None:
+        await self._req("POST", f"/networks/{network}/connect", json={"Container": cid})
+
     async def stats(self, cid: str) -> dict | None:
         try:
             return await self.get(f"/containers/{cid}/stats", stream="false", **{"one-shot": "true"})
