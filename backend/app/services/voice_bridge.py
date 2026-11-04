@@ -38,7 +38,9 @@ log = logging.getLogger("ida.voice")
 RESULT_LIMIT = 2500
 MAX_DECLARED = 40
 DEF_TTL = 600  # connector tool definitions are cached this long (listing them costs a round trip per server)
-META = ("tool_suchen", "tool_ausfuehren", "ida_fragen")
+META = ("wissen_suchen", "tool_suchen", "tool_ausfuehren", "ida_fragen")
+CALL_MEMORY_TOP, CALL_MEMORY_CHARS, CALL_WIKI_CHARS = 40, 8000, 12000  # beim Anruf gibt es noch keine Frage: lieber viel Wissen mitgeben
+KNOWLEDGE_PAGES, KNOWLEDGE_PAGE_CHARS, KNOWLEDGE_LIMIT = 3, 1200, 6000
 # Im Gespräch fragt Stella Ida live (ida_fragen) und wartet; Abgeben ohne Antwort hieße „Ida meldet sich“ und Auflegen
 LIVE_SKIP = ("agent_delegate", "agent_send")
 LATE_HAND_OVER_S = 30  # so lange darf das Gespräch eine späte Antwort Idas abholen, sonst kommt sie als Nachricht
@@ -171,6 +173,10 @@ def _with_yes(t: Tool) -> dict:
 
 def _meta_tools() -> list[dict]:
     return [
+        {"name": "wissen_suchen", "description": "Durchsucht dein Wissen (Gedächtnis und Wiki, auch die privaten Ordner des Nutzers) und gibt die "
+                                                 "passenden Einträge und Seiten gleich mit Inhalt zurück. Nimm das immer zuerst, wenn dir etwas fehlt.",
+         "parameters": {"type": "object", "properties": {"suche": {"type": "string", "description": "Zwei bis vier Stichwörter, z. B. „Projektarbeit Leitsatz“"}},
+                        "required": ["suche"]}},
         {"name": "tool_suchen", "description": "Sucht unter ALLEN deinen weiteren Tools (Mails, Kontakte, Smart Home, Dokumente, Aufgaben, "
                                                "Schule …) nach passenden – wenn keins der direkten Tools passt. Gibt Name, Beschreibung und Parameter zurück.",
          "parameters": {"type": "object", "properties": {"suche": {"type": "string", "description": "Stichwörter, z. B. „mail senden“ oder „licht“"}},
@@ -181,9 +187,9 @@ def _meta_tools() -> list[dict]:
              "argumente_json": {"type": "string", "description": "Parameter als JSON-Objekt, z. B. {\"query\": \"Rechnung\"}"},
              "bestaetigt": {"type": "boolean", "description": "Nur true, wenn der Nutzer genau diese Aktion ausdrücklich mit Ja bestätigt hat."}},
              "required": ["name"]}},
-        {"name": "ida_fragen", "description": "Fragt Ida live und wartet auf ihre Antwort, oder gibt ihr einen Auftrag, den sie sofort erledigt: wenn du "
-                                              "etwas nicht weißt, nichts Passendes findest, es mehrere Schritte oder einen längeren Text braucht (z. B. Wiki-Seite "
-                                              "anlegen). Dauert meist einige Sekunden bis eine Minute.",
+        {"name": "ida_fragen", "description": "Fragt Ida live und wartet auf ihre Antwort, oder gibt ihr einen Auftrag, den sie sofort erledigt: wenn es "
+                                              "mehrere Schritte, Recherche oder einen längeren Text braucht (z. B. Wiki-Seite anlegen) oder wissen_suchen nichts "
+                                              "gefunden hat. Nie nur zum Nachschauen im Gedächtnis oder Wiki. Dauert meist einige Sekunden bis eine Minute.",
          "parameters": {"type": "object", "properties": {
              "frage": {"type": "string", "description": "Was Ida herausfinden oder tun soll, klar und vollständig. Ida bekommt den Gesprächsverlauf mit, "
                                                         "Bezüge wie „den Leitsatz von vorhin“ versteht sie also."},
@@ -196,13 +202,16 @@ TOOL_RULES = """
 Tools im Gespräch – die wichtigste Regel: Etwas ist nur passiert, wenn du in diesem Moment ein Tool dafür aufrufst. Sag nie
 „ich speichere das“, „ich gebe das an Ida weiter“, „Ida kümmert sich“ oder „wird erledigt“, ohne im selben Zug das Tool
 aufzurufen – sonst passiert nichts. Lesen (Termine, Stundenplan, Wiki, Gedächtnis …) darfst du sofort.
+Dein Wissen: Gedächtnis und Wiki gehören dir, das ist dein eigener Kopf. Steht etwas nicht oben im Kontext oder sagt der Nutzer
+etwas wie „mein …“, „das von neulich“ oder nennt einen Namen, ruf sofort wissen_suchen auf und antworte dann. Frag nie „soll ich
+nachschauen?“ und sag nie, dass du Ida nach dem Gedächtnis oder Wiki fragst, das kannst du selbst.
 Verändern (Termin anlegen, ins Wiki schreiben, Erinnerung setzen …): Hat der Nutzer es gerade selbst verlangt („schreib das ins
 Wiki“, „leg den Termin an“), ist das schon sein Ja – dann mach es direkt mit bestaetigt=true, ohne nochmal zu fragen. Nur wenn
-du etwas von dir aus vorschlägst oder es unklar ist, sag in einem Satz, was du tun würdest, und frag kurz. Senden (Mail, Nachricht),
+du etwas von dir aus vorschlägst oder es unklar ist, frag kurz („Soll ich den Termin eintragen?“). Senden (Mail, Nachricht),
 Löschen und Anrufen immer erst nach seinem ausdrücklichen Ja zu genau dieser Aktion. „Merk dir …“ speicherst du ohne Nachfrage
 mit memory_save. Passt keins der direkten Tools, such mit tool_suchen und führe mit tool_ausfuehren aus.
-Ida ist dein Kopf für alles Größere: Weißt du etwas nicht, braucht es mehr Überlegen, mehrere Schritte oder einen längeren Text
-(Wiki-Seite anlegen, Entwurf ablegen, recherchieren, im Wiki nachschauen), frag Ida live mit ida_fragen und WARTE auf ihre Antwort.
+Ida hilft dir bei allem Größeren: Hat wissen_suchen nichts gebracht, braucht es mehr Überlegen, mehrere Schritte oder einen längeren
+Text (Wiki-Seite anlegen, Entwurf ablegen, recherchieren), frag Ida live mit ida_fragen und WARTE auf ihre Antwort.
 Ida sieht den Gesprächsverlauf, schreib in die Frage trotzdem klar, was genau sie tun oder herausfinden soll. Sag vorher kurz
 „Moment, ich frag Ida.“, gib ihre Antwort danach knapp in deinen Worten wieder und erfinde nichts dazu. Sag nie „Ida meldet
 sich“, du holst die Antwort selbst. Braucht Ida länger, sag das kurz und red normal weiter; ihre Antwort kommt von selbst in
@@ -229,10 +238,10 @@ async def start(call_id: str, direction: str, number: str, owner: bool, purpose:
             labels = await prompts.labels(db)
             main = await db.scalar(select(Agent).where(Agent.is_main.is_(True)))
             if agent.memory_enabled:
-                context += "\n" + await memory.block(db, agent.id, agent.is_main, purpose or "heute", labels)
+                context += "\n" + await memory.block(db, agent.id, agent.is_main, purpose or "heute", labels, CALL_MEMORY_TOP, CALL_MEMORY_CHARS)
                 try:
                     from . import wiki_client
-                    wiki_ctx = await asyncio.wait_for(wiki_client.memory_context(agent.id, purpose or ""), 6)
+                    wiki_ctx = await asyncio.wait_for(wiki_client.memory_context(agent.id, purpose or "", max_chars=CALL_WIKI_CHARS), 6)
                     if wiki_ctx:
                         context += "\n--- Wiki-Gedächtnis (memory/) ---\n" + wiki_ctx + "\n"
                 except Exception:  # noqa: BLE001
@@ -246,7 +255,7 @@ async def start(call_id: str, direction: str, number: str, owner: bool, purpose:
             for t in internal + await _connector_tools(db, agent):
                 if not _matches(t.bare, deny) and t.name not in sess.tools and t.name not in META and t.bare not in LIVE_SKIP:
                     sess.tools[t.name] = t
-            context += TOOL_RULES.format(main=main.id if main else "ida")
+            context += TOOL_RULES.format(main=main.id if main else "ida") + prompts.CONFIRM_RULE
             declared = [t for t in sess.tools.values() if _matches(t.bare, core)][:MAX_DECLARED]
             tools = [{"name": t.name, "description": t.description, "parameters": _with_yes(t)} for t in declared] + _meta_tools()
         else:
@@ -393,6 +402,48 @@ def _search(sess: Session, query: str) -> dict:
     return {"result": json.dumps({"tools": hits} if hits else {"tools": [], "hinweis": "Nichts passendes gefunden."}, ensure_ascii=False)}
 
 
+async def _wiki_pages(sess: Session, query: str) -> list[str]:
+    """Top wiki pages with content. The search wants ALL words, so a miss is retried word by word (longest first)."""
+    from . import wiki_client as wc
+    words = sorted({w for w in re.findall(r"[\wÄÖÜäöüß]{3,}", query)}, key=len, reverse=True)
+    hits: dict[str, dict] = {}
+    for q in [query, *words[:4]] if len(words) > 1 else [query]:
+        found = await wc.request("GET", "/api/v1/search", by=sess.agent_id, params={"q": q, "limit": KNOWLEDGE_PAGES})
+        for h in found if isinstance(found, list) else found.get("results") or found.get("hits") or []:
+            if h.get("space") != "ki":  # der Chat-Spiegel ist kein Wissen, nur Verlauf
+                hits.setdefault(h["path"], h)
+        if len(hits) >= KNOWLEDGE_PAGES:
+            break
+    pages = await asyncio.gather(*(wc.request("GET", "/api/v1/page", by=sess.agent_id, params={"ref": p})
+                                   for p in list(hits)[:KNOWLEDGE_PAGES]), return_exceptions=True)
+    return [f"{p.get('title') or ''} ({p.get('path') or ''}):\n{(p.get('body') or '').strip()[:KNOWLEDGE_PAGE_CHARS]}"
+            for p in pages if isinstance(p, dict)]
+
+
+async def _knowledge(sess: Session, query: str) -> dict:
+    """One call instead of search-then-read: Gemini Live is unreliable with chains of tools, so memory and wiki come back with their content."""
+    from . import wiki_client as wc
+    query = " ".join((query or "").split())[:200]
+    if not query:
+        return _out("Die Suche fehlt.", True)
+    activity.step(sess.run, "tool", "wissen_suchen", "ida")
+    t = sess.tools.get("memory_search")
+    entries, pages = await asyncio.gather(
+        _run(sess, t, {"query": query, "limit": 8}) if t else asyncio.sleep(0, {}),
+        _wiki_pages(sess, query) if wc.enabled() else asyncio.sleep(0, []),
+        return_exceptions=True)
+    activity.step(sess.run, "thinking")
+    parts = []
+    if isinstance(entries, dict) and entries.get("result") and '"eintraege": []' not in entries["result"]:
+        parts.append("Gedächtnis: " + entries["result"])
+    if isinstance(pages, list) and pages:
+        parts.append("Wiki:\n" + "\n\n".join(pages))
+    sess.used.append(f"wissen_suchen {'ok' if parts else 'nichts'}")
+    if not parts:
+        return {"result": "Nichts gefunden. Braucht es mehr als Nachschauen, frag Ida mit ida_fragen, sonst sag ehrlich, dass du es nicht weißt."}
+    return {"result": "\n\n".join(parts)[:KNOWLEDGE_LIMIT]}
+
+
 async def _run(sess: Session, t: Tool, args: dict) -> dict:
     if t.connector is None:
         reply = await hub.handle(sess.token or "", {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": t.bare, "arguments": args}})
@@ -435,6 +486,8 @@ async def call_tool(call_id: str, name: str, args: dict) -> dict:
     args = dict(args or {})
     if name == "tool_suchen":
         return _search(sess, str(args.get("suche") or args.get("query") or ""))
+    if name == "wissen_suchen":
+        return await _knowledge(sess, str(args.get("suche") or args.get("query") or ""))
     if name == "ida_warten":
         return await _wait_late(sess)
     yes = args.pop("bestaetigt", False) is True
@@ -455,8 +508,9 @@ async def call_tool(call_id: str, name: str, args: dict) -> dict:
     if not t:
         return _out(f"Tool {name} gibt es hier nicht (oder es ist im Gespräch gesperrt). Mit tool_suchen findest du die verfügbaren.", True)
     if needs_yes(t.bare) and not yes:
-        return {"result": "BESTAETIGUNG_NOETIG: Noch nichts ausgeführt. Sag dem Nutzer in einem Satz genau, was du tun würdest, und frag, "
-                          "ob du es machen sollst. Nur nach seinem klaren Ja dasselbe Tool nochmal mit bestaetigt=true aufrufen."}
+        return {"result": "BESTAETIGUNG_NOETIG: Noch nichts ausgeführt. Hat der Nutzer genau das gerade selbst verlangt, ruf dasselbe Tool direkt mit "
+                          "bestaetigt=true auf. Sonst frag kurz, z. B. „Soll ich das eintragen?“, ohne zu erklären, was nach seiner Antwort passiert, "
+                          "und ruf es erst nach seinem Ja mit bestaetigt=true auf."}
     activity.step(sess.run, "tool", t.bare, t.connector or "ida")
     out = await _run(sess, t, args)
     sess.used.append(f"{t.name} {'Fehler' if 'error' in out else 'ok'}")

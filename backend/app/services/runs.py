@@ -76,6 +76,8 @@ async def prepare(db: AsyncSession, agent: Agent, prompt: str, *, model: str | N
         system = prompts.persona(agent) + prompts.code_section(code)
     else:
         system = prompts.persona(agent) + prompts.team_section(agent, main.id, unread, interactive)
+    if interactive:
+        system += prompts.CONFIRM_RULE
     system += prompts.skills_section(await prompts.skills_for(db, agent.id), forced_skill)
     if memory_on:
         system += "\n" + await memory.block(db, agent.id, agent.is_main, prompt, labels)

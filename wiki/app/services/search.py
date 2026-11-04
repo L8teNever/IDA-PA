@@ -336,12 +336,13 @@ async def memory_context_for_ida(db: AsyncSession, caller: Caller, agent_id: str
         sections.append(line)
         used_chars += len(line)
 
+    scale = max(1.0, max_chars / 3800)  # wer mehr Platz anfordert (Telefon), bekommt die Seiten vollständiger statt nur mehr Anrisse
     for cp in core_pages:
-        add_block(cp.title, cp, 900)
+        add_block(cp.title, cp, int(900 * scale))
     if agent_page:
-        add_block(f"Dein eigenes Agenten-Gedächtnis: {agent_page.title}", agent_page, 800)
+        add_block(f"Dein eigenes Agenten-Gedächtnis: {agent_page.title}", agent_page, int(800 * scale))
     for ep in ranked_extra[:5]:
-        add_block(ep.title, ep, 600)
+        add_block(ep.title, ep, int(600 * scale))
 
     text_block = ""
     if sections:

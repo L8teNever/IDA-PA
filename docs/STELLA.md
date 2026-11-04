@@ -45,6 +45,9 @@ Telnyx ──► voice:/telnyx/webhook + /media ──┼─► Gemini Live (Web
   freigegeben sind. Stella kann also, was Ida kann.
 - **Direkt angeboten** wird nur ein Kernsatz (`VOICE_CORE_TOOLS`). Alle anderen erreicht Gemini über `tool_suchen` und
   `tool_ausfuehren`, denn mehr als 200 Tools auf einmal machen Gemini Live langsam und ungenau.
+- **Eigenes Wissen:** `wissen_suchen` durchsucht Gedächtnis und Wiki (`memory/`, `privat/`) in einem Schritt und liefert
+  die Inhalte gleich mit. Stella fragt dafür nicht Ida und nicht den Nutzer. Beim Anruf bekommt sie außerdem deutlich mehr
+  Gedächtnis mit als ein normaler Lauf, weil es da noch keine Frage gibt, nach der man auswählen könnte.
 - **Lesen geht sofort.** Für Schreib-Aktionen (alles, was laut Name nicht nur liest) gilt `bestaetigt=true`. Ohne diesen
   Wert führt IDA nichts aus und sagt Gemini, dass es erst nachfragen soll. Ausgenommen sind `memory_save` („merk dir …“)
   und `tracker_check`.

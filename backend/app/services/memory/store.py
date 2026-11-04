@@ -268,13 +268,20 @@ async def has_backup(db: AsyncSession, scope: str) -> bool:
 
 
 # ---------------- prompt block ----------------
-async def _scope_block(db: AsyncSession, scope: str, title: str, query: str, labels: dict) -> str:
+KNOWLEDGE_RULE = (
+    "Dein Wissen: Gedaechtnis und Wiki (memory/ und privat/) sind DEIN eigenes Wissen, nichts Fremdes. Fehlt dir etwas oder bezieht sich der Nutzer "
+    "auf etwas, das du nicht sofort siehst (Personen, Projekte, Plaene, \"mein ...\", \"das von neulich\"), schau selbst nach, bevor du antwortest: "
+    "memory_search, wiki_search, wiki_read, bei Bedarf chat_search. Das ist Lesen und braucht nie ein Ja: frag nie \"soll ich nachschauen?\", "
+    "kuendige es nicht nur an und schick den Nutzer nicht selbst suchen. Sag erst dann, dass du etwas nicht weisst, wenn du wirklich gesucht hast.")
+
+
+async def _scope_block(db: AsyncSession, scope: str, title: str, query: str, labels: dict, top: int = PROMPT_TOP, limit: int = PROMPT_CHARS) -> str:
     items = await entries(db, scope)
     if not items:
         return f"{title}\n(noch leer)\n"
     pinned = [e for e in items if e.pinned]
     rel = await relevances([e for e in items if not e.pinned], query)
-    rest = [x[0] for x in sorted(rank([e for e in items if not e.pinned], rel), key=lambda x: -x[2])[:PROMPT_TOP]]
+    rest = [x[0] for x in sorted(rank([e for e in items if not e.pinned], rel), key=lambda x: -x[2])[:top]]
     touch(pinned + rest)
 
     def fmt(e: MemoryEntry) -> str:
@@ -292,15 +299,17 @@ async def _scope_block(db: AsyncSession, scope: str, title: str, query: str, lab
         out += f"(+ {more} weitere Eintraege – mit memory_search findest du sie)\n"
     if len(items) >= MAX_ENTRIES * 0.8:
         out += "(Bereich fast voll – fasse Aehnliches zusammen und loesche Veraltetes)\n"
-    return out[:PROMPT_CHARS]
+    return out[:limit]
 
 
-async def block(db: AsyncSession, owner: str, is_main: bool, query: str, labels: dict) -> str:
-    """Memory section of a system prompt. labels: id -> display name (agents, "user", "consolidate")."""
+async def block(db: AsyncSession, owner: str, is_main: bool, query: str, labels: dict, top: int = PROMPT_TOP, limit: int = PROMPT_CHARS) -> str:
+    """Memory section of a system prompt. labels: id -> display name (agents, "user", "consolidate").
+    top/limit per scope: a phone call has no user question yet, so it asks for more than the top matches."""
     parts = [
         "GEDAECHTNIS (bleibt ueber Laeufe und Chats hinweg erhalten)",
-        await _scope_block(db, owner, "== DEIN eigenes Gedaechtnis (nur du schreibst und liest hier; es gehoert dir) ==", query, labels),
-        await _scope_block(db, SHARED, "== GEMEINSAMES Gedaechtnis (alle Agenten lesen und schreiben hier) ==", query, labels),
+        await _scope_block(db, owner, "== DEIN eigenes Gedaechtnis (nur du schreibst und liest hier; es gehoert dir) ==", query, labels, top, limit),
+        await _scope_block(db, SHARED, "== GEMEINSAMES Gedaechtnis (alle Agenten lesen und schreiben hier) ==", query, labels, top, limit),
+        KNOWLEDGE_RULE,
     ]
     if is_main:
         others = [f"{i}: {await count(db, i)} Eintraege" for i in labels if i not in (owner, "user", "consolidate", SHARED)]

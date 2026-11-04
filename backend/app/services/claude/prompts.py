@@ -6,6 +6,15 @@ from ...models import Agent, AgentSkill, Skill
 from ..mcp import kalender_tools, wiki_tools
 
 
+# Gilt in jedem Gespräch mit dem Nutzer (Chat, Code, Telefon). Schritt für Schritt fragen, nicht den ganzen Ablauf ankündigen.
+CONFIRM_RULE = (
+    "Nachfragen: Frag kurz und nur nach dem naechsten Schritt, z. B. \"Soll ich die Mail schreiben?\". Erklaere nie, was nach seiner Antwort passiert: "
+    "keine Saetze wie \"wenn du Ja sagst, dann ...\" oder \"sag Ja, dann ...\". Sagt er ja, mach genau diesen Schritt und frag danach den naechsten "
+    "(\"Soll ich sie abschicken?\"); ein Ja zum Schreiben ist kein Ja zum Senden. Was er selbst klar verlangt hat, machst du ohne Rueckfrage. "
+    "Ausnahme: Verlangt er Senden, Loeschen, Anrufen oder Kaufen, ohne das Ergebnis gesehen zu haben, frag einmal kurz "
+    "(\"Willst du nicht noch drueberschauen?\"); bestaetigt er, mach es sofort.\n")
+
+
 async def labels(db: AsyncSession) -> dict[str, str]:
     """id -> display name for every agent plus the pseudo ids used in messages and memory."""
     rows = (await db.execute(select(Agent.id, Agent.name))).all()

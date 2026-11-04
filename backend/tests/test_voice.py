@@ -181,6 +181,27 @@ def test_owner_tools_skip_denied_and_need_yes(client):
     assert "keine Tools" in tool("memory_search", {})["error"]  # session is gone after the call
 
 
+def test_stella_finds_her_knowledge_herself(client, wiki):
+    from app.services import voice_bridge, wiki_client
+    wiki_client.invalidate()
+    r = client.post(f"{API}/voice/internal/start", headers=SECRET,
+                    json={"call_id": "cknow1", "direction": "in", "number": "+4917012345678", "owner": True}).json()
+    assert "wissen_suchen" in [t["name"] for t in r["tools"]]
+    assert "Nachfragen:" in r["context"] and "was du tun würdest" not in r["context"]
+    assert "Dein Wissen" in r["context"] and "im Wiki nachschauen" not in r["context"]
+    assert any(c["path"].endswith("/memory/context") and c["query"].get("max_chars") == str(voice_bridge.CALL_WIKI_CHARS) for c in wiki.requests)
+    tool = lambda args: client.post(f"{API}/voice/internal/tool", headers=SECRET,  # noqa: E731
+                                    json={"call_id": "cknow1", "name": "wissen_suchen", "args": args}).json()
+    client.post(f"{API}/voice/internal/tool", headers=SECRET, json={"call_id": "cknow1", "name": "memory_save", "args": {"text": "Leitsatz: Ordnung ist Luxus"}})
+    out = tool({"suche": "Leitsatz"})["result"]
+    assert "Ordnung ist Luxus" in out and "memory/kern/ueber-mich" in out and "Inhalt." in out  # Inhalt kommt gleich mit
+    wiki.mode = "error"
+    assert "Ordnung ist Luxus" in tool({"suche": "Leitsatz"})["result"]  # Wiki weg: das Gedächtnis antwortet trotzdem
+    assert "Nichts gefunden" in tool({"suche": "xyzzy"})["result"]
+    wiki.mode = "ok"
+    client.post(f"{API}/voice/internal/finish", headers=SECRET, json={"call_id": "cknow1", "transcript": []})
+
+
 def test_stella_call_tool_reaches_the_voice_container(client):
     """Ida löst den Anruf über ihr internes Tool aus; ohne Telnyx-Zugang kommt eine klare Fehlermeldung zurück."""
     ev = chat(client, text='TOOL stella_call {"auftrag": "Erinnere den Nutzer an den Zahnarzt"}')
