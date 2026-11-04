@@ -94,6 +94,7 @@ class Settings(BaseSettings):
     voice_echo_rms_factor: float = 3.0
     # Live-Gespräch im Browser: derselbe Geräusch-Filter wie am Telefon. Eigene Pause, weil die Rauschunterdrückung
     # des Browsers Sprechpausen stumm macht und 120 ms sonst mitten im Satz das Ende melden würden.
+    voice_ida_ask_s: int = 90  # so lange wartet Stella im Gespräch auf Idas Antwort (ida_fragen), danach kommt sie als Nachricht
     voice_web_vad: bool = True
     voice_web_vad_silence_ms: int = 500
     # Die Telefon-Schwelle (500) wäre hier zu hoch: normal laute Sprache käme nicht drüber. Gegen Geräusche hilft die mitlernende Grundlinie.

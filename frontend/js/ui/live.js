@@ -125,7 +125,7 @@ function addLine(who, piece, fresh = false) {
     last = document.createElement("div");
     last.className = `lv-msg ${who === "user" ? "user" : "bot"}`;
     last.dataset.who = who;
-    last.innerHTML = `<small>${who === "user" ? "Du" : esc(cur?.name || "Stella")}</small><span class="lv-text"></span>`;
+    last.innerHTML = `<small>${{ user: "Du", ida_frage: "Stella fragt Ida", ida: "Ida" }[who] || esc(cur?.name || "Stella")}</small><span class="lv-text"></span>`;
     box.appendChild(last);
   }
   last.querySelector(".lv-text").textContent += piece;
@@ -249,7 +249,7 @@ async function start(a) {
         const t = $("lvTool");
         if (t) {
           t.hidden = !m.running;
-          if (m.running) $("lvToolText").textContent = m.name ? `schaut nach (${m.name}) …` : "schaut nach …";
+          if (m.running) $("lvToolText").textContent = m.name === "ida_fragen" ? "fragt Ida …" : m.name ? `schaut nach (${m.name}) …` : "schaut nach …";
         }
       }
       else if (m.type === "error") stop(c, m.message || "Das Gespräch ist abgebrochen");

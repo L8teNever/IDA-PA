@@ -230,6 +230,26 @@ def test_live_conversation_in_the_browser(client, voice):
     assert any(m.get("meta", {}).get("voice_summary") for m in msgs) or len(msgs) >= 4  # summary by the agent's own model
 
 
+def test_stella_asks_ida_live(client, voice):
+    """ida_fragen: Stella bekommt Idas Antwort noch im Gespräch, in der Mitschrift steht, dass sie gefragt hat."""
+    call = "wasktest1"
+    start = client.post(f"{API}/voice/internal/start", headers=SECRET,
+                        json={"call_id": call, "direction": "web", "number": "", "owner": True, "purpose": ""}).json()
+    assert "ida_fragen" in [t["name"] for t in start["tools"]] and "ida_fragen" in start["context"]
+    out = client.post(f"{API}/voice/internal/tool", headers=SECRET, timeout=60,
+                      json={"call_id": call, "name": "ida_fragen", "args": {"frage": "Wann ist Ostern?"}}).json()
+    assert out.get("result") and "error" not in out
+    empty = client.post(f"{API}/voice/internal/tool", headers=SECRET, json={"call_id": call, "name": "ida_fragen", "args": {}}).json()
+    assert "error" in empty
+    transcript = [{"who": "user", "text": "Frag Ida"}, {"who": "ida_frage", "text": "Wann ist Ostern?"}, {"who": "ida", "text": "Im April."},
+                  {"who": "stella", "text": "Im April."}]
+    done = client.post(f"{API}/voice/internal/finish", headers=SECRET,
+                       json={"call_id": call, "direction": "web", "number": "", "transcript": transcript, "outcome": "", "status": "done"}).json()
+    msgs = wait(lambda: (lambda m: m if len(m) >= 4 else None)(client.get(f"{API}/chats/{done['chat_id']}").json()["messages"]))
+    texts = [(m["role"], m["text"]) for m in msgs]
+    assert ("assistant", "Stella hat Ida gefragt: Wann ist Ostern?") in texts and ("assistant", "Ida: Im April.") in texts
+
+
 def test_live_ticket_cannot_be_reused(client, voice):
     from websockets.exceptions import InvalidStatus, ConnectionClosed
     from websockets.sync.client import connect

@@ -481,6 +481,8 @@ body[data-mood="sleep"] .live-b.intro .lv-buddy-wrap .buddy { animation: breathe
 .lv-msg.user small { color: var(--accent); }
 .lv-msg.bot { align-self: flex-start; background: var(--surface-highest, #1a1c22); border: 1px solid rgba(255,255,255,.06); color: var(--on-surface); border-bottom-left-radius: 4px; }
 .lv-msg.bot small { color: var(--muted); }
+.lv-msg[data-who="ida_frage"], .lv-msg[data-who="ida"] { border-color: color-mix(in srgb, var(--accent) 30%, transparent); font-size: 13px; }
+.lv-msg[data-who="ida_frage"] small, .lv-msg[data-who="ida"] small { color: var(--accent); }
 
 .lv-btns { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; width: 100%; padding-top: 4px; flex-shrink: 0; touch-action: auto; }
 .es-btn.lv-end { background: #e5484d; color: #fff; }

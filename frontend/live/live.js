@@ -79,7 +79,7 @@ function addLine(c, who, piece) {
     last = document.createElement("div");
     last.className = `lv-msg ${who === "user" ? "user" : "bot"}`;
     last.dataset.who = who;
-    last.innerHTML = `<small>${who === "user" ? "Du" : esc(c.name)}</small><span class="lv-text"></span>`;
+    last.innerHTML = `<small>${{ user: "Du", ida_frage: "Stella fragt Ida", ida: "Ida" }[who] || esc(c.name)}</small><span class="lv-text"></span>`;
     box.appendChild(last);
   }
   last.querySelector(".lv-text").textContent += piece;
@@ -222,7 +222,7 @@ async function start() {
       else if (m.type === "tool") {
         setState(c, m.running ? "tool" : "listen");
         $("lvTool").hidden = !m.running;
-        if (m.running) $("lvToolText").textContent = m.name ? `schaut nach (${m.name}) …` : "schaut nach …";
+        if (m.running) $("lvToolText").textContent = m.name === "ida_fragen" ? "fragt Ida …" : m.name ? `schaut nach (${m.name}) …` : "schaut nach …";
       } else if (m.type === "error") stop(c, m.message || "Das Gespräch ist abgebrochen");
       else if (m.type === "end") {
         c.closing = true;

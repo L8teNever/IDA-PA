@@ -23,7 +23,7 @@ from sqlalchemy import select
 from ..config import get_settings
 from ..db import session_scope, utcnow
 from ..models import USER, Agent, AgentConnector, Chat, ChatMessage, Connector, VoiceCall
-from . import activity, jobs, settings_store
+from . import activity, autoroute, jobs, settings_store
 from . import agents as agent_svc
 from .claude import prompts
 from .claude.runner import norm
@@ -37,7 +37,8 @@ log = logging.getLogger("ida.voice")
 RESULT_LIMIT = 2500
 MAX_DECLARED = 40
 DEF_TTL = 600  # connector tool definitions are cached this long (listing them costs a round trip per server)
-META = ("tool_suchen", "tool_ausfuehren")
+META = ("tool_suchen", "tool_ausfuehren", "ida_fragen")
+LINE_PREFIX = {"ida_frage": "Stella hat Ida gefragt: ", "ida": "Ida: "}  # Rückfragen an Ida in der Mitschrift
 # Never need a yes: saving what the user just said, ticking off a tracker he reports done
 NO_CONFIRM = {"memory_save", "tracker_check"}
 # A tool only reads when one of these words is part of its name
@@ -87,6 +88,7 @@ class Session:
 
 _sessions: dict[str, Session] = {}
 _defs: dict[str, tuple[float, list[dict]]] = {}
+_waiting: set[asyncio.Task] = set()  # late answers of Ida still on their way
 
 
 # ---------------- start ----------------
@@ -160,6 +162,12 @@ def _meta_tools() -> list[dict]:
              "argumente_json": {"type": "string", "description": "Parameter als JSON-Objekt, z. B. {\"query\": \"Rechnung\"}"},
              "bestaetigt": {"type": "boolean", "description": "Nur true, wenn der Nutzer genau diese Aktion ausdrücklich mit Ja bestätigt hat."}},
              "required": ["name"]}},
+        {"name": "ida_fragen", "description": "Fragt Ida live und wartet auf ihre Antwort: wenn du etwas nicht weißt, nichts Passendes findest oder "
+                                              "die Frage mehr Überlegen oder mehrere Quellen braucht. Dauert meist einige Sekunden bis eine Minute.",
+         "parameters": {"type": "object", "properties": {
+             "frage": {"type": "string", "description": "Die vollständige Frage mit allem Nötigen aus dem Gespräch; Ida hört das Gespräch nicht mit."},
+             "bestaetigt": {"type": "boolean", "description": "Nur true, wenn Ida etwas verändern soll und der Nutzer genau das ausdrücklich mit Ja bestätigt hat."}},
+             "required": ["frage"]}},
     ]
 
 
@@ -169,7 +177,9 @@ Mail senden, Licht schalten, Erinnerung setzen …), sag dem Nutzer in einem Sat
 Erst nach seinem klaren Ja rufst du das Tool mit bestaetigt=true auf – nie ohne sein Ja. „Merk dir …“ speicherst du ohne
 Nachfrage mit memory_save. Passt keins der direkten Tools, such mit tool_suchen und führe mit tool_ausfuehren aus.
 Größere Aufgaben mit mehreren Schritten gibst du mit agent_delegate an Ida (to=„{main}“) ab und sagst dem Nutzer, dass Ida
-sich drum kümmert. Sag vor einem Tool kurz „Moment“ o. Ä. Erfinde nie Ergebnisse; Fehler oder nichts gefunden sagst du ehrlich.
+sich drum kümmert. Weißt du etwas nicht oder braucht eine Frage mehr Überlegen, frag Ida live mit ida_fragen: Sag vorher kurz
+„Moment, ich frag Ida.“, gib ihre Antwort danach knapp in deinen Worten wieder und erfinde nichts dazu. Soll Ida dabei etwas
+verändern, gilt dieselbe Regel: erst sein klares Ja, dann bestaetigt=true. Sag vor einem Tool kurz „Moment“ o. Ä. Erfinde nie Ergebnisse; Fehler oder nichts gefunden sagst du ehrlich.
 """
 
 
@@ -222,6 +232,66 @@ async def start(call_id: str, direction: str, number: str, owner: bool, purpose:
     return {"agent": agent.name, "context": context, "tools": tools, "owner": owner, "voice": voice}
 
 
+# ---------------- Stella asks Ida ----------------
+async def _ida_answer(question: str, yes: bool):
+    """One run of the main agent; its model comes from Auto like a chat message set to "Auto"."""
+    from .runs import run_agent
+
+    async with session_scope() as db:
+        main = await db.scalar(select(Agent).where(Agent.is_main.is_(True)))
+        if not main:
+            raise NotFound("Kein Haupt-Agent")
+        main_id = main.id
+        try:
+            route = await autoroute.route(db, question)
+        except Invalid as e:  # Auto hat nichts zur Auswahl: dann Idas eigenes Modell
+            log.info("voice: Auto nicht verfügbar: %s", e)
+            route = {}
+    rule = ("Der Nutzer hat im Gespräch ausdrücklich zugestimmt, du darfst das Verlangte ausführen." if yes else
+            "Nur nachschauen und antworten: Verändere nichts (nichts senden, anlegen, löschen, schalten). Wäre dafür eine Aktion nötig, sag das.")
+    prompt = (f"Stella spricht gerade live mit dem Nutzer und wartet auf dich. Ihre Frage:\n{question}\n\n{rule}\n"
+              "Antworte schnell und so kurz wie möglich, höchstens drei gesprochene Sätze, ohne Markdown und ohne Links – Stella sagt das laut weiter. "
+              "Weißt du es nicht, sag das.")
+    out = await run_agent(main_id, prompt, model=route.get("model"), effort=route.get("effort"), depth=1)
+    await agent_svc.record_run(main_id, "Frage von Stella", out.ok, out.text, out.tools, out.account)
+    return main_id, out
+
+
+async def _late_answer(task: asyncio.Task, question: str) -> None:
+    """Ida was slower than Stella may wait: the answer still reaches the user, as a message."""
+    try:
+        main_id, out = await task
+        async with session_scope() as db:
+            await agent_svc.send(db, from_id=main_id, to=USER, kind="notice", title="Ida zu Stellas Frage",
+                                 text=f"{question}\n\n{out.text if out.ok else 'Das hat nicht geklappt: ' + out.text[:300]}")
+    except Exception:  # noqa: BLE001
+        log.exception("voice: late answer of Ida failed")
+
+
+async def _ask_ida(sess: Session, question: str, yes: bool) -> dict:
+    question = " ".join((question or "").split())[:1500]
+    if not question:
+        return _out("Die Frage fehlt.", True)
+    activity.step(sess.run, "tool", "ida_fragen", "ida")
+    task = asyncio.create_task(_ida_answer(question, yes))
+    done, _ = await asyncio.wait({task}, timeout=get_settings().voice_ida_ask_s)
+    activity.step(sess.run, "thinking")
+    if not done:
+        late = asyncio.create_task(_late_answer(task, question))
+        _waiting.add(late)
+        late.add_done_callback(_waiting.discard)
+        sess.used.append("ida_fragen läuft noch")
+        return _out("Ida braucht länger. Sag dem Nutzer, dass ihre Antwort gleich als Nachricht in IDA kommt.")
+    try:
+        _, out = task.result()
+    except Exception as e:  # noqa: BLE001
+        log.exception("voice: Ida could not answer")
+        sess.used.append("ida_fragen Fehler")
+        return _out(f"Ida ist gerade nicht erreichbar ({e.__class__.__name__}).", True)
+    sess.used.append(f"ida_fragen {'ok' if out.ok else 'Fehler'}")
+    return _out(out.text, not out.ok)
+
+
 # ---------------- tools ----------------
 def _out(text: str, error: bool = False) -> dict:
     text = (text or "").strip() or ("Fehler" if error else "Keine Angaben.")
@@ -271,6 +341,8 @@ async def call_tool(call_id: str, name: str, args: dict) -> dict:
     if name == "tool_suchen":
         return _search(sess, str(args.get("suche") or args.get("query") or ""))
     yes = args.pop("bestaetigt", False) is True
+    if name == "ida_fragen":
+        return await _ask_ida(sess, str(args.get("frage") or ""), yes)
     if name == "tool_ausfuehren":
         name = str(args.get("name") or "")
         raw = args.get("argumente_json") or args.get("argumente") or {}
@@ -325,7 +397,7 @@ async def finish(call_id: str, transcript: list[dict], outcome: str = "", status
             identity.revoke(sess.token)
         activity.end(sess.run, status == "done")
     lines = [(str(x.get("who") or ""), " ".join(str(x.get("text") or "").split())) for x in transcript or []]
-    lines = [(w, t) for w, t in lines if t]
+    lines = [(w, LINE_PREFIX.get(w, "") + t) for w, t in lines if t]
     async with session_scope() as db:
         agent = await _voice_agent(db)
         agent_id = agent.id
@@ -343,8 +415,8 @@ async def finish(call_id: str, transcript: list[dict], outcome: str = "", status
             db.add(chat)
             await db.flush()
             for who, text in lines:
-                db.add(ChatMessage(chat_id=chat.id, role="assistant" if who == "stella" else "user", text=text,
-                                   parts=[{"t": "text", "text": text}] if who == "stella" else [], meta={"voice": call_id}))
+                db.add(ChatMessage(chat_id=chat.id, role="user" if who == "user" else "assistant", text=text,
+                                   parts=[] if who == "user" else [{"t": "text", "text": text}], meta={"voice": call_id}))
             chat_id = row.chat_id = chat.id
         if lines and not owner:
             await agent_svc.send(db, from_id=agent.id, to=USER, kind="notice", title=f"{agent.name}: Gespräch mit {number or 'unbekannt'}",
@@ -359,7 +431,7 @@ async def _evaluate(agent_id: str, chat_id: str, direction: str, purpose: str, l
     """After a conversation with the user: the agent's normal model writes the summary and keeps what matters."""
     from .runs import run_agent
 
-    talk = "\n".join(f"{'Nutzer' if w != 'stella' else 'Du'}: {t}" for w, t in lines)[-12000:]
+    talk = "\n".join(f"{'Nutzer' if w == 'user' else 'Du'}: {t}" for w, t in lines)[-12000:]
     kind = "Live-Gespräch in der App" if direction == "web" else "Telefonat"
     prompt = (f"Du hattest gerade ein {kind} mit dem Nutzer (Gemini Live hat für dich gesprochen). "
               + (f"Anlass: {purpose}\n" if purpose else "")

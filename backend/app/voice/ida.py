@@ -31,7 +31,8 @@ class Ida:
 
     async def tool(self, call_id: str, name: str, args: dict) -> dict:
         try:
-            return await self._post("tool", {"call_id": call_id, "name": name, "args": args}, 40)
+            wait = self.s.voice_ida_ask_s + 15 if name == "ida_fragen" else 40  # Ida denkt länger als ein Tool braucht
+            return await self._post("tool", {"call_id": call_id, "name": name, "args": args}, wait)
         except httpx.TimeoutException:
             return {"error": "Das hat zu lange gedauert."}
         except Exception as e:  # noqa: BLE001

@@ -116,7 +116,7 @@ async def prepared(*args, **kw):
 
 
 async def run_agent(agent_id: str, prompt: str, *, model: str | None = None, account_id: str | None = None,
-                    fallback: bool | None = None, memory_on: bool | None = None, depth: int = 0) -> RunResult:
+                    fallback: bool | None = None, memory_on: bool | None = None, depth: int = 0, effort: str | None = None) -> RunResult:
     """Background run of an agent. If the account is at its limit, the SAME model runs on the next account."""
     async with session_scope() as db:
         agent = await db.get(Agent, agent_id)
@@ -138,7 +138,7 @@ async def run_agent(agent_id: str, prompt: str, *, model: str | None = None, acc
             continue
         async with session_scope() as db:
             agent = await db.get(Agent, agent_id)
-            p = await prepare(db, agent, prompt, model=model, account=acc, depth=depth, memory_on=memory_on)
+            p = await prepare(db, agent, prompt, model=model, account=acc, depth=depth, memory_on=memory_on, effort=effort)
         try:
             result = await runner.run(p.spec)
         finally:

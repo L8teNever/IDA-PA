@@ -287,6 +287,11 @@ class LiveSession:
             await self._respond(fc, name, {"result": "ok, wird aufgelegt"})
             self._hang_up(self.outcome)
             return
+        asks_ida = name == "ida_fragen"
+        if asks_ida:  # im Chat soll zu sehen sein, dass Stella Ida gefragt hat
+            question = str((args or {}).get("frage") or "") if isinstance(args, dict) else ""
+            self._note("ida_frage", question)
+            await self.sink.text("ida_frage", question)
         await self.sink.tool(name, True)
         t0 = time.monotonic()
         try:
@@ -296,6 +301,10 @@ class LiveSession:
             out = {"error": f"Das Tool ist gerade nicht erreichbar ({e.__class__.__name__})."}
         log.info("voice tool=%s ms=%d ok=%s", name, (time.monotonic() - t0) * 1000, "error" not in out)
         await self.sink.tool(name, False)
+        if asks_ida:
+            answer = str(out.get("result") or out.get("error") or "")
+            self._note("ida", answer)
+            await self.sink.text("ida", answer)
         await self._respond(fc, name, out)
 
     async def _respond(self, fc: dict, name: str, response: dict) -> None:
