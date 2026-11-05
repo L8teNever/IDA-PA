@@ -2,7 +2,7 @@
 //   type: text (Standard) | textarea | switch | select (options: [{value, label}]) | seg (Knöpfe nebeneinander, options wie select)
 //   show(values) -> bool: Feld nur zeigen, wenn das zutrifft (z. B. Repo nur bei Quelle GitHub)
 // Gibt die Werte zurück oder null (abgebrochen). submit(values) darf einen Fehlertext liefern – dann bleibt der Dialog offen.
-import { esc, openModal, sheetHead } from "./ui.js";
+import { esc, openModal, popMenu, sheetHead } from "./ui.js";
 
 export function formDialog(title, fields, { ok = "Speichern", icon = "", submit, wide = true } = {}) {
   return new Promise((resolve) => {
@@ -23,19 +23,20 @@ export function formDialog(title, fields, { ok = "Speichern", icon = "", submit,
       const input = f.type === "textarea"
         ? `<textarea class="cd-input" id="${id}" rows="${f.rows || 3}" placeholder="${esc(f.placeholder || "")}" spellcheck="false">${esc(vals[f.name])}</textarea>`
         : f.type === "select"
-          ? `<select class="cd-input" id="${id}">${f.options.map((o) => `<option value="${esc(o.value)}" ${o.value === vals[f.name] ? "selected" : ""}>${esc(o.label)}</option>`).join("")}</select>`
+          ? `<button type="button" class="cd-input ff-pick" data-pick="${f.name}"><span class="ellip">${esc(optLabel(f, vals[f.name]))}</span><span class="ms">expand_more</span></button>`
           : `<input class="cd-input" id="${id}" type="${f.type === "password" ? "password" : f.type === "number" ? "number" : "text"}" value="${esc(vals[f.name])}"
               placeholder="${esc(f.placeholder || "")}" autocomplete="off" spellcheck="false" ${f.type === "number" ? `min="${f.min ?? 0}"` : ""}>`;
+      if (f.type === "select") return `<div class="ff" data-ff="${f.name}"><span>${esc(f.label)}</span>${input}${hint}</div>`;
       return `<label class="ff" data-ff="${f.name}"><span>${esc(f.label)}</span>${input}${hint}</label>`;
     };
-    const m = openModal(`${sheetHead(title, icon)}<form class="ff-form" novalidate>${fields.map(field).join("")}
-      <div class="ff-error" id="ffErr" hidden></div>
+    const m = openModal(`${sheetHead(title, icon)}<form class="ff-form" novalidate><div class="ff-scroll">${fields.map(field).join("")}
+      <div class="ff-error" id="ffErr" hidden></div></div>
       <div class="sheet-actions"><button type="button" class="btn-tonal" data-close>Abbrechen</button><button class="btn-primary" type="submit" id="ffOk">${esc(ok)}</button></div></form>`,
     { wide, onClose: () => { if (!done) resolve(null); } });
     const form = m.el.querySelector("form");
     const read = () => {
       for (const f of fields) {
-        if (!f.name || f.type === "switch" || f.type === "seg") continue;
+        if (!f.name || f.type === "switch" || f.type === "seg" || f.type === "select") continue;
         const el = form.querySelector(`#ff_${f.name}`);
         if (el) vals[f.name] = f.type === "number" ? Number(el.value || 0) : el.value;
       }
@@ -51,6 +52,15 @@ export function formDialog(title, fields, { ok = "Speichern", icon = "", submit,
     form.addEventListener("click", (e) => {
       const sw = e.target.closest("[data-sw]");
       if (sw) { vals[sw.dataset.sw] = !vals[sw.dataset.sw]; sw.classList.toggle("on", vals[sw.dataset.sw]); visible(); }
+      const pick = e.target.closest("[data-pick]");
+      if (pick) {
+        const f = fields.find((x) => x.name === pick.dataset.pick);
+        popMenu(pick, f.options.map((o) => ({ value: o.value, label: o.label, icon: o.icon, sub: o.sub, on: o.value === vals[f.name] })), (v) => {
+          vals[f.name] = v;
+          pick.querySelector("span").textContent = optLabel(f, v);
+          visible();
+        });
+      }
       const seg = e.target.closest("[data-seg]");
       if (seg) {
         vals[seg.dataset.seg] = seg.dataset.v;
@@ -76,8 +86,10 @@ export function formDialog(title, fields, { ok = "Speichern", icon = "", submit,
       m.close();
     };
     visible();
-    form.querySelector("input, textarea, select")?.focus();
+    if (!matchMedia("(pointer: coarse)").matches) form.querySelector("input, textarea")?.focus(); // am Handy keine Tastatur sofort
   });
 }
+
+const optLabel = (f, v) => f.options.find((o) => o.value === v)?.label ?? "Auswählen";
 
 export const lines = (text) => String(text || "").split(/[\n,;]+/).map((x) => x.trim()).filter(Boolean);
