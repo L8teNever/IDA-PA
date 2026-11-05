@@ -25,6 +25,7 @@ from fastapi import APIRouter, FastAPI, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from .. import cloudflare_api as cf
+from .. import wiki_memory
 from ..config import get_settings
 from ..docker_api import DockerError
 from ..jobs import Job
@@ -354,6 +355,7 @@ async def create_site(body: SiteIn, req: Request):
 
     async def work(job: Job) -> bool:
         ok = await _setup(req.app, site, job)
+        wiki_memory.kick(req.app)
         return ok
 
     job = jobs(req).start(f"Website anlegen: {name}", "site:" + name, work)
@@ -490,6 +492,7 @@ async def update_site(name: str, body: SiteUpdate, req: Request):
     s = await _update(name, **ch)
     if {"spa", "root"} & ch.keys():
         await apply_conf(req.app, load())
+    wiki_memory.kick(req.app)
     return {"site": public(s), "detail": ", ".join(detail)}
 
 
@@ -533,6 +536,7 @@ async def remove_site(name: str, body: RemoveIn, req: Request):
                 job.write(f"Ordner {d} gelöscht ✓")
         else:
             job.write(f"Die Dateien bleiben in {www_dir() / name}")
+        wiki_memory.kick(req.app)
         return ok
 
     return {"job": jobs(req).start(f"Website entfernen: {name}", "site:" + name, work).view()}

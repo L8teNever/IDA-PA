@@ -157,8 +157,8 @@ def judge(url: str, apps: list[dict]) -> dict:
         decisions = {p["decision"] for p in best["policies"]}
         names = ", ".join(p["name"] for p in best["policies"]) or "keine Policy"
         if decisions and decisions <= {"bypass"}:
-            return {"state": "public", "detail": f"Access-App „{best['name']}“ lässt alle durch (Bypass: {names})", "app": best["name"]}
-        return {"state": "access", "detail": f"Zero Trust: Access-App „{best['name']}“ (Policies: {names})", "app": best["name"]}
+            return {"state": "public", "detail": f"Access-App „{best['name']}“ lässt alle durch (Bypass: {names})", "app": best["name"], "app_id": best.get("id")}
+        return {"state": "access", "detail": f"Zero Trust: Access-App „{best['name']}“ (Policies: {names})", "app": best["name"], "app_id": best.get("id")}
     if partial:
         return {"state": "public", "detail": "Offen – nur " + ", ".join(sorted(set(partial))) + " ist mit Access geschützt"}
     return {"state": "public", "detail": "Keine Access-App für diese Adresse – ohne Login erreichbar"}
@@ -227,24 +227,38 @@ async def set_ingress(tunnel_id: str, rules: list[dict]) -> None:
     _cache.pop("tunnels", None)
 
 
+def same(rule: dict, hostname: str, path: str = "") -> bool:
+    """Gleiche Adresse? Hostnamen ohne Groß/klein (Bus.example.com = bus.example.com)."""
+    return (rule.get("hostname") or "").lower() == hostname.lower() and (rule.get("path") or "") == (path or "")
+
+
 async def add_route(tunnel_id: str, hostname: str, service: str, path: str = "") -> None:
     """Regel hostname(+path) → service; eine vorhandene Regel für genau diesen Host+Pfad wird ersetzt (vor allgemeineren)."""
     rules = [r for r in (await tunnel_config(tunnel_id)).get("ingress") or [] if r.get("hostname")]
-    rules = [r for r in rules if not (r["hostname"] == hostname and (r.get("path") or "") == (path or ""))]
+    rules = [r for r in rules if not same(r, hostname, path)]  # ersetzt auch Doppelte (z. B. Bus/bus)
     new = {"hostname": hostname, "service": service, **({"path": path} if path else {})}
     # spezifischere Regeln (mit Pfad) vor die Regel desselben Hosts ohne Pfad, sonst greift die zuerst
-    idx = next((i for i, r in enumerate(rules) if r["hostname"] == hostname and not r.get("path")), len(rules)) if path else len(rules)
+    idx = next((i for i, r in enumerate(rules) if same(r, hostname)), len(rules)) if path else len(rules)
     rules.insert(idx, new)
     await set_ingress(tunnel_id, rules)
 
 
 async def remove_route(tunnel_id: str, hostname: str, path: str = "") -> bool:
     rules = [r for r in (await tunnel_config(tunnel_id)).get("ingress") or [] if r.get("hostname")]
-    keep = [r for r in rules if not (r["hostname"] == hostname and (r.get("path") or "") == (path or ""))]
+    keep = [r for r in rules if not same(r, hostname, path)]
     if len(keep) == len(rules):
         return False
     await set_ingress(tunnel_id, keep)
     return True
+
+
+async def remove_rule(tunnel_id: str, index: int, hostname: str, service: str) -> None:
+    """Genau eine Regel (Position in der Ingress-Liste) entfernen – z. B. ein Duplikat, das nie greift. Passt die Regel an
+    der Stelle nicht mehr zu hostname/service (Tunnel inzwischen geändert), passiert nichts."""
+    rules = (await tunnel_config(tunnel_id)).get("ingress") or []
+    if not (0 <= index < len(rules)) or (rules[index].get("hostname") or "") != hostname or rules[index].get("service") != service:
+        raise CloudflareError("Die Regel hat sich inzwischen geändert – neu laden und nochmal versuchen")
+    await set_ingress(tunnel_id, [r for i, r in enumerate(rules) if i != index and r.get("hostname")])
 
 
 async def zone_for(hostname: str) -> dict:

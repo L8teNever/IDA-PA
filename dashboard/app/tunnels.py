@@ -88,8 +88,13 @@ async def routes(docker: Docker, containers: list[dict]) -> list[dict]:
             found += await cloudflare_api.tunnel_routes()
         except cloudflare_api.CloudflareError as e:
             log.warning("Tunnel-Routen aus der Cloudflare-API nicht lesbar: %s", e)
-    seen: set = set()
-    found = [r for r in found if (k := (r["host"], r.get("path") or "", r["service"])) not in seen and not seen.add(k)]
+    merged: dict[tuple, dict] = {}  # gleiche Route aus beiden Quellen: zusammenführen (die API kennt den Tunnel-Namen)
+    for r in found:
+        k = (r["host"], r.get("path") or "", r["service"])
+        merged[k] = {**r, **{a: b for a, b in merged.get(k, {}).items() if b}} if k in merged else r
+        if r.get("tunnel"):
+            merged[k]["tunnel"] = r["tunnel"]
+    found = list(merged.values())
     _cache = (time.monotonic(), found)
     return found
 

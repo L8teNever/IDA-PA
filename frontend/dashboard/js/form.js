@@ -1,5 +1,7 @@
 // Formular-Dialog im IDA-Stil (wie in IDA Code): Felder = [{ name, label, type, value, hint, placeholder, options, show }]
-//   type: text (Standard) | textarea | switch | select (options: [{value, label}]) | seg (Knöpfe nebeneinander, options wie select)
+//   type: text (Standard) | textarea | number | datetime | time | switch | select (options: [{value, label}]) | seg (Knöpfe nebeneinander, options wie select)
+//         multi (Liste mit Häkchen und Suche, Wert = Array; options: [{value, label, parent?}] – ist parent gewählt, gilt der Eintrag automatisch mit)
+//         live (kein Eingabefeld: render(values) -> HTML, wird bei jeder Änderung neu gezeichnet; braucht key)
 //   show(values) -> bool: Feld nur zeigen, wenn das zutrifft (z. B. Repo nur bei Quelle GitHub)
 // Gibt die Werte zurück oder null (abgebrochen). submit(values) darf einen Fehlertext liefern – dann bleibt der Dialog offen.
 import { esc, openModal, popMenu, sheetHead } from "./ui.js";
@@ -12,6 +14,7 @@ export function formDialog(title, fields, { ok = "Speichern", icon = "", submit,
       const id = `ff_${f.name}`;
       const hint = f.hint ? `<small class="ff-hint">${f.hint}</small>` : "";
       if (f.type === "head") return `<div class="ff-head" data-ff="${f.key || ""}">${esc(f.label)}</div>`;
+      if (f.type === "live") return `<div class="ff-live" data-ff="${f.key}"></div>`;
       if (f.type === "switch") {
         return `<div class="ff ff-switch" data-ff="${f.name}"><div><span>${esc(f.label)}</span>${hint}</div>
           <button type="button" class="sw ${vals[f.name] ? "on" : ""}" data-sw="${f.name}" aria-label="${esc(f.label)}"></button></div>`;
@@ -20,11 +23,17 @@ export function formDialog(title, fields, { ok = "Speichern", icon = "", submit,
         return `<div class="ff" data-ff="${f.name}"><span>${esc(f.label)}</span><div class="seg-mini big">${f.options.map((o) =>
           `<button type="button" class="${o.value === vals[f.name] ? "on" : ""}" data-seg="${f.name}" data-v="${esc(o.value)}">${o.icon ? `<span class="ms">${o.icon}</span>` : ""}${esc(o.label)}</button>`).join("")}</div>${hint}</div>`;
       }
+      if (f.type === "multi") {
+        return `<div class="ff" data-ff="${f.name}"><span>${esc(f.label)}</span>
+          <label class="side-search"><span class="ms">search</span><input type="search" data-mfind="${f.name}" placeholder="Suchen" autocomplete="off"></label>
+          <div class="ff-multi" data-mlist="${f.name}">${f.options.map((o) => `<button type="button" class="ff-check ${o.parent ? "sub" : ""}" data-multi="${f.name}" data-v="${esc(o.value)}">
+            <span class="ms"></span><span class="ellip">${esc(o.label)}</span></button>`).join("")}</div>${hint}</div>`;
+      }
       const input = f.type === "textarea"
         ? `<textarea class="cd-input" id="${id}" rows="${f.rows || 3}" placeholder="${esc(f.placeholder || "")}" spellcheck="false">${esc(vals[f.name])}</textarea>`
         : f.type === "select"
           ? `<button type="button" class="cd-input ff-pick" data-pick="${f.name}"><span class="ellip">${esc(optLabel(f, vals[f.name]))}</span><span class="ms">expand_more</span></button>`
-          : `<input class="cd-input" id="${id}" type="${f.type === "password" ? "password" : f.type === "number" ? "number" : "text"}" value="${esc(vals[f.name])}"
+          : `<input class="cd-input" id="${id}" type="${f.type === "password" ? "password" : f.type === "number" ? "number" : f.type === "datetime" ? "datetime-local" : f.type === "time" ? "time" : "text"}" value="${esc(vals[f.name])}"
               placeholder="${esc(f.placeholder || "")}" autocomplete="off" spellcheck="false" ${f.type === "number" ? `min="${f.min ?? 0}"` : ""}>`;
       if (f.type === "select") return `<div class="ff" data-ff="${f.name}"><span>${esc(f.label)}</span>${input}${hint}</div>`;
       return `<label class="ff" data-ff="${f.name}"><span>${esc(f.label)}</span>${input}${hint}</label>`;
@@ -36,7 +45,7 @@ export function formDialog(title, fields, { ok = "Speichern", icon = "", submit,
     const form = m.el.querySelector("form");
     const read = () => {
       for (const f of fields) {
-        if (!f.name || f.type === "switch" || f.type === "seg" || f.type === "select") continue;
+        if (!f.name || f.type === "switch" || f.type === "seg" || f.type === "select" || f.type === "multi") continue;
         const el = form.querySelector(`#ff_${f.name}`);
         if (el) vals[f.name] = f.type === "number" ? Number(el.value || 0) : el.value;
       }
@@ -47,9 +56,28 @@ export function formDialog(title, fields, { ok = "Speichern", icon = "", submit,
       for (const f of fields) {
         const box = form.querySelector(`[data-ff="${f.name || f.key || ""}"]`);
         if (box && f.show) box.hidden = !f.show(vals);
+        if (box && f.type === "live") box.innerHTML = f.render(vals);
       }
     };
+    const ticks = (f) => {
+      for (const b of form.querySelectorAll(`[data-multi="${f.name}"]`)) {
+        const parent = f.options.find((o) => o.value === b.dataset.v)?.parent;
+        const on = vals[f.name].includes(b.dataset.v), inherited = !!parent && vals[f.name].includes(parent);
+        b.classList.toggle("on", on || inherited);
+        b.disabled = inherited;
+        b.firstElementChild.textContent = on || inherited ? "check_box" : "check_box_outline_blank";
+      }
+    };
+    fields.filter((f) => f.type === "multi").forEach(ticks);
     form.addEventListener("click", (e) => {
+      const mu = e.target.closest("[data-multi]");
+      if (mu) {
+        const f = fields.find((x) => x.name === mu.dataset.multi), v = mu.dataset.v;
+        vals[f.name] = vals[f.name].includes(v) ? vals[f.name].filter((x) => x !== v)
+          : [...vals[f.name].filter((x) => f.options.find((o) => o.value === x)?.parent !== v), v];  // ganzer Stack ersetzt einzelne Dienste
+        ticks(f);
+        visible();
+      }
       const sw = e.target.closest("[data-sw]");
       if (sw) { vals[sw.dataset.sw] = !vals[sw.dataset.sw]; sw.classList.toggle("on", vals[sw.dataset.sw]); visible(); }
       const pick = e.target.closest("[data-pick]");
@@ -68,7 +96,15 @@ export function formDialog(title, fields, { ok = "Speichern", icon = "", submit,
         visible();
       }
     });
-    form.addEventListener("input", visible);
+    form.addEventListener("input", (e) => {
+      const name = e.target.dataset?.mfind;
+      if (name) {
+        const q = e.target.value.toLowerCase();
+        for (const b of form.querySelectorAll(`[data-multi="${name}"]`)) b.hidden = !!q && !b.textContent.toLowerCase().includes(q);
+      }
+      visible();
+    });
+    form.addEventListener("keydown", (e) => { if (e.key === "Enter" && e.target.dataset?.mfind != null) e.preventDefault(); });
     form.addEventListener("change", visible);
     form.onsubmit = async (e) => {
       e.preventDefault();

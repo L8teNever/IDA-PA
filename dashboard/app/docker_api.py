@@ -56,6 +56,9 @@ class Docker:
     async def inspect(self, cid: str) -> dict:
         return await self.get(f"/containers/{cid}/json")
 
+    async def image(self, ref: str) -> dict:
+        return await self.get(f"/images/{ref}/json")
+
     async def connect_network(self, network: str, cid: str) -> None:
         await self._req("POST", f"/networks/{network}/connect", json={"Container": cid})
 
@@ -77,6 +80,9 @@ class Docker:
         if what not in ("start", "stop", "restart"):
             raise DockerError("Unbekannte Aktion", 400)
         await self._req("POST", f"/containers/{cid}/{what}", params={"t": "20"} if what != "start" else None)
+
+    async def remove_image(self, image_id: str) -> None:
+        await self._req("DELETE", f"/images/{image_id}")
 
     async def prune_images(self) -> dict:
         return await self.post("/images/prune", filters=json.dumps({"dangling": ["false"]})) or {}

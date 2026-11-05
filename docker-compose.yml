@@ -186,7 +186,8 @@ services:
       NET_IFACES: ${DASHBOARD_NET_IFACES:-}                  # leer = alle echten Netzwerkkarten
       DASHBOARD_PUBLIC_URL: ${DASHBOARD_PUBLIC_URL:-}
       IDA_PUBLIC_URL: ${IDA_PUBLIC_URL:-}
-      # Cloudflare-API nur lesend (derselbe Token wie beim Cloudflare-MCP unten): Zero-Trust-Schutz und Tunnel-Routen der URLs
+      SERVER_PUBLIC_URL: ${SERVER_PUBLIC_URL:-}         # Graph: „Im Server ändern“ verlinkt dorthin
+      # Cloudflare-API (derselbe Token wie beim Cloudflare-MCP unten): Zero-Trust-Schutz, Tunnel-Routen, Graph und Veröffentlichen
       CLOUDFLARE_API_TOKEN: ${CLOUDFLARE_API_TOKEN:-}
       CLOUDFLARE_ACCOUNT_ID: ${CLOUDFLARE_ACCOUNT_ID:-}
     ports:
@@ -202,9 +203,8 @@ services:
       ida.dashboard: "self"   # daran erkennt sich das Dashboard selbst (stoppt sich nie selbst)
       com.centurylinklabs.watchtower.enable: "true"
 
-  # IDA Server – dieselbe App wie das Dashboard im Modus „server“: hier wird eingerichtet, das Dashboard ist der Überblick.
-  # Websites hosten (wie Carla, nginx-Dienst „sites“ unten), Dienste über den Tunnel veröffentlichen (DNS + Zero Trust),
-  # Stacks und Dateien (genau wie im Dashboard). Siehe docs/SERVER.md – Adresse z. B. server.kulbarts.com.
+  # IDA Server – dieselbe App wie das Dashboard im Modus „server“: Websites hosten (wie Carla, nginx-Dienst „sites“ unten),
+  # Stacks und Dateien (genau wie im Dashboard). Veröffentlichen über den Tunnel liegt im Dashboard. Siehe docs/SERVER.md – Adresse z. B. server.kulbarts.com.
   # ACHTUNG: Docker-Socket + Cloudflare-Token mit Schreibrecht – nur hinter Cloudflare Access erreichbar machen.
   server:
     image: ${DASHBOARD_IMAGE:-ghcr.io/l8tenever/ida-dashboard:latest}
@@ -224,10 +224,15 @@ services:
       SITES_DIR: ${SITES_DIR:-/opt/ida-sites}
       SITES_UPSTREAM: ${SITES_UPSTREAM:-}              # leer = aus SITES_PORT und den Tunnel-Regeln
       TUNNEL_HOST_IP: ${TUNNEL_HOST_IP:-}              # leer = aus den vorhandenen Tunnel-Regeln (z. B. 10.7.0.1)
+      LINKS_DOMAINS: ${LINKS_DOMAINS:-l.kulbarts.com,link.kulbarts.com,l.l8tenever.com,link.l8tenever.com}
+      LINKS_UPSTREAM: ${LINKS_UPSTREAM:-}              # leer = aus dem Port des Dienstes „links“
+      WIKI_URL: http://wiki:8000                       # belegte Adressen (Websites, Kurzlinks) ins Wiki-Gedächtnis; leer = aus
+      WIKI_IDA_TOKEN: ${WIKI_IDA_TOKEN:-}
     ports:
       - "${SERVER_PORT:-8088}:8000"
     volumes:
       - server-data:/data                              # sites.json (Websites, ggf. GitHub-Tokens)
+      - links-data:/links                              # Kurzlinks, geteilt mit dem Dienst „links“
       - /var/run/docker.sock:/var/run/docker.sock
       - ${STACKS_ROOT:-/opt}:${STACKS_ROOT:-/opt}
       - ${SITES_DIR:-/opt/ida-sites}:${SITES_DIR:-/opt/ida-sites}
@@ -247,6 +252,24 @@ services:
       - ${SITES_DIR:-/opt/ida-sites}/conf:/etc/nginx/conf.d:ro
     labels:
       ida.sites: "nginx"
+
+  # Weiterleitungen: öffentlicher Dienst für die Kurzlinks (dieselbe App im Modus „links“). Bewusst OHNE Docker-Socket und ohne
+  # Cloudflare-Token: Er kennt nur die Link-Datenbank. Verwaltet wird im IDA Server, die Domains richtet das Tool dort ein.
+  links:
+    image: ${DASHBOARD_IMAGE:-ghcr.io/l8tenever/ida-dashboard:latest}
+    pull_policy: always
+    restart: unless-stopped
+    environment:
+      APP_MODE: links
+      TIMEZONE: ${TIMEZONE:-Europe/Berlin}
+      LINKS_DOMAINS: ${LINKS_DOMAINS:-l.kulbarts.com,link.kulbarts.com,l.l8tenever.com,link.l8tenever.com}
+    ports:
+      - "${LINKS_PORT:-8089}:8000"                     # hierauf zeigt der Tunnel; besser an die Tunnel-IP binden, z. B. 10.7.0.1:8089
+    volumes:
+      - links-data:/links
+    labels:
+      ida.links: "public"
+      com.centurylinklabs.watchtower.enable: "true"
 
   # Cloudflare-MCP (github.com/L8teNever/Ida-Cloudflare): Zonen/DNS, Tunnel, Zero Trust … als MCP-Server für die Agents.
   # An mit COMPOSE_PROFILES=cloudflare in .env. Intern für IDA: http://cloudflare:8030/mcp (Bearer CLOUDFLARE_MCP_TOKEN).
@@ -273,7 +296,8 @@ services:
     labels:
       com.centurylinklabs.watchtower.enable: "true"
 
-  # optional: holt neue Images von GitHub automatisch (alle 10 Minuten) und startet die App neu
+  # optional: holt neue Images von GitHub automatisch (alle 10 Minuten) und startet die App neu.
+  # Das Tool „Updates“ im IDA Server kann das mit Zeitplan und Ausnahmen; beides zusammen nicht nutzen.
   watchtower:
     image: containrrr/watchtower
     profiles: ["autoupdate"]
@@ -291,3 +315,4 @@ volumes:
   wiki-data:
   dashboard-data:
   server-data:
+  links-data:

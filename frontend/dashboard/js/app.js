@@ -94,8 +94,11 @@ function drawNav(active) {
     <div class="rail-spacer"></div>
     ${app.info?.mode === "server" && app.info?.dashboard_url ? `<a class="rail-btn" href="${esc(app.info.dashboard_url)}" target="_blank" rel="noopener"><span class="rail-ic"><span class="ms">space_dashboard</span></span><span class="rail-lbl">Dashboard</span></a>` : ""}
     ${ida ? `<a class="rail-btn" href="${esc(ida)}" target="_blank" rel="noopener"><span class="rail-ic"><span class="ms">face_5</span></span><span class="rail-lbl">IDA</span></a>` : ""}`;
-  $("bnav").style.gridTemplateColumns = `repeat(${TOOLS.length}, 1fr)`;
+  // bis 5 Tools passen sie nebeneinander; mehr: die Leiste wird wischbar (aktives Tool ins Bild)
+  $("bnav").classList.toggle("many", TOOLS.length > 5);
+  $("bnav").style.gridTemplateColumns = TOOLS.length > 5 ? "" : `repeat(${TOOLS.length}, 1fr)`;
   $("bnav").innerHTML = TOOLS.map((t) => `<a class="bnav-btn ${t === active ? "active" : ""}" href="${t.path}"><span class="ms">${t.icon}</span>${esc(t.label)}</a>`).join("");
+  $("bnav").querySelector(".active")?.scrollIntoView?.({ inline: "center", block: "nearest" });
 }
 
 export function openDrawer() {

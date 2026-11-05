@@ -23,6 +23,26 @@ Es zeigt alles, was auf dem Server läuft, und lässt es bedienen:
     nicht erreichbar = „Schutz unbekannt“). Ergebnisse gelten 2 bzw. 5 Minuten (`app/cloudflare_api.py`, `app/access.py`).
     `GET /api/v1/cloudflare` zeigt, ob die API geht (Konto, Zahl der Access-Apps und Tunnel-Routen, Fehler).
   * Verbrauch des Stacks in den letzten 24 Stunden.
+* **Graph**: alles auf dem Server als Netz, wie der Wissensgraph im Wiki (gleicher Code, `js/graph.js`). Punkte: Stacks,
+  ihre Container, die öffentlichen Adressen (Tunnel-Routen), die Zero-Trust-Apps (Cloudflare Access) und die Tunnel.
+  Verbindungen: Stack → Container → Adresse ← Access-App, Adresse → Tunnel. Farben: Adresse grün-türkis = Zero Trust,
+  gelb = öffentlich; gestrichelt = Container aus, Bypass-App oder Adresse nur in einer Access-App (keine Tunnel-Route hier).
+  Filter je Art (Tunnel ist anfangs aus), Suche, Zoom/Pinch, Ziehen; Tippen zeigt Details mit „Stack öffnen“, „Öffnen“
+  und „Im Server ändern“ (`SERVER_PUBLIC_URL`). Ohne `CLOUDFLARE_API_TOKEN` fehlen nur die Apps und der Schutz.
+* **Veröffentlichen**: alle Adressen der (remote verwalteten) Cloudflare-Tunnel mit Ziel, zugehörigem Stack und Schutz (Zero Trust / öffentlich).
+  * **Neue Adresse** in einem Schritt: Tunnel-Regel (Hostname[/Pfad] → Ziel), DNS-CNAME auf den Tunnel, optional Zero Trust.
+    Als Ziel schlägt der Server jeden Container-Port vor, der auf dem Server veröffentlicht ist (`http://<Server-IP>:<Port>`).
+    Die Server-IP kommt aus `TUNNEL_HOST_IP` oder den vorhandenen Regeln (z. B. `10.7.0.1`).
+  * **Ziel ändern**, **Zero Trust an/aus**, **entfernen**. Der DNS-Eintrag wird nur gelöscht, wenn sonst nichts mehr auf den Host
+    zeigt und er auf diesen Tunnel zeigt.
+  * **Doppelte Regeln** (gleicher Host ohne Groß/klein + gleicher Pfad) werden markiert: cloudflared nimmt immer die erste, die
+    spätere greift nie. Über ⋮ lässt sich genau diese eine Regel entfernen (DNS und Zero Trust bleiben). Eine neue Regel für
+    eine Adresse ersetzt alle Schreibweisen (Bus./bus.). Braucht beim Token: Tunnel Edit, DNS Edit, Access Apps and Policies Edit.
+* **Ports** (Nachfolger von Carlas Ports-Manager): alle offenen TCP/UDP-Ports des Servers, gelesen aus `/proc/net` im Netz des
+  Servers (`HOST_PROC/1/net`, ohne `ss`). Je Port eine Zeile (IPv4 + IPv6 zusammen) mit Schnittstellen (alle / öffentliche IP /
+  intern / nur lokal – „alle Schnittstellen“ ist gelb markiert), Docker-Container mit Stack und Port im Container oder Prozess
+  (wenn lesbar) und den Tunnel-Adressen, die auf den Port zeigen, samt Zero-Trust-Schutz. Filter, Suche und **Freien Port finden**
+  in einem Bereich (beachtet auch gestoppte Container).
 * **Dateien**: Datei-Explorer für den ganzen Server (`/` ist unter `/hostfs` eingebunden, mit Schreibrecht). Ordner ansehen
   (Liste oder Kacheln mit Bildvorschau, sortieren, suchen, versteckte Dateien), Bilder, Videos, Audio, PDF und HTML ansehen,
   Textdateien im Code-Editor bearbeiten (CodeMirror, lokal gebündelt unter `frontend/dashboard/vendor/`, neu bauen mit
@@ -102,7 +122,8 @@ nur Bearbeiten und Aktualisieren nicht. Die Oberfläche sagt dann, warum.
 
 Das Dashboard erkennt sich am Label `ida.dashboard: "self"`. Aktionen auf den IDA-Stack lassen den Dienst `dashboard` aus
 (sonst würde es sich mitten im Vorgang selbst beenden), und „Herunterfahren“ gibt es für diesen Stack nicht. Das Dashboard
-selbst wird über Watchtower aktualisiert oder auf dem Server mit `docker compose pull dashboard && docker compose up -d dashboard`.
+selbst wird im IDA Server unter **Updates** aktualisiert (siehe [SERVER.md](SERVER.md)) oder auf dem Server mit
+`docker compose pull dashboard && docker compose up -d dashboard`.
 
 ## Aufbau und Erweitern
 

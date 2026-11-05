@@ -109,10 +109,11 @@ async def wait_job(c, jid):
 
 async def test_modes_have_their_own_tools(client, server):
     d = (await client.get("/api/v1/app")).json()
-    assert d["mode"] == "dashboard" and d["title"] == "IDA Dashboard" and d["nav"] == ["overview", "stacks", "files", "monitor", "storage"]
+    assert d["mode"] == "dashboard" and d["title"] == "IDA Dashboard" and d["nav"] == ["overview", "stacks", "graph", "publish", "ports", "files", "monitor", "storage"]
     s = (await server.get("/api/v1/app")).json()
-    assert s["mode"] == "server" and s["title"] == "IDA Server" and s["nav"] == ["sites", "publish", "stacks", "files"]
-    assert (await client.get("/api/v1/sites")).status_code == 404  # das Dashboard bleibt, wie es ist
+    assert s["mode"] == "server" and s["title"] == "IDA Server" and s["nav"] == ["sites", "links", "stacks", "updates", "files"]
+    assert (await client.get("/api/v1/sites")).status_code == 404  # Websites gibt es nur im Server
+    assert (await server.get("/api/v1/publish")).status_code == 404  # Veröffentlichen gibt es nur im Dashboard
     assert (await server.get("/api/v1/stacks")).status_code == 200 and (await server.get("/api/v1/fs/list", params={"path": "/"})).status_code != 404
     # Messwerte hat nur das Dashboard; ohne DASHBOARD_URL sagt der Server das
     r = await server.get("/api/v1/monitor/now")
@@ -204,19 +205,19 @@ async def test_github_deploy_keeps_token_out_of_git(tmp_path, settings, monkeypa
     get_settings.cache_clear()
 
 
-async def test_publish_route_dns_and_zero_trust(server, fake_cf):
+async def test_publish_route_dns_and_zero_trust(client, fake_cf):
     settings = get_settings()
     settings.cloudflare_api_token = "tok"
     settings.cloudflare_api_url = "https://cf.test/client/v4"
     web = ctr("w", "web", "shop")
     web["Ports"] = [{"PrivatePort": 80, "PublicPort": 8080, "IP": "0.0.0.0", "Type": "tcp"}]
-    server.docker.containers = [web]
-    d = (await server.get("/api/v1/publish")).json()
+    client.docker.containers = [web]
+    d = (await client.get("/api/v1/publish")).json()
     assert d["host_ip"] == "10.7.0.1" and d["tunnels"][0]["id"] == "t1"
     assert d["routes"][0]["hostname"] == "alt.example.com" and d["routes"][0]["stack"] == "shop" and d["routes"][0]["access"]["state"] == "public"
     assert d["targets"][0]["service"] == "http://10.7.0.1:8080"
     # neue Adresse mit Zero Trust
-    r = (await server.post("/api/v1/publish", json={"tunnel_id": "t1", "hostname": "neu.example.com", "service": "http://10.7.0.1:8080",
+    r = (await client.post("/api/v1/publish", json={"tunnel_id": "t1", "hostname": "neu.example.com", "service": "http://10.7.0.1:8080",
                                                      "zero_trust": True, "emails": ["simon@example.com", "@kulbarts.com"]})).json()
     assert r["ok"], r
     assert {"hostname": "neu.example.com", "service": "http://10.7.0.1:8080"} in fake_cf.ingress and fake_cf.ingress[-1] == {"service": "http_status:404"}
@@ -224,19 +225,40 @@ async def test_publish_route_dns_and_zero_trust(server, fake_cf):
     pol = fake_cf.apps[0]["policies"][0]
     assert fake_cf.apps[0]["domain"] == "neu.example.com" and pol["decision"] == "allow"
     assert pol["include"] == [{"email": {"email": "simon@example.com"}}, {"email_domain": {"domain": "kulbarts.com"}}]
-    d = (await server.get("/api/v1/publish")).json()
+    d = (await client.get("/api/v1/publish")).json()
     assert next(x for x in d["routes"] if x["hostname"] == "neu.example.com")["access"]["state"] == "access"
     # gleiche Adresse mit anderem Ziel → erst nachfragen
-    r = await server.post("/api/v1/publish", json={"tunnel_id": "t1", "hostname": "neu.example.com", "service": "http://10.7.0.1:9000"})
+    r = await client.post("/api/v1/publish", json={"tunnel_id": "t1", "hostname": "neu.example.com", "service": "http://10.7.0.1:9000"})
     assert r.status_code == 409
     # Zero Trust aus, dann Adresse samt DNS weg
-    assert (await server.post("/api/v1/publish/access", json={"hostname": "neu.example.com", "enabled": False})).json()["ok"]
+    assert (await client.post("/api/v1/publish/access", json={"hostname": "neu.example.com", "enabled": False})).json()["ok"]
     assert fake_cf.apps == []
-    r = (await server.post("/api/v1/publish/remove", json={"tunnel_id": "t1", "hostname": "neu.example.com"})).json()
+    r = (await client.post("/api/v1/publish/remove", json={"tunnel_id": "t1", "hostname": "neu.example.com"})).json()
     assert r["ok"] and fake_cf.dns == [] and not any(x.get("hostname") == "neu.example.com" for x in fake_cf.ingress)
     # Eingaben werden geprüft
-    assert (await server.post("/api/v1/publish", json={"tunnel_id": "t1", "hostname": "x y", "service": "http://a:1"})).status_code == 400
-    assert (await server.post("/api/v1/publish", json={"tunnel_id": "t1", "hostname": "a.example.com", "service": "rm -rf"})).status_code == 400
+    assert (await client.post("/api/v1/publish", json={"tunnel_id": "t1", "hostname": "x y", "service": "http://a:1"})).status_code == 400
+    assert (await client.post("/api/v1/publish", json={"tunnel_id": "t1", "hostname": "a.example.com", "service": "rm -rf"})).status_code == 400
+
+
+async def test_publish_shows_and_removes_duplicates(client, fake_cf):
+    settings = get_settings()
+    settings.cloudflare_api_token = "tok"
+    settings.cloudflare_api_url = "https://cf.test/client/v4"
+    fake_cf.ingress = [{"hostname": "Bus.example.com", "service": "http://10.7.0.1:1"}, {"hostname": "a.example.com", "service": "http://10.7.0.1:2"},
+                       {"hostname": "bus.example.com", "service": "http://10.7.0.1:1"}, {"hostname": "a.example.com", "service": "http://10.7.0.1:3"},
+                       {"service": "http_status:404"}]
+    d = (await client.get("/api/v1/publish")).json()
+    dup = [(r["hostname"], r["index"], r["shadowed_by"]) for r in d["routes"] if r.get("shadowed_by")]
+    assert dup == [("bus.example.com", 2, "http://10.7.0.1:1"), ("a.example.com", 3, "http://10.7.0.1:2")]
+    # Position passt nicht (Tunnel inzwischen geändert) → nichts passiert
+    r = await client.post("/api/v1/publish/remove-rule", json={"tunnel_id": "t1", "index": 2, "hostname": "a.example.com", "service": "http://10.7.0.1:3"})
+    assert r.status_code == 409 and len(fake_cf.ingress) == 5
+    assert (await client.post("/api/v1/publish/remove-rule", json={"tunnel_id": "t1", "index": 3, "hostname": "a.example.com", "service": "http://10.7.0.1:3"})).json()["ok"]
+    assert fake_cf.ingress == [{"hostname": "Bus.example.com", "service": "http://10.7.0.1:1"}, {"hostname": "a.example.com", "service": "http://10.7.0.1:2"},
+                               {"hostname": "bus.example.com", "service": "http://10.7.0.1:1"}, {"service": "http_status:404"}]
+    # neue Regel für bus.example.com ersetzt beide Schreibweisen
+    r = (await client.post("/api/v1/publish", json={"tunnel_id": "t1", "hostname": "bus.example.com", "service": "http://10.7.0.1:1", "replace": True})).json()
+    assert r["ok"] and [x.get("hostname") for x in fake_cf.ingress].count("bus.example.com") == 1 and "Bus.example.com" not in [x.get("hostname") for x in fake_cf.ingress]
 
 
 async def test_site_published_through_tunnel(server, fake_cf, monkeypatch):

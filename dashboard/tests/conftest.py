@@ -27,6 +27,7 @@ class FakeDocker:
     def __init__(self):
         self.containers: list[dict] = []
         self.actions: list[tuple] = []
+        self.images: dict[str, dict] = {}
         self.cpu = 0
 
     def handler(self, req: httpx.Request) -> httpx.Response:
@@ -46,7 +47,8 @@ class FakeDocker:
             if not c:
                 return httpx.Response(404, json={"message": "No such container"})
             return httpx.Response(200, json={"Id": c["Id"], "Name": c["Names"][0], "State": {"Running": c["State"] == "running"},
-                                              "Config": {"Tty": False, "Env": c.get("Env") or [], "Labels": c.get("Labels") or {}}})
+                                              "Config": {"Tty": False, "Image": c.get("ConfigImage") or c["Image"], "Env": c.get("Env") or [], "Labels": c.get("Labels") or {}},
+                                              "HostConfig": c.get("HostConfig") or {}})
         if p.startswith("/networks/") and p.endswith("/connect"):
             self.actions.append(("connect", p.split("/")[2]))
             return httpx.Response(200)
@@ -64,6 +66,14 @@ class FakeDocker:
                 "Volumes": [{"Name": "shop_data", "Labels": {P + "project": "shop"}, "UsageData": {"Size": 3000}},
                             {"Name": "lost", "Labels": {}, "UsageData": {"Size": 70}}],
                 "BuildCache": [{"Size": 40, "Shared": False}]})
+        if p.startswith("/images/") and req.method == "DELETE":
+            self.actions.append(("rmi", p.split("/", 2)[2]))
+            return httpx.Response(200, json=[])
+        if p.startswith("/images/") and p.endswith("/json"):
+            ref = p[len("/images/"):-len("/json")]
+            if ref in self.images:
+                return httpx.Response(200, json=self.images[ref])
+            return httpx.Response(404, json={"message": "No such image"})
         if p == "/images/prune":
             return httpx.Response(200, json={"SpaceReclaimed": 500, "ImagesDeleted": [{"Deleted": "sha256:old"}]})
         return httpx.Response(404, json={"message": f"unbekannt {p}"})
@@ -90,7 +100,10 @@ def settings(tmp_path, monkeypatch):
     monkeypatch.setenv("FRONTEND_DIR", str(Path(__file__).resolve().parents[2] / "frontend"))
     monkeypatch.delenv("IDA_PUBLIC_URL", raising=False)
     monkeypatch.delenv("CLOUDFLARE_API_TOKEN", raising=False)  # nie die echte Cloudflare-API im Test
+    for var in ("DASHBOARD_URL", "APP_MODE", "SITES_DIR", "SITES_UPSTREAM", "TUNNEL_HOST_IP", "SERVER_PUBLIC_URL", "LINKS_UPSTREAM", "LINKS_DOMAINS", "WIKI_URL", "WIKI_IDA_TOKEN"):  # nichts aus der echten Umgebung
+        monkeypatch.delenv(var, raising=False)
     monkeypatch.setenv("DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("LINKS_DB", str(tmp_path / "links" / "links.db"))
     monkeypatch.setenv("HOST_PROC", str(proc))
     monkeypatch.setenv("HOST_ROOT", str(tmp_path))
     get_settings.cache_clear()

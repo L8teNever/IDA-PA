@@ -128,7 +128,7 @@ async def stack_action(name: str, body: ActionIn, req: Request):
         raise HTTPException(400, "Unbekannte Aktion")
     s = await find(req, name)
     js = jobs(req)
-    if js.busy("stack:" + name):
+    if js.busy("stack:" + name) or js.busy("updates"):
         raise HTTPException(409, "Für diesen Stack läuft schon ein Vorgang")
     title, cmd, needs_files = ACTIONS[body.action]
     if s["self"] and body.action == "down":
@@ -144,7 +144,7 @@ async def stack_action(name: str, body: ActionIn, req: Request):
 
         async def work(job: Job) -> bool:
             if s["self"]:
-                job.write("Hinweis: Das Dashboard selbst wird dabei ausgelassen (es aktualisiert sich über Watchtower oder auf dem Server).")
+                job.write("Hinweis: Das Dashboard selbst wird dabei ausgelassen (es aktualisiert sich im IDA Server unter Updates).")
             if body.action == "update":
                 if not await run_cmd(job, base + ["pull"] + only, cwd=s["dir"], env=env):
                     return False
@@ -214,7 +214,9 @@ EXEC_MAX = 200_000  # so viele Zeichen Ausgabe kommen höchstens zurück (der An
 
 
 def docker_env() -> dict:
-    env = {**os.environ}
+    # Nur das Nötigste: Compose nimmt Variablen aus der Umgebung vor denen aus der .env des Stacks. Unser CLOUDFLARE_API_TOKEN
+    # oder DATA_DIR landeten sonst in fremden Stacks, die zufällig gleich benannte Variablen haben.
+    env = {k: os.environ[k] for k in ("PATH", "HOME") if k in os.environ}
     if not get_settings().docker_host.startswith("unix://"):
         env["DOCKER_HOST"] = get_settings().docker_host
     return env

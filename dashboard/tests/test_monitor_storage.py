@@ -91,5 +91,5 @@ async def test_frontend_and_app(client):
     for i in man["icons"]:   # feste Adresse, Bild kommt an
         assert i["src"].startswith("/icons/") and (await client.get(i["src"])).headers["content-type"] == "image/png"
     a = (await client.get("/api/v1/app")).json()
-    assert [t["id"] for t in a["tools"]] == ["stacks", "files", "monitor", "storage"]
+    assert [t["id"] for t in a["tools"]] == ["stacks", "graph", "publish", "ports", "files", "monitor", "storage"]
     assert (await client.get("/api/v1/unbekannt")).status_code == 404

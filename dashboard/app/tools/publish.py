@@ -68,10 +68,19 @@ async def all_routes(tlist: list[dict]) -> list[dict]:
         if not t["remote"]:
             continue
         cfg = await cf.tunnel_config(t["id"])
-        for r in cfg.get("ingress") or []:
-            if r.get("hostname"):
-                out.append({"tunnel_id": t["id"], "tunnel": t["name"], "hostname": r["hostname"], "path": r.get("path") or "",
-                            "service": r.get("service") or ""})
+        first: dict[tuple, dict] = {}
+        for i, r in enumerate(cfg.get("ingress") or []):
+            if not r.get("hostname"):
+                continue
+            row = {"tunnel_id": t["id"], "tunnel": t["name"], "hostname": r["hostname"], "path": r.get("path") or "",
+                   "service": r.get("service") or "", "index": i}
+            key = (r["hostname"].lower(), row["path"])
+            if key in first:  # cloudflared nimmt immer die erste passende Regel – diese hier greift nie
+                row["shadowed_by"] = first[key]["service"]
+                row["shadowed_host"] = first[key]["hostname"]
+            else:
+                first[key] = row
+            out.append(row)
     return out
 
 
@@ -170,7 +179,7 @@ async def unpublish(body: UnpublishIn):
     try:
         removed = await cf.remove_route(body.tunnel_id, host, path)
         steps.append({"step": "Tunnel-Regel", "ok": True, "detail": "entfernt" if removed else "gab es nicht"})
-        others = [r for r in (await cf.tunnel_config(body.tunnel_id)).get("ingress") or [] if r.get("hostname") == host]
+        others = [r for r in (await cf.tunnel_config(body.tunnel_id)).get("ingress") or [] if (r.get("hostname") or "").lower() == host]
         if body.dns and not others:
             steps.append({"step": "DNS", "ok": True, "detail": "CNAME gelöscht" if await cf.remove_dns(host, body.tunnel_id) else "kein CNAME auf diesen Tunnel"})
         if body.access:
@@ -178,6 +187,24 @@ async def unpublish(body: UnpublishIn):
     except cf.CloudflareError as e:
         steps.append({"step": "Fehler", "ok": False, "detail": str(e)})
     return {"ok": all(s["ok"] for s in steps), "steps": steps}
+
+
+class RuleIn(BaseModel):
+    tunnel_id: str
+    index: int
+    hostname: str
+    service: str
+
+
+@router.post("/api/v1/publish/remove-rule")
+async def remove_rule(body: RuleIn):
+    """Genau eine Tunnel-Regel entfernen (z. B. ein Duplikat, das nie greift). DNS und Access bleiben, die Adresse geht weiter."""
+    need_cf()
+    try:
+        await cf.remove_rule(body.tunnel_id, body.index, body.hostname, body.service)
+    except cf.CloudflareError as e:
+        raise HTTPException(409, str(e))
+    return {"ok": True}
 
 
 class AccessIn(BaseModel):

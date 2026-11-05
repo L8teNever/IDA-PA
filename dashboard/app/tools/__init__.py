@@ -24,11 +24,11 @@ def all_tools() -> list[Tool]:
     from ..config import get_settings
     from . import files, stacks  # Reihenfolge = Reihenfolge in der Leiste
     if get_settings().is_server:  # IDA Server: einrichten; Messwerte holt er beim Dashboard
-        from . import monitor_proxy, publish, sites
-        return [sites.tool, publish.tool, stacks.tool, files.tool, monitor_proxy.tool]
-    from . import monitor, storage
-    return [stacks.tool, files.tool, monitor.tool, storage.tool]
+        from . import links, monitor_proxy, sites, updates
+        return [sites.tool, links.tool, stacks.tool, updates.tool, files.tool, monitor_proxy.tool]
+    from . import graph, monitor, ports, publish, storage
+    return [stacks.tool, graph.tool, publish.tool, ports.tool, files.tool, monitor.tool, storage.tool]
 
 
 # Leiste der Oberfläche je Modus (ids der Tools in frontend/dashboard/js/tools/)
-NAV = {"dashboard": ["overview", "stacks", "files", "monitor", "storage"], "server": ["sites", "publish", "stacks", "files"]}
+NAV = {"dashboard": ["overview", "stacks", "graph", "publish", "ports", "files", "monitor", "storage"], "server": ["sites", "links", "stacks", "updates", "files"]}

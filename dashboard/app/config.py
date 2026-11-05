@@ -38,6 +38,18 @@ class Settings(BaseSettings):
     sites_dir: str = "/opt/ida-sites"  # nur Server: Websites (www/<name>, conf/sites.conf); muss auch im nginx-Dienst „sites“ hängen
     sites_upstream: str = ""          # nur Server: so erreicht der Tunnel den nginx der Websites, z. B. http://10.7.0.1:8087; leer = automatisch
     tunnel_host_ip: str = ""          # nur Server: IP des Servers für Tunnel-Ziele (Ports); leer = aus den vorhandenen Tunnel-Regeln
+    # Weiterleitungen (Kurzlinks): Server verwaltet, der öffentliche Dienst „links“ (APP_MODE=links) leitet weiter. Beide teilen LINKS_DB.
+    links_db: str = "/links/links.db"
+    links_domains: str = "l.kulbarts.com,link.kulbarts.com,l.l8tenever.com,link.l8tenever.com"  # erste = Standard
+    links_upstream: str = ""          # nur Server: so erreicht der Tunnel den Dienst „links“; leer = aus seinem Port
+
+    # nur Server: belegte Adressen ins Wiki-Gedächtnis schreiben (app/wiki_memory.py); leer = aus
+    wiki_url: str = ""
+    wiki_ida_token: str = ""
+
+    @property
+    def link_domains(self) -> list[str]:
+        return [d.strip().lower() for d in self.links_domains.split(",") if d.strip()]
 
     @property
     def is_server(self) -> bool:

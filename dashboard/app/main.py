@@ -181,4 +181,13 @@ def build_manifest(version: str, server: bool = False) -> dict:
     }
 
 
-app = create_app()
+
+def make_app() -> FastAPI:
+    """Je nach APP_MODE: dashboard / server (diese App) oder links (nur der öffentliche Weiterleitungs-Dienst)."""
+    if get_settings().app_mode.strip().lower() == "links":
+        from .links_public import create_links_app
+        return create_links_app()
+    return create_app()
+
+
+app = make_app()
