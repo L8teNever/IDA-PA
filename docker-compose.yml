@@ -22,6 +22,7 @@ services:
       CODE_PUBLIC_URL: ${CODE_PUBLIC_URL:-}         # Code-App (siehe unten); leer = Code-Bereich bleibt in IDA unter /code
       VOICE_URL: http://voice:8000                # Stella (siehe unten); ohne VOICE_SECRET bleibt Stella aus
       SANDBOX_URL: http://sandbox:8000            # Sandbox der Code-Threads; ohne SANDBOX_SECRET bleibt sie aus
+      DASHBOARD_URL: ${DASHBOARD_URL:-http://dashboard:8000}  # Code-Threads: Logs, Befehle, Updates des Server-Stacks ihres Projekts; leer = aus
     ports:
       - "${IDA_PORT:-8080}:8000"
     volumes:
@@ -185,6 +186,9 @@ services:
       NET_IFACES: ${DASHBOARD_NET_IFACES:-}                  # leer = alle echten Netzwerkkarten
       DASHBOARD_PUBLIC_URL: ${DASHBOARD_PUBLIC_URL:-}
       IDA_PUBLIC_URL: ${IDA_PUBLIC_URL:-}
+      # Cloudflare-API nur lesend (derselbe Token wie beim Cloudflare-MCP unten): Zero-Trust-Schutz und Tunnel-Routen der URLs
+      CLOUDFLARE_API_TOKEN: ${CLOUDFLARE_API_TOKEN:-}
+      CLOUDFLARE_ACCOUNT_ID: ${CLOUDFLARE_ACCOUNT_ID:-}
     ports:
       - "${DASHBOARD_PORT:-8085}:8000"
     volumes:
@@ -196,6 +200,77 @@ services:
       - ${DOCKER_CONFIG_DIR:-~/.docker}:/root/.docker:ro # Login für private Images (ghcr.io) beim Aktualisieren
     labels:
       ida.dashboard: "self"   # daran erkennt sich das Dashboard selbst (stoppt sich nie selbst)
+      com.centurylinklabs.watchtower.enable: "true"
+
+  # IDA Server – dieselbe App wie das Dashboard im Modus „server“: hier wird eingerichtet, das Dashboard ist der Überblick.
+  # Websites hosten (wie Carla, nginx-Dienst „sites“ unten), Dienste über den Tunnel veröffentlichen (DNS + Zero Trust),
+  # Stacks und Dateien (genau wie im Dashboard). Siehe docs/SERVER.md – Adresse z. B. server.kulbarts.com.
+  # ACHTUNG: Docker-Socket + Cloudflare-Token mit Schreibrecht – nur hinter Cloudflare Access erreichbar machen.
+  server:
+    image: ${DASHBOARD_IMAGE:-ghcr.io/l8tenever/ida-dashboard:latest}
+    pull_policy: always
+    restart: unless-stopped
+    environment:
+      APP_MODE: server
+      TIMEZONE: ${TIMEZONE:-Europe/Berlin}
+      STACKS_DIRS: ${DASHBOARD_STACKS_DIRS:-/opt/stacks}
+      HOST_ROOT: ${STACKS_ROOT:-/opt}
+      SERVER_PUBLIC_URL: ${SERVER_PUBLIC_URL:-}
+      DASHBOARD_PUBLIC_URL: ${DASHBOARD_PUBLIC_URL:-}
+      IDA_PUBLIC_URL: ${IDA_PUBLIC_URL:-}
+      DASHBOARD_URL: http://dashboard:8000             # Messwerte für die Stacks kommen vom Dashboard
+      CLOUDFLARE_API_TOKEN: ${CLOUDFLARE_API_TOKEN:-}  # hier mit Schreibrecht: Tunnel Edit, DNS Edit, Access Apps and Policies Edit
+      CLOUDFLARE_ACCOUNT_ID: ${CLOUDFLARE_ACCOUNT_ID:-}
+      SITES_DIR: ${SITES_DIR:-/opt/ida-sites}
+      SITES_UPSTREAM: ${SITES_UPSTREAM:-}              # leer = aus SITES_PORT und den Tunnel-Regeln
+      TUNNEL_HOST_IP: ${TUNNEL_HOST_IP:-}              # leer = aus den vorhandenen Tunnel-Regeln (z. B. 10.7.0.1)
+    ports:
+      - "${SERVER_PORT:-8088}:8000"
+    volumes:
+      - server-data:/data                              # sites.json (Websites, ggf. GitHub-Tokens)
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${STACKS_ROOT:-/opt}:${STACKS_ROOT:-/opt}
+      - ${SITES_DIR:-/opt/ida-sites}:${SITES_DIR:-/opt/ida-sites}
+      - /:/hostfs:rslave
+      - ${DOCKER_CONFIG_DIR:-~/.docker}:/root/.docker:ro
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"
+
+  # Websites des IDA Servers: ein nginx für alle Seiten. Die Konfiguration schreibt der Server (Tool Websites).
+  sites:
+    image: nginx:alpine
+    restart: unless-stopped
+    ports:
+      - "${SITES_PORT:-8087}:80"                     # hierauf zeigt der Tunnel; besser an die Tunnel-IP binden, z. B. 10.7.0.1:8087
+    volumes:
+      - ${SITES_DIR:-/opt/ida-sites}/www:/srv/www:ro
+      - ${SITES_DIR:-/opt/ida-sites}/conf:/etc/nginx/conf.d:ro
+    labels:
+      ida.sites: "nginx"
+
+  # Cloudflare-MCP (github.com/L8teNever/Ida-Cloudflare): Zonen/DNS, Tunnel, Zero Trust … als MCP-Server für die Agents.
+  # An mit COMPOSE_PROFILES=cloudflare in .env. Intern für IDA: http://cloudflare:8030/mcp (Bearer CLOUDFLARE_MCP_TOKEN).
+  # Das Dashboard nutzt denselben CLOUDFLARE_API_TOKEN direkt (nur lesend), siehe oben.
+  cloudflare:
+    image: ${CLOUDFLARE_MCP_IMAGE:-ghcr.io/l8tenever/ida-cloudflare:latest}
+    profiles: ["cloudflare"]
+    pull_policy: always
+    restart: unless-stopped
+    environment:
+      CLOUDFLARE_API_TOKEN: ${CLOUDFLARE_API_TOKEN:-}
+      MCP_AUTH_TOKEN: ${CLOUDFLARE_MCP_TOKEN:-}
+      MCP_HOST: 0.0.0.0
+      MCP_PORT: 8030
+    ports:
+      - "${CLOUDFLARE_MCP_PORT:-127.0.0.1:8030}:8030"   # z. B. 10.7.0.1:8030, wenn der Tunnel wie bisher darauf zeigt
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp
+    labels:
       com.centurylinklabs.watchtower.enable: "true"
 
   # optional: holt neue Images von GitHub automatisch (alle 10 Minuten) und startet die App neu
@@ -215,3 +290,4 @@ volumes:
   kalender-data:
   wiki-data:
   dashboard-data:
+  server-data:

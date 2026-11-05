@@ -275,7 +275,8 @@ class ProjectCreate(BaseModel):
 
 
 class ProjectUpdate(BaseModel):
-    name: str
+    name: str | None = None
+    server_stack: str | None = None  # "" = keinen Stack mehr
 
 
 class Draft(BaseModel):

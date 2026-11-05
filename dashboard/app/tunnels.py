@@ -9,6 +9,7 @@ from urllib.parse import urlsplit
 
 import httpx
 
+from . import cloudflare_api
 from .discovery import ctr_name, is_self, networks_of
 from .docker_api import Docker, DockerError
 
@@ -77,10 +78,18 @@ async def _read(docker: Docker, containers: list[dict]) -> list[dict]:
 
 
 async def routes(docker: Docker, containers: list[dict]) -> list[dict]:
+    """Routen von cloudflared (Metrics-Port) und – mit Token – aus der Cloudflare-API (remote verwaltete Tunnel), ohne Doppelte."""
     global _cache
     if _cache and time.monotonic() - _cache[0] < TTL:  # nicht gegen 0 rechnen: monotonic zählt ab Systemstart
         return _cache[1]
     found = await _read(docker, containers)
+    if cloudflare_api.enabled():
+        try:
+            found += await cloudflare_api.tunnel_routes()
+        except cloudflare_api.CloudflareError as e:
+            log.warning("Tunnel-Routen aus der Cloudflare-API nicht lesbar: %s", e)
+    seen: set = set()
+    found = [r for r in found if (k := (r["host"], r.get("path") or "", r["service"])) not in seen and not seen.add(k)]
     _cache = (time.monotonic(), found)
     return found
 
@@ -90,8 +99,7 @@ def reset() -> None:
     _cache = None
 
 
-def match(found: list[dict], containers: list[dict]) -> dict[str, list[dict]]:
-    """Container-Id → seine öffentlichen Adressen. Das Ziel ist ein Container (Name, Dienst, IP) oder ein veröffentlichter Port."""
+def indexes(containers: list[dict]) -> tuple[dict[str, dict], dict[int, dict]]:
     by_name: dict[str, dict] = {}
     by_port: dict[int, dict] = {}
     for c in containers:
@@ -100,16 +108,28 @@ def match(found: list[dict], containers: list[dict]) -> dict[str, list[dict]]:
         for p in c.get("Ports") or []:
             if p.get("PublicPort") and p.get("IP") not in LOCAL_ONLY:  # cloudflared läuft im Container und kommt da nicht hin
                 by_port[p["PublicPort"]] = c
+    return by_name, by_port
+
+
+def target_of(service: str, idx: tuple[dict, dict]) -> dict | None:
+    """Container hinter einem Tunnel-Ziel (http://name:80, http://IP:Port …) oder None."""
+    u = urlsplit(service or "")
+    if not u.hostname:
+        return None  # http_status:404 und Ähnliches
+    try:
+        port = u.port or {"http": 80, "https": 443}.get(u.scheme)
+    except ValueError:
+        return None
+    by_name, by_port = idx
+    return by_name.get(u.hostname) or by_port.get(port)
+
+
+def match(found: list[dict], containers: list[dict]) -> dict[str, list[dict]]:
+    """Container-Id → seine öffentlichen Adressen. Das Ziel ist ein Container (Name, Dienst, IP) oder ein veröffentlichter Port."""
+    idx = indexes(containers)
     out: dict[str, list[dict]] = {}
     for r in found:
-        u = urlsplit(r["service"])
-        if not u.hostname:
-            continue  # http_status:404 und Ähnliches
-        try:
-            port = u.port or {"http": 80, "https": 443}.get(u.scheme)
-        except ValueError:
-            continue
-        c = by_name.get(u.hostname) or by_port.get(port)
+        c = target_of(r["service"], idx)
         if c:
             out.setdefault(c["Id"], []).append({"url": f"https://{r['host']}{r.get('path') or ''}", "target": r["service"]})
     return out

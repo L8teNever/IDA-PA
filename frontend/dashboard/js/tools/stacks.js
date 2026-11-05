@@ -129,8 +129,21 @@ function mountRow(m) {
     <small class="mono"><span class="ms sm">subdirectory_arrow_right</span>${esc(m.target)}</small>${volume && m.source ? `<small class="mono muted">${esc(m.source)}</small>` : ""}${m.rw ? "" : ` <span class="pill">nur lesen</span>`}`);
 }
 
+// Schutz einer öffentlichen Adresse: Cloudflare Zero Trust (Access) davor oder für jeden offen
+const ACCESS = {
+  access: ["lock", "Zero Trust", "pill ok"],
+  public: ["public", "öffentlich", "pill warn"],
+  unknown: ["help", "Schutz unbekannt", "pill"],
+};
+function urlRow(u) {
+  const [icon, label, cls] = ACCESS[u.access] || ACCESS.unknown;
+  const src = u.access_source === "api" ? "laut Cloudflare-API" : "Test ohne Login";
+  const pill = u.access ? ` <span class="${cls}" title="${esc(`${u.access_detail || ""} (${src})`)}"><span class="ms sm">${icon}</span>${label}</span>` : "";
+  return infoRow(u.access === "access" ? "lock" : "public", "Öffentliche Adresse", `<a class="mono" href="${esc(u.url)}" target="_blank" rel="noopener">${esc(u.url.replace(/^https:\/\//, ""))}</a>${pill}`);
+}
+
 function infoHtml(c, urls, open) {
-  const addr = [...urls.map((u) => infoRow("public", "Öffentliche Adresse", `<a class="mono" href="${esc(u.url)}" target="_blank" rel="noopener">${esc(u.url.replace(/^https:\/\//, ""))}</a>`)), ...(c.port_list || []).map(portRow)];
+  const addr = [...urls.map(urlRow), ...(c.port_list || []).map(portRow)];
   const nets = (c.networks || []).map((n) => infoRow("hub", "Netzwerk", `<span class="mono">${esc(n.name)}</span>${n.ip ? ` <small class="mono muted">${esc(n.ip)}</small>` : ""}`));
   const data = (c.mounts || []).map(mountRow);
   const off = c.state !== "running" ? `<div class="muted small">Läuft gerade nicht, deshalb sind Ports und IPs eventuell leer.</div>` : "";

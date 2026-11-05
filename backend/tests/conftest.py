@@ -48,6 +48,7 @@ _github = None
 _kalender = None
 _wiki = None
 _voice = None
+_dashboard = None
 
 
 @pytest.fixture(scope="session")
@@ -69,6 +70,12 @@ def voice(server):
 
 
 @pytest.fixture(scope="session")
+def dashboard(server):
+    """Der Ersatz fürs Dashboard (Server-Stacks der Code-Projekte)."""
+    return _dashboard
+
+
+@pytest.fixture(scope="session")
 def github(server):
     """The fake GitHub (Device Flow, API, bare repos) the app talks to."""
     return _github
@@ -76,7 +83,8 @@ def github(server):
 
 @pytest.fixture(scope="session")
 def server():
-    global _github, _kalender, _wiki
+    global _github, _kalender, _wiki, _dashboard
+    from .fake_dashboard import FakeDashboard
     from .fake_github import FakeGitHub
     from .fake_kalender import FakeKalender
     from .fake_wiki import FakeWiki
@@ -85,7 +93,9 @@ def server():
     _github = FakeGitHub(tmp / "github")
     _kalender = FakeKalender()
     _wiki = FakeWiki()
+    _dashboard = FakeDashboard()
     os.environ.update({
+        "DASHBOARD_URL": _dashboard.url,
         "KALENDER_URL": _kalender.url, "KALENDER_IDA_TOKEN": "test-kalender-token-123456",
         "WIKI_URL": _wiki.url, "WIKI_IDA_TOKEN": "test-wiki-token-123456",
         "WIKI_PUBLIC_URL": "https://wiki.example.test",

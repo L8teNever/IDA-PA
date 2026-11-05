@@ -45,7 +45,8 @@ class FakeDocker:
             c = next((x for x in self.containers if x["Id"].startswith(cid)), None)
             if not c:
                 return httpx.Response(404, json={"message": "No such container"})
-            return httpx.Response(200, json={"Id": c["Id"], "Name": c["Names"][0], "Config": {"Tty": False, "Env": c.get("Env") or []}})
+            return httpx.Response(200, json={"Id": c["Id"], "Name": c["Names"][0], "State": {"Running": c["State"] == "running"},
+                                              "Config": {"Tty": False, "Env": c.get("Env") or [], "Labels": c.get("Labels") or {}}})
         if p.startswith("/networks/") and p.endswith("/connect"):
             self.actions.append(("connect", p.split("/")[2]))
             return httpx.Response(200)
@@ -88,6 +89,7 @@ def settings(tmp_path, monkeypatch):
     monkeypatch.setenv("STACKS_DIRS", str(stacks))
     monkeypatch.setenv("FRONTEND_DIR", str(Path(__file__).resolve().parents[2] / "frontend"))
     monkeypatch.delenv("IDA_PUBLIC_URL", raising=False)
+    monkeypatch.delenv("CLOUDFLARE_API_TOKEN", raising=False)  # nie die echte Cloudflare-API im Test
     monkeypatch.setenv("DATA_DIR", str(tmp_path / "data"))
     monkeypatch.setenv("HOST_PROC", str(proc))
     monkeypatch.setenv("HOST_ROOT", str(tmp_path))

@@ -14,7 +14,7 @@ from ..services import chat as chat_service
 from ..services import chat_queue
 from ..services import files as file_svc
 from ..services import code as code_area
-from ..services import settings_store
+from ..services import server_stack, settings_store
 from ..services.code import approvals, commit_msg, git, github, projects, sandbox
 from ..services.errors import Invalid, NotFound
 from . import serializers as ser
@@ -78,8 +78,16 @@ async def get_project(pid: str, db: DB):
 
 @router.patch("/projects/{pid}")
 async def rename_project(pid: str, body: ProjectUpdate, db: DB):
+    """Umbenennen und/oder Server-Stack wählen (leer = keiner)."""
     await code_area.require(db)
     p = await projects.get(db, pid)
+    if body.server_stack is not None:
+        name = body.server_stack.strip()
+        if name and name not in {s["name"] for s in await server_stack.stacks()}:
+            raise Invalid(f"Stack „{name}“ gibt es auf dem Server nicht")
+        p.server_stack = name[:120] or None
+    if body.name is None:
+        return ser.code_project(p)
     if not body.name.strip():
         raise Invalid("Name fehlt")
     p.name = body.name.strip()[:80]
@@ -89,6 +97,15 @@ async def rename_project(pid: str, body: ProjectUpdate, db: DB):
     except Exception:
         pass
     return ser.code_project(p)
+
+
+@router.get("/server-stacks")
+async def server_stacks(db: DB):
+    """Docker-Stacks des Servers (über das Dashboard) zum Auswählen pro Projekt."""
+    await code_area.require(db)
+    if not server_stack.enabled():
+        return {"enabled": False, "stacks": []}
+    return {"enabled": True, "stacks": await server_stack.stacks()}
 
 
 @router.delete("/projects/{pid}")

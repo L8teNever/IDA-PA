@@ -17,3 +17,4 @@ class CodeProject(Timestamps, Base):
     default_branch: Mapped[str] = mapped_column(String(100), default="main")
     status: Mapped[str] = mapped_column(String(10), default="ready")  # cloning | ready | error
     status_text: Mapped[str] = mapped_column(Text, default="")
+    server_stack: Mapped[str | None] = mapped_column(String(120), default=None)  # Docker-Stack auf dem Server (Dashboard), None = keiner

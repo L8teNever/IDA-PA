@@ -457,6 +457,7 @@ function projectMenu(anchor) {
   const p = cur;
   popMenu(anchor, [
     { value: "rename", icon: "edit", label: "Umbenennen" },
+    { value: "stack", icon: "dns", label: "Server-Stack wählen", sub: p.server_stack ? `Jetzt: ${p.server_stack}` : "Logs, Befehle und Updates auf dem Server für die KI" },
     ...(!p.repo_url && p.status === "ready" ? [{ value: "publish", icon: "publish", label: "Auf GitHub veröffentlichen" }] : []),
     "-",
     { value: "delete", icon: "delete", label: "Projekt löschen", sub: "Ordner und alle Threads – das Repo auf GitHub bleibt", danger: true },
@@ -465,10 +466,27 @@ function projectMenu(anchor) {
       const r = await formDialog("Projekt umbenennen", [{ name: "name", label: "Name", value: p.name, required: true, max: 80 }], { icon: "edit" });
       if (r && await attempt(() => api.patch(`/code/projects/${p.id}`, { name: r.name }), "Umbenannt")) { await loadTree().catch(() => {}); show(route); }
     }
+    if (v === "stack") chooseStack(anchor, p);
     if (v === "publish") publish();
     if (v === "delete" && await confirmDialog("Projekt löschen?", `„${p.name}“ mit allen Threads löschen? Nicht gepushte Änderungen gehen verloren. Das Repo auf GitHub bleibt.`, { ok: "Löschen", danger: true })) {
       if (await attempt(() => api.del(`/code/projects/${p.id}`), "Projekt gelöscht")) { await loadTree().catch(() => {}); navigate("/"); }
     }
+  }, { align: "right" });
+}
+
+// Docker-Stack des Servers (über das Dashboard) für dieses Projekt: die KI im Thread sieht Status/Logs, führt Befehle aus, aktualisiert
+async function chooseStack(anchor, p) {
+  const d = await attempt(() => api.get("/code/server-stacks"));
+  if (!d) return;
+  if (!d.enabled) return toast("Das Dashboard ist nicht eingerichtet (DASHBOARD_URL fehlt)");
+  const stateText = (s) => `${s.running}/${s.total} laufen${s.services.length ? " · " + s.services.join(", ") : ""}`;
+  popMenu(anchor, [
+    { value: "", icon: "block", label: "Kein Server-Stack", on: !p.server_stack },
+    "-",
+    ...d.stacks.map((s) => ({ value: s.name, icon: s.state === "running" ? "check_circle" : "dns", label: s.name, sub: stateText(s), on: s.name === p.server_stack })),
+  ], async (v) => {
+    if (v === undefined || v === null || v === (p.server_stack || "")) return;
+    if (await attempt(() => api.patch(`/code/projects/${p.id}`, { server_stack: v }), v ? `Server-Stack: ${v}` : "Kein Server-Stack mehr")) { await loadTree().catch(() => {}); show(route); }
   }, { align: "right" });
 }
 

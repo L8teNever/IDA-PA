@@ -13,5 +13,16 @@ import stacks from "./stacks.js";
 import files from "./files.js";
 import monitor from "./monitor.js";
 import storage from "./storage.js";
+import sites from "./sites.js";
+import publish from "./publish.js";
 
-export const TOOLS = [overview, stacks, files, monitor, storage];
+// Dieselbe Oberfläche läuft als IDA Dashboard (Überblick) und als IDA Server (einrichten). Welche Tools in welcher
+// Reihenfolge in der Leiste stehen, sagt der Server (/api/v1/app → nav); ohne Antwort gilt die Liste des Dashboards.
+export const ALL = { overview, stacks, files, monitor, storage, sites, publish };
+export const DASHBOARD_NAV = ["overview", "stacks", "files", "monitor", "storage"];
+export const TOOLS = [];
+export function setTools(nav) {
+  TOOLS.length = 0;
+  for (const id of nav?.length ? nav : DASHBOARD_NAV) if (ALL[id]) TOOLS.push(ALL[id]);
+}
+setTools(DASHBOARD_NAV);

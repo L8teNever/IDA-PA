@@ -6,6 +6,7 @@ Rights depend on the caller (see identity.Identity):
   chat_*:      every agent may search and read all chats (also those of other agents) for context.
   memory_*:    only when memory is switched on for the run.
   code_*:      code_projects for the main agent; code_approve / code_commit only inside a code thread.
+  server_*:    only inside a code thread whose project has a server stack (Dashboard); commands/actions need approval unless "full".
 Triggers and connector access are never settable here – only by the user in the UI.
 """
 import base64
@@ -31,7 +32,7 @@ from ..claude import prompts
 from ..errors import Invalid, NotFound
 from ..code import approvals, commit_msg, git, github, projects as code_projects, sandbox
 from ..memory import store as memory
-from . import kalender_tools, voice_tools, wiki_tools
+from . import kalender_tools, server_tools, voice_tools, wiki_tools
 from .identity import Identity, get
 
 E = {"type": "string"}
@@ -135,6 +136,8 @@ def _spec(ids: list[str]) -> list[tuple[str, str, str, dict]]:
         tools += kalender_tools.spec()
     if wiki_tools.enabled():  # Wiki-Dienst eingerichtet (WIKI_URL): Gedächtnis, Suche, Privat-Freigaben
         tools += wiki_tools.spec()
+    if server_tools.enabled():  # Dashboard eingerichtet (DASHBOARD_URL): Code-Threads bedienen den Server-Stack ihres Projekts
+        tools += server_tools.spec()
     if voice_tools.enabled():  # Voice-Dienst eingerichtet (VOICE_URL): Stella telefoniert
         tools += [(VOICE, n, d, schema) for n, d, schema in voice_tools.spec()]
     return tools
@@ -502,6 +505,15 @@ async def handle(token: str, msg: dict) -> dict | None | bool:
         p = msg.get("params") or {}
         if p.get("name") == "code_approve":  # waits for the user – without holding a database session meanwhile
             return reply(await _approve(me, p.get("arguments") or {}))
+        if str(p.get("name") or "").startswith("server_"):  # wartet ggf. auf Freigabe/Update – ohne Datenbank-Sitzung
+            pname = str(p.get("name"))
+            try:
+                if not server_tools.enabled() or not _allowed(CODE, pname, me):
+                    raise Invalid("server_* gibt es nur in Code-Threads mit eingerichtetem Dashboard")
+                out = await server_tools.call(me, pname, p.get("arguments") or {})
+            except (Invalid, NotFound) as e:
+                out = {"error": str(e)}
+            return reply({"content": [{"type": "text", "text": json.dumps(out, ensure_ascii=False, default=str)}], "isError": bool(out.get("error"))})
         if str(p.get("name") or "").startswith("sandbox_"):  # dauert, auch hier keine Datenbank-Sitzung dabei
             try:
                 out = await _sandbox(me, p["name"], p.get("arguments") or {})

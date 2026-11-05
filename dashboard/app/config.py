@@ -24,6 +24,24 @@ class Settings(BaseSettings):
     timezone: str = "Europe/Berlin"
     dashboard_public_url: str = ""
     ida_public_url: str = ""          # Link zurück zu IDA; leer = kein Link
+    # Cloudflare-API (nur lesend), derselbe Token wie beim Cloudflare-MCP im IDA-Stack: Access-Apps (Zero Trust) und Tunnel-Routen.
+    # Leer = Schutz der URLs wird per Aufruf ohne Login geprüft, Routen nur über den Metrics-Port von cloudflared.
+    cloudflare_api_token: str = ""
+    cloudflare_account_id: str = ""   # leer = das erste Konto, das der Token sieht
+    cloudflare_api_url: str = "https://api.cloudflare.com/client/v4"
+
+    # Dieselbe App läuft zweimal im IDA-Stack: "dashboard" = Überblick (Übersicht, Stacks, Dateien, Leistung, Speicher),
+    # "server" = IDA Server zum Einrichten (Websites, Veröffentlichen, Stacks, Dateien). Siehe docs/SERVER.md
+    app_mode: str = "dashboard"
+    server_public_url: str = ""
+    dashboard_url: str = ""           # nur Server: intern zum Dashboard (Messwerte für die Stacks), z. B. http://dashboard:8000
+    sites_dir: str = "/opt/ida-sites"  # nur Server: Websites (www/<name>, conf/sites.conf); muss auch im nginx-Dienst „sites“ hängen
+    sites_upstream: str = ""          # nur Server: so erreicht der Tunnel den nginx der Websites, z. B. http://10.7.0.1:8087; leer = automatisch
+    tunnel_host_ip: str = ""          # nur Server: IP des Servers für Tunnel-Ziele (Ports); leer = aus den vorhandenen Tunnel-Regeln
+
+    @property
+    def is_server(self) -> bool:
+        return self.app_mode.strip().lower() == "server"
 
     @property
     def stack_dirs(self) -> list[Path]:

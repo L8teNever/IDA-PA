@@ -54,6 +54,7 @@ class Settings(BaseSettings):
 
     # Dashboard-App (eigener Dienst, siehe docs/DASHBOARD.md): öffentliche URL; leer = kein Eintrag in der Seitenleiste
     dashboard_public_url: str = ""
+    dashboard_url: str = ""  # intern, z. B. http://dashboard:8000 – Code-Threads bedienen damit den Server-Stack ihres Projekts; leer = aus
 
     # Stella / Live-Sprache (eigener Container „voice“ aus demselben Image, siehe docs/STELLA.md).
     # In IDA: wo der Voice-Dienst intern läuft, das gemeinsame Geheimnis und die öffentliche Adresse (Browser + Telnyx).

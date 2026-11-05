@@ -40,3 +40,19 @@ Die KI nutzt sie mit `sandbox_ausfuehren`, der Nutzer im Tab „Sandbox“ der C
 - 15 Minuten ohne Befehl: Die Sandbox stoppt samt allem, was darin läuft. Dateien bleiben, nach 7 Tagen ohne Nutzung wird alles gelöscht.
 - Eingeschaltet wird sie mit `SANDBOX_SECRET` in der `.env`.
 - Netz: Internet ja, Server und lokales Netz nein. Das regelt die Firewall des Servers über die Schnittstelle `ida-sandbox0` (`ida-sandbox-firewall.service`, auf dem Server eingerichtet). Auf einem neuen Server muss sie dort neu eingerichtet werden, sonst erreicht die Sandbox interne Dienste.
+
+## Server-Stack (Docker auf dem Server)
+
+Pro Projekt lässt sich im Projekt-Menü unter **Server-Stack wählen** ein Docker-Stack des Servers einstellen (Liste aus dem
+Dashboard). Die KI im Thread bekommt dann diese Tools. Sie gehen über die interne API des Dashboards (`DASHBOARD_URL`,
+Standard `http://dashboard:8000`), SSH braucht es dafür nicht:
+
+| Tool | Was es macht | Freigabe |
+|---|---|---|
+| `server_status` | Dienste, Zustand, Image, Health, öffentliche URLs mit Schutz (Zero Trust / öffentlich) | nie |
+| `server_logs` | letzte Zeilen eines Dienstes, optional gefiltert | nie |
+| `server_befehl` | Shell-Befehl im laufenden Container (`docker exec … sh -c`), wie ein Terminal | bei „Nachfragen“ und „Bearbeiten“ |
+| `server_aktion` | `update` (pull + up -d), `restart`, `start`, `stop`, `up`; wartet, bis der Vorgang fertig ist | bei „Nachfragen“ und „Bearbeiten“ |
+
+„Immer erlauben“ gilt bei Befehlen für alle Befehle in diesem Stack und bei Aktionen je Aktion, jeweils nur in diesem Thread.
+Ohne gewählten Stack sagen die Tools das. Das Dashboard selbst nimmt keine Befehle an. Im Prompt steht, welcher Stack zum Projekt gehört.

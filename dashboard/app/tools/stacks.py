@@ -1,5 +1,6 @@
 """Tool „Stacks“: alle Docker-Stacks des Servers sehen, starten/stoppen/neu starten/aktualisieren,
 Compose- und .env-Dateien bearbeiten, Logs ansehen."""
+import asyncio
 import os
 import shutil
 import tempfile
@@ -14,7 +15,7 @@ from pydantic import BaseModel, Field
 from ..config import get_settings
 from ..discovery import discover, is_self, stack_files
 from ..docker_api import Docker, DockerError
-from .. import tunnels
+from .. import access, cloudflare_api, tunnels
 from ..jobs import Job, Jobs, run_cmd
 from . import Tool
 
@@ -68,6 +69,12 @@ async def list_stacks(req: Request):
     return [with_job(s, jobs(req)) for s in await all_stacks(req)]
 
 
+@router.get("/api/v1/cloudflare")
+async def cloudflare_status():
+    """Ob die Cloudflare-API (Token wie beim Cloudflare-MCP) geht: Konto, Zahl der Access-Apps und Tunnel-Routen."""
+    return await cloudflare_api.status()
+
+
 @router.get("/api/v1/stacks/{name}")
 async def get_stack(name: str, req: Request):
     s = await find(req, name)
@@ -82,7 +89,7 @@ async def public_urls(req: Request, s: dict) -> dict[str, list[dict]]:
     except DockerError:
         return {}
     ids = {c["id"] for c in s["containers"]}
-    return {k: v for k, v in found.items() if k in ids}
+    return await access.annotate({k: v for k, v in found.items() if k in ids})
 
 
 class ActionIn(BaseModel):
@@ -129,9 +136,7 @@ async def stack_action(name: str, body: ActionIn, req: Request):
     if needs_files and not s["files_ok"]:
         raise HTTPException(400, "Die Compose-Dateien dieses Stacks sind im Dashboard nicht erreichbar (Ordner nicht eingebunden)")
     d = docker(req)
-    env = {**os.environ}
-    if not get_settings().docker_host.startswith("unix://"):
-        env["DOCKER_HOST"] = get_settings().docker_host
+    env = docker_env()
 
     if s["kind"] == "compose" and s["files_ok"]:
         base = compose_base(s)
@@ -197,6 +202,52 @@ async def container_logs(cid: str, req: Request, tail: int = 300):
     except DockerError as e:
         fail(e)
     return {"name": info.get("Name", "").lstrip("/"), "text": text}
+
+
+class ExecIn(BaseModel):
+    cmd: str = Field(min_length=1, max_length=20_000)
+    timeout: int = Field(60, ge=1, le=600)
+    user: str = Field("", max_length=64)
+
+
+EXEC_MAX = 200_000  # so viele Zeichen Ausgabe kommen höchstens zurück (der Anfang wird abgeschnitten)
+
+
+def docker_env() -> dict:
+    env = {**os.environ}
+    if not get_settings().docker_host.startswith("unix://"):
+        env["DOCKER_HOST"] = get_settings().docker_host
+    return env
+
+
+@router.post("/api/v1/containers/{cid}/exec")
+async def container_exec(cid: str, body: ExecIn, req: Request):
+    """Ein Shell-Befehl im laufenden Container (`docker exec … sh -c`), Ausgabe kommt am Ende zurück (für IDA Code)."""
+    d = docker(req)
+    try:
+        info = await d.inspect(cid)
+    except DockerError as e:
+        fail(e)
+    if (info.get("Config") or {}).get("Labels", {}).get("ida.dashboard") == "self":
+        raise HTTPException(400, "Das ist das Dashboard selbst – darin keine Befehle")
+    if not (info.get("State") or {}).get("Running"):
+        raise HTTPException(409, "Der Container läuft gerade nicht")
+    args = ["docker", "exec"] + (["-u", body.user] if body.user else []) + [info["Id"], "sh", "-c", body.cmd]
+    code, text, timed_out = await run_exec(args, body.timeout)
+    cut = len(text) > EXEC_MAX
+    return {"name": info.get("Name", "").lstrip("/"), "exit_code": code, "timed_out": timed_out, "truncated": cut, "output": text[-EXEC_MAX:]}
+
+
+async def run_exec(args: list[str], timeout: int) -> tuple[int | None, str, bool]:
+    """(Exit-Code oder None bei Zeitüberschreitung, Ausgabe, abgebrochen?)"""
+    proc = await asyncio.create_subprocess_exec(*args, env=docker_env(), stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT)
+    try:
+        out, _ = await asyncio.wait_for(proc.communicate(), timeout)
+    except asyncio.TimeoutError:
+        proc.kill()
+        out, _ = await proc.communicate()
+        return None, (out or b"").decode("utf-8", "replace"), True
+    return proc.returncode, (out or b"").decode("utf-8", "replace"), False
 
 
 # ---------- Dateien (Compose, .env) ----------
@@ -268,6 +319,15 @@ async def write_file(name: str, body: FileIn, req: Request):
 @router.get("/api/v1/jobs")
 async def list_jobs(req: Request):
     return sorted((j.view() for j in jobs(req).items.values()), key=lambda j: -j["started"])[:20]
+
+
+@router.get("/api/v1/jobs/{jid}")
+async def get_job(jid: str, req: Request, tail: int = 200):
+    """Stand eines Vorgangs samt den letzten Zeilen der Ausgabe (zum Abfragen statt Live-Folgen)."""
+    j = jobs(req).items.get(jid)
+    if not j:
+        raise HTTPException(404, "Vorgang nicht gefunden")
+    return {**j.view(), "output": j.lines[-max(1, min(tail, 2000)):]}
 
 
 @router.get("/api/v1/jobs/{jid}/live")

@@ -1,7 +1,7 @@
 """Stacks: Erkennung, Aktionen, Dateien bearbeiten, Logs."""
 import asyncio
 
-from app import tunnels
+from app import access, tunnels
 from app.tools import stacks as stacks_mod
 
 from .conftest import ctr, lines
@@ -155,13 +155,21 @@ async def test_stack_shows_addresses_networks_and_mounts(client, tmp_path, setti
         return {"config": {"ingress": [{"hostname": "shop.example.com", "service": "https://10.7.0.1:8443"}, {"hostname": "name.example.com", "service": "http://web:80"},
                                        {"hostname": "fremd.example.com", "service": "http://10.7.0.1:1"}, {"service": "http_status:404"}]}}
 
+    async def fake_fetch(url):
+        if "shop" in url:
+            return 302, {"Location": "https://team.cloudflareaccess.com/cdn-cgi/access/login/shop.example.com"}, ""
+        return 200, {}, ""
+
     monkeypatch.setattr(tunnels, "fetch_config", fake_config)
+    monkeypatch.setattr(access, "fetch", fake_fetch)
+    access.reset()
     d = (await client.get("/api/v1/stacks/shop")).json()
     c = d["containers"][0]
     assert [(p["public"], p["private"]) for p in c["port_list"]] == [(8080, 80), (8443, 443), (None, 9000)]  # IPv4 und IPv6 zählen einmal
     assert c["networks"] == [{"name": "shop_default", "ip": "172.20.0.2"}]
     assert [(m["target"], m["rw"]) for m in c["mounts"]] == [("/data", True), ("/etc/conf", False)]
     assert [u["url"] for u in d["urls"][web["Id"]]] == ["https://shop.example.com", "https://name.example.com"]
+    assert [u["access"] for u in d["urls"][web["Id"]]] == ["access", "public"]
     assert asked == ["http://172.19.0.3:2000/config"] and ("connect", "cf_default") in client.docker.actions
     # kein Tunnel: alles andere bleibt da
     tunnels.reset()
@@ -169,3 +177,41 @@ async def test_stack_shows_addresses_networks_and_mounts(client, tmp_path, setti
     d = (await client.get("/api/v1/stacks/shop")).json()
     assert d["urls"] == {} and d["containers"][0]["mounts"]
     tunnels.reset()
+
+
+async def test_container_exec(client, monkeypatch):
+    from app.tools import stacks
+
+    web = ctr("w", "web", "shop")
+    off = ctr("o", "alt", "shop", state="exited")
+    dash = ctr("d", "dashboard", "ida", labels={"ida.dashboard": "self"})
+    client.docker.containers = [web, off, dash]
+    ran = []
+
+    async def fake_exec(args, timeout):
+        ran.append((args, timeout))
+        return 0, "x" * (stacks.EXEC_MAX + 5), False
+
+    monkeypatch.setattr(stacks, "run_exec", fake_exec)
+    r = (await client.post(f"/api/v1/containers/{web['Id']}/exec", json={"cmd": "ls /", "timeout": 5})).json()
+    assert r["exit_code"] == 0 and r["truncated"] and len(r["output"]) == stacks.EXEC_MAX
+    assert ran == [(["docker", "exec", web["Id"], "sh", "-c", "ls /"], 5)]
+    assert (await client.post(f"/api/v1/containers/{off['Id']}/exec", json={"cmd": "ls"})).status_code == 409
+    assert (await client.post(f"/api/v1/containers/{dash['Id']}/exec", json={"cmd": "ls"})).status_code == 400
+    assert (await client.post(f"/api/v1/containers/{web['Id']}/exec", content="cmd=ls")).status_code == 415  # nur JSON
+
+
+async def test_job_output(client):
+    async def work(job):
+        job.write("eins\nzwei")
+        return True
+
+    j = client.app.state.jobs.start("Test", "stack:x", work)
+    import asyncio
+    for _ in range(50):
+        if j.done:
+            break
+        await asyncio.sleep(0.01)
+    r = (await client.get(f"/api/v1/jobs/{j.id}?tail=1")).json()
+    assert r["done"] and r["ok"] and r["output"] == ["zwei"]
+    assert (await client.get("/api/v1/jobs/nix")).status_code == 404

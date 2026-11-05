@@ -14,6 +14,14 @@ Es zeigt alles, was auf dem Server läuft, und lässt es bedienen:
   * **Adressen, Netze und Daten** je Container: Image, öffentliche URLs, Ports, Netzwerke mit IP und alle Mounts (Volume oder
     Ordner, Zielpfad, nur lesen). Die URLs liest das Dashboard bei `cloudflared` (Metrics-Port, `/config`, kein Token nötig) und
     ordnet sie über den Port dem Container zu. Dafür tritt es bei Bedarf selbst dem Netz von `cloudflared` bei.
+    Neben jeder URL steht, ob sie **mit Cloudflare Zero Trust geschützt** (grün, „Zero Trust“) oder **für jeden offen** ist
+    (gelb, „öffentlich“). Mit `CLOUDFLARE_API_TOKEN` (derselbe Token wie beim Cloudflare-MCP, siehe unten) liest das Dashboard
+    dafür die **Access-Apps samt Policies** aus der Cloudflare-API: Wildcards (`*.example.com`), nur geschützte Pfade („Offen – nur
+    /admin ist geschützt“) und Bypass-Policies (zählen als offen) werden erkannt, der Tooltip nennt App und Policies. Zusätzlich
+    kommen die Routen der remote verwalteten Tunnel aus der API dazu. Ohne Token oder wenn die API nicht antwortet, ruft das Dashboard
+    die Adresse einmal ohne Anmeldung auf (Umleitung zum Access-Login = geschützt; ein eigener Login der App zählt als „öffentlich“,
+    nicht erreichbar = „Schutz unbekannt“). Ergebnisse gelten 2 bzw. 5 Minuten (`app/cloudflare_api.py`, `app/access.py`).
+    `GET /api/v1/cloudflare` zeigt, ob die API geht (Konto, Zahl der Access-Apps und Tunnel-Routen, Fehler).
   * Verbrauch des Stacks in den letzten 24 Stunden.
 * **Dateien**: Datei-Explorer für den ganzen Server (`/` ist unter `/hostfs` eingebunden, mit Schreibrecht). Ordner ansehen
   (Liste oder Kacheln mit Bildvorschau, sortieren, suchen, versteckte Dateien), Bilder, Videos, Audio, PDF und HTML ansehen,
@@ -31,6 +39,11 @@ Es zeigt alles, was auf dem Server läuft, und lässt es bedienen:
 * **Speicher**: Platte (Docker / Stack-Ordner / Sonstiges / frei), Verlauf der Belegung, Docker-Anteile (Images, Volumes,
   Container, Build-Cache), Platz **je Stack** (Images, Volumes, Ordner, Container) und Listen aller Volumes und Images.
   Ungenutzte Images und den Build-Cache kannst du dort aufräumen.
+
+* **Für IDA Code** (intern, `DASHBOARD_URL` in IDA): `POST /api/v1/containers/{id}/exec` (`{cmd, timeout, user}`, Befehl im Container,
+  Ausgabe am Ende) und `GET /api/v1/jobs/{id}` (Stand eines Vorgangs mit den letzten Zeilen). Damit bedienen Code-Threads den
+  Server-Stack ihres Projekts, siehe docs/CODE.md. Das Dashboard hat keine eigene Anmeldung: den Host-Port (`DASHBOARD_PORT`) nicht ins
+  Netz geben, nur über Cloudflare Access.
 
 ## Messwerte
 
@@ -59,6 +72,23 @@ Verkehr doppelt gezählt. Mit `DASHBOARD_NET_IFACES=enp0s31f6` legst du die Kart
    Docker-Socket, damit hat es volle Kontrolle über den Server. Eine eigene Anmeldung gibt es (wie bei den anderen Apps) nicht.
    Ändernde Aufrufe nimmt es nur als JSON an, damit fremde Webseiten nichts auslösen können.
 4. `docker compose pull && docker compose up -d`
+
+### Cloudflare (MCP + API fürs Dashboard)
+
+Der Cloudflare-MCP ([Ida-Cloudflare](https://github.com/L8teNever/Ida-Cloudflare)) läuft als Dienst `cloudflare` im IDA-Stack.
+Er und das Dashboard nutzen **einen** Token aus der `.env`:
+
+```ini
+COMPOSE_PROFILES=cloudflare            # startet den Dienst mit (z. B. cloudflare,autoupdate)
+CLOUDFLARE_API_TOKEN=…                 # Account- oder User-Token, NICHT der Global API Key
+CLOUDFLARE_MCP_TOKEN=…                 # Bearer für den MCP-Endpunkt: openssl rand -hex 32
+# CLOUDFLARE_MCP_PORT=10.7.0.1:8030    # wenn der Tunnel wie bisher auf 10.7.0.1:8030 zeigt (Standard 127.0.0.1:8030)
+```
+
+Rechte des Tokens: wie im README von Ida-Cloudflare (DNS, Zone Settings, Cache Purge, Firewall Services, Cloudflare Tunnel) plus
+**Access: Apps and Policies – Read**, damit das Dashboard den Schutz lesen kann. Das Dashboard schreibt nie etwas bei Cloudflare.
+In IDA erreicht der MCP intern `http://cloudflare:8030/mcp` (Header `Authorization: Bearer <CLOUDFLARE_MCP_TOKEN>`).
+Lief Ida-Cloudflare vorher als eigener Stack (Dockge), den alten Stack stoppen, sonst ist der Port doppelt belegt.
 
 ### Warum `/opt` unter demselben Pfad?
 

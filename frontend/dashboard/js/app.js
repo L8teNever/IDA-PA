@@ -2,7 +2,7 @@
 // Inhalt darunter; am Handy unten eine Leiste. Die Tools selbst liegen in js/tools/.
 import { api } from "./api.js";
 import { app } from "./store.js";
-import { TOOLS } from "./tools/index.js";
+import { TOOLS, setTools } from "./tools/index.js";
 import { $, esc } from "./ui.js";
 
 let current = null;   // { tool, params, cleanup }
@@ -29,6 +29,8 @@ export async function startApp(root) {
   });
   addEventListener("popstate", () => show());
   app.info = await api.get("/app").catch(() => ({ tools: [] }));
+  setTools(app.info.nav);
+  document.body.dataset.mode = app.info.mode || "dashboard";
   show();
 }
 
@@ -59,7 +61,8 @@ function show() {
   const same = current?.tool === tool && JSON.stringify(current.params) === JSON.stringify(params);
   if (same) return;
   try { current?.cleanup?.(); } catch { /* egal */ }
-  document.title = tool.id === "overview" ? "IDA Dashboard" : `${tool.label} · IDA Dashboard`;
+  const name = app.info?.title || "IDA Dashboard";
+  document.title = tool === TOOLS[0] ? name : `${tool.label} · ${name}`;
   drawNav(tool);
   const side = $("side");
   side.hidden = !tool.side;
@@ -89,6 +92,7 @@ function drawNav(active) {
   $("rail").innerHTML = `<span class="rail-logo ida-mini" aria-hidden="true"><i></i><i></i></span>
     <div class="rail-group">${TOOLS.map(btn).join("")}</div>
     <div class="rail-spacer"></div>
+    ${app.info?.mode === "server" && app.info?.dashboard_url ? `<a class="rail-btn" href="${esc(app.info.dashboard_url)}" target="_blank" rel="noopener"><span class="rail-ic"><span class="ms">space_dashboard</span></span><span class="rail-lbl">Dashboard</span></a>` : ""}
     ${ida ? `<a class="rail-btn" href="${esc(ida)}" target="_blank" rel="noopener"><span class="rail-ic"><span class="ms">face_5</span></span><span class="rail-lbl">IDA</span></a>` : ""}`;
   $("bnav").style.gridTemplateColumns = `repeat(${TOOLS.length}, 1fr)`;
   $("bnav").innerHTML = TOOLS.map((t) => `<a class="bnav-btn ${t === active ? "active" : ""}" href="${t.path}"><span class="ms">${t.icon}</span>${esc(t.label)}</a>`).join("");

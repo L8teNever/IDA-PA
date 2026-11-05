@@ -580,3 +580,42 @@ def test_branch_off_a_thread_from_any_answer(client, code_on, github):
     out = text(chat(client, chat_id=g["id"], text="anders weiter"))
     assert "Bisheriger Gesprächsverlauf" in out and "Nutzer: eins" in out and "zwei" not in out.split("Neue Nachricht")[0]
     assert g["id"] in [t["id"] for t in client.get(f"{API}/code/projects/{p['id']}/threads").json()]
+
+
+def test_server_stack_per_project_tools_via_dashboard(client, code_on, dashboard):
+    """Per project a Docker stack of the server: the thread sees status/logs, runs commands and updates via the Dashboard (no SSH)."""
+    p = client.post(f"{API}/code/projects", json={"name": "ServerStack"}).json()
+    d = client.get(f"{API}/code/server-stacks").json()
+    assert d["enabled"] and [s["name"] for s in d["stacks"]] == ["shop", "ida"] and d["stacks"][0]["services"] == ["app", "db"]
+    # without a stack the tools say so
+    ev = chat(client, project_id=p["id"], text="TOOL server_status {}", permission_mode="full")
+    assert "kein Server-Stack" in text(ev)
+    assert client.patch(f"{API}/code/projects/{p['id']}", json={"server_stack": "gibtsnicht"}).status_code == 400
+    r = client.patch(f"{API}/code/projects/{p['id']}", json={"server_stack": "shop"}).json()
+    assert r["server_stack"] == "shop" and r["name"] == "ServerStack"
+    # the prompt tells the thread about the stack
+    ev = chat(client, project_id=p["id"], text="SHOWSYS hallo", permission_mode="full")
+    assert 'Docker-Stack "shop"' in text(ev) and "server_logs" in text(ev)
+    ev = chat(client, project_id=p["id"], text="TOOL server_status {}", permission_mode="full")
+    assert '"zustand": "running"' in text(ev) and "shop.example.com" in text(ev) and '"schutz": "access"' in text(ev)
+    ev = chat(client, project_id=p["id"], text='TOOL server_logs {"service": "app", "grep": "error"}', permission_mode="full")
+    assert "ERROR kaputt" in text(ev) and "laeuft" not in text(ev)
+    ev = chat(client, project_id=p["id"], text='TOOL server_logs {}', permission_mode="full")
+    assert "mehrere Dienste" in text(ev)
+    ev = chat(client, project_id=p["id"], text='TOOL server_befehl {"service": "app", "befehl": "ls /app"}', permission_mode="full")
+    assert "ausgabe von ls /app" in text(ev)
+    assert any(x["path"] == "/api/v1/containers/c-app/exec" and x["body"]["cmd"] == "ls /app" for x in dashboard.requests)
+    ev = chat(client, project_id=p["id"], text='TOOL server_aktion {"aktion": "update"}', permission_mode="full")
+    assert '"ok": true' in text(ev) and "docker compose pull" in text(ev)
+    assert any(x["path"] == "/api/v1/stacks/shop/action" and x["body"] == {"action": "update"} for x in dashboard.requests)
+    # in "ask" mode a command waits for the user; denying runs nothing
+    n = len(dashboard.requests)
+    cid = _start(client, {"project_id": p["id"], "text": 'TOOL server_befehl {"service": "db", "befehl": "rm -rf /"}'})
+    a = wait(lambda: client.get(f"{API}/code/approvals?chat_id={cid}").json())[0]
+    assert a["tool"] == "Server: Befehl in shop" and a["input"]["befehl"] == "rm -rf /"
+    client.post(f"{API}/code/approvals/{a['id']}", json={"decision": "deny"})
+    wait(lambda: not client.get(f"{API}/chats/{cid}").json()["running"])
+    assert "abgelehnt" in client.get(f"{API}/chats/{cid}").json()["messages"][-1]["text"]
+    assert not any(x["path"].endswith("/exec") for x in dashboard.requests[n:])
+    # remove the stack again
+    assert client.patch(f"{API}/code/projects/{p['id']}", json={"server_stack": ""}).json()["server_stack"] is None

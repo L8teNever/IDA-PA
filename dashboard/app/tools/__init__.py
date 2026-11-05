@@ -21,5 +21,14 @@ class Tool:
 
 
 def all_tools() -> list[Tool]:
-    from . import files, monitor, stacks, storage  # Reihenfolge = Reihenfolge in der Leiste
+    from ..config import get_settings
+    from . import files, stacks  # Reihenfolge = Reihenfolge in der Leiste
+    if get_settings().is_server:  # IDA Server: einrichten; Messwerte holt er beim Dashboard
+        from . import monitor_proxy, publish, sites
+        return [sites.tool, publish.tool, stacks.tool, files.tool, monitor_proxy.tool]
+    from . import monitor, storage
     return [stacks.tool, files.tool, monitor.tool, storage.tool]
+
+
+# Leiste der Oberfläche je Modus (ids der Tools in frontend/dashboard/js/tools/)
+NAV = {"dashboard": ["overview", "stacks", "files", "monitor", "storage"], "server": ["sites", "publish", "stacks", "files"]}

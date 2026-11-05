@@ -50,7 +50,7 @@ def chat(c: Chat, last: ChatMessage | None = None) -> dict:
 
 def code_project(p: CodeProject, threads: int | None = None, running: int | None = None) -> dict:
     return {"id": p.id, "name": p.name, "repo_url": p.repo_url, "default_branch": p.default_branch, "status": p.status,
-            "status_text": p.status_text, "created_at": iso(p.created_at), "updated_at": iso(p.updated_at),
+            "status_text": p.status_text, "server_stack": p.server_stack, "created_at": iso(p.created_at), "updated_at": iso(p.updated_at),
             **({"threads": threads} if threads is not None else {}), **({"running": running} if running is not None else {})}
 
 
