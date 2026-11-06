@@ -130,7 +130,10 @@ function empty(v) {
 function render() {
   for (const v of VIEWS) {
     const n = $(`n-${v}`);
-    if (n) n.textContent = v === "erledigt" ? S.lists.erledigt.length : S.counts[v] ?? S.lists[v].length;
+    if (!n) continue;
+    const c = v === "erledigt" ? S.lists.erledigt.length : S.counts[v] ?? S.lists[v].length;
+    n.textContent = c;
+    n.toggleAttribute("data-zero", !c);   // leere Reiter ohne „0“ – ruhiger und mehr Platz
   }
   const list = S.lists;
   const head = (h1, sub) => `<div class="ph"><h1>${h1}</h1><small>${sub}</small></div>`;

@@ -3,7 +3,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...models import Agent, AgentSkill, Skill
-from ..mcp import kalender_tools, wiki_tools
+from ..mcp import kalender_tools, tasks_tools, wiki_tools
 
 
 # Gilt in jedem Gespräch mit dem Nutzer (Chat, Code, Telefon). Schritt für Schritt fragen, nicht den ganzen Ablauf ankündigen.
@@ -69,6 +69,10 @@ def team_section(a: Agent, main_id: str, unread: int, interactive: bool) -> str:
             f"Mit notify_user hinterlaesst du dem Nutzer eine Benachrichtigung. Ungelesene Nachrichten in deinem Postfach: {unread}"
             + (" (lies sie mit inbox_read und erwaehne sie)." if unread else ".")
             + (" Termine des Nutzers liegen im lokalen IDA Kalender: lege sie mit den calendar_*-Tools an, aendere und suche sie (keine Erinnerung dafuer)." if kalender_tools.enabled() else "")
+            + (" Aufgaben und To-dos des Nutzers (\"ich muss noch …\", \"schreib auf die Liste\", \"was steht heute an?\") liegen in seiner App IDA Tasks: "
+               "lege sie mit tasks_create an (day = an welchem Tag er es macht, due = bis wann; Woerter wie morgen/freitag gehen direkt), "
+               "plane, aendere und hake sie mit tasks_update/tasks_done ab und lies sie mit tasks_list – nicht mit Google Aufgaben, Erinnerungen oder Trackern, "
+               "ausser er nennt die ausdruecklich. Was er klar sagt, legst du ohne Rueckfrage an." if tasks_tools.enabled() else "")
             + (" Dauerhaftes Wissen liegt im lokalen IDA Wiki: memory/ mit wiki_search/wiki_read/wiki_memory_save/wiki_memory_patch pflegen; "
                "privat/ sind die Ordner des Nutzers fuer alles, was er selbst schnell nachschlagen will (Notizen, Listen, Projektarbeit, Dokumente) – "
                "dort liest, legst an und aenderst du direkt wie im Gedaechtnis (wiki_private_save/wiki_private_patch/wiki_private_move/wiki_private_folder), "
