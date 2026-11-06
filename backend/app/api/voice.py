@@ -38,7 +38,7 @@ async def internal_start(request: Request, x_voice_secret: str | None = Header(N
         return _denied()
     b = await request.json()
     return await voice_bridge.start(str(b["call_id"]), str(b.get("direction") or "out"), str(b.get("number") or ""),
-                                    bool(b.get("owner")), str(b.get("purpose") or ""), str(b.get("resume") or ""))
+                                    bool(b.get("owner")), str(b.get("purpose") or ""), str(b.get("resume") or ""), str(b.get("mode") or ""))
 
 
 @router.post("/api/v1/voice/internal/recent", include_in_schema=False)

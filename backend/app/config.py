@@ -44,6 +44,10 @@ class Settings(BaseSettings):
     kalender_ida_token: str = ""
     kalender_public_url: str = ""  # öffentliche Adresse der Kalender-App (Seitenleiste, Termin-Links); leer = Eintrag versteckt
 
+    # Tasks (eigener Dienst, siehe docs/TASKS.md): Adresse und gemeinsames Geheimnis; leer = tasks_*-Tools aus
+    tasks_url: str = ""
+    tasks_ida_token: str = ""
+
     # Wiki (eigener Dienst, siehe docs/WIKI.md): Adresse, Geheimnis und öffentliche URL; leer = Wiki-Funktionen aus
     wiki_url: str = ""
     wiki_ida_token: str = ""

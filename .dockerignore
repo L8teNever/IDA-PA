@@ -17,3 +17,5 @@ code/tests
 dashboard/tests
 dashboard/.pytest_cache
 code/.pytest_cache
+tasks/tests
+tasks/.pytest_cache

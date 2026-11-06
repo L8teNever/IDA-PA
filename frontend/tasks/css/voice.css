@@ -1,0 +1,184 @@
+/* Sprechen mit Stella: Maskottchen und Gesprächsansicht – übernommen aus IDA (css/ida.css: .buddy, Schlaf-Stimmung; css/app.css: .live-b/.lv-*).
+   Bei Änderungen am Live-Look dort bitte hier mitziehen. Pink wie Stella, nur innerhalb der Gesprächsansicht. */
+.live-b { --accent: #ff8fc8; --accent-rgb: 255,143,200; --on-accent: #5c0036; --container: #3a1029; --on-container: #ffd8ea; --face-top: #ffe9f4; --face-bottom: #f6bfdc; --glow: rgba(255,90,170,.38); }
+body.voice-open { touch-action: none; }
+  .buddy { position: relative; width: min(42vw,230px); aspect-ratio: 1.25; animation: float 4.5s ease-in-out infinite; }
+  .buddy::before {
+    content: ""; position: absolute; inset: -28%; border-radius: 50%;
+    background: radial-gradient(closest-side, var(--glow), transparent 70%);
+    transition: background .6s var(--emph);
+  }
+  .face {
+    position: absolute; inset: 0; z-index: 1; border-radius: 34% / 40%;
+    background: radial-gradient(120% 100% at 50% 25%, var(--face-top) 30%, var(--face-bottom) 100%);
+    box-shadow: 0 0 40px rgba(var(--accent-rgb),.25), inset 0 -10px 24px rgba(0,0,0,.08);
+    transition: background .6s var(--emph), box-shadow .6s;
+  }
+  .eyes { position: absolute; left: 50%; top: 59%; transform: translate(-50%,-50%); display: flex; gap: 17%; width: 40%; justify-content: center; transition: transform .25s var(--emph); }
+  .eye { width: 22%; min-width: 22px; aspect-ratio: 1; flex: none; background: #10121c; border-radius: 50%; position: relative; animation: blink 5s infinite; }
+  .eye::after { content: ""; position: absolute; width: 30%; height: 30%; border-radius: 50%; background: #fff; top: 22%; left: 28%; }
+  @keyframes float { 0%,100% { transform: translateY(0) } 50% { transform: translateY(-10px) } }
+  @keyframes blink { 0%,92%,100% { transform: scaleY(1) } 95% { transform: scaleY(.1) } }
+  .buddy { container-type: inline-size; cursor: pointer; }
+  .buddy .face, .buddy .eye, .buddy .eyes { transition: transform .35s var(--emph), border-radius .3s, aspect-ratio .3s, background .5s, box-shadow .5s; }
+  .props { position: absolute; inset: 0; z-index: 3; pointer-events: none; }
+  .props > * { position: absolute; }
+  .props .ms { font-variation-settings: "FILL" 1; }
+  /* Schläft: Augen zu, langsames Atmen, Zzz */
+  .live-b[data-mood="sleep"] .buddy .eye { aspect-ratio: 3.2 / 1; border-radius: 6px; animation: none; transform: translateY(80%); }
+  .live-b[data-mood="sleep"] .buddy .eye::after { display: none; }
+  .live-b[data-mood="sleep"] .buddy { animation: breathe 4s ease-in-out infinite; }
+  .live-b[data-mood="sleep"] .buddy::before { opacity: .45; }
+  .z { color: var(--on-surface); font-weight: 700; right: -4%; top: 0; animation: zz 3s linear infinite; opacity: 0; font-size: 12cqw; }
+  .z2 { animation-delay: 1s; font-size: 15cqw; } .z3 { animation-delay: 2s; font-size: 19cqw; }
+  @keyframes breathe { 0%, 100% { transform: scale(1, 1) } 50% { transform: scale(1.03, .96) translateY(2%) } }
+  @keyframes zz { 0% { transform: translate(0, 0); opacity: 0 } 15% { opacity: .9 } 100% { transform: translate(35%, -150%); opacity: 0 } }
+.live-b {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100dvh;
+  height: 100%;
+  max-width: 520px;
+  margin: 0 auto;
+  left: 0;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: max(10px, env(safe-area-inset-top)) 16px max(10px, env(safe-area-inset-bottom));
+  box-sizing: border-box;
+  overflow: hidden;
+  overscroll-behavior: none;
+  touch-action: none;
+  background: var(--surface, #000);
+  z-index: 50;
+}
+.lv-buddy-wrap {
+  position: relative;
+  width: 100%;
+  height: clamp(96px, 18vh, 160px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.lv-buddy-wrap .buddy {
+  position: relative;
+  z-index: 1;
+  width: clamp(86px, 26vw, 136px);
+}
+.live-b .lv-buddy-wrap { margin-top: clamp(28px, 10vh, 96px); }  /* Maskottchen nicht ganz oben unter der Statusleiste */
+
+/* Live-Intro: Stella wacht groß in der Mitte auf und wandert dann nach oben */
+.live-b .lv-buddy-wrap, .live-b .lv-status, .live-b .lv-chat, .live-b .lv-tool { transition: transform 1s cubic-bezier(.65, 0, .25, 1), opacity .8s ease; }
+.live-b.intro .lv-buddy-wrap { transform: translateY(22dvh) scale(1.75); }
+.live-b.intro .lv-status { opacity: 0; }
+.live-b.intro .lv-chat, .live-b.intro .lv-tool { opacity: 0; }
+/* Text (Status, Chat, Tool) erst einblenden, wenn Stella oben angekommen ist (Weg nach oben dauert 1s) */
+.live-b .lv-status, .live-b .lv-chat, .live-b .lv-tool { transition: transform 1s cubic-bezier(.65, 0, .25, 1), opacity .5s ease 1s; }
+.live-b.intro .lv-status, .live-b.intro .lv-chat, .live-b.intro .lv-tool { transition: none; }
+.live-b.waking .buddy .eye { animation: wake .7s ease-out 1; }   /* schlafen = exakt die Schlaf-Stimmung von IDA (body[data-mood=sleep]) */
+.live-b .buddy .eye::after { display: none; }   /* Live: rein schwarze Augen, ohne weiße Lichtpunkte */
+@keyframes wake { 0% { transform: scaleY(.1) } 35% { transform: scaleY(1) } 60% { transform: scaleY(.1) } 100% { transform: scaleY(1) } }
+
+.live-b .buddy::before { display: none; }   /* kein pinker Kreis/Leuchten hinter Stella */
+/* Sprechen: Gesicht wippt mit der Lautstärke. Zuhören: Kopf leicht schräg, Augen etwas größer. Keine Wellen/Kreise. */
+.live-b .buddy .face { transition: transform .12s ease-out, filter .3s, background .6s, box-shadow .6s; }
+/* Live: kein dauerndes Hoch-und-Runter-Schweben (float) mehr – Stella bleibt ruhig an ihrem Platz (Schlafen im Intro bleibt wie in IDA) */
+.lv-buddy-wrap .buddy { animation: none; transition: transform .1s ease-out; }
+.live-b.intro[data-mood="sleep"] .lv-buddy-wrap .buddy { animation: breathe 4s ease-in-out infinite; }
+/* Sprechen: das ganze Maskottchen wächst Silbe für Silbe gleichmäßig in Höhe und Breite, ohne Verzögerung durch eine lange Transition */
+.lv-buddy-wrap[data-state="speak"] .buddy { transform: scale(calc(1 + var(--lvl, 0) * .25)); transition: transform .03s linear; }
+/* Zuhören („Lauschen“): Kopf neigt sich neugierig hin und her, aufmerksames langsames Blinzeln,
+   Augen schauen leicht nach oben und werden größer, je lauter Simon spricht; bei Lautstärke ein kleines „Mhm“-Nicken. */
+.lv-buddy-wrap[data-state="listen"] .buddy .face { animation: lv-lausch 4.2s ease-in-out infinite; }
+/* Live: kleinere Augen, weiter auseinander (je ~12 % der Gesichtsbreite, ~17 % Abstand) – kein fester Mindestwert in px */
+.lv-buddy-wrap .buddy .eyes { width: 50%; gap: 34%; transform: translate(-50%, -50%); }
+.lv-buddy-wrap .buddy .eye { width: 24%; min-width: 0; }
+.lv-buddy-wrap[data-state="listen"] .buddy .eyes { transform: translate(calc(-50% + 4%), -56%) scale(calc(1 + var(--lvl, 0) * .06)); transition: transform .14s ease-out; }
+.lv-buddy-wrap[data-state="listen"] .buddy .eye { animation: lv-aufmerksam 3.6s ease-in-out infinite; }
+.lv-buddy-wrap[data-state="listen"] .buddy .eye + .eye { animation-delay: .04s; }
+@keyframes lv-lausch {
+  0%, 100% { transform: rotate(-7deg) }
+  30% { transform: rotate(-3deg) }
+  50% { transform: rotate(-5deg) }
+  75% { transform: rotate(-8deg) }
+}
+@keyframes lv-aufmerksam { 0%, 84%, 100% { transform: scaleY(1) } 89% { transform: scaleY(.12) } 94% { transform: scaleY(1) } }
+/* Akku: Daueranimationen zwingen das Handy zu jedem Bild neu zu zeichnen. Ohne Stimme steht Stella still (data-calm), geblinzelt wird einzeln (data-blink). */
+.live-b .buddy .eye { animation: none; }
+.lv-buddy-wrap[data-state="listen"][data-calm] .buddy .face { animation-play-state: paused; }
+.lv-buddy-wrap[data-state="listen"][data-calm] .buddy .eye { animation: none; }
+.live-b .lv-buddy-wrap[data-state][data-blink] .buddy .eye { animation: lv-blinzeln .3s ease-in-out 1; }
+@keyframes lv-blinzeln { 0%, 100% { transform: scaleY(1) } 50% { transform: scaleY(.12) } }
+.lv-buddy-wrap[data-state="muted"] .buddy .face { transform: rotate(4deg); transition: transform .6s ease; }
+.lv-buddy-wrap[data-state="muted"] .buddy .eye { animation: none; transform: scaleY(.55); transition: transform .4s; }
+@media (prefers-reduced-motion: reduce) { .lv-buddy-wrap[data-state="listen"] .buddy .face { animation: none; transform: rotate(-5deg); } }
+.lv-buddy-wrap[data-state="tool"] .buddy { animation: breathe 1.2s ease-in-out infinite; }  /* nur kurz, während sie etwas nachschaut */
+.lv-buddy-wrap[data-state="fail"] .buddy .face { filter: saturate(.4) brightness(.85); }
+
+.lv-status { display: flex; align-items: center; justify-content: center; gap: 8px; margin-top: 2px; flex-shrink: 0; }
+.lv-pill { display: inline-flex; align-items: center; gap: 7px; padding: 5px 14px; border-radius: 20px; background: rgba(255,143,200,.14); border: 1px solid rgba(255,143,200,.22); font-size: 13px; font-weight: 500; color: var(--accent); transition: all .2s; }
+.lv-pill.fail { background: rgba(229,72,77,.18); border-color: rgba(229,72,77,.3); color: #ff8589; }
+.lv-pill.done { background: rgba(255,255,255,.08); border-color: rgba(255,255,255,.12); color: var(--on-surface); }
+.lv-time { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+.lv-tool { align-self: center; margin-top: 4px; display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 10px; background: rgba(255,143,200,.1); font-size: 12px; color: var(--accent); border: 1px solid rgba(255,143,200,.15); flex-shrink: 0; }
+.lv-tool .ms { font-size: 15px; }
+.lv-tool[hidden] { display: none; }   /* sonst steht die leere Tool-Anzeige auch ohne laufendes Tool da */
+/* Im Gespräch kein Status-Text mehr: Dauer klein oben rechts, Tool-Anzeige oben links – beides verschiebt nichts am Layout */
+.lv-status.lv-corner { position: absolute; top: max(14px, env(safe-area-inset-top)); right: 18px; margin: 0; }
+.live-b .lv-tool { position: absolute; top: max(12px, env(safe-area-inset-top)); left: 16px; margin: 0; max-width: calc(100% - 96px); }
+.live-b .lv-tool span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.lv-chat {
+  flex: 1 1 0;
+  min-height: 0;
+  width: 100%;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 26px 4px 6px;   /* oben Platz, damit die erste Nachricht nicht im Verlauf liegt */
+  margin: 4px 0;
+  scroll-behavior: smooth;
+  /* Nachrichten laufen oben weich aus, statt an einer harten Kante abgeschnitten zu werden */
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 34px);
+  mask-image: linear-gradient(to bottom, transparent 0, #000 34px);
+}
+.lv-msg { max-width: 86%; padding: 8px 13px; border-radius: 16px; font-size: 14px; line-height: 1.42; word-break: break-word; }
+.lv-msg small { display: block; font-size: 11px; margin-bottom: 2px; font-weight: 500; }
+.lv-msg.user { align-self: flex-end; background: color-mix(in srgb, var(--accent) 18%, var(--surface-highest, #1f2024)); border: 1px solid color-mix(in srgb, var(--accent) 26%, transparent); color: var(--on-surface); border-bottom-right-radius: 4px; }
+.lv-msg.user small { color: var(--accent); }
+.lv-msg.bot { align-self: flex-start; background: var(--surface-highest, #1a1c22); border: 1px solid rgba(255,255,255,.06); color: var(--on-surface); border-bottom-left-radius: 4px; }
+.lv-msg.bot small { color: var(--muted); }
+.lv-msg[data-who="ida_frage"], .lv-msg[data-who="ida"] { border-color: color-mix(in srgb, var(--accent) 30%, transparent); font-size: 13px; }
+.lv-msg[data-who="ida_frage"] small, .lv-msg[data-who="ida"] small { color: var(--accent); }
+
+.lv-list { display: flex; flex-direction: column; gap: 8px; width: 100%; }
+.lv-pick { display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; padding: 10px 14px; border-radius: 16px; font: inherit; font-size: 14px; line-height: 1.35;
+  background: var(--surface-highest, #1a1c22); border: 1px solid rgba(255,255,255,.06); color: var(--on-surface); cursor: pointer; }
+.lv-pick:active { background: color-mix(in srgb, var(--accent) 18%, var(--surface-highest, #1a1c22)); }
+.lv-pick .ms { color: var(--accent); flex-shrink: 0; }
+.lv-pick small { display: block; font-size: 11px; color: var(--muted); margin-bottom: 2px; }
+.lv-btns { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; width: 100%; padding-top: 4px; flex-shrink: 0; touch-action: auto; }
+.es-btn.lv-end { background: #e5484d; color: #fff; }
+.es-btn.lv-end .ms { color: #fff; }
+
+@media (max-height: 640px) {
+  .live-b { padding: max(6px, env(safe-area-inset-top)) 10px max(6px, env(safe-area-inset-bottom)); }
+  .lv-buddy-wrap { height: clamp(76px, 15vh, 110px); }
+  .live-b .lv-buddy-wrap { margin-top: 12px; }
+  .lv-buddy-wrap .buddy { width: clamp(70px, 22vw, 100px); }
+  .lv-chat { padding: 26px 2px 4px; gap: 6px; margin: 2px 0; }
+  .lv-msg { font-size: 13px; padding: 6px 10px; }
+  .lv-btns { gap: 6px; padding-top: 2px; }
+  .lv-btns .es-btn { height: 40px; padding: 0 16px; font-size: 13.5px; }
+}
+

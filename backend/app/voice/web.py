@@ -127,8 +127,8 @@ class BrowserMic:
                 await self.session.activity_end()
 
 
-async def run(ws, settings, ida: Ida | None = None, connect=None, active: set | None = None, resume: str = "") -> None:
-    """One live conversation, from the accepted WebSocket until it closes."""
+async def run(ws, settings, ida: Ida | None = None, connect=None, active: set | None = None, resume: str = "", mode: str = "") -> None:
+    """One live conversation, from the accepted WebSocket until it closes. mode="tasks": Aufgaben-Modus der Tasks-App."""
     ida = ida or Ida(settings)
     call_id = "w" + secrets.token_hex(6)
     if active is not None:
@@ -137,11 +137,12 @@ async def run(ws, settings, ida: Ida | None = None, connect=None, active: set | 
     session = None
     status, error = "done", ""
     try:
-        info = await ida.start(call_id, "web", "", True, "", resume)
+        info = await ida.start(call_id, "web", "", True, "", resume, mode)
         voice = info.get("voice") or "Aoede"
-        session = LiveSession(settings, instructions=prompt.instructions(info.get("context") or "", owner=True, kind="web"),
+        kind = "tasks" if info.get("mode") == "tasks" else "web"
+        session = LiveSession(settings, instructions=prompt.instructions(info.get("context") or "", owner=True, kind=kind),
                               tools=info.get("tools") or [], run_tool=lambda n, a: ida.tool(call_id, n, a), sink=sink,
-                              kickoff=prompt.kickoff(owner=True, kind="web", resumed=bool(info.get("resumed"))), client_vad=settings.voice_web_vad, connect=connect, voice=voice)
+                              kickoff=prompt.kickoff(owner=True, kind=kind, resumed=bool(info.get("resumed"))), client_vad=settings.voice_web_vad, connect=connect, voice=voice)
         mic = BrowserMic(session, sink, settings) if settings.voice_web_vad else None
         await session.open()
         await sink._json({"type": "ready", "rate": 24000, "agent": info.get("agent") or "Stella", "offline": bool(info.get("offline"))})

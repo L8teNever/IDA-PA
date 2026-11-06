@@ -22,10 +22,10 @@ class Ida:
         r.raise_for_status()
         return r.json()
 
-    async def start(self, call_id: str, direction: str, number: str, owner: bool, purpose: str, resume: str = "") -> dict:
+    async def start(self, call_id: str, direction: str, number: str, owner: bool, purpose: str, resume: str = "", mode: str = "") -> dict:
         try:
             return await self._post("start", {"call_id": call_id, "direction": direction, "number": number, "owner": owner, "purpose": purpose,
-                                              "resume": resume}, 20)
+                                              "resume": resume, "mode": mode}, 20)
         except Exception as e:  # noqa: BLE001
             log.warning("IDA start failed: %s", e)
             return {"context": FALLBACK_CONTEXT, "tools": [], "owner": owner, "offline": True}

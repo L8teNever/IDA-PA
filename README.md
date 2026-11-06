@@ -87,4 +87,5 @@ Details zum Umbau und zu den Entscheidungen: [docs/PLAN.md](docs/PLAN.md).
 
 Eigene Apps im Stack (eigener Port, eigene PWA): Kalender ([docs/KALENDER.md](docs/KALENDER.md)), Wiki ([docs/WIKI.md](docs/WIKI.md)),
 Code ([docs/CODE.md](docs/CODE.md)), Dashboard für den Server – Docker-Stacks, Leistung, Speicher ([docs/DASHBOARD.md](docs/DASHBOARD.md)) – und IDA Server zum Einrichten: Websites, Veröffentlichen über den Tunnel, Stacks, Dateien ([docs/SERVER.md](docs/SERVER.md)).
+Tasks – Aufgaben-App mit Wischen (heute, geplant, erledigt) und Stella im Aufgaben-Modus ([docs/TASKS.md](docs/TASKS.md)).
 Stella – Live-Gespräch mit Gemini Live über den Live-Knopf und am Telefon (Telnyx), eigener Container „voice“ ([docs/STELLA.md](docs/STELLA.md)).

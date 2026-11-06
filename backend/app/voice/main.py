@@ -1,6 +1,6 @@
 """The voice container: `uvicorn app.voice.main:app` – same image as IDA, own container (docker-compose service „voice“).
 
-Public (VOICE_PUBLIC_URL):  /telnyx/webhook (Ed25519 signature), /telnyx/media/{call}?k=… (per-call secret), /live?ticket=…
+Public (VOICE_PUBLIC_URL):  /telnyx/webhook (Ed25519 signature), /telnyx/media/{call}?k=… (per-call secret), /live?ticket=…[&mode=tasks]
 Internal (x-voice-secret):  /internal/calls, /internal/busy – used by IDA's stella_* tools
 /health tells whether a conversation is running (the watchtower hook updates the container only when idle).
 """
@@ -204,7 +204,8 @@ def create_app(phone: Phone | None = None, connect=None) -> FastAPI:
             return
         await ws.accept()
         resume = ws.query_params.get("resume", "")
-        await web.run(ws, s, ida=phone.ida, connect=connect, active=live, resume=resume if re.fullmatch(r"[\w-]{1,24}", resume) else "")
+        mode = "tasks" if ws.query_params.get("mode") == "tasks" else ""   # Aufgaben-Modus (Sprechen in der Tasks-App)
+        await web.run(ws, s, ida=phone.ida, connect=connect, active=live, resume=resume if re.fullmatch(r"[\w-]{1,24}", resume) else "", mode=mode)
 
     return app
 

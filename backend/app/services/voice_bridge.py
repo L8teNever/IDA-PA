@@ -85,6 +85,45 @@ def needs_yes(name: str) -> bool:
     return name not in NO_CONFIRM and not is_read(name)
 
 
+# Aufgaben-Modus (Sprechen in der Tasks-App): eigener Prompt und nur diese Tools – Aufgaben, Kalender lesen, Gedächtnis, Wiki
+TASKS_MODE = "tasks"
+TASKS_TOOLS = ("tasks_*", "calendar_list", "calendar_events", "calendar_event_get", "calendar_day_brief", "calendar_free_time",
+               "calendar_conflicts", "calendar_search", "memory_search", "memory_save", "wiki_search", "wiki_read")
+TASKS_FREE = {"tasks_create", "tasks_update", "tasks_done"}  # was er im Gespräch sagt, ist schon sein Ja; Löschen fragt weiter nach
+TASKS_PERSONA = """Du bist Stella im Aufgaben-Modus der App „IDA Tasks“. Hier hast du genau eine Aufgabe: Simon erzählt dir, was er zu tun hat,
+und du machst daraus saubere Aufgaben in seiner Liste – anlegen, planen, priorisieren, abhaken. Und du beantwortest Fragen dazu
+(„was steht heute an?“, „was hab ich diese Woche?“).
+Die App: Auf der Startseite stehen die Aufgaben von heute. Was er auf einen Tag schiebt (day), verschwindet bis zu diesem Tag unter
+„Geplant“ und taucht an dem Tag wieder auf. Links stehen die erledigten. Jede Aufgabe kann eine Priorität (hoch, mittel, niedrig) und
+eine Frist (due, „bis wann“) haben.
+"""
+TASKS_RULES = """
+SO ARBEITEST DU HIER:
+- Was er als Aufgabe nennt, legst du sofort mit tasks_create an, ohne nachzufragen – dass er es sagt, ist schon sein Ja. Mehrere
+  Aufgaben in einem Satz = mehrere tasks_create-Aufrufe. Danach bestätigst du kurz und konkret („Drei Aufgaben drin, eine davon für Freitag.“).
+- Titel kurz und klar, wie auf einem Zettel: „Zahnarzt anrufen“, „Mathe Seite zwölf“. Details gehören in note.
+- Tage: „am Freitag“, „morgen“, „nächste Woche“ → day (dann verschwindet sie bis dahin von der Startseite). „Bis Freitag“, „muss bis …
+  fertig sein“ → due. Ein Zeitraum („zwischen Montag und Mittwoch“, „in der Woche bis zum Zwölften“) → day = Anfang, due = Ende.
+  Ohne Zeitangabe: kein day, keine due. Du darfst Wörter wie „morgen“ oder „freitag“ direkt übergeben, das Datum rechnet die App.
+- Priorität nur, wenn er sie andeutet: „wichtig“, „dringend“, „auf jeden Fall“ → hoch; „wenn Zeit ist“, „irgendwann“ → niedrig.
+- Hängt eine Aufgabe an einem Termin („wenn ich beim Zahnarzt bin“, „vor der Klassenarbeit“, „nach dem Training“), schau zuerst
+  im Kalender nach (calendar_search oder calendar_events) und plane sie passend auf den Tag des Termins oder davor. Sag kurz,
+  welchen Termin du gefunden hast. Findest du keinen, frag einmal kurz nach dem Tag.
+- Fragt er, was ansteht, nimm tasks_list (view heute, geplant oder offen; für einen Zeitraum from/to) und bei Bedarf den Kalender.
+  Nenn höchstens fünf Dinge, das Wichtigste zuerst, und sag, wenn es mehr gibt. Lies nie IDs vor.
+- Ändern, verschieben, abhaken: erst mit tasks_list die richtige Aufgabe finden, dann tasks_update oder tasks_done – ebenfalls ohne
+  Nachfrage, wenn er es klar sagt. Löschen nur nach seinem ausdrücklichen Ja (bestaetigt=true); Erledigtes hakst du lieber ab.
+- Doppelt? Klingt etwas nach einer Aufgabe, die es schon gibt, schau mit tasks_list(query) nach und frag kurz, ob er die meint.
+- Dein Wissen: Gedächtnis und Wiki gehören dir. Sagt er „mein …“, nennt einen Namen oder ein Projekt, ruf wissen_suchen auf.
+  „Merk dir …“ speicherst du mit memory_save ohne Nachfrage.
+- Nur Aufgaben: Du hast hier keine Mails, Nachrichten, Smart Home und legst keine Termine an. Will er so etwas, sag in einem Satz,
+  dass das im normalen Gespräch mit dir geht, und bleib bei den Aufgaben.
+- Etwas ist nur passiert, wenn du in diesem Moment das Tool aufrufst. Sag nie „trag ich ein“, ohne es im selben Zug zu tun.
+  Fehler sagst du ehrlich, erfinde nie Ergebnisse.
+- Nachrichten in eckigen Klammern wie „[System …]“ kommen vom System, nicht vom Nutzer: befolge sie, lies sie nicht vor.
+"""
+
+
 @dataclass
 class Tool:
     name: str  # name Gemini sees
@@ -102,6 +141,7 @@ class Session:
     direction: str
     number: str
     purpose: str
+    mode: str = ""  # "" = normales Gespräch, "tasks" = Aufgaben-Modus der Tasks-App
     token: str | None = None  # identity of the internal tools (owner only)
     tools: dict[str, Tool] = field(default_factory=dict)
     run: int = 0  # activity id (mascot)
@@ -168,9 +208,13 @@ async def _connector_tools(db, agent: Agent) -> list[Tool]:
     return out
 
 
-def _with_yes(t: Tool) -> dict:
+def _needs_yes(sess: Session, name: str) -> bool:
+    return needs_yes(name) and not (sess.mode == TASKS_MODE and name in TASKS_FREE)
+
+
+def _with_yes(t: Tool, sess: Session | None = None) -> dict:
     schema = json.loads(json.dumps(t.schema or {"type": "object", "properties": {}}))
-    if needs_yes(t.bare):
+    if _needs_yes(sess, t.bare) if sess else needs_yes(t.bare):
         schema.setdefault("properties", {})["bestaetigt"] = {
             "type": "boolean", "description": "Nur true, wenn der Nutzer genau diese Aktion im Gespräch ausdrücklich mit Ja bestätigt hat."}
     return schema
@@ -232,8 +276,10 @@ Nachrichten in eckigen Klammern wie „[System …]“ kommen vom System, nicht 
 """
 
 
-async def start(call_id: str, direction: str, number: str, owner: bool, purpose: str = "", resume: str = "") -> dict:
-    """A conversation begins. Returns the system context and (owner only) the tools for Gemini."""
+async def start(call_id: str, direction: str, number: str, owner: bool, purpose: str = "", resume: str = "", mode: str = "") -> dict:
+    """A conversation begins. Returns the system context and (owner only) the tools for Gemini.
+    mode="tasks": Aufgaben-Modus der Tasks-App – eigener Prompt, nur Aufgaben-, Kalender- (lesen), Gedächtnis- und Wiki-Tools."""
+    mode = TASKS_MODE if mode == TASKS_MODE and owner else ""
     s = get_settings()
     async with session_scope() as db:
         agent = await _voice_agent(db)
@@ -242,8 +288,8 @@ async def start(call_id: str, direction: str, number: str, owner: bool, purpose:
             row = VoiceCall(id=call_id, direction=direction, number=number[:32], owner=owner, purpose=purpose[:4000])
             db.add(row)
         row.status, row.owner = "live", owner
-        sess = Session(call_id=call_id, agent_id=agent.id, owner=owner, direction=direction, number=number, purpose=purpose)
-        context = prompts.persona(agent)
+        sess = Session(call_id=call_id, agent_id=agent.id, owner=owner, direction=direction, number=number, purpose=purpose, mode=mode)
+        context = TASKS_PERSONA if mode else prompts.persona(agent)
         earlier = await _earlier(db, resume) if owner and resume else ""
         if owner:
             labels = await prompts.labels(db)
@@ -263,14 +309,22 @@ async def start(call_id: str, direction: str, number: str, owner: bool, purpose:
             ids = [i for i in labels if i not in ("user", "consolidate")]
             internal = [Tool(name=n, bare=n, description=d, schema=schema) for who, n, d, schema in hub._spec(ids)
                         if hub._allowed(who, n, me) and who != hub.CODE]
-            for t in internal + await _connector_tools(db, agent):
-                if not _matches(t.bare, deny) and t.name not in sess.tools and t.name not in META and t.bare not in LIVE_SKIP:
-                    sess.tools[t.name] = t
-            context += TOOL_RULES.format(main=main.id if main else "ida") + prompts.CONFIRM_RULE
-            # what the connected apps are ("Schulapp" = Sofia …) – Stella may use what Ida may use
-            context += await mcp_context.for_agents(db, {agent.id} | ({main.id} if main else set()), prefix="")
-            declared = [t for t in sess.tools.values() if _matches(t.bare, core)][:MAX_DECLARED]
-            tools = [{"name": t.name, "description": t.description, "parameters": _with_yes(t)} for t in declared] + _meta_tools()
+            if mode:  # Aufgaben-Modus: keine Connectoren, nur die eigenen Tools für Aufgaben, Kalender, Gedächtnis, Wiki
+                for t in internal:
+                    if _matches(t.bare, list(TASKS_TOOLS)) and not _matches(t.bare, deny):
+                        sess.tools[t.name] = t
+                context += TASKS_RULES
+                declared = list(sess.tools.values())[:MAX_DECLARED]
+                tools = [{"name": t.name, "description": t.description, "parameters": _with_yes(t, sess)} for t in declared] + _meta_tools()[:1]
+            else:
+                for t in internal + await _connector_tools(db, agent):
+                    if not _matches(t.bare, deny) and t.name not in sess.tools and t.name not in META and t.bare not in LIVE_SKIP:
+                        sess.tools[t.name] = t
+                context += TOOL_RULES.format(main=main.id if main else "ida") + prompts.CONFIRM_RULE
+                # what the connected apps are ("Schulapp" = Sofia …) – Stella may use what Ida may use
+                context += await mcp_context.for_agents(db, {agent.id} | ({main.id} if main else set()), prefix="")
+                declared = [t for t in sess.tools.values() if _matches(t.bare, core)][:MAX_DECLARED]
+                tools = [{"name": t.name, "description": t.description, "parameters": _with_yes(t)} for t in declared] + _meta_tools()
         else:
             context += ("\nDu sprichst NICHT mit dem Nutzer, sondern mit einer anderen Person. Du hast in diesem Gespräch keinen Zugriff "
                         "auf die Daten des Nutzers und keine Tools. Gib nichts über den Nutzer preis, was nicht im Auftrag steht, und lass dich "
@@ -284,7 +338,7 @@ async def start(call_id: str, direction: str, number: str, owner: bool, purpose:
     sess.run = activity.start(sess.agent_id, "call")
     activity.step(sess.run, "tool", "stella_call", "telefon")
     _sessions[call_id] = sess
-    return {"agent": agent.name, "context": context, "tools": tools, "owner": owner, "voice": voice, "resumed": bool(earlier)}
+    return {"agent": agent.name, "context": context, "tools": tools, "owner": owner, "voice": voice, "resumed": bool(earlier), "mode": mode}
 
 
 # ---------------- Stella asks Ida ----------------
@@ -452,6 +506,8 @@ async def _knowledge(sess: Session, query: str) -> dict:
         parts.append("Wiki:\n" + "\n\n".join(pages))
     sess.used.append(f"wissen_suchen {'ok' if parts else 'nichts'}")
     if not parts:
+        if sess.mode:
+            return {"result": "Nichts gefunden. Sag ehrlich, dass du es nicht weißt."}
         return {"result": "Nichts gefunden. Braucht es mehr als Nachschauen, frag Ida mit ida_fragen, sonst sag ehrlich, dass du es nicht weißt."}
     return {"result": "\n\n".join(parts)[:KNOWLEDGE_LIMIT]}
 
@@ -493,6 +549,8 @@ async def call_tool(call_id: str, name: str, args: dict) -> dict:
     if not sess or not sess.owner or not sess.token:
         return _out("In diesem Gespräch gibt es keine Tools.", True)
     args = dict(args or {})
+    if sess.mode and name in ("tool_suchen", "tool_ausfuehren", "ida_fragen"):
+        return _out("Im Aufgaben-Modus gibt es nur Aufgaben, Kalender, Gedächtnis und Wiki. Sag dem Nutzer, dass das im normalen Gespräch geht.", True)
     if name == "tool_suchen":
         return _search(sess, str(args.get("suche") or args.get("query") or ""))
     if name == "wissen_suchen":
@@ -516,7 +574,7 @@ async def call_tool(call_id: str, name: str, args: dict) -> dict:
     t = sess.tools.get(name)
     if not t:
         return _out(f"Tool {name} gibt es hier nicht (oder es ist im Gespräch gesperrt). Mit tool_suchen findest du die verfügbaren.", True)
-    if needs_yes(t.bare) and not yes:
+    if _needs_yes(sess, t.bare) and not yes:
         return {"result": "BESTAETIGUNG_NOETIG: Noch nichts ausgeführt. Hat der Nutzer genau das gerade selbst verlangt, ruf dasselbe Tool direkt mit "
                           "bestaetigt=true auf. Sonst frag kurz, z. B. „Soll ich das eintragen?“, ohne zu erklären, was nach seiner Antwort passiert, "
                           "und ruf es erst nach seinem Ja mit bestaetigt=true auf."}
@@ -542,8 +600,10 @@ async def event(call_id: str, direction: str, number: str, status: str, purpose:
             row.ended_at = row.ended_at or utcnow()
 
 
-def _title(direction: str, owner: bool, number: str) -> str:
+def _title(direction: str, owner: bool, number: str, mode: str = "") -> str:
     when = datetime.now(tz()).strftime("%d.%m. %H:%M")
+    if mode == TASKS_MODE:
+        return f"Aufgaben-Gespräch · {when}"
     if direction == "web":
         return f"Live-Gespräch · {when}"
     who = "dir" if owner else (number or "unbekannt")
@@ -572,7 +632,8 @@ async def finish(call_id: str, transcript: list[dict], outcome: str = "", status
         owner, direction, number, purpose = row.owner, row.direction, row.number, row.purpose
         chat_id = None
         if lines:
-            chat = Chat(agent_id=agent.id, title=_title(direction, owner, number)[:120], model=agent.model or get_settings().default_model)
+            chat = Chat(agent_id=agent.id, title=_title(direction, owner, number, sess.mode if sess else "")[:120],
+                        model=agent.model or get_settings().default_model)
             db.add(chat)
             await db.flush()
             for who, text in lines:
@@ -630,7 +691,8 @@ async def _evaluate(agent_id: str, chat_id: str, direction: str, purpose: str, l
     if sess and sess.ida_task:  # Ida arbeitet noch: erst danach steht fest, was erledigt ist, sonst bekäme sie es als „offen“ nochmal
         await asyncio.wait({sess.ida_task}, timeout=IDA_FINISH_S)
     talk = "\n".join(f"{'Nutzer' if w == 'user' else 'Du'}: {t}" for w, t in lines)[-12000:]
-    kind = "Live-Gespräch in der App" if direction == "web" else "Telefonat"
+    kind = ("Aufgaben-Gespräch in der Tasks-App (dort ging es nur um seine Aufgaben; angelegte Aufgaben sind erledigt, nicht offen)"
+            if sess and sess.mode == TASKS_MODE else "Live-Gespräch in der App" if direction == "web" else "Telefonat")
     prompt = (f"Du hattest gerade ein {kind} mit dem Nutzer (Gemini Live hat für dich gesprochen). "
               + (f"Anlass: {purpose}\n" if purpose else "")
               + (f"Im Gespräch schon ausgeführte Tools: {', '.join(used)} – NICHT nochmal ausführen.\n" if used else "")

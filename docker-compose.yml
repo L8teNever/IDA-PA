@@ -19,6 +19,8 @@ services:
       WIKI_URL: http://wiki:8000                  # Wiki-Dienst (siehe unten); leer = Wiki-Funktionen aus
       WIKI_IDA_TOKEN: ${WIKI_IDA_TOKEN:-}
       WIKI_PUBLIC_URL: ${WIKI_PUBLIC_URL:-https://wiki.kulbarts.com}
+      TASKS_URL: http://tasks:8000                # Tasks-Dienst (siehe unten); leer = tasks_*-Tools aus
+      TASKS_IDA_TOKEN: ${TASKS_IDA_TOKEN:-}
       CODE_PUBLIC_URL: ${CODE_PUBLIC_URL:-}         # Code-App (siehe unten); leer = Code-Bereich bleibt in IDA unter /code
       VOICE_URL: http://voice:8000                # Stella (siehe unten); ohne VOICE_SECRET bleibt Stella aus
       SANDBOX_URL: http://sandbox:8000            # Sandbox der Code-Threads; ohne SANDBOX_SECRET bleibt sie aus
@@ -112,6 +114,26 @@ services:
       - "${WIKI_PORT:-8083}:8000"
     volumes:
       - wiki-data:/data       # wiki.db, vault/, files/, backups/
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"
+
+  # Tasks – eigene Aufgaben-App (eigener Port, eigene PWA, SQLite im Volume tasks-data). Ida und Stella bedienen sie über die
+  # tasks_*-Tools; „Sprechen“ in der App startet Stella im Aufgaben-Modus (Ticket mit VOICE_SECRET, wie die Live-App). Siehe docs/TASKS.md
+  # Davor gehört Cloudflare Access: ohne Token gilt jeder Aufruf als du selbst.
+  tasks:
+    image: ${TASKS_IMAGE:-ghcr.io/l8tenever/ida-tasks:latest}
+    pull_policy: always
+    restart: unless-stopped
+    environment:
+      TIMEZONE: ${TIMEZONE:-Europe/Berlin}
+      TASKS_IDA_TOKEN: ${TASKS_IDA_TOKEN:-}
+      TASKS_PUBLIC_URL: ${TASKS_PUBLIC_URL:-}
+      VOICE_SECRET: ${VOICE_SECRET:-}           # leer = ohne Sprechen
+      VOICE_PUBLIC_URL: ${VOICE_PUBLIC_URL:-}
+    ports:
+      - "${TASKS_PORT:-8090}:8000"
+    volumes:
+      - tasks-data:/data       # tasks.db
     labels:
       com.centurylinklabs.watchtower.enable: "true"
 
@@ -316,3 +338,4 @@ volumes:
   dashboard-data:
   server-data:
   links-data:
+  tasks-data:

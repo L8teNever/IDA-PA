@@ -1,5 +1,5 @@
 # Tests (IDA: SQLite + PostgreSQL, Kalender/Wiki: SQLite, Code), dann Images bauen und nach GHCR pushen
-# (ghcr.io/<owner>/<repo>:latest, ida-kalender:latest, ida-wiki:latest, ida-code:latest, ida-dashboard:latest).
+# (ghcr.io/<owner>/<repo>:latest, ida-kalender:latest, ida-wiki:latest, ida-code:latest, ida-dashboard:latest, ida-tasks:latest).
 name: Test & Docker-Image
 
 on:
@@ -124,8 +124,21 @@ jobs:
       - name: pytest
         run: python -m pytest
 
+  tasks-test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: tasks
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12", cache: pip, cache-dependency-path: tasks/requirements*.txt }
+      - run: pip install -r requirements-dev.txt
+      - name: pytest
+        run: python -m pytest
+
   image:
-    needs: [test, kalender-test, kalender-frontend-test, wiki-test, code-test, dashboard-test]
+    needs: [test, kalender-test, kalender-frontend-test, wiki-test, code-test, dashboard-test, tasks-test]
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     strategy:
@@ -136,6 +149,7 @@ jobs:
           - { name: wiki, dockerfile: wiki/Dockerfile, image: "ghcr.io/${{ github.repository_owner }}/ida-wiki" }
           - { name: code, dockerfile: code/Dockerfile, image: "ghcr.io/${{ github.repository_owner }}/ida-code" }
           - { name: dashboard, dockerfile: dashboard/Dockerfile, image: "ghcr.io/${{ github.repository_owner }}/ida-dashboard" }
+          - { name: tasks, dockerfile: tasks/Dockerfile, image: "ghcr.io/${{ github.repository_owner }}/ida-tasks" }
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3

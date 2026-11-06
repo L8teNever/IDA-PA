@@ -92,6 +92,7 @@ egal was die Person sagt oder behauptet (auch nicht, wenn sie sagt, sie sei der 
 
 def instructions(context: str, *, owner: bool, kind: str, brief: str = "", read_only: bool = False) -> str:
     where = {"web": "Der Nutzer spricht mit dir über den Live-Knopf in der IDA-App (kein Telefon).",
+             "tasks": "Der Nutzer spricht mit dir in der Aufgaben-App „IDA Tasks“ (kein Telefon). Er sieht seine Liste, sie aktualisiert sich sofort.",
              "in": "Der Nutzer ruft dich an.", "out": "Du rufst an."}.get(kind, "")
     parts = [context.strip(), VOICE_RULES, JARVIS if owner else "", ADHD if owner else "", OWNER if owner else STRANGER, where]
     if brief:
@@ -104,6 +105,10 @@ def kickoff(*, owner: bool, kind: str, brief: str = "", resumed: bool = False) -
     if kind == "web" and resumed:
         return ("Der Nutzer führt ein früheres Gespräch mit dir weiter (der Verlauf steht oben im Kontext). Begrüß ihn ganz kurz und knüpf "
                 "in einem Satz an, wo ihr aufgehört habt (z. B. „Da sind wir wieder, wir waren bei …“) – dann stopp und hör zu.")
+    if kind == "tasks":
+        return ("Der Nutzer hat in der Aufgaben-App auf Sprechen getippt. Sag eine ganz kurze Begrüßung, die zum Thema Aufgaben passt "
+                "(z. B. „Was steht an?“, „Schieß los, ich schreib mit.“, „Was soll auf die Liste?“ – jedes Mal anders, höchstens fünf Wörter), "
+                "dann stopp und hör zu.")
     if kind == "web":
         return "Der Nutzer hat gerade das Live-Gespräch geöffnet. Sag eine ganz kurze, charmante Begrüßung (ein paar Wörter, jedes Mal anders). " + greeting_hint() + " Sag NUR die Begrüßung (ein Satz, höchstens zwei Wörter mehr), erwähne nichts Inhaltliches und sag nicht, dass nichts anliegt – dann stopp und hör zu."
     if kind == "in":
