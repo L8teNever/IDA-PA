@@ -15,7 +15,7 @@ from .claude.runner import CodeRun, RunResult, RunSpec, norm
 from .errors import Invalid
 from .memory import store as memory
 from .mcp import context as mcp_context
-from .mcp import identity
+from .mcp import identity, oauth
 
 log = logging.getLogger("ida.runs")
 HUB = "ida"  # name of the internal MCP server as the model sees it (mcp__ida__…)
@@ -53,7 +53,11 @@ async def _connectors(db: AsyncSession, agent: Agent) -> tuple[dict, list[str], 
         granted = [t for t in (ac.tools if ac.tools is not None else enabled) if t in enabled]
         if c.tools and not granted:
             continue
-        servers[c.id] = {"type": "http", "url": c.url, **({"headers": c.headers} if c.headers else {})}
+        try:
+            headers = await oauth.auth_headers(c)  # feste Header + frisches OAuth-Token
+        except oauth.OAuthError:
+            headers = dict(c.headers or {})  # Anmeldung abgelaufen: der Server meldet dann 401, der Rest des Laufs geht weiter
+        servers[c.id] = {"type": "http", "url": c.url, **({"headers": headers} if headers else {})}
         if not c.tools:  # tool list unknown: allow the whole server
             allow.append(f"mcp__{norm(c.id)}")
             continue

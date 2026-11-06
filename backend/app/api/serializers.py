@@ -29,7 +29,9 @@ def account(a: Account, logged_in: bool) -> dict:
 
 def connector(c: Connector, agents: list[str] | None = None) -> dict:
     url, secret = mask_url(c.url)
-    return {"id": c.id, "name": c.name, "url": url, "auth": secret or bool(c.headers), "enabled": c.enabled, "tools": c.tools,
+    from ..services.mcp import oauth
+    return {"id": c.id, "name": c.name, "url": url, "auth": secret or bool(c.headers) or oauth.logged_in(c), "oauth": oauth.public_view(c),
+            "enabled": c.enabled, "tools": c.tools,
             "disabled_tools": c.disabled_tools, "context": c.context or "", "status": c.status, "status_text": c.status_text, "checked_at": iso(c.checked_at),
             **({"agents": agents} if agents is not None else {})}
 

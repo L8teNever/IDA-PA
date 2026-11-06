@@ -6,7 +6,45 @@ import { $, attempt, closeSheet, esc, fmtDateTime, openSheet, sw, toast } from "
 import { subHead } from "./index.js";
 
 const BASE = "/einstellungen/mcp";
-const statusOf = (m) => (!m.enabled ? ["#45464f", "Aus"] : m.status === "error" ? ["#ff8f8f", "Nicht erreichbar"] : m.status === "new" ? ["#ffc85a", "Neu"] : ["#7ee2b8", `${m.tools.length} Tools`]);
+const statusOf = (m) => (!m.enabled ? ["#45464f", "Aus"] : m.status === "login" ? ["#ffc85a", "Anmeldung nötig"] : m.status === "error" ? ["#ff8f8f", "Nicht erreichbar"]
+  : m.status === "new" ? ["#ffc85a", "Neu"] : ["#7ee2b8", `${m.tools.length} Tools`]);
+const AUTH = [["none", "Keine"], ["token", "Token"], ["oauth", "OAuth"]];
+const GRANT = [["code", "Login im Browser"], ["client_credentials", "Ohne Login"]];
+
+// Formularteil „Anmeldung“: Token oder OAuth (Client-ID, Client-Secret, Scope, Art) – im Hinzufügen-Sheet und beim Ändern
+function authFields(s, { withToken = true, secretSet = false } = {}) {
+  const modes = withToken ? AUTH : AUTH.filter(([k]) => k !== "token");
+  return `<div class="flabel">Anmeldung</div>
+    <div class="chipset" id="mAuth">${modes.map(([k, l]) => `<button data-auth="${k}" class="${s.auth === k ? "on" : ""}">${l}</button>`).join("")}</div>
+    ${s.auth === "token" ? `<label class="fld"><span>Bearer-Token</span><input id="mToken" type="password" value="${esc(s.token)}" autocomplete="off"></label>` : ""}
+    ${s.auth === "oauth" ? `
+      <div class="chipset" id="mGrant" style="margin-top:8px">${GRANT.map(([k, l]) => `<button data-grant="${k}" class="${s.grant === k ? "on" : ""}">${l}</button>`).join("")}</div>
+      <p class="sub-intro" style="margin:6px 2px 10px">${s.grant === "code"
+        ? "Du meldest dich gleich beim Anbieter an. Ohne Client-ID registriert sich Ida selbst, wenn der Server das kann."
+        : "Ida holt sich das Token nur mit Client-ID und Secret – ohne Login (Client Credentials)."}</p>
+      <label class="fld"><span>Client-ID${s.grant === "code" ? " (optional)" : ""}</span><input id="mCid" value="${esc(s.client_id)}" autocomplete="off"></label>
+      <label class="fld"><span>Client-Secret${s.grant === "code" ? " (optional)" : ""}</span><input id="mSecret" type="password" value="${esc(s.client_secret)}"
+        placeholder="${secretSet ? "gespeichert – leer lassen = behalten" : ""}" autocomplete="off"></label>
+      <label class="fld"><span>Scope (optional)</span><input id="mScope" value="${esc(s.scope)}" placeholder="z. B. read write" autocomplete="off"></label>` : ""}`;
+}
+
+function keepAuth(s) {
+  if ($("mToken")) s.token = $("mToken").value;
+  if ($("mCid")) { s.client_id = $("mCid").value; s.client_secret = $("mSecret").value; s.scope = $("mScope").value; }
+}
+
+function bindAuth(s, redraw) {
+  $("mAuth").onclick = (e) => { const b = e.target.closest("[data-auth]"); if (!b) return; keepAuth(s); s.auth = b.dataset.auth; redraw(); };
+  if ($("mGrant")) $("mGrant").onclick = (e) => { const b = e.target.closest("[data-grant]"); if (!b) return; keepAuth(s); s.grant = b.dataset.grant; redraw(); };
+}
+
+const oauthBody = (s, keepSecret = false) => ({ grant: s.grant, client_id: s.client_id.trim(), scope: s.scope.trim(),
+  client_secret: keepSecret && !s.client_secret ? null : s.client_secret.trim() });
+
+async function login(id) {
+  const r = await attempt(() => api.post(`/connectors/${id}/oauth/start`));
+  if (r?.url) location.href = r.url;   // zurück kommt der Browser auf die Seite des Connectors
+}
 const names = (ids) => ids.map((i) => state.boot.agents.find((a) => a.id === i)).filter(Boolean)
   .map((a) => `<span style="color:${colors(a)["--accent"]}">${esc(a.name)}</span>`).join(" · ");
 
@@ -26,25 +64,29 @@ export async function render(el, id) {
 }
 
 function addSheet(el) {
-  const s = { name: "", url: "", token: "", agents: [state.boot.agents.find((a) => a.is_main)?.id].filter(Boolean) };
+  const s = { name: "", url: "", token: "", auth: "none", grant: "code", client_id: "", client_secret: "", scope: "",
+              agents: [state.boot.agents.find((a) => a.is_main)?.id].filter(Boolean) };
   const draw = () => {
     openSheet(`<h2 class="sh-title">MCP hinzufügen</h2>
       <label class="fld"><span>Name (optional)</span><input id="mName" value="${esc(s.name)}" placeholder="Mein Server"></label>
       <label class="fld"><span>Server-URL – gern mit Token (…?token=…), er wird in der Liste versteckt</span><input id="mUrl" value="${esc(s.url)}" placeholder="https://mcp.beispiel.de/mcp" inputmode="url"></label>
-      <label class="fld"><span>Bearer-Token separat (optional)</span><input id="mToken" type="password" value="${esc(s.token)}"></label>
+      ${authFields(s)}
       <div class="flabel">Welche Agents dürfen ihn benutzen?</div>
       <div class="chipset" id="mAgents">${state.boot.agents.map((a) => `<button data-a="${a.id}" class="${s.agents.includes(a.id) ? "on" : ""}">${esc(a.name)}</button>`).join("")}</div>
       <div id="mErr" class="ferr"></div>
       <div class="wiz-nav"><button class="es-btn" id="mCancel">Abbrechen</button><button class="es-btn primary" id="mAdd"><span class="ms">add</span>Hinzufügen</button></div>`);
-    const keep = () => { s.name = $("mName").value; s.url = $("mUrl").value; s.token = $("mToken").value; };
+    const keep = () => { s.name = $("mName").value; s.url = $("mUrl").value; keepAuth(s); };
+    bindAuth(s, () => { keep(); draw(); });
     $("mAgents").onclick = (e) => { const b = e.target.closest("[data-a]"); if (!b) return; keep(); const i = b.dataset.a; s.agents = s.agents.includes(i) ? s.agents.filter((x) => x !== i) : [...s.agents, i]; draw(); };
     $("mCancel").onclick = closeSheet;
     $("mAdd").onclick = async () => {
       keep();
       $("mAdd").disabled = true;
       try {
-        const m = await api.post("/connectors", { name: s.name, url: s.url, token: s.token || null, agents: s.agents });
+        const m = await api.post("/connectors", { name: s.name, url: s.url, token: s.auth === "token" ? s.token || null : null,
+                                                   oauth: s.auth === "oauth" ? oauthBody(s) : null, agents: s.agents });
         closeSheet();
+        if (m.status === "login") { toast(`${m.name}: Anmeldung beim Anbieter …`); return login(m.id); }   // Login direkt starten
         toast(m.status === "ok" ? `${m.name}: ${m.tools.length} Tools geladen` : `${m.name} hinzugefügt – ${m.status_text}`);
         navigate(`${BASE}/${m.id}`);
       } catch (err) { $("mErr").textContent = err.message; $("mAdd").disabled = false; }
@@ -54,8 +96,14 @@ function addSheet(el) {
 }
 
 async function detail(el, id) {
+  const q = new URLSearchParams(location.search);
+  if (q.has("oauth")) {   // zurück vom Login beim Anbieter
+    toast(q.get("oauth") === "ok" ? "Angemeldet" : `Anmeldung fehlgeschlagen${q.get("grund") ? ": " + q.get("grund") : ""}`);
+    history.replaceState(history.state, "", location.pathname);
+  }
   const m = await api.get(`/connectors/${id}`);
   const [col, txt] = statusOf(m);
+  const o = m.oauth;
   el.innerHTML = subHead(m.name, BASE) + `
     <div class="detail-top"><div class="pcard">
       <div class="kv"><span>Status</span><b><span class="sdot inline" style="background:${col}"></span>${esc(txt)}${m.status === "error" ? " – " + esc(m.status_text) : ""}</b></div>
@@ -64,6 +112,19 @@ async function detail(el, id) {
     </div><div>
     <div class="slist toggles"><div class="srow"><span class="smain"><b>Aktiv</b><small>Aus = kein Agent kann ihn benutzen</small></span>${sw(m.enabled, 'id="mEnabled"')}</div></div>
     <div class="btn-row"><button class="es-btn" id="mRefresh"><span class="ms">refresh</span>Tools neu laden</button><button class="es-btn danger" id="mDel"><span class="ms">delete</span>Entfernen</button></div></div></div>
+    <div class="grp">Anmeldung</div>
+    <div class="pcard">${o ? `
+      <div class="kv"><span>Art</span><b>OAuth · ${o.grant === "code" ? "Login im Browser" : "ohne Login (Client Credentials)"}</b></div>
+      <div class="kv"><span>Status</span><b>${o.logged_in ? `angemeldet${o.expires_at ? ` · Token bis ${fmtDateTime(new Date(o.expires_at * 1000).toISOString())}` : ""}${o.refreshable ? " · erneuert sich selbst" : ""}` : "nicht angemeldet"}</b></div>
+      <div class="kv"><span>Client-ID</span><b class="mono">${o.client_id ? esc(o.client_id) + (o.registered ? " (automatisch registriert)" : "") : "–"}</b></div>
+      ${o.has_secret ? `<div class="kv"><span>Client-Secret</span><b>gespeichert 🔒</b></div>` : ""}
+      ${o.scope ? `<div class="kv"><span>Scope</span><b class="mono">${esc(o.scope)}</b></div>` : ""}
+      ${o.issuer ? `<div class="kv"><span>Anbieter</span><b class="mono">${esc(o.issuer)}</b></div>` : ""}`
+      : `<div class="kv"><span>Art</span><b>${m.auth ? "Token / URL-Schlüssel 🔒" : "keine"}</b></div>`}
+    </div>
+    <div class="btn-row">${o?.grant === "code" ? `<button class="es-btn primary" id="mLogin"><span class="ms">login</span>${o.logged_in ? "Neu anmelden" : "Anmelden"}</button>` : ""}
+      ${o?.logged_in ? `<button class="es-btn" id="mLogout"><span class="ms">logout</span>Abmelden</button>` : ""}
+      <button class="es-btn" id="mAuthEdit"><span class="ms">key</span>${o ? "Zugangsdaten ändern" : "OAuth einrichten"}</button></div>
     <div class="grp">Was ist das? – Kontext für die KI</div>
     <p class="sub-intro">Steht bei jedem Agent mit Zugriff und bei Stella im Kontext, z. B. „Sofia = meine Schul-App: Hausaufgaben, Termine …“. So wissen sie bei „Schulapp“ sofort, was gemeint ist.</p>
     <label class="fld"><textarea id="mCtx" rows="6" placeholder="Noch leer – „Neu erstellen“ schreibt einen Vorschlag aus den Tools.">${esc(m.context || "")}</textarea></label>
@@ -77,6 +138,9 @@ async function detail(el, id) {
       <button class="es-btn" id="mAllOn"><span class="ms">toggle_on</span>Alle an</button>
       <button class="es-btn" id="mAllOff"><span class="ms">toggle_off</span>Alle aus</button></div>` : ""}
     <div class="slist tool-grid" id="mTools">${m.tools.map((t) => `<div class="srow" data-name="${esc(t.toLowerCase())}"><span class="smain"><b class="mono" title="${esc(t)}">${esc(t)}</b></span>${sw(!m.disabled_tools.includes(t), `data-tool="${esc(t)}"`)}</div>`).join("") || `<div class="empty">Keine Tool-Liste – „Tools neu laden“.</div>`}</div>`;
+  if ($("mLogin")) $("mLogin").onclick = () => login(id);
+  if ($("mLogout")) $("mLogout").onclick = async () => { if (await attempt(() => api.post(`/connectors/${id}/oauth/logout`), "Abgemeldet")) detail(el, id); };
+  $("mAuthEdit").onclick = () => authSheet(el, m);
   $("mEnabled").onclick = async () => { await attempt(() => api.patch(`/connectors/${id}`, { enabled: !m.enabled })); detail(el, id); };
   $("mRefresh").onclick = async () => { const r = await attempt(() => api.post(`/connectors/${id}/refresh`)); if (r) toast(r.status === "ok" ? r.status_text : "Fehler: " + r.status_text); detail(el, id); };
   $("mCtxSave").onclick = () => attempt(() => api.patch(`/connectors/${id}`, { context: $("mCtx").value }), "Gespeichert");
@@ -116,4 +180,39 @@ async function detail(el, id) {
     const disabled = m.disabled_tools.includes(t) ? m.disabled_tools.filter((x) => x !== t) : [...m.disabled_tools, t];
     if (await attempt(() => api.patch(`/connectors/${id}`, { disabled_tools: disabled }))) { m.disabled_tools = disabled; b.classList.toggle("on"); }
   }));
+}
+
+// OAuth einrichten oder ändern (Client-ID, Secret, Scope, Art); ein leeres Secret-Feld behält das gespeicherte
+function authSheet(el, m) {
+  const o = m.oauth || {};
+  const s = { auth: "oauth", grant: o.grant || "code", client_id: o.client_id && !o.registered ? o.client_id : "", client_secret: "", scope: o.scope || "" };
+  const draw = () => {
+    openSheet(`<h2 class="sh-title">Anmeldung – ${esc(m.name)}</h2>
+      ${authFields(s, { withToken: false, secretSet: !!o.has_secret })}
+      ${m.oauth ? `<div class="btn-row"><button class="es-btn danger" id="mDrop"><span class="ms">key_off</span>OAuth entfernen</button></div>` : ""}
+      <div id="mErr" class="ferr"></div>
+      <div class="wiz-nav"><button class="es-btn" id="mCancel">Abbrechen</button><button class="es-btn primary" id="mSave"><span class="ms">save</span>Speichern</button></div>`);
+    bindAuth(s, draw);
+    $("mCancel").onclick = closeSheet;
+    if ($("mDrop")) $("mDrop").onclick = async () => {
+      if (!confirm("OAuth entfernen? Ida meldet sich dann nicht mehr an.")) return;
+      if (await attempt(() => api.del(`/connectors/${m.id}/oauth`), "Entfernt")) { closeSheet(); detail(el, m.id); }
+    };
+    $("mSave").onclick = async () => {
+      keepAuth(s);
+      if (s.auth === "none") {   // „Keine“ gewählt: OAuth weg
+        if (await attempt(() => api.del(`/connectors/${m.id}/oauth`), "Gespeichert")) { closeSheet(); detail(el, m.id); }
+        return;
+      }
+      $("mSave").disabled = true;
+      try {
+        const r = await api.put(`/connectors/${m.id}/oauth`, oauthBody(s, true));
+        closeSheet();
+        if (r.status === "login") return login(m.id);
+        toast(r.status === "ok" ? `Angemeldet – ${r.tools.length} Tools` : r.status_text);
+        detail(el, m.id);
+      } catch (err) { $("mErr").textContent = err.message; $("mSave").disabled = false; }
+    };
+  };
+  draw();
 }

@@ -6,6 +6,7 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 import httpx
 
 from ...models import Connector
+from . import oauth
 
 PROTOCOL = "2025-03-26"
 
@@ -17,16 +18,28 @@ class McpError(Exception):
 class _Session:
     def __init__(self, connector: Connector, client: httpx.AsyncClient):
         self.c, self.client, self.sid, self.next_id = connector, client, None, 1
+        self.auth: dict = {}  # feste Header + OAuth-Token (oauth.auth_headers)
+        self.retried = False
 
     async def call(self, method: str, params: dict | None = None, notify: bool = False):
         body = {"jsonrpc": "2.0", "method": method, **({"params": params} if params is not None else {})}
         if not notify:
             body["id"] = self.next_id
             self.next_id += 1
-        headers = {"content-type": "application/json", "accept": "application/json, text/event-stream", **(self.c.headers or {})}
+        headers = {"content-type": "application/json", "accept": "application/json, text/event-stream", **self.auth}
         if self.sid:
             headers["mcp-session-id"] = self.sid
         r = await self.client.post(self.c.url, json=body, headers=headers)
+        if r.status_code == 401 and oauth.active(self.c) and not self.retried:  # Token abgelaufen/widerrufen: einmal erneuern
+            self.retried = True
+            try:
+                self.auth = await oauth.auth_headers(self.c, force_refresh=True)
+            except oauth.OAuthError as e:
+                raise McpError(str(e)) from e
+            headers.update(self.auth)
+            r = await self.client.post(self.c.url, json=body, headers=headers)
+        if r.status_code == 401:
+            raise McpError("Anmeldung nötig" if oauth.active(self.c) and not oauth.logged_in(self.c) else "HTTP 401 – Anmeldung abgelehnt")
         if r.status_code >= 400:
             raise McpError(f"HTTP {r.status_code}")
         self.sid = r.headers.get("mcp-session-id") or self.sid
@@ -51,6 +64,10 @@ class _Session:
 
 async def _open(connector: Connector, client: httpx.AsyncClient) -> _Session:
     s = _Session(connector, client)
+    try:
+        s.auth = await oauth.auth_headers(connector)
+    except oauth.OAuthError as e:
+        raise McpError(str(e)) from e
     await s.call("initialize", {"protocolVersion": PROTOCOL, "capabilities": {}, "clientInfo": {"name": "ida", "version": "1"}})
     await s.call("notifications/initialized", notify=True)
     return s

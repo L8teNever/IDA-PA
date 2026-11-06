@@ -112,6 +112,8 @@ def server():
         "GEMINI_API_KEY": "test-gemini-key", "STELLA_OWNER_NUMBER": "+4917012345678",
         # nie echte Zugangsdaten aus der Umgebung nutzen: sonst wählt der Test wirklich die Testnummer an
         "TELNYX_API_KEY": "", "TELNYX_CONNECTION_ID": "", "TELNYX_FROM_NUMBER": "", "VOICE_TELNYX_URL": "",
+        # Aufgaben-App nur, wo ein Test sie mit seinem Ersatz einschaltet (test_tasks.py); IDA_PUBLIC_URL = die Testadresse
+        "TASKS_URL": "", "TASKS_IDA_TOKEN": "", "IDA_PUBLIC_URL": "",
     })
     import uvicorn
 

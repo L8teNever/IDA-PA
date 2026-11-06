@@ -16,6 +16,8 @@ class Connector(Timestamps, Base):
     name: Mapped[str] = mapped_column(String(60))
     url: Mapped[str] = mapped_column(Text)  # may contain a token (?token=…) – never sent to the browser unmasked
     headers: Mapped[dict] = mapped_column(Json, default=dict)
+    # OAuth (services/mcp/oauth.py): grant, client_id, client_secret, scope, meta, access_token, refresh_token, expires_at, pending
+    oauth: Mapped[dict] = mapped_column(Json, default=dict)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     tools: Mapped[list] = mapped_column(Json, default=list)  # all tool names of the server
     disabled_tools: Mapped[list] = mapped_column(Json, default=list)  # switched off for everybody

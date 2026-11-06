@@ -39,6 +39,8 @@ class Settings(BaseSettings):
     github_api_url: str = "https://api.github.com"
     github_url: str = "https://github.com"
 
+    ida_public_url: str = ""  # öffentliche Adresse von IDA (z. B. https://ida.kulbarts.com) – Rücksprung beim OAuth-Login von MCP-Servern
+
     # Kalender (eigener Dienst, siehe docs/KALENDER.md): Adresse und gemeinsames Geheimnis; leer = Kalender-Funktionen aus
     kalender_url: str = ""
     kalender_ida_token: str = ""

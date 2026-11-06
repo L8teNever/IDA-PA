@@ -183,10 +183,18 @@ class TriggerTest(BaseModel):
     trigger: Trigger
 
 
+class ConnectorOAuth(BaseModel):
+    grant: Literal["code", "client_credentials"] = "code"  # code = Login im Browser, client_credentials = nur ID + Secret
+    client_id: str | None = None      # leer bei code = automatisch registrieren (falls der Server das kann)
+    client_secret: str | None = None  # None = bisheriges behalten (beim Ändern), "" = löschen
+    scope: str | None = None
+
+
 class ConnectorCreate(BaseModel):
     name: str = ""
     url: str
     token: str | None = None
+    oauth: ConnectorOAuth | None = None
     agents: list[str] = Field(default_factory=list)
 
 
