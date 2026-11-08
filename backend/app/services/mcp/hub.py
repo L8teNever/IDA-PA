@@ -32,7 +32,7 @@ from ..claude import prompts
 from ..errors import Invalid, NotFound
 from ..code import approvals, commit_msg, git, github, projects as code_projects, sandbox
 from ..memory import store as memory
-from . import kalender_tools, server_tools, tasks_tools, voice_tools, wiki_tools
+from . import kalender_tools, server_tools, tasks_tools, voice_tools, web_tools, wiki_tools
 from .identity import Identity, get
 
 E = {"type": "string"}
@@ -134,6 +134,7 @@ def _spec(ids: list[str]) -> list[tuple[str, str, str, dict]]:
     ]
     if kalender_tools.enabled():  # Kalender-Dienst eingerichtet (KALENDER_URL): Ida bedient ihn direkt
         tools += kalender_tools.spec()
+    tools += web_tools.spec()  # Internet: web_lesen immer, web_suchen mit GEMINI_API_KEY
     if tasks_tools.enabled():  # Tasks-Dienst eingerichtet (TASKS_URL): Aufgaben-App
         tools += tasks_tools.spec()
     if wiki_tools.enabled():  # Wiki-Dienst eingerichtet (WIKI_URL): Gedächtnis, Suche, Privat-Freigaben
@@ -321,6 +322,8 @@ async def _call(db: AsyncSession, me: Identity, name: str, a: dict) -> dict:
         return await wiki_tools.call(db, me, name, a)
     if name.startswith("tasks_"):
         return await tasks_tools.call(db, me, name, a)
+    if name.startswith("web_"):
+        return await web_tools.call(db, me, name, a)
     if name.startswith("stella_"):
         return await voice_tools.call(db, me, name, a)
 

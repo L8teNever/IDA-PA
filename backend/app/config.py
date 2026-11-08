@@ -73,7 +73,7 @@ class Settings(BaseSettings):
     # Im Gespräch direkt angebotene Tools (Muster, * erlaubt); alle anderen über tool_suchen/tool_ausfuehren
     voice_core_tools: str = ("calendar_day_brief,calendar_events,calendar_free_time,calendar_search,calendar_event_create,calendar_event_move,"
                              "reminder_create,reminder_list,tracker_list,tracker_check,memory_save,memory_search,wiki_search,wiki_read,"
-                             "agent_delegate,stundenplan,vertretungen,ausfaelle,sofia_list_homework,google_termine_liste,google_mails_suchen,"
+                             "web_suchen,web_lesen,agent_delegate,stundenplan,vertretungen,ausfaelle,sofia_list_homework,google_termine_liste,google_mails_suchen,"
                              "homeassistant_zustand_lesen,homeassistant_einschalten,homeassistant_ausschalten")
     # Im Gespräch nie erlaubt (Muster gegen den Tool-Namen)
     voice_deny_tools: str = ("ssh_*,cloudflare_*,code_*,stella_*,agent_create,agent_update,agent_delete,skill_create,skill_update,"
@@ -81,6 +81,7 @@ class Settings(BaseSettings):
     # Im Voice-Container: wie er IDA erreicht, Gemini Live und Telnyx
     voice_ida_url: str = "http://app:8000"
     gemini_api_key: str = ""
+    web_search_model: str = "gemini-2.5-flash"  # web_suchen: Google-Suche über dieses Gemini-Modell
     gemini_live_model: str = "gemini-3.8-live"
     gemini_live_fallbacks: str = "gemini-3.1-flash-live-preview,gemini-2.5-flash-native-audio-preview-12-2025"
     gemini_thinking_budget: int = 0  # -1 = nicht senden

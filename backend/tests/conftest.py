@@ -117,6 +117,10 @@ def server():
     })
     import uvicorn
 
+    from app.config import get_settings
+    get_settings.cache_clear()
+    assert get_settings().data_dir == tmp / "data", "Tests dürfen nie mit den Einstellungen des echten Betriebs laufen"
+
     from app.main import create_app
 
     srv = uvicorn.Server(uvicorn.Config(create_app(), host="127.0.0.1", port=port, log_level="warning"))
