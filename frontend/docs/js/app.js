@@ -74,7 +74,7 @@ async function open(id) {
   $("#src").oninput = (e) => { st.doc.content = e.target.value; changed(); };
   $("#src").addEventListener("scroll", () => { $("#marks").firstChild.style.transform = `translateY(${-$("#src").scrollTop}px)`; });
   new ResizeObserver(() => drawMarks()).observe($("#src"));
-  $("#src").onkeydown = (e) => { if (e.key === "Tab") { e.preventDefault(); ins("  "); } };
+  slashSetup();
   $("#cfg").onclick = settingsPanel;
   $("#more").onclick = (e) => moreMenu(e.currentTarget);
   $(".mtabs").onclick = (e) => { const b = e.target.closest("[data-m]"); if (!b) return; st.mpane = b.dataset.m; $(".split").dataset.m = b.dataset.m; document.querySelectorAll(".mtabs button").forEach((x) => x.classList.toggle("on", x === b)); if (b.dataset.m === "pv") fit(); else drawMarks(); };
@@ -161,6 +161,52 @@ function act(a) {
     title: () => block(`::: title\nTitel der Arbeit\n\nUntertitel oder Thema\n\nvon Vorname Nachname\n\nKlasse / Kurs · Schule\n\nBetreuende Lehrkraft: Name\n\nAbgabe: ${today}\n:::\n\n\\newpage\n`),
     src: () => block("[QUELLEN]\n"),
     decl: () => block(`# Selbstständigkeitserklärung {-}\n\nHiermit erkläre ich, dass ich die vorliegende Arbeit selbstständig und nur mit den angegebenen Quellen und Hilfsmitteln angefertigt habe. Alle wörtlich oder sinngemäß übernommenen Stellen habe ich als solche gekennzeichnet.\n\nOrt, ${today}\n\n\n\n______________________________  \nUnterschrift\n`) })[a]?.();
+}
+
+// ---------------------------------------------------------------- Schnellbefehle (/ne + Tab)
+// Tippe / (oder \) und ein paar Buchstaben: Vorschläge erscheinen unten im Editor, Tab übernimmt den ersten (Pfeile wählen, Esc schließt).
+const SLASH = [
+  ["newpage", "Seitenumbruch", () => "\\newpage\n"], ["toc", "Inhaltsverzeichnis", () => "[TOC]\n"], ["quellen", "Quellenverzeichnis", () => "[QUELLEN]\n"],
+  ["titelblatt", "Titelblatt", (t) => `::: title\nTitel der Arbeit\n\nUntertitel oder Thema\n\nvon Vorname Nachname\n\nKlasse / Kurs · Schule\n\nBetreuende Lehrkraft: Name\n\nAbgabe: ${t}\n:::\n\n\\newpage\n`],
+  ["mitte", "Zentriert schreiben", () => "::: center\nText\n:::\n"], ["rechts", "Rechtsbündig schreiben", () => "::: right\nText\n:::\n"], ["links", "Linksbündig schreiben", () => "::: left\nText\n:::\n"],
+  ["entwurf", "Entwurf (noch nicht fertig)", () => "::: entwurf\nSchnell aufschreiben, später überarbeiten …\n:::\n"], ["notiz", "Notiz (nie im Dokument)", () => "[[Notiz: Text]]"],
+  ["tabelle", "Tabelle", () => "| Spalte 1 | Spalte 2 | Spalte 3 |\n|----------|:--------:|---------:|\n| Text     | Text     | Text     |\n"],
+  ["zitat", "Zitat mit Quelle", () => "> „Text“ [@quelle, S. 1]\n"], ["bild", "Bild", () => "![Beschreibung](https://)"], ["linie", "Trennlinie", () => "---\n"],
+  ["h1", "Überschrift 1", () => "# "], ["h2", "Überschrift 2", () => "## "], ["h3", "Überschrift 3", () => "### "],
+  ["selbststaendigkeit", "Selbstständigkeitserklärung", (t) => `# Selbstständigkeitserklärung {-}\n\nHiermit erkläre ich, dass ich die vorliegende Arbeit selbstständig und nur mit den angegebenen Quellen und Hilfsmitteln angefertigt habe. Alle wörtlich oder sinngemäß übernommenen Stellen habe ich als solche gekennzeichnet.\n\nOrt, ${t}\n\n\n\n______________________________  \nUnterschrift\n`],
+];
+function slashSetup() {
+  const ta = $("#src"), box = el('<div class="slash" hidden></div>'); ta.parentElement.append(box);
+  let list = [], sel = 0, from = 0;
+  const hide = () => { box.hidden = true; list = []; };
+  const token = () => { const p = ta.selectionStart; if (p !== ta.selectionEnd) return null; const m = ta.value.slice(0, p).match(/(^|[\s])([\/\\])([a-zäöüß0-9]*)$/i); return m ? { q: m[3].toLowerCase(), at: p - m[3].length - 1, p } : null; };
+  const draw = () => { box.innerHTML = list.map((c, i) => `<button type="button" data-i="${i}" class="${i === sel ? "on" : ""}"><b>/${c[0]}</b><span>${esc(c[1])}</span></button>`).join("") + '<small>Tab = einfügen</small>'; box.hidden = false; };
+  const refresh = () => {
+    const t = token(); if (!t) return hide();
+    list = SLASH.filter((c) => c[0].startsWith(t.q)).concat(SLASH.filter((c) => !c[0].startsWith(t.q) && t.q.length > 1 && c[0].includes(t.q))).slice(0, 5);
+    if (!list.length) return hide();
+    sel = 0; from = t.at; draw();
+  };
+  const take = (c) => {
+    const t = token(); if (!t) return hide();
+    const today = new Date().toLocaleDateString("de-DE", { day: "2-digit", month: "long", year: "numeric" });
+    const before = ta.value.slice(0, t.at), text = c[2](today), isBlock = /\n$/.test(text) && !/^#{1,3} $/.test(text);
+    const pre = isBlock && before && !before.endsWith("\n") ? "\n\n" : "";
+    ta.setRangeText(pre + text, t.at, t.p, "end"); hide(); ta.dispatchEvent(new Event("input")); ta.focus();
+  };
+  ta.addEventListener("input", refresh);
+  ta.addEventListener("click", refresh);
+  ta.addEventListener("blur", () => setTimeout(hide, 150));
+  box.onmousedown = (e) => { const b = e.target.closest("[data-i]"); if (b) { e.preventDefault(); take(list[b.dataset.i]); } };
+  ta.addEventListener("keydown", (e) => {
+    if (!box.hidden && list.length) {
+      if (e.key === "Tab" || (e.key === "Enter" && !e.shiftKey)) { e.preventDefault(); take(list[sel]); return; }
+      if (e.key === "ArrowDown") { e.preventDefault(); sel = (sel + 1) % list.length; draw(); return; }
+      if (e.key === "ArrowUp") { e.preventDefault(); sel = (sel + list.length - 1) % list.length; draw(); return; }
+      if (e.key === "Escape") { e.preventDefault(); hide(); return; }
+    }
+    if (e.key === "Tab") { e.preventDefault(); ins("  "); }
+  });
 }
 
 // ---------------------------------------------------------------- Notizen & Entwürfe
@@ -309,6 +355,7 @@ function layout() {
   measure.style.cssText = vars(c) + ";" + colCss;
   measure.innerHTML = html;
   const pitch = (cw + GAP) * PX;
+  breaks(ch * PX);
   const count = () => Math.max(1, Math.round((measure.scrollWidth + GAP * PX) / pitch));
   const place = () => { const x0 = measure.getBoundingClientRect().left; const m = {}; headings.forEach((h) => { const n = measure.querySelector("#" + CSS.escape(h.id)); if (n) m[h.id] = Math.floor((n.getBoundingClientRect().left - x0 + 2) / pitch) + 1; }); return m; };
   let pages = place();
@@ -326,6 +373,16 @@ function layout() {
   prev.scrollTop = keep;
   $("#meta").textContent = `${n} ${n === 1 ? "Seite" : "Seiten"} · ${st.doc.content.trim() ? st.doc.content.trim().split(/\s+/).length : 0} Wörter`;
   fit(); drawMarks();
+}
+// \newpage: Der Umbruch füllt den Rest der Seite mit einem leeren Block. Das gelingt in jedem Browser, anders als ein erzwungener Spaltenumbruch.
+function breaks(colH) {
+  const top = measure.getBoundingClientRect().top;
+  measure.querySelectorAll(".pb").forEach((b) => { b.style.height = "0px"; });
+  for (const b of measure.querySelectorAll(".pb")) {
+    const y = b.getBoundingClientRect().top - top;
+    const used = ((y % colH) + colH) % colH;
+    b.style.height = used < 1 || colH - used < 2 ? "0px" : `${Math.floor(colH - used - 1)}px`;
+  }
 }
 // Wo beginnt welche Seite im Markdown? Pro Block (data-l) die Startseite, bei Absätzen über den Seitenwechsel hinweg das erste Wort der neuen Seite.
 const SKIPTOK = /^(#{1,6}|[-*+]|\d+[.)]|\|+|:?-{2,}:?|>+|:::\w*)$/;
