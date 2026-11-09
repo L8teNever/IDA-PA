@@ -127,7 +127,7 @@ async function syncPending() {
 function buildTools() {
   const T = [["undo", "undo", "Rückgängig (Strg+Z)"], ["redo", "redo", "Wiederholen (Strg+Y)"], "|", ["H1", "h1", "Überschrift 1"], ["H2", "h2", "Überschrift 2"], ["H3", "h3", "Überschrift 3"], "|", ["format_bold", "b", "Fett"], ["format_italic", "i", "Kursiv"], ["code", "code", "Code"], "|",
     ["format_align_left", "al", "Linksbündig"], ["format_align_center", "ac", "Zentriert"], ["format_align_right", "ar", "Rechtsbündig"], "|",
-    ["format_list_bulleted", "ul", "Liste"], ["format_list_numbered", "ol", "Nummerierte Liste"], ["format_quote", "quote", "Zitat"], ["table", "table", "Tabelle"], ["link", "link", "Link"], ["image", "img", "Bild per Adresse"], ["footnote", "fn", "Fußnote"], "|",
+    ["format_list_bulleted", "ul", "Liste"], ["format_list_numbered", "ol", "Nummerierte Liste"], ["format_quote", "quote", "Zitat"], ["table", "table", "Tabelle"], ["link", "link", "Link"], ["image", "img", "Bild per Adresse"], ["superscript", "fn", "Fußnote"], "|",
     ["sticky_note_2", "notes", "Notizen & Entwürfe"], ["toc", "toc", "Inhaltsverzeichnis"], ["insert_page_break", "pb", "Seitenumbruch"], ["article", "title", "Titelblatt"], ["library_books", "lib", "Quellen (Archiv)"], ["menu_book", "src", "Quellenverzeichnis einfügen"], ["verified_user", "decl", "Selbstständigkeitserklärung"]];
   $("#tools").innerHTML = T.map((t) => t === "|" ? "<i></i>" : /^H\d$/.test(t[0]) ? `<button data-a="${t[1]}" title="${t[2]}" aria-label="${t[2]}">${t[0]}</button>` : `<button data-a="${t[1]}" title="${t[2]}" aria-label="${t[2]}">${ico(t[0])}</button>`).join("");
   $("#tools").onclick = (e) => { const b = e.target.closest("[data-a]"); if (b) act(b.dataset.a); };
@@ -368,8 +368,8 @@ function sourcesPanel() {
 
 // ---------------------------------------------------------------- Seiten
 function vars(s) {
-  const c = cfg(s), al = { justify: "justify", left: "left", center: "center", right: "right" }[c.align] || "justify";
-  return `--doc-font:${FONTS[c.font] || FONTS.Arial};--fs:${c.size};--lh:${c.lineHeight};--ps:${c.paraSpacing};--al:${al};--h1:${c.h1};--h2:${c.h2};--h3:${c.h3}`;
+  const c = cfg(s), font = (FONTS[c.font] || FONTS.Arial).replace(/"/g, "'"), al = { justify: "justify", left: "left", center: "center", right: "right" }[c.align] || "justify";
+  return `--doc-font:${font};--fs:${c.size};--lh:${c.lineHeight};--ps:${c.paraSpacing};--al:${al};--h1:${c.h1};--h2:${c.h2};--h3:${c.h3}`;
 }
 let measure = null;
 function layout() {
