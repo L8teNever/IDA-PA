@@ -58,6 +58,33 @@ def test_tabs_saved_kept_and_in_markdown(client):
     assert big.status_code == 413
 
 
+def test_ida_proxy_only_allows_chat_and_filters_bootstrap(client, monkeypatch):
+    import httpx
+
+    from app import ida
+    seen = []
+
+    def answer(req):
+        seen.append((req.method, req.url.path, req.content))
+        if req.url.path.endswith("/bootstrap"):
+            return httpx.Response(200, json={"models": ["m"], "model_names": {"m": "M"}, "default_model": "m", "accounts": [{"id": "geheim"}], "agents": []})
+        return httpx.Response(200, stream=httpx.ByteStream(b'{"text":"Hi"}\n'), headers={"content-type": "application/x-ndjson"})
+
+    real = httpx.AsyncClient
+    monkeypatch.setattr(ida, "_client", lambda: real(base_url="http://ida", transport=httpx.MockTransport(answer)))
+    c, _ = client
+    assert c.get("/api/v1/ida/bootstrap").json() == {"models": ["m"], "model_names": {"m": "M"}, "default_model": "m"}
+    r = c.post("/api/v1/ida/chat", json={"text": "x"})
+    assert r.status_code == 200 and r.text == '{"text":"Hi"}\n' and seen[-1][:2] == ("POST", "/api/v1/chat")
+    assert c.post("/api/v1/ida/chats/abc/stop", json={}).status_code == 200
+    assert c.get("/api/v1/ida/chats/abc/live?after=2").status_code == 200
+    n = len(seen)
+    for method, path in (("GET", "agents"), ("POST", "agents"), ("GET", "chat"), ("POST", "chats/abc"), ("GET", "chats/a%2F..%2Fagents"), ("POST", "code/x")):
+        assert c.request(method, f"/api/v1/ida/{path}").status_code == 404, path
+    assert c.delete("/api/v1/ida/chats/abc").status_code == 405
+    assert len(seen) == n                                # nichts davon erreicht IDA
+
+
 def test_backup_zip_and_snapshot(client):
     import io
     import zipfile

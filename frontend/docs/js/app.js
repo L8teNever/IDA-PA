@@ -1,6 +1,8 @@
 // IDA Docs – Oberfläche: Dokumentliste, Markdown-Editor, Seitenvorschau in DIN A4, Einstellungen, Export.
-import { render, bibEntry, citeShort, sortSources, stripComment } from "./markdown.js";
+import { render, bibEntry, citeShort, sortSources, stripComment, maskNotes } from "./markdown.js";
 import { highlightLines } from "./highlight.js";
+import { createIda } from "./ida.js";
+import { suggest } from "./complete.js";
 
 // Muss zu DEFAULTS in dokumente/app/store.py passen: nur Abweichungen davon werden in .idadocs gespeichert.
 const DEFAULTS = { marginTop: 25, marginBottom: 20, marginLeft: 30, marginRight: 20, font: "Arial", size: 11, lineHeight: 1.5, paraSpacing: 6,
@@ -15,6 +17,7 @@ const ico = (n) => `<span class="ms">${n}</span>`;
 const prefs = { mode: localStorage.getItem("docs.mode") || "pages", dark: localStorage.getItem("docs.dark") === "1", split: parseFloat(localStorage.getItem("docs.split")) || 0.5, hidePv: localStorage.getItem("docs.hidePv") === "1", edFs: parseInt(localStorage.getItem("docs.edfs")) || 14 };
 const st = { pageStarts: {}, res: { used: [], missing: [] }, doc: null, mpane: "src", timer: 0, rtimer: 0, saving: false, dirty: false, rev: 0 };
 const app = $("#app");
+const ida = createIda({ st, $, el, esc, ico, toast, api, switchTab: (n) => switchTab(n) });
 
 async function api(path, opt = {}) {
   const body = opt.body ? JSON.stringify(opt.body) : undefined;
@@ -32,7 +35,7 @@ const when = (t) => new Date(t * 1000).toLocaleString("de-DE", { day: "2-digit",
 const browserTitle = () => { document.title = st.doc?.title.trim() || "IDA Docs"; };
 async function home() {
   history.replaceState(null, "", "#/");
-  st.doc = null; browserTitle();
+  st.doc = null; browserTitle(); ida.stop();
   let docs = [], offline = false;
   await syncPending().catch(() => {});
   try { docs = await api("/docs"); localStorage.setItem("docs.list", JSON.stringify(docs)); }
@@ -69,17 +72,17 @@ async function open(id) {
   st.dirty = !!d._local; st.mpane = "src"; st.rev = 0; browserTitle();
   app.innerHTML = `<div class="ed"><div class="bar"><button class="btn ic" id="back" aria-label="Zurück">${ico("arrow_back")}</button>
       <input class="title" id="title" maxlength="200" placeholder="Titel" value="${esc(st.doc.title)}"><span class="state" id="state"></span>
-      <button class="btn ic" id="pvt"></button><button class="btn ic" id="cfg" aria-label="Seiteneinstellungen">${ico("tune")}</button><button class="btn ic" id="more" aria-label="Mehr">${ico("more_vert")}</button></div>
-    <div class="mtabs"><button data-m="src" class="on">Schreiben</button><button data-m="pv">Vorschau</button></div>
+      <button class="btn ic" id="aib" aria-label="Mit Ida chatten" title="Mit Ida chatten">${ico("auto_awesome")}</button><button class="btn ic" id="pvt"></button><button class="btn ic" id="cfg" aria-label="Seiteneinstellungen">${ico("tune")}</button><button class="btn ic" id="more" aria-label="Mehr">${ico("more_vert")}</button></div>
+    <div class="mtabs"><button data-m="src" class="on">Schreiben</button><button data-m="pv">Vorschau</button><button data-m="ai">Ida</button></div>
     <div class="tabsbar" id="tabs" role="tablist"></div>
-    <div class="split" data-m="src"><div class="card sr"><div class="tools" id="tools"></div><div class="srcwrap"><div class="hl" id="hl" aria-hidden="true"><div></div></div><textarea class="src" id="src" spellcheck="true" placeholder="Schreib hier in Markdown …"></textarea><div class="mirror" id="mirror" aria-hidden="true"></div><div class="marks" id="marks" aria-hidden="true"><div></div></div></div></div>
+    <div class="split" data-m="src"><div class="card sr"><div class="tools" id="tools"></div><div class="srcwrap"><div class="hl" id="hl" aria-hidden="true"><div></div></div><textarea class="src" id="src" spellcheck="true" placeholder="Schreib hier in Markdown …"></textarea><div class="mirror" id="mirror" aria-hidden="true"></div><div class="marks" id="marks" aria-hidden="true"><div></div></div>${ida.pill}</div></div>
       <div class="gutter" id="gut" role="separator" aria-orientation="vertical" aria-label="Breite ändern" title="Ziehen = Breite ändern, Doppelklick = halb und halb"></div>
-      <div class="card pv"><div class="prevbar"><button class="btn sm on" id="vmode"></button><button class="btn sm" id="vdark"></button><span class="grow"></span><span class="meta" id="meta"></span></div><div class="prev" id="prev"></div></div></div></div>`;
+      <div class="card pv"><div class="prevbar"><button class="btn sm on" id="vmode"></button><button class="btn sm" id="vdark"></button><button class="btn sm" id="vopen" title="Vorschau in neuem Browser-Tab öffnen">${ico("open_in_new")}Neuer Tab</button><span class="grow"></span><span class="meta" id="meta"></span></div><div class="prev" id="prev"></div></div>${ida.html}</div></div>`;
   $("#src").value = st.doc.content;
   $(".srcwrap").style.setProperty("--ed-fs", prefs.edFs + "px");
   $(".srcwrap").addEventListener("wheel", (e) => { if (e.ctrlKey || e.metaKey) { e.preventDefault(); edZoom(e.deltaY < 0 ? 1 : -1); } }, { passive: false });
   hlLines = []; drawHl();
-  buildTools(); buildTabs(); splitSetup();
+  buildTools(); buildTabs(); splitSetup(); ida.setup(id);
   $("#tabs").onclick = tabClick;
   $("#back").onclick = async () => { await flush(); home(); };
   $("#title").oninput = (e) => { st.doc.title = e.target.value; browserTitle(); changed(); };
@@ -87,15 +90,37 @@ async function open(id) {
   $("#src").addEventListener("scroll", () => { const y = `translateY(${-$("#src").scrollTop}px)`; $("#marks").firstChild.style.transform = y; $("#hl").firstChild.style.transform = y; });
   new ResizeObserver(() => drawMarks()).observe($("#src"));
   slashSetup();
+  selMenuSetup();
   histSetup();
   $("#cfg").onclick = settingsPanel;
   $("#more").onclick = (e) => moreMenu(e.currentTarget);
-  $(".mtabs").onclick = (e) => { const b = e.target.closest("[data-m]"); if (!b) return; st.mpane = b.dataset.m; $(".split").dataset.m = b.dataset.m; document.querySelectorAll(".mtabs button").forEach((x) => x.classList.toggle("on", x === b)); if (b.dataset.m === "pv") fit(); else drawMarks(); };
+  $(".mtabs").onclick = (e) => { const b = e.target.closest("[data-m]"); if (!b) return; st.mpane = b.dataset.m; $(".split").dataset.m = b.dataset.m; document.querySelectorAll(".mtabs button").forEach((x) => x.classList.toggle("on", x === b)); if (b.dataset.m === "pv") fit(); else if (b.dataset.m === "ai") ida.shown(); else drawMarks(); };
+  $("#vopen").onclick = () => window.open(`#/v/${id}/${st.doc.tabs[st.doc.tab].id}`, "_blank");
+  previewBar(); stateText(st.dirty ? "Lokal gesichert" : "Gespeichert");
+  if (st.dirty) schedule();
+}
+function previewBar() {
   $("#vmode").onclick = () => { prefs.mode = prefs.mode === "pages" ? "web" : "pages"; localStorage.setItem("docs.mode", prefs.mode); view(); layout(); };
   $("#vdark").onclick = () => { prefs.dark = !prefs.dark; localStorage.setItem("docs.dark", prefs.dark ? "1" : "0"); view(); layout(); };
   new ResizeObserver(fit).observe($("#prev"));
-  view(); layout(); stateText(st.dirty ? "Lokal gesichert" : "Gespeichert");
-  if (st.dirty) schedule();
+  view(); layout();
+}
+// Nur die Vorschau eines Tabs in einem eigenen Browser-Tab. Sie speichert nie und läuft live mit, solange im Editor geschrieben wird.
+const live = "BroadcastChannel" in window ? new BroadcastChannel("docs.live") : null;
+async function viewer(id, tabId) {
+  const cache = JSON.parse(localStorage.getItem("docs.c." + id) || "null");
+  let d = null;
+  try { d = await api("/docs/" + id); } catch (e) { if (!cache) { toast(e.message); return home(); } }
+  if (cache?.dirty && (!d || cache.t > d.updated * 1000)) d = cache;
+  const apply = (x) => {
+    const tabs = [{ id: "main", title: x.tabName || "Text", content: x.content }, ...(x.tabs || [])], t = tabs.find((y) => y.id === tabId) || tabs[0];
+    st.doc = { id, title: x.title, content: t.content, settings: x.settings || {}, sources: x.sources || [], tabs, tab: tabs.indexOf(t) };
+    browserTitle();
+  };
+  apply(d);
+  app.innerHTML = `<div class="ed viewer"><div class="card pv"><div class="prevbar"><button class="btn sm on" id="vmode"></button><button class="btn sm" id="vdark"></button><span class="grow"></span><span class="meta" id="meta"></span></div><div class="prev" id="prev"></div></div></div>`;
+  previewBar();
+  if (live) live.onmessage = (e) => { if (e.data.docId === id) { apply(e.data); layout(); } };
 }
 function view() {
   $("#vmode").innerHTML = prefs.mode === "pages" ? `${ico("description")}Seiten` : `${ico("language")}Web`;
@@ -108,10 +133,10 @@ function payload() {
   return { title: d.title, content: main.content, settings: diff(d.settings), sources: d.sources, tabs: rest.map(({ id, title, content }) => ({ id, title, content })), tabName: main.title };
 }
 function changed() {
-  st.dirty = true; st.rev++; stateText("…"); drawHl();
+  ghost = null; st.dirty = true; st.rev++; stateText("…"); drawHl();
   st.doc.tabs[st.doc.tab].content = st.doc.content;
   localStorage.setItem("docs.c." + st.doc.id, JSON.stringify({ ...payload(), t: Date.now(), dirty: true }));
-  clearTimeout(st.rtimer); st.rtimer = setTimeout(layout, 250);
+  clearTimeout(st.rtimer); st.rtimer = setTimeout(() => { layout(); live?.postMessage({ docId: st.doc.id, ...payload() }); }, 250);
   schedule();
 }
 function schedule() { clearTimeout(st.timer); st.timer = setTimeout(save, 700); }
@@ -152,7 +177,7 @@ function showTab(n, top = 0) {
   hist.load?.(t.undo);
   if (t.view) ta.setSelectionRange(t.view.s, t.view.e); else ta.setSelectionRange(0, 0);
   localStorage.setItem("docs.tab." + d.id, n);
-  buildTabs(); drawHl();
+  buildTabs(); drawHl(); ida.tabChanged();
   ta.scrollTop = t.view?.top || 0; ta.dispatchEvent(new Event("scroll"));
   clearTimeout(st.rtimer); layout();
   $("#prev").scrollTop = t.view?.prev || top;
@@ -177,8 +202,17 @@ function tabClick(e) {
     d.tabs.splice(n, 1); showTab(Math.min(n, d.tabs.length - 1)); changed(); return;
   }
   if (n !== d.tab) return switchTab(n);
-  const name = prompt("Name des Tabs", t.title);
-  if (name != null && name.trim()) { t.title = name.trim().slice(0, 60); buildTabs(); changed(); }
+  renameTab(t, box);
+}
+function renameTab(t, anchor) {
+  const r = anchor.getBoundingClientRect(), scrim = el('<div class="scrim" style="background:none"></div>');
+  const m = el(`<form class="tabname" style="top:${r.bottom + 6}px;left:${Math.max(8, Math.min(r.left, innerWidth - 298))}px"><label for="tabn">Name des Tabs</label><input id="tabn" maxlength="60" autocomplete="off" value="${esc(t.title)}"><div class="row"><button type="button" class="btn sm" id="tabc">Abbrechen</button><button class="btn sm pri">Speichern</button></div></form>`);
+  document.body.append(scrim, m);
+  const input = $("#tabn", m), close = () => { scrim.remove(); m.remove(); $("#src").focus(); };
+  scrim.onclick = $("#tabc", m).onclick = close;
+  m.onkeydown = (e) => { if (e.key === "Escape") { e.preventDefault(); close(); } };
+  m.onsubmit = (e) => { e.preventDefault(); const name = input.value.trim(); if (!name) return input.focus(); t.title = name; close(); buildTabs(); changed(); };
+  input.focus(); input.select();
 }
 
 // ---------------------------------------------------------------- Schriftgröße nur im Editor (Strg + / Strg - / Strg 0, Strg + Mausrad); die Vorschau bleibt, wie sie ist
@@ -197,7 +231,7 @@ document.addEventListener("keydown", (e) => {   // im ganzen Editor abfangen, so
 
 // ---------------------------------------------------------------- Breite von Editor und Vorschau
 function applySplit() {
-  const sp = $(".split"); sp.style.setProperty("--sp", `${prefs.split * 100}%`); sp.classList.toggle("nopv", prefs.hidePv);
+  const sp = $(".split"); sp.style.setProperty("--spf", prefs.split); sp.classList.toggle("nopv", prefs.hidePv);
   const b = $("#pvt"), label = prefs.hidePv ? "Vorschau einblenden" : "Vorschau ausblenden";
   b.innerHTML = ico(prefs.hidePv ? "right_panel_open" : "right_panel_close"); b.title = label; b.setAttribute("aria-label", label);
   localStorage.setItem("docs.split", prefs.split); localStorage.setItem("docs.hidePv", prefs.hidePv ? "1" : "0");
@@ -209,8 +243,8 @@ function splitSetup() {
   g.ondblclick = () => { prefs.split = 0.5; applySplit(); };
   g.onpointerdown = (e) => {
     e.preventDefault(); g.setPointerCapture(e.pointerId); g.classList.add("on");
-    const r = sp.getBoundingClientRect(); let raw = prefs.split;
-    g.onpointermove = (m) => { raw = (m.clientX - r.left) / r.width; prefs.split = Math.min(0.85, Math.max(0.2, raw)); sp.style.setProperty("--sp", `${prefs.split * 100}%`); };
+    const r = sp.getBoundingClientRect(), w = r.width - (sp.classList.contains("aion") ? 388 : 0); let raw = prefs.split;
+    g.onpointermove = (m) => { raw = (m.clientX - r.left) / w; prefs.split = Math.min(0.85, Math.max(0.2, raw)); sp.style.setProperty("--spf", prefs.split); };
     g.onpointerup = g.onpointercancel = () => {
       g.onpointermove = g.onpointerup = g.onpointercancel = null; g.classList.remove("on");
       if (raw > 0.92) { prefs.hidePv = true; prefs.split = 0.5; }   // ganz nach rechts gezogen: Vorschau zu
@@ -221,10 +255,10 @@ function splitSetup() {
 
 // ---------------------------------------------------------------- Werkzeugleiste
 function buildTools() {
-  const T = [["undo", "undo", "Rückgängig (Strg+Z)"], ["redo", "redo", "Wiederholen (Strg+Y)"], "|", ["H1", "h1", "Überschrift 1"], ["H2", "h2", "Überschrift 2"], ["H3", "h3", "Überschrift 3"], "|", ["format_bold", "b", "Fett"], ["format_italic", "i", "Kursiv"], ["code", "code", "Code"], "|",
+  const T = [["undo", "undo", "Rückgängig (Strg+Z)"], ["redo", "redo", "Wiederholen (Strg+Y)"], "|", ["H1", "h1", "Überschrift 1 (Strg+Alt+1)"], ["H2", "h2", "Überschrift 2 (Strg+Alt+2)"], ["H3", "h3", "Überschrift 3 (Strg+Alt+3)"], "|", ["format_bold", "b", "Fett (Strg+B)"], ["format_italic", "i", "Kursiv (Strg+I)"], ["code", "code", "Code (Strg+E)"], "|",
     ["format_align_left", "al", "Linksbündig"], ["format_align_center", "ac", "Zentriert"], ["format_align_right", "ar", "Rechtsbündig"], "|",
-    ["format_list_bulleted", "ul", "Liste"], ["format_list_numbered", "ol", "Nummerierte Liste"], ["format_quote", "quote", "Zitat"], ["table", "table", "Tabelle"], ["link", "link", "Link"], ["image", "img", "Bild per Adresse"], ["superscript", "fn", "Fußnote"], "|",
-    ["sticky_note_2", "notes", "Notizen & Entwürfe"], ["toc", "toc", "Inhaltsverzeichnis"], ["insert_page_break", "pb", "Seitenumbruch"], ["article", "title", "Titelblatt"], ["library_books", "lib", "Quellen (Archiv)"], ["menu_book", "src", "Quellenverzeichnis einfügen"], ["verified_user", "decl", "Selbstständigkeitserklärung"]];
+    ["format_list_bulleted", "ul", "Liste"], ["format_list_numbered", "ol", "Nummerierte Liste"], ["format_quote", "quote", "Zitat"], ["table", "table", "Tabelle"], ["link", "link", "Link (Strg+K)"], ["image", "img", "Bild per Adresse"], ["superscript", "fn", "Fußnote"], "|",
+    ["sticky_note_2", "notes", "Notizen & Entwürfe (Strg+M = Notiz einfügen)"], ["toc", "toc", "Inhaltsverzeichnis"], ["insert_page_break", "pb", "Seitenumbruch"], ["article", "title", "Titelblatt"], ["library_books", "lib", "Quellen (Archiv)"], ["menu_book", "src", "Quellenverzeichnis einfügen"], ["verified_user", "decl", "Selbstständigkeitserklärung"]];
   $("#tools").innerHTML = T.map((t) => t === "|" ? "<i></i>" : /^H\d$/.test(t[0]) ? `<button data-a="${t[1]}" title="${t[2]}" aria-label="${t[2]}">${t[0]}</button>` : `<button data-a="${t[1]}" title="${t[2]}" aria-label="${t[2]}">${ico(t[0])}</button>`).join("");
   $("#tools").onclick = (e) => { const b = e.target.closest("[data-a]"); if (b) act(b.dataset.a); };
 }
@@ -241,6 +275,73 @@ function prefix(p) {
   let a = t.value.lastIndexOf("\n", t.selectionStart - 1) + 1; let e = t.value.indexOf("\n", t.selectionEnd); if (e < 0) e = t.value.length;
   const lines = t.value.slice(a, e).split("\n").map((l, i) => (p === "1." ? `${i + 1}. ` : p) + l.replace(/^(#{1,4}\s+|[-*]\s+|\d+\.\s+|>\s?)/, ""));
   t.setRangeText(lines.join("\n"), a, e, "end"); t.dispatchEvent(new Event("input"));
+}
+
+// ---------------------------------------------------------------- Format-Menü über markiertem Text
+const SELFMT = [["format_bold", "Fett (Strg+B)", "b"], ["format_italic", "Kursiv (Strg+I)", "i"], ["format_strikethrough", "Durchgestrichen (Strg+Shift+X)", "s"], ["code", "Code (Strg+E)", "code"], ["link", "Link (Strg+K)", "link"], "|", ["comment", "Auskommentieren (Strg+/)", "cmt"], ["sticky_note_2", "Notiz (Strg+M)", "note"], "|", ["auto_awesome", "Ida fragen (Strg+J)", "ida"]];
+function selToggle(l, r) {   // Markierung mit l…r umschließen – oder wieder entfernen, wenn sie schon so umschlossen ist
+  const t = $("#src"); let a = t.selectionStart, b = t.selectionEnd; const v = t.value;
+  if (v.slice(a - l.length, a) === l && v.slice(b, b + r.length) === r) { t.setRangeText(v.slice(a, b), a - l.length, b + r.length, "select"); }
+  else if (v.slice(a, a + l.length) === l && v.slice(b - r.length, b) === r && b - a >= l.length + r.length) { t.setRangeText(v.slice(a + l.length, b - r.length), a, b, "select"); }
+  else t.setRangeText(l + v.slice(a, b) + r, a, b, "end"), t.setSelectionRange(a + l.length, b + l.length);
+  t.dispatchEvent(new Event("input"));
+}
+function selComment() {   // jede markierte Zeile mit ## versehen bzw. das ## wieder entfernen
+  const t = $("#src"), v = t.value; const a = v.lastIndexOf("\n", t.selectionStart - 1) + 1; let e = v.indexOf("\n", t.selectionEnd); if (e < 0) e = v.length;
+  const lines = v.slice(a, e).split("\n"), done = lines.filter((l) => /^##(?![#\s])/.test(l)), free = lines.filter((l) => l.trim() && !/^[#\s]/.test(l));
+  const off = done.length && !free.length;
+  if (!off && !free.length) return toast("Überschriften und eingerückte Zeilen lassen sich so nicht auskommentieren");
+  t.setRangeText(lines.map((l) => off ? l.replace(/^##(?![#\s])/, "") : l.trim() && !/^[#\s]/.test(l) ? "##" + l : l).join("\n"), a, e, "select");
+  t.dispatchEvent(new Event("input"));
+}
+function selLink() {   // [Text](https://) – Adresse ist danach markiert; ohne Markierung steht "Text" als Platzhalter da
+  const t = $("#src"), a = t.selectionStart, b = t.selectionEnd, s = t.value.slice(a, b);
+  t.setRangeText("[" + s + "](https://)", a, b, "end");
+  if (s) t.setSelectionRange(t.selectionEnd - 9, t.selectionEnd - 1); else t.setSelectionRange(a + 1, a + 1);
+  t.dispatchEvent(new Event("input"));
+}
+function fmtKey(l, r) {   // Tastenkürzel: mit Markierung umschließen/lösen, ohne Markierung auf-, beim zweiten Druck wieder zumachen
+  const t = $("#src"), a = t.selectionStart, v = t.value;
+  if (t.selectionEnd > a) return selToggle(l, r);
+  const inside = v.slice(a - l.length, a) === l && v.slice(a, a + r.length) === r && (l.length > 1 || (v[a - 2] !== l && v[a + 1] !== r));
+  if (inside) t.setSelectionRange(a + r.length, a + r.length);   // Cursor steht zwischen den Zeichen: einfach raus ans Ende
+  else { t.setRangeText(l + r, a, a, "end"); t.setSelectionRange(a + l.length, a + l.length); t.dispatchEvent(new Event("input")); }
+}
+const KEYS = { b: () => fmtKey("**", "**"), i: () => fmtKey("*", "*"), e: () => fmtKey("`", "`"), k: selLink, m: () => fmtKey("[[Notiz: ", "]]"), "/": selComment, j: () => $("#aipill")?.click() };
+document.addEventListener("keydown", (e) => {   // Strg+B Fett · Strg+I Kursiv · Strg+E Code · Strg+Shift+X Durchgestrichen · Strg+K Link · Strg+M Notiz · Strg+/ Kommentar · Strg+J Ida · Strg+Alt+1–3 Überschrift
+  const t = $("#src"); if (!t || document.activeElement !== t || !(e.ctrlKey || e.metaKey)) return;
+  const k = e.key.toLowerCase();
+  if (e.altKey && !e.shiftKey && /^Digit[123]$/.test(e.code)) { e.preventDefault(); return prefix("#".repeat(+e.code.slice(5)) + " "); }
+  if (e.altKey) return;
+  if (e.shiftKey && k === "x") { e.preventDefault(); return fmtKey("~~", "~~"); }
+  if (!e.shiftKey && KEYS[k]) { e.preventDefault(); KEYS[k](); }
+});
+function selMenuSetup() {
+  const wrapEl = $(".srcwrap"), t = $("#src"), box = el(`<div class="selmenu" hidden>${SELFMT.map((x) => x === "|" ? "<i></i>" : `<button data-f="${x[2]}" title="${x[1]}" aria-label="${x[1]}">${ico(x[0])}</button>`).join("")}</div>`);
+  wrapEl.append(box);
+  const gauge = el('<div class="mirror" aria-hidden="true"></div>'); wrapEl.append(gauge);
+  const hide = () => { box.hidden = true; };
+  function show() {
+    if (document.activeElement !== t || t.selectionEnd <= t.selectionStart || matchMedia("(pointer: coarse)").matches) return hide();
+    gauge.style.width = t.clientWidth + "px"; gauge.innerHTML = esc(t.value.slice(0, t.selectionStart)) + '<span id="selpt">\u200b</span>';
+    const pt = gauge.querySelector("#selpt"), y = pt.offsetTop - t.scrollTop, x = pt.offsetLeft;
+    box.hidden = false;
+    const w = box.offsetWidth, h = box.offsetHeight, top = y - h - 6 < 4 ? y + 28 : y - h - 6;
+    if (top > t.clientHeight - h) return hide();
+    box.style.top = top + "px"; box.style.left = Math.max(8, Math.min(x, t.clientWidth - w - 8)) + "px";
+  }
+  for (const ev of ["mouseup", "keyup"]) t.addEventListener(ev, () => setTimeout(show));
+  for (const ev of ["input", "blur", "scroll"]) t.addEventListener(ev, hide);
+  t.addEventListener("mousedown", hide);
+  box.onmousedown = (e) => e.preventDefault();
+  box.onclick = (e) => {
+    const b = e.target.closest("[data-f]"); if (!b) return; const f = b.dataset.f; t.focus();
+    if (f === "b") selToggle("**", "**"); else if (f === "i") selToggle("*", "*"); else if (f === "s") selToggle("~~", "~~"); else if (f === "code") selToggle("`", "`");
+    else if (f === "link") selLink();
+    else if (f === "cmt") selComment(); else if (f === "note") selToggle("[[Notiz: ", "]]");
+    else if (f === "ida") { $("#aipill")?.click(); }
+    hide();
+  };
 }
 function align(kind) {   // markierten Text (oder Platzhalter) in einen ausgerichteten Block setzen
   const t = $("#src"), sel = t.value.slice(t.selectionStart, t.selectionEnd).replace(/^:::\s*\w+\n|\n:::\s*$/g, "") || "Text";
@@ -302,8 +403,43 @@ function slashSetup() {
       if (e.key === "ArrowUp") { e.preventDefault(); sel = (sel + list.length - 1) % list.length; draw(); return; }
       if (e.key === "Escape") { e.preventDefault(); hide(); return; }
     }
-    if (e.key === "Tab") { e.preventDefault(); ins("  "); }
+    if (e.key === "Escape" && ghost) { e.preventDefault(); ghost = null; placeGhost(); return; }
+    if (e.key === "Tab") { e.preventDefault(); if (ghost) acceptGhost(); else ins("  "); }
   });
+  ta.addEventListener("input", (e) => {
+    ghost = null;
+    const p = ta.selectionStart, v = ta.value;
+    if (/^insert/.test(e.inputType || "") && p === ta.selectionEnd && box.hidden && !matchMedia("(pointer: coarse)").matches) {   // am Handy gäbe es keine Tab-Taste
+      const ls = v.lastIndexOf("\n", p - 1) + 1; let le = v.indexOf("\n", p); if (le < 0) le = v.length;
+      const s = hlLines[v.slice(0, p).split("\n").length - 1]?.includes('"l-code') ? null : suggest(v.slice(ls, p), v.slice(p, le), v.slice(le + 1));
+      if (s) ghost = { at: p, ...s };
+    }
+    placeGhost();
+  });
+  const moved = () => { if (ghost && (ta.selectionStart !== ghost.at || ta.selectionEnd !== ghost.at)) { ghost = null; placeGhost(); } };
+  ta.addEventListener("keyup", moved); ta.addEventListener("mouseup", moved);
+  ta.addEventListener("blur", () => { ghost = null; placeGhost(); });
+}
+// Grauer Vorschlag am Cursor: liegt nur in der Einfärbung, im Text steht er erst nach Tab
+let ghost = null;
+function placeGhost() {
+  const old = $("#hl .ghost"); if (old) { const p = old.parentNode; old.remove(); p.normalize(); }
+  if (!ghost) return;
+  const before = $("#src").value.slice(0, ghost.at), lines = before.split("\n"), line = $("#hl").firstChild.children[lines.length - 1]; if (!line) return;
+  let col = lines.at(-1).length;
+  const walk = document.createTreeWalker(line, NodeFilter.SHOW_TEXT);
+  for (let t; (t = walk.nextNode());) {
+    if (col > t.length) { col -= t.length; continue; }
+    const span = document.createElement("span"); span.className = "ghost"; span.textContent = ghost.show;
+    const tail = t.splitText(col); tail.parentNode.insertBefore(span, tail);
+    return;
+  }
+}
+function acceptGhost() {
+  const ta = $("#src"), { at, text, caret } = ghost;
+  ghost = null;
+  ta.setRangeText(text, at, at, "end"); ta.setSelectionRange(at + caret, at + caret);
+  ta.dispatchEvent(new Event("input"));
 }
 
 // ---------------------------------------------------------------- Rückgängig / Wiederholen
@@ -342,7 +478,7 @@ function histSetup() {
 // [[Notiz]] erscheint nie im Dokument; "::: entwurf" … ":::" ist Text, der noch nicht fertig ist (auf dem Bildschirm gelb markiert, im PDF normal).
 function openItems() {
   const t = st.doc.content, out = [];
-  for (const m of t.matchAll(/\[\[([^\]]*)\]\]/g)) out.push({ d: false, at: m.index, end: m.index + m[0].length, text: m[1].replace(/^Notiz:\s*/i, "") || "(leer)" });
+  for (const m of t.matchAll(/\[\[([\s\S]*?)\]\]/g)) out.push({ d: false, at: m.index, end: m.index + m[0].length, text: m[1].replace(/^Notiz:\s*/i, "").trim().slice(0, 140) || "(leer)" });
   for (const m of t.matchAll(/^:::\s*entwurf\s*\n([\s\S]*?)^:::\s*$/gm)) out.push({ d: true, at: m.index, end: m.index + m[0].length, text: m[1].trim().slice(0, 140) || "(leer)" });
   return out.sort((a, b) => a.at - b.at);
 }
@@ -553,7 +689,7 @@ function relayoutOnImages() {
 // Wo beginnt welche Seite im Markdown? Pro Block (data-l) die Startseite, bei Absätzen über den Seitenwechsel hinweg das erste Wort der neuen Seite.
 const SKIPTOK = /^(#{1,6}|[-*+]|\d+[.)]|\|+|:?-{2,}:?|>+|:::\w*)$/;
 function pageStarts(S, pitch) {
-  const text = st.doc.content.replace(/\r\n?/g, "\n"), ls = [0];
+  const text = st.doc.content.replace(/\r\n?/g, "\n"), masked = maskNotes(text), ls = [0];
   for (let i = text.indexOf("\n"); i >= 0; i = text.indexOf("\n", i + 1)) ls.push(i + 1);
   const out = {}, fixed = new Set();   // die erste Seite eines Abschnitts beginnt genau hinter dem \newpage
   for (const x of S) if (x.first >= 2) { out[x.first] = x.line < ls.length ? ls[x.line] : text.length; fixed.add(x.first); }
@@ -569,7 +705,7 @@ function pageStarts(S, pitch) {
     put(c0, ls[a]);
     if (c1 <= c0 || n.querySelector("[data-l]")) return;
     const words = wordsOf(n); if (!words.length) return;
-    const seg = text.slice(ls[a], ls[b] ?? text.length).replace(/\[\[[^\]]*\]\]/g, (m) => " ".repeat(m.length)).split("\n").map((l) => { const c = stripComment(l); return c + " ".repeat(l.length - c.length); }).join("\n");
+    const seg = masked.slice(ls[a], ls[b] ?? text.length).split("\n").map((l) => { const c = stripComment(l); return c + " ".repeat(l.length - c.length); }).join("\n");
     const src = [...seg.matchAll(/\S+/g)].filter((m) => !SKIPTOK.test(m[0])).map((m) => ls[a] + m.index);
     for (let pg = c0 + 1; pg <= c1; pg++) {
       let lo = 0, hi = words.length - 1, k = -1;
@@ -590,11 +726,13 @@ function drawHl() {
   let a = 0, e = 0;
   while (a < old.length && a < next.length && old[a] === next[a]) a++;
   while (e < old.length - a && e < next.length - a && old[old.length - 1 - e] === next[next.length - 1 - e]) e++;
-  if (a === next.length && a === old.length) return;
+  if (a === next.length && a === old.length) return placeGhost();
+  const stale = box.querySelector(".ghost"); if (stale) { const p = stale.parentNode; stale.remove(); p.normalize(); }
   for (let i = old.length - e - 1; i >= a; i--) kids[i].remove();
   const t = document.createElement("template"); t.innerHTML = next.slice(a, next.length - e).join("");
   box.insertBefore(t.content, kids[a] || null);
   hlLines = next;
+  placeGhost();
 }
 // gestrichelte Linie im Markdown-Editor dort, wo im Dokument die nächste DIN-A4-Seite beginnt
 function drawMarks() {
@@ -677,6 +815,6 @@ function printPdf() {
 
 // ---------------------------------------------------------------- Start
 document.addEventListener("click", (e) => { if (e.target.closest(".sheets a, .webdoc a[href^='#']")) e.preventDefault(); });
-const m = location.hash.match(/^#\/d\/([a-z0-9]+)/);
-m ? open(m[1]) : home();
+const m = location.hash.match(/^#\/d\/([a-z0-9]+)/), v = location.hash.match(/^#\/v\/([a-z0-9]+)\/([\w-]+)/);
+v ? viewer(v[1], v[2]) : m ? open(m[1]) : home();
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});

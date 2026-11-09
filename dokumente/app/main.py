@@ -9,7 +9,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import api
+from . import api, ida
 from .config import get_settings
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -58,6 +58,7 @@ async def lifespan(app: FastAPI):
 def create_app() -> FastAPI:
     s = get_settings()
     app = FastAPI(title="IDA Docs", version="1.0", lifespan=lifespan, docs_url="/api/docs", openapi_url="/api/openapi.json")
+    app.include_router(ida.router)
     app.include_router(api.router)
 
     front = s.frontend_dir

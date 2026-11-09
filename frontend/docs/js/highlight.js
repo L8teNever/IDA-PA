@@ -1,7 +1,7 @@
 // Einfärbung des Markdown-Editors. Liefert pro Zeile ein <div>, das hinter dem (durchsichtigen) Textfeld liegt.
 // Nur Farben und Hintergründe, nie Schriftgewicht oder -größe: Sonst laufen Einfärbung und Textfeld auseinander.
 // Erkennt dieselben Muster wie render() in markdown.js – ändert sich dort die Syntax, muss sie hier mit.
-import { stripComment } from "./markdown.js";
+import { stripComment, noteRanges } from "./markdown.js";
 
 const esc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 const span = (c, s) => `<span class="${c}">${esc(s)}</span>`;
@@ -25,7 +25,15 @@ const COMMANDS = [[/^\\(newpage|pagebreak)\s*$/i, ""], [/^\[TOC\]\s*$/i, "Inhalt
 /** @returns {string[]} eine HTML-Zeile je Textzeile */
 export function highlightLines(text) {
   let fence = false, region = null;
-  return text.replace(/\r\n?/g, "\n").split("\n").map((l) => {
+  const lines = text.replace(/\r\n?/g, "\n").split("\n"), notes = noteRanges(lines);
+  return lines.map((l, i) => {
+    // mehrzeilige Notiz: Der Bereich ist grau hinterlegt, auch über leere Zeilen hinweg. Einzeilige erledigt inl().
+    const multi = notes[i].some(([a, b]) => l.slice(a, a + 2) !== "[[" || l.slice(b - 2, b) !== "]]");
+    if (multi) {
+      let html = "", p = 0;
+      for (const [a, b] of notes[i]) { html += inl(l.slice(p, a)) + (b > a ? span("t-note", l.slice(a, b)) : ""); p = b; }
+      return line(`${region ? `l-reg r-${region} ` : ""}l-note`, html + inl(l.slice(p)), notes[i][0][0] > 0 || l.startsWith("[[") ? (l.includes("[[") ? "Notiz" : "") : "");
+    }
     if (/^```/.test(l)) { fence = !fence; return line("l-code", span("t-mk", l)); }
     if (fence) return line("l-code", esc(l));
     const c = stripComment(l), rest = l.slice(c.length), com = rest ? span("t-com", rest) : "";

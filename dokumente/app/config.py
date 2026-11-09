@@ -10,6 +10,7 @@ class Settings(BaseSettings):
 
     data_dir: Path = Path("./data")        # Volume /data: docs/<id>.idadocs und docs/<id>.md
     frontend_dir: Path = Path(__file__).resolve().parents[2] / "frontend"
+    ida_internal_url: str = "http://app:8000"   # Chat mit Ida im selben Stack
 
     @property
     def docs_dir(self) -> Path:

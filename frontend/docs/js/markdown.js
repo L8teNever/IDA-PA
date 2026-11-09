@@ -1,7 +1,7 @@
 // Markdown → HTML für IDA Docs. Eigener kleiner Parser (keine Fremdbibliothek), dazu Erweiterungen für Dokumente:
 //   [TOC]            Inhaltsverzeichnis        \newpage   Seitenumbruch        # Titel {-}   Überschrift ohne Nummer
 //   ::: center|right|left|justify|title … :::   ausgerichteter Block / Titelblatt       [^1] + [^1]: Text   Fußnoten
-//   [[Notiz]]  (nur im Notizen-Panel, nie im Dokument)   ::: entwurf … :::  (noch nicht fertiger Text, auf dem Bildschirm markiert)
+//   [[Notiz]]  (auch über mehrere Zeilen und Absätze; nur im Notizen-Panel, nie im Dokument)   ::: entwurf … :::  (noch nicht fertiger Text, auf dem Bildschirm markiert)
 //   [@schluessel] / [@schluessel, 4]   Zitat aus dem Quellenarchiv      [QUELLEN]   Quellenverzeichnis aus den zitierten Quellen
 //   Mehr als eine leere Zeile zwischen Blöcken: jede weitere leere Zeile bleibt als Leerzeile sichtbar.
 //   Jeder Block bekommt data-l / data-e (Start- und Endzeile im Markdown) – daraus entstehen die Seitenmarker im Editor.
@@ -47,7 +47,7 @@ export const sortSources = (list) => [...list].sort((x, y) => (surname(authorsOf
 const CITE = /\[@([^\],\s]+)(?:,\s*([^\]]*))?\]/g;
 export function inline(s, fn) {
   const codes = [];
-  s = esc(s).replace(/\s?\[\[[^\]]*\]\]/g, "").replace(/`([^`]+)`/g, (_, c) => { codes.push(c); return `\u0000${codes.length - 1}\u0000`; });
+  s = esc(s).replace(/`([^`]+)`/g, (_, c) => { codes.push(c); return `\u0000${codes.length - 1}\u0000`; });
   s = s.replace(CITE, (m, k, loc) => (fn.cite ? fn.cite(k, loc) : m));
   s = s.replace(/!\[([^\]]*)\]\(([^)\s]+)(?:\s+&quot;([^&]*)&quot;)?\)/g, (_, a, u, t) => `<img src="${safeUrl(u)}" alt="${a}"${t ? ` title="${t}"` : ""}>`)
     .replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (_, t, u) => `<a href="${safeUrl(u)}" target="_blank" rel="noopener">${t}</a>`)
@@ -67,6 +67,45 @@ export function stripComment(l) {
   }
   return l;
 }
+/** Wo stehen [[Notizen]]? Pro Zeile Bereiche [von, bis). Ein [[ ohne passendes ]] (oder mit einem neuen [[ davor) bleibt normaler Text, damit beim Tippen nichts verschwindet. */
+export function noteRanges(lines) {
+  const out = lines.map(() => []), n = lines.length;
+  let i = 0, at = 0, fence = false;
+  while (i < n) {
+    const l = lines[i];
+    if (at === 0 && /^```/.test(l)) { fence = !fence; i++; continue; }
+    const a = fence ? -1 : stripComment(l).indexOf("[[", at);
+    if (a < 0) { i++; at = 0; continue; }
+    let y = i, p = a + 2, b = -1;
+    for (; y < n; y++, p = 0) {
+      const c = lines[y].indexOf("]]", p), d = lines[y].indexOf("[[", p);
+      if (d >= 0 && (c < 0 || d < c)) break;
+      if (c >= 0) { b = c; break; }
+    }
+    if (b < 0) { at = a + 2; continue; }
+    if (y === i) out[i].push([a, b + 2]);
+    else { out[i].push([a, l.length]); for (let k = i + 1; k < y; k++) out[k].push([0, lines[k].length]); out[y].push([0, b + 2]); }
+    i = y; at = b + 2;
+  }
+  return out;
+}
+/** Text gleicher Länge, in dem Notizen durch Leerzeichen ersetzt sind (Zeilenumbrüche bleiben). */
+export function maskNotes(text) {
+  const lines = text.split("\n"), R = noteRanges(lines);
+  return lines.map((l, i) => R[i].reduce((s, [a, b]) => s.slice(0, a) + " ".repeat(b - a) + s.slice(b), l)).join("\n");
+}
+const GONE = "\u0003";   // Zeile bestand nur aus einer Notiz: zählt weder als Text noch als Leerzeile, der Absatz läuft einfach weiter
+function hideNotes(lines) {
+  const R = noteRanges(lines);
+  return lines.map((l, i) => {
+    if (!R[i].length) return l;
+    let s = "", p = 0;
+    for (const [a, b] of R[i]) { s += l.slice(p, a).replace(/[ \t]$/, ""); p = b; }
+    s += l.slice(p);
+    return !s.trim() ? GONE : R[i][0][0] === 0 ? s.trimStart() : s;
+  });
+}
+
 const isRow = (l) => /^\s*\|.*\|\s*$/.test(l) || (/\|/.test(l) && !/^\s*$/.test(l));
 const cells = (l) => l.trim().replace(/^\|/, "").replace(/\|$/, "").split(/(?<!\\)\|/).map((c) => c.trim().replace(/\\\|/g, "|"));
 const isSep = (l) => /^\s*\|?\s*:?-{1,}:?\s*(\|\s*:?-{1,}:?\s*)*\|?\s*$/.test(l) && l.includes("-") && l.includes("|");
@@ -78,7 +117,7 @@ const LI = /^(\s*)([-*+]|\d+[.)])\s+(.*)$/;
 export function render(md, { numbers = true, sources = [], citeStyle = "kurz", bibStyle = "din" } = {}) {
   const notes = {}, order = [], skip = new Set();
   let fence = false;
-  const all = md.replace(/\r\n?/g, "\n").split("\n").map((l, i) => {
+  const all = hideNotes(md.replace(/\r\n?/g, "\n").split("\n")).map((l, i) => {
     if (/^```/.test(l)) fence = !fence;
     else if (!fence && l.includes("##")) {   // ##Kommentar oder "Text ## Kommentar": Rest der Zeile erscheint nie im Dokument
       const c = stripComment(l);
@@ -145,6 +184,7 @@ export function render(md, { numbers = true, sources = [], citeStyle = "kurz", b
     while (i < L.length) {
       seal();
       const l = L[i];
+      if (l === GONE) { i++; continue; }
       if (!l.trim()) {   // eine leere Zeile trennt Absätze, jede weitere bleibt als Leerzeile stehen
         let j = i, n = 0;
         while (j < L.length && !L[j].trim()) { if (!skip.has(base + j)) n++; j++; }
@@ -192,7 +232,7 @@ export function render(md, { numbers = true, sources = [], citeStyle = "kurz", b
       const buf = [];
       while (i < L.length && L[i].trim() && !STOP.test(L[i]) && !LI.test(L[i]) && !(i + 1 < L.length && isRow(L[i]) && isSep(L[i + 1]))) buf.push(L[i++]);
       if (!buf.length) { buf.push(L[i++]); }
-      const txt = buf.join("\n");
+      const txt = buf.filter((x) => x !== GONE).join("\n");
       const img = txt.match(/^!\[([^\]]*)\]\(([^)\s]+)(?:\s+"([^"]*)")?\)$/);
       if (img) { out.push(`<figure><img src="${safeUrl(esc(img[2]))}" alt="${esc(img[1])}">${img[1] ? `<figcaption>${inline(img[1], fn)}</figcaption>` : ""}</figure>`); continue; }
       const h = inline(txt, fn);   // nur einmal aufrufen (Fußnoten werden beim Aufruf gezählt)
@@ -206,11 +246,11 @@ export function render(md, { numbers = true, sources = [], citeStyle = "kurz", b
   if (tocAt) {
     const items = headings.filter((h) => h.level <= 3).map((h) =>
       `<a class="toc-l${h.level}" href="#${h.id}"><span class="t">${h.num ? `<span class="num">${h.num}</span> ` : ""}${esc(h.text)}</span><span class="dots"></span><span class="pg" data-h="${h.id}">0</span></a>`).join("");
-    html = html.replace("@@TOC@@", `<nav class="toc"><div class="toc-title">Inhaltsverzeichnis</div>${items || '<p class="muted">Noch keine Überschriften.</p>'}</nav>`);
+    html = html.replaceAll("@@TOC@@", () => `<nav class="toc"><div class="toc-title">Inhaltsverzeichnis</div>${items || '<p class="muted">Noch keine Überschriften.</p>'}</nav>`);
   }
   if (bibAt) {
     const list = sortSources(sources.filter((s) => used.has(s.key)));
-    html = html.replace("@@BIB@@", list.length ? list.map((s) => `<p class="bibe">${inline(bibEntry(s, bibStyle), { ref: () => 0 })}</p>`).join("") : '<p class="muted">Noch keine Quelle zitiert. Zitieren mit [@schluessel].</p>');
+    html = html.replaceAll("@@BIB@@", () => list.length ? list.map((s) => `<p class="bibe">${inline(bibEntry(s, bibStyle), { ref: () => 0 })}</p>`).join("") : '<p class="muted">Noch keine Quelle zitiert. Zitieren mit [@schluessel].</p>');
   }
   if (order.length) html += `<div class="fns"><hr><ol>${order.map((k) => `<li>${inline(notes[k], { ref: () => 0 })}</li>`).join("")}</ol></div>`;
   return { html, headings, used: [...used], missing: [...missing] };
