@@ -15,7 +15,7 @@ class DocIn(BaseModel):
     title: str = Field("Ohne Titel", max_length=200)
     content: str = Field("", max_length=MAX_MD)
     settings: dict = {}
-    sources: list[dict] | None = None      # None = vorhandene Quellen behalten
+    sources: list | None = None      # None = vorhandene Quellen behalten
 
 
 class ImportIn(BaseModel):
