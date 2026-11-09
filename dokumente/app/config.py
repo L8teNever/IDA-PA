@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     google_client_id: str = ""
     google_client_secret: str = ""
     google_refresh_token: str = ""
+    google_token_file: str = ""            # alternativ: die Token-Datei des Google-MCP (Volume read-only eingehängt) – dann reicht dessen Anmeldung
     drive_folder_id: str = ""              # Zielordner in Drive; leer = Ordner „IDA Docs“ wird angelegt
 
     @property
@@ -22,7 +23,7 @@ class Settings(BaseSettings):
 
     @property
     def drive_on(self) -> bool:
-        return bool(self.google_client_id and self.google_client_secret and self.google_refresh_token)
+        return bool(self.google_client_id and self.google_client_secret and (self.google_refresh_token or self.google_token_file))
 
 
 @lru_cache

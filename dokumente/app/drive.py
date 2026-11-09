@@ -41,13 +41,26 @@ def _load_map() -> dict:
         return {}
 
 
+def _refresh_token() -> str:
+    """Aus der Token-Datei des Google-MCP (immer frisch gelesen, falls dort neu angemeldet wurde) oder aus der .env."""
+    s = get_settings()
+    if s.google_token_file:
+        try:
+            return json.loads(open(s.google_token_file, encoding="utf8").read()).get("refresh_token", "")
+        except (OSError, ValueError):
+            return ""
+    return s.google_refresh_token
+
+
 async def _access(c: httpx.AsyncClient) -> str:
     if _token["v"] and time.time() < _token["exp"] - 60:
         return _token["v"]
     s = get_settings()
+    if not _refresh_token():
+        raise RuntimeError("Kein Google-Login: im Google-MCP anmelden")
     r = await c.post("https://oauth2.googleapis.com/token", data={
         "client_id": s.google_client_id, "client_secret": s.google_client_secret,
-        "refresh_token": s.google_refresh_token, "grant_type": "refresh_token"})
+        "refresh_token": _refresh_token(), "grant_type": "refresh_token"})
     r.raise_for_status()
     j = r.json()
     _token.update(v=j["access_token"], exp=time.time() + int(j.get("expires_in", 3000)))
