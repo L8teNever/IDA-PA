@@ -1,5 +1,5 @@
 // IDA Docs – Oberfläche: Dokumentliste, Markdown-Editor, Seitenvorschau in DIN A4, Einstellungen, Export.
-import { render, bibEntry, citeShort, sortSources } from "./markdown.js";
+import { render, bibEntry, citeShort, sortSources, stripComment } from "./markdown.js";
 
 // Muss zu DEFAULTS in dokumente/app/store.py passen: nur Abweichungen davon werden in .idadocs gespeichert.
 const DEFAULTS = { marginTop: 25, marginBottom: 20, marginLeft: 30, marginRight: 20, font: "Arial", size: 11, lineHeight: 1.5, paraSpacing: 6,
@@ -169,7 +169,7 @@ const SLASH = [
   ["newpage", "Seitenumbruch", () => "\\newpage\n"], ["toc", "Inhaltsverzeichnis", () => "[TOC]\n"], ["quellen", "Quellenverzeichnis", () => "[QUELLEN]\n"],
   ["titelblatt", "Titelblatt", (t) => `::: title\nTitel der Arbeit\n\nUntertitel oder Thema\n\nvon Vorname Nachname\n\nKlasse / Kurs · Schule\n\nBetreuende Lehrkraft: Name\n\nAbgabe: ${t}\n:::\n\n\\newpage\n`],
   ["mitte", "Zentriert schreiben", () => "::: center\nText\n:::\n"], ["rechts", "Rechtsbündig schreiben", () => "::: right\nText\n:::\n"], ["links", "Linksbündig schreiben", () => "::: left\nText\n:::\n"],
-  ["entwurf", "Entwurf (noch nicht fertig)", () => "::: entwurf\nSchnell aufschreiben, später überarbeiten …\n:::\n"], ["notiz", "Notiz (nie im Dokument)", () => "[[Notiz: Text]]"],
+  ["entwurf", "Entwurf (noch nicht fertig)", () => "::: entwurf\nSchnell aufschreiben, später überarbeiten …\n:::\n"], ["notiz", "Notiz (nie im Dokument)", () => "[[Notiz: Text]]"], ["kommentar", "Kommentar (##…, nie im Dokument)", () => "##"],
   ["tabelle", "Tabelle", () => "| Spalte 1 | Spalte 2 | Spalte 3 |\n|----------|:--------:|---------:|\n| Text     | Text     | Text     |\n"],
   ["zitat", "Zitat mit Quelle", () => "> „Text“ [@quelle, S. 1]\n"], ["bild", "Bild", () => "![Beschreibung](https://)"], ["linie", "Trennlinie", () => "---\n"],
   ["h1", "Überschrift 1", () => "# "], ["h2", "Überschrift 2", () => "## "], ["h3", "Überschrift 3", () => "### "],
@@ -400,7 +400,7 @@ function pageStarts(pitch) {
     put(c0, ls[a]);
     if (c1 <= c0 || n.querySelector("[data-l]") || n.matches(".pb")) return;
     const words = wordsOf(n); if (!words.length) return;
-    const seg = text.slice(ls[a], ls[b] ?? text.length).replace(/\[\[[^\]]*\]\]/g, (m) => " ".repeat(m.length));
+    const seg = text.slice(ls[a], ls[b] ?? text.length).replace(/\[\[[^\]]*\]\]/g, (m) => " ".repeat(m.length)).split("\n").map((l) => { const c = stripComment(l); return c + " ".repeat(l.length - c.length); }).join("\n");
     const src = [...seg.matchAll(/\S+/g)].filter((m) => !SKIPTOK.test(m[0])).map((m) => ls[a] + m.index);
     for (let pg = c0 + 1; pg <= c1; pg++) {
       let lo = 0, hi = words.length - 1, k = -1;

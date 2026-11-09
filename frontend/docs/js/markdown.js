@@ -58,6 +58,15 @@ export function inline(s, fn) {
   return s.replace(/\u0000(\d+)\u0000/g, (_, i) => `<code>${codes[i]}</code>`);
 }
 
+/** Entfernt einen ##-Kommentar am Zeilenende (nicht in `Code`, nicht bei "## Überschrift"). */
+export function stripComment(l) {
+  const re = /(^##(?![#\s])|[ \t]##(?!#))/g;
+  for (let m; (m = re.exec(l));) {
+    if ((l.slice(0, m.index).match(/`/g) || []).length % 2) continue;
+    return l.slice(0, m.index).replace(/\s+$/, "");
+  }
+  return l;
+}
 const isRow = (l) => /^\s*\|.*\|\s*$/.test(l) || (/\|/.test(l) && !/^\s*$/.test(l));
 const cells = (l) => l.trim().replace(/^\|/, "").replace(/\|$/, "").split(/(?<!\\)\|/).map((c) => c.trim().replace(/\\\|/g, "|"));
 const isSep = (l) => /^\s*\|?\s*:?-{1,}:?\s*(\|\s*:?-{1,}:?\s*)*\|?\s*$/.test(l) && l.includes("-") && l.includes("|");
@@ -68,7 +77,13 @@ const LI = /^(\s*)([-*+]|\d+[.)])\s+(.*)$/;
 /** @returns {{html:string, headings:{id:string,level:number,num:string,text:string}[], used:string[], missing:string[]}} */
 export function render(md, { numbers = true, sources = [], citeStyle = "kurz", bibStyle = "din" } = {}) {
   const notes = {}, order = [], skip = new Set();
+  let fence = false;
   const all = md.replace(/\r\n?/g, "\n").split("\n").map((l, i) => {
+    if (/^```/.test(l)) fence = !fence;
+    else if (!fence && l.includes("##")) {   // ##Kommentar oder "Text ## Kommentar": Rest der Zeile erscheint nie im Dokument
+      const c = stripComment(l);
+      if (c !== l) { if (!c.trim()) skip.add(i); l = c; }
+    }
     const m = l.match(/^\[\^([^\]\s]+)\]:\s*(.*)$/);
     if (m) { notes[m[1]] = m[2]; skip.add(i); return ""; }
     return l;
