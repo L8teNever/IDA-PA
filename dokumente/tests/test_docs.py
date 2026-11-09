@@ -40,6 +40,24 @@ def test_import_and_delete(client):
     assert c.get(f"/api/v1/docs/{i}").status_code == 404
 
 
+def test_tabs_saved_kept_and_in_markdown(client):
+    c, root = client
+    i = c.post("/api/v1/docs", json={"title": "A", "content": "eins"}).json()["id"]
+    c.put(f"/api/v1/docs/{i}", json={"title": "A", "content": "eins", "tabs": [{"id": "t1", "title": "Notizen", "content": "zwei drei"}], "tabName": "Haupt"})
+    d = c.get(f"/api/v1/docs/{i}").json()
+    assert d["tabs"] == [{"id": "t1", "title": "Notizen", "content": "zwei drei"}] and d["tabName"] == "Haupt"
+    assert (root / "docs" / f"{i}.md").read_text() == "eins\n\n##Tab: Notizen\n\nzwei drei"
+    assert c.get("/api/v1/docs").json()[0]["words"] == 3
+    c.put(f"/api/v1/docs/{i}", json={"title": "A", "content": "neu"})            # ohne tabs: bleiben erhalten
+    assert c.get(f"/api/v1/docs/{i}").json()["tabs"][0]["title"] == "Notizen"
+    r = c.post("/api/v1/import", json={"name": "x.idadocs", "text": json.dumps(c.get(f"/api/v1/docs/{i}").json())})
+    assert r.json()["tabs"][0]["content"] == "zwei drei" and r.json()["tabName"] == "Haupt"
+    c.put(f"/api/v1/docs/{i}", json={"title": "A", "content": "neu", "tabs": []})
+    assert "tabs" not in c.get(f"/api/v1/docs/{i}").json()
+    big = c.put(f"/api/v1/docs/{i}", json={"title": "A", "content": "x", "tabs": [{"content": "y" * 2_000_000}]})
+    assert big.status_code == 413
+
+
 def test_backup_zip_and_snapshot(client):
     import io
     import zipfile

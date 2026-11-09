@@ -16,11 +16,19 @@ class DocIn(BaseModel):
     content: str = Field("", max_length=MAX_MD)
     settings: dict = {}
     sources: list | None = None      # None = vorhandene Quellen behalten
+    tabs: list | None = None         # weitere Tabs; None = vorhandene behalten
+    tabName: str | None = None       # Name des ersten Tabs
 
 
 class ImportIn(BaseModel):
     name: str = Field(max_length=200)
     text: str = Field(max_length=MAX_MD)
+
+
+def _check_size(body: DocIn) -> None:
+    extra = sum(len(t.get("content") or "") for t in body.tabs or [] if isinstance(t, dict) and isinstance(t.get("content"), (str, type(None))))
+    if len(body.content) + extra > MAX_MD:
+        raise HTTPException(413, "Dokument ist zu groß")
 
 
 def _need(i: str) -> dict:
@@ -47,8 +55,9 @@ async def list_docs():
 
 @router.post("/docs", status_code=201)
 async def create(body: DocIn):
+    _check_size(body)
     i = store.new_id()
-    d = store.save(i, body.title, body.content, body.settings, body.sources or [])
+    d = store.save(i, body.title, body.content, body.settings, body.sources or [], tabs=body.tabs, tab_name=body.tabName)
     return d
 
 
@@ -60,7 +69,8 @@ async def get_doc(i: str):
 @router.put("/docs/{i}")
 async def put_doc(i: str, body: DocIn):
     _need(i)
-    d = store.save(i, body.title, body.content, body.settings, body.sources)
+    _check_size(body)
+    d = store.save(i, body.title, body.content, body.settings, body.sources, tabs=body.tabs, tab_name=body.tabName)
     return {"id": i, "updated": d["updated"]}
 
 
@@ -93,15 +103,15 @@ async def export(i: str, fmt: str = "md"):
     if fmt == "idadocs":
         import json
         return Response(json.dumps(d, ensure_ascii=False, indent=1), media_type="application/json")
-    return PlainTextResponse(d["content"], media_type="text/markdown; charset=utf-8")
+    return PlainTextResponse(store.full_md(d["content"], d.get("tabs", [])), media_type="text/markdown; charset=utf-8")
 
 
 @router.post("/import", status_code=201)
 async def import_doc(body: ImportIn):
     try:
-        title, md, settings, sources = store.parse_import(body.name, body.text)
+        title, md, settings, sources, tabs, tab_name = store.parse_import(body.name, body.text)
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
     i = store.new_id()
-    d = store.save(i, title, md, settings, sources)
+    d = store.save(i, title, md, settings, sources, tabs=tabs, tab_name=tab_name)
     return d

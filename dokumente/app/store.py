@@ -66,6 +66,29 @@ def clean_sources(raw) -> list[dict]:
     return out
 
 
+DEFAULT_TAB = "Text"
+MAX_TABS = 20   # Haupttext plus höchstens 19 weitere Tabs
+
+
+def clean_tabs(raw) -> list[dict]:
+    """Weitere Tabs eines Dokuments (der erste Tab ist "content"): nur id, title, content; der Text wird nie gekürzt."""
+    out, ids = [], set()
+    for r in (raw if isinstance(raw, list) else [])[:MAX_TABS - 1]:
+        if not isinstance(r, dict) or not isinstance(r.get("content", ""), str):
+            continue
+        tid = str(r.get("id") or "")[:20]
+        if not re.fullmatch(r"[a-zA-Z0-9_-]+", tid) or tid in ids:
+            tid = secrets.token_hex(4)
+        ids.add(tid)
+        out.append({"id": tid, "title": str(r.get("title") or "Tab").strip()[:60] or "Tab", "content": r.get("content", "")})
+    return out
+
+
+def full_md(md: str, tabs: list[dict]) -> str:
+    """Die .md enthält alle Tabs, damit das lesbare Backup vollständig ist. ##Tab: … ist ein Kommentar und erscheint nie im Dokument."""
+    return md + "".join(f"\n\n##Tab: {t['title']}\n\n{t['content']}" for t in tabs)
+
+
 def _paths(i: str) -> tuple[Path, Path]:
     d = get_settings().docs_dir
     return d / f"{i}.idadocs", d / f"{i}.md"
@@ -77,17 +100,24 @@ def _atomic(p: Path, text: str) -> None:
     tmp.replace(p)
 
 
-def save(i: str, title: str, md: str, settings: dict | None, sources: list | None = None, created: float | None = None) -> dict:
+def save(i: str, title: str, md: str, settings: dict | None, sources: list | None = None, created: float | None = None,
+         tabs: list | None = None, tab_name: str | None = None) -> dict:
     ida, mdp = _paths(i)
     now = time.time()
     old = load(i) or {}
     if created is None:
         created = old.get("created", now)
     srcs = clean_sources(old.get("sources") if sources is None else sources)   # None = vorhandene Quellen behalten
+    extra = clean_tabs(old.get("tabs") if tabs is None else tabs)   # None = vorhandene Tabs behalten
+    name = str(old.get("tabName") or "" if tab_name is None else tab_name).strip()[:60]
     doc = {"format": FORMAT, "version": VERSION, "id": i, "title": title.strip() or "Ohne Titel",
            "created": created, "updated": now, "settings": diff_settings(settings), "sources": srcs, "content": md}
+    if extra:
+        doc["tabs"] = extra
+    if name and name != DEFAULT_TAB:
+        doc["tabName"] = name
     _atomic(ida, json.dumps(doc, ensure_ascii=False, indent=1))
-    _atomic(mdp, md)
+    _atomic(mdp, full_md(md, extra))
     _snapshot(i, doc, now)
     return doc
 
@@ -104,7 +134,7 @@ def _snapshot(i: str, doc: dict, now: float) -> None:
         old = sorted(d.glob("*.idadocs"))
         if old:
             last = json.loads(old[-1].read_text(encoding="utf8"))
-            if now - last.get("updated", 0) < SNAP_EVERY or last.get("content") == doc["content"]:
+            if now - last.get("updated", 0) < SNAP_EVERY or (last.get("content"), last.get("tabs")) == (doc["content"], doc.get("tabs")):
                 return
         _atomic(d / f"{int(now)}.idadocs", json.dumps(doc, ensure_ascii=False))
         for f in sorted(d.glob("*.idadocs"))[:-SNAP_KEEP]:
@@ -127,8 +157,9 @@ def listing() -> list[dict]:
         d = load(p.stem)
         if d:
             text = d.get("content", "")
+            words = sum(len(x.split()) for x in [text, *(t.get("content", "") for t in d.get("tabs", []))])
             out.append({"id": d["id"], "title": d["title"], "updated": d["updated"], "created": d.get("created", d["updated"]),
-                        "words": len(text.split()), "preview": re.sub(r"[#>*_`\[\]|-]+", " ", text)[:140].strip()})
+                        "words": words, "preview": re.sub(r"[#>*_`\[\]|-]+", " ", text)[:140].strip()})
     return sorted(out, key=lambda x: -x["updated"])
 
 
@@ -153,8 +184,8 @@ def delete(i: str) -> bool:
     return gone
 
 
-def parse_import(name: str, text: str) -> tuple[str, str, dict, list]:
-    """.idadocs (JSON) oder .md → (Titel, Text, Einstellungen, Quellen)."""
+def parse_import(name: str, text: str) -> tuple[str, str, dict, list, list, str]:
+    """.idadocs (JSON) oder .md → (Titel, Text, Einstellungen, Quellen, weitere Tabs, Name des ersten Tabs)."""
     base = re.sub(r"\.(idadocs|md|markdown|txt)$", "", name or "Import", flags=re.I) or "Import"
     if (name or "").lower().endswith(".idadocs"):
         try:
@@ -163,6 +194,6 @@ def parse_import(name: str, text: str) -> tuple[str, str, dict, list]:
             raise ValueError("Keine gültige .idadocs-Datei") from e
         if not isinstance(d, dict) or d.get("format") != FORMAT or not isinstance(d.get("content"), str):
             raise ValueError("Keine gültige .idadocs-Datei")
-        return str(d.get("title") or base), d["content"], diff_settings(d.get("settings")), clean_sources(d.get("sources"))
+        return str(d.get("title") or base), d["content"], diff_settings(d.get("settings")), clean_sources(d.get("sources")), clean_tabs(d.get("tabs")), str(d.get("tabName") or "")
     m = re.match(r"^#\s+(.+)", text)
-    return (m.group(1).strip() if m else base), text, {}, []
+    return (m.group(1).strip() if m else base), text, {}, [], [], ""

@@ -12,12 +12,14 @@ const $ = (s, r = document) => r.querySelector(s);
 const el = (h) => { const t = document.createElement("template"); t.innerHTML = h.trim(); return t.content.firstElementChild; };
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 const ico = (n) => `<span class="ms">${n}</span>`;
-const prefs = { mode: localStorage.getItem("docs.mode") || "pages", dark: localStorage.getItem("docs.dark") === "1" };
-const st = { pageStarts: {}, res: { used: [], missing: [] }, doc: null, mpane: "src", timer: 0, rtimer: 0, saving: false, dirty: false };
+const prefs = { mode: localStorage.getItem("docs.mode") || "pages", dark: localStorage.getItem("docs.dark") === "1", split: parseFloat(localStorage.getItem("docs.split")) || 0.5, hidePv: localStorage.getItem("docs.hidePv") === "1", edFs: parseInt(localStorage.getItem("docs.edfs")) || 14 };
+const st = { pageStarts: {}, res: { used: [], missing: [] }, doc: null, mpane: "src", timer: 0, rtimer: 0, saving: false, dirty: false, rev: 0 };
 const app = $("#app");
 
 async function api(path, opt = {}) {
-  const r = await fetch("/api/v1" + path, { keepalive: opt.method === "PUT", ...opt, headers: { "content-type": "application/json" }, body: opt.body ? JSON.stringify(opt.body) : undefined });
+  const body = opt.body ? JSON.stringify(opt.body) : undefined;
+  // keepalive (speichert auch beim Schließen) lehnt der Browser über 64 KB ab: Große Dokumente gehen deshalb normal raus
+  const r = await fetch("/api/v1" + path, { keepalive: opt.method === "PUT" && new Blob([body || ""]).size < 60000, ...opt, headers: { "content-type": "application/json" }, body });
   if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || r.statusText);
   return r.status === 204 ? null : r.json();
 }
@@ -59,18 +61,25 @@ async function open(id) {
   let d = null;
   const cache = JSON.parse(localStorage.getItem("docs.c." + id) || "null");
   try { d = await api("/docs/" + id); } catch (e) { if (!cache) { toast(e.message); return home(); } }
-  if (cache?.dirty && (!d || cache.t > d.updated * 1000)) d = { id, title: cache.title, content: cache.content, settings: cache.settings, sources: cache.sources, updated: cache.t / 1000, _local: true };
-  st.doc = { id, title: d.title, content: d.content, settings: d.settings || {}, sources: d.sources || cache?.sources || [] };
-  st.dirty = !!d._local; st.mpane = "src";
+  if (cache?.dirty && (!d || cache.t > d.updated * 1000)) d = { id, title: cache.title, content: cache.content, settings: cache.settings, sources: cache.sources, tabs: cache.tabs, tabName: cache.tabName, updated: cache.t / 1000, _local: true };
+  const tabs = [{ id: "main", title: d.tabName || "Text", content: d.content }, ...(d.tabs || []).map((t) => ({ id: t.id, title: t.title, content: t.content }))];
+  const tab = Math.min(tabs.length - 1, Math.max(0, parseInt(localStorage.getItem("docs.tab." + id)) || 0));
+  st.doc = { id, title: d.title, content: tabs[tab].content, settings: d.settings || {}, sources: d.sources || cache?.sources || [], tabs, tab };
+  st.dirty = !!d._local; st.mpane = "src"; st.rev = 0;
   app.innerHTML = `<div class="ed"><div class="bar"><button class="btn ic" id="back" aria-label="Zurück">${ico("arrow_back")}</button>
       <input class="title" id="title" maxlength="200" placeholder="Titel" value="${esc(st.doc.title)}"><span class="state" id="state"></span>
-      <button class="btn ic" id="cfg" aria-label="Seiteneinstellungen">${ico("tune")}</button><button class="btn ic" id="more" aria-label="Mehr">${ico("more_vert")}</button></div>
+      <button class="btn ic" id="pvt"></button><button class="btn ic" id="cfg" aria-label="Seiteneinstellungen">${ico("tune")}</button><button class="btn ic" id="more" aria-label="Mehr">${ico("more_vert")}</button></div>
     <div class="mtabs"><button data-m="src" class="on">Schreiben</button><button data-m="pv">Vorschau</button></div>
+    <div class="tabsbar" id="tabs" role="tablist"></div>
     <div class="split" data-m="src"><div class="card sr"><div class="tools" id="tools"></div><div class="srcwrap"><div class="hl" id="hl" aria-hidden="true"><div></div></div><textarea class="src" id="src" spellcheck="true" placeholder="Schreib hier in Markdown …"></textarea><div class="mirror" id="mirror" aria-hidden="true"></div><div class="marks" id="marks" aria-hidden="true"><div></div></div></div></div>
+      <div class="gutter" id="gut" role="separator" aria-orientation="vertical" aria-label="Breite ändern" title="Ziehen = Breite ändern, Doppelklick = halb und halb"></div>
       <div class="card pv"><div class="prevbar"><button class="btn sm on" id="vmode"></button><button class="btn sm" id="vdark"></button><span class="grow"></span><span class="meta" id="meta"></span></div><div class="prev" id="prev"></div></div></div></div>`;
   $("#src").value = st.doc.content;
+  $(".srcwrap").style.setProperty("--ed-fs", prefs.edFs + "px");
+  $(".srcwrap").addEventListener("wheel", (e) => { if (e.ctrlKey || e.metaKey) { e.preventDefault(); edZoom(e.deltaY < 0 ? 1 : -1); } }, { passive: false });
   hlLines = []; drawHl();
-  buildTools();
+  buildTools(); buildTabs(); splitSetup();
+  $("#tabs").onclick = tabClick;
   $("#back").onclick = async () => { await flush(); home(); };
   $("#title").oninput = (e) => { st.doc.title = e.target.value; changed(); };
   $("#src").oninput = (e) => { st.doc.content = e.target.value; changed(); };
@@ -92,9 +101,15 @@ function view() {
   $("#vdark").innerHTML = prefs.dark ? `${ico("dark_mode")}Dunkel` : `${ico("light_mode")}Hell`;
 }
 const stateText = (t) => { const s = $("#state"); if (s) s.textContent = t; };
+// Was gespeichert wird: "content" ist immer der erste Tab, die anderen stehen in "tabs"
+function payload() {
+  const d = st.doc, [main, ...rest] = d.tabs;
+  return { title: d.title, content: main.content, settings: diff(d.settings), sources: d.sources, tabs: rest.map(({ id, title, content }) => ({ id, title, content })), tabName: main.title };
+}
 function changed() {
-  st.dirty = true; stateText("…"); drawHl();
-  localStorage.setItem("docs.c." + st.doc.id, JSON.stringify({ title: st.doc.title, content: st.doc.content, settings: st.doc.settings, sources: st.doc.sources, t: Date.now(), dirty: true }));
+  st.dirty = true; st.rev++; stateText("…"); drawHl();
+  st.doc.tabs[st.doc.tab].content = st.doc.content;
+  localStorage.setItem("docs.c." + st.doc.id, JSON.stringify({ ...payload(), t: Date.now(), dirty: true }));
   clearTimeout(st.rtimer); st.rtimer = setTimeout(layout, 250);
   schedule();
 }
@@ -102,11 +117,11 @@ function schedule() { clearTimeout(st.timer); st.timer = setTimeout(save, 700); 
 async function save() {
   clearTimeout(st.timer);
   if (!st.doc || !st.dirty || st.saving) return;
-  const { id, title, content, settings, sources } = st.doc;
+  const id = st.doc.id, rev = st.rev, body = payload();
   st.saving = true; stateText("Speichert …");
   try {
-    await api("/docs/" + id, { method: "PUT", body: { title, content, settings: diff(settings), sources } });
-    if (st.doc && st.doc.id === id && st.doc.content === content && st.doc.title === title) { st.dirty = false; localStorage.removeItem("docs.c." + id); stateText("Gespeichert"); }
+    await api("/docs/" + id, { method: "PUT", body });
+    if (st.doc && st.doc.id === id && st.rev === rev) { st.dirty = false; localStorage.removeItem("docs.c." + id); stateText("Gespeichert"); }
     else schedule();
   } catch { stateText("Offline – lokal gesichert"); st.timer = setTimeout(save, 8000); }
   st.saving = false;
@@ -120,9 +135,87 @@ async function syncPending() {
   for (const k of Object.keys(localStorage).filter((x) => x.startsWith("docs.c."))) {
     const id = k.slice(7), c = JSON.parse(localStorage.getItem(k) || "null");
     if (!c?.dirty || st.doc?.id === id) continue;
-    try { await api("/docs/" + id, { method: "PUT", body: { title: c.title, content: c.content, settings: diff(c.settings), sources: c.sources } }); if (JSON.parse(localStorage.getItem(k) || "null")?.t === c.t) localStorage.removeItem(k); }
+    try { await api("/docs/" + id, { method: "PUT", body: { title: c.title, content: c.content, settings: diff(c.settings), sources: c.sources, tabs: c.tabs, tabName: c.tabName } }); if (JSON.parse(localStorage.getItem(k) || "null")?.t === c.t) localStorage.removeItem(k); }
     catch (e) { if (/nicht gefunden/i.test(e.message)) localStorage.removeItem(k); }
   }
+}
+
+// ---------------------------------------------------------------- Tabs: mehrere getrennte Texte in einem Dokument (Seiteneinstellungen und Quellen gelten für alle)
+function buildTabs() {
+  const d = st.doc;
+  $("#tabs").innerHTML = d.tabs.map((t, i) => `<div class="tab ${i === d.tab ? "on" : ""}" role="tab" aria-selected="${i === d.tab}" data-t="${i}"><button class="tn" title="${i === d.tab ? "Klicken zum Umbenennen" : esc(t.title)}">${esc(t.title)}</button>${i === d.tab && d.tabs.length > 1 ? `<button class="tx" aria-label="Tab löschen" title="Tab löschen">${ico("close")}</button>` : ""}</div>`).join("") + `<button class="tadd" aria-label="Neuer Tab" title="Neuer Tab">${ico("add")}</button>`;
+}
+function showTab(n, top = 0) {
+  const d = st.doc, ta = $("#src"), t = d.tabs[n];
+  d.tab = n; d.content = t.content; ta.value = t.content;
+  hist.load?.(t.undo);
+  if (t.view) ta.setSelectionRange(t.view.s, t.view.e); else ta.setSelectionRange(0, 0);
+  localStorage.setItem("docs.tab." + d.id, n);
+  buildTabs(); drawHl();
+  ta.scrollTop = t.view?.top || 0; ta.dispatchEvent(new Event("scroll"));
+  clearTimeout(st.rtimer); layout();
+  $("#prev").scrollTop = t.view?.prev || top;
+}
+function switchTab(n) {
+  const d = st.doc, ta = $("#src"); if (n === d.tab || !d.tabs[n]) return;
+  Object.assign(d.tabs[d.tab], { content: ta.value, view: { top: ta.scrollTop, s: ta.selectionStart, e: ta.selectionEnd, prev: $("#prev").scrollTop }, undo: hist.save?.() });
+  showTab(n);
+}
+function tabClick(e) {
+  const d = st.doc;
+  if (e.target.closest(".tadd")) {
+    if (d.tabs.length >= 20) return toast("Mehr als 20 Tabs gehen nicht");
+    let k = d.tabs.length + 1; while (d.tabs.some((t) => t.title === `Tab ${k}`)) k++;
+    d.tabs.push({ id: Date.now().toString(36), title: `Tab ${k}`, content: "" });
+    switchTab(d.tabs.length - 1); changed(); $("#src").focus(); return;
+  }
+  const box = e.target.closest("[data-t]"); if (!box) return;
+  const n = +box.dataset.t, t = d.tabs[n];
+  if (e.target.closest(".tx")) {
+    if (t.content.trim() && !confirm(`Tab „${t.title}“ wirklich löschen? Der Text darin ist dann weg.`)) return;
+    d.tabs.splice(n, 1); showTab(Math.min(n, d.tabs.length - 1)); changed(); return;
+  }
+  if (n !== d.tab) return switchTab(n);
+  const name = prompt("Name des Tabs", t.title);
+  if (name != null && name.trim()) { t.title = name.trim().slice(0, 60); buildTabs(); changed(); }
+}
+
+// ---------------------------------------------------------------- Schriftgröße nur im Editor (Strg + / Strg - / Strg 0, Strg + Mausrad); die Vorschau bleibt, wie sie ist
+function edZoom(step) {
+  const ta = $("#src"), old = prefs.edFs, fs = step === 0 ? 14 : Math.min(32, Math.max(10, old + step)); if (!ta || fs === old) return;
+  const y = ta.scrollTop * fs / old;
+  prefs.edFs = fs; localStorage.setItem("docs.edfs", fs);
+  $(".srcwrap").style.setProperty("--ed-fs", fs + "px");
+  drawMarks(); ta.scrollTop = y; ta.dispatchEvent(new Event("scroll"));
+}
+document.addEventListener("keydown", (e) => {   // im ganzen Editor abfangen, sonst vergrößert der Browser die komplette Seite
+  if (!(e.ctrlKey || e.metaKey) || e.altKey || !$("#src")) return;
+  const step = { "+": 1, "=": 1, "-": -1, 0: 0 }[e.key];
+  if (step !== undefined) { e.preventDefault(); edZoom(step); }
+});
+
+// ---------------------------------------------------------------- Breite von Editor und Vorschau
+function applySplit() {
+  const sp = $(".split"); sp.style.setProperty("--sp", `${prefs.split * 100}%`); sp.classList.toggle("nopv", prefs.hidePv);
+  const b = $("#pvt"), label = prefs.hidePv ? "Vorschau einblenden" : "Vorschau ausblenden";
+  b.innerHTML = ico(prefs.hidePv ? "right_panel_open" : "right_panel_close"); b.title = label; b.setAttribute("aria-label", label);
+  localStorage.setItem("docs.split", prefs.split); localStorage.setItem("docs.hidePv", prefs.hidePv ? "1" : "0");
+}
+function splitSetup() {
+  const g = $("#gut"), sp = $(".split");
+  applySplit();
+  $("#pvt").onclick = () => { prefs.hidePv = !prefs.hidePv; applySplit(); layout(); };
+  g.ondblclick = () => { prefs.split = 0.5; applySplit(); };
+  g.onpointerdown = (e) => {
+    e.preventDefault(); g.setPointerCapture(e.pointerId); g.classList.add("on");
+    const r = sp.getBoundingClientRect(); let raw = prefs.split;
+    g.onpointermove = (m) => { raw = (m.clientX - r.left) / r.width; prefs.split = Math.min(0.85, Math.max(0.2, raw)); sp.style.setProperty("--sp", `${prefs.split * 100}%`); };
+    g.onpointerup = g.onpointercancel = () => {
+      g.onpointermove = g.onpointerup = g.onpointercancel = null; g.classList.remove("on");
+      if (raw > 0.92) { prefs.hidePv = true; prefs.split = 0.5; }   // ganz nach rechts gezogen: Vorschau zu
+      applySplit();
+    };
+  };
 }
 
 // ---------------------------------------------------------------- Werkzeugleiste
@@ -216,7 +309,7 @@ function slashSetup() {
 // Eigene Historie, weil das Browser-Undo bei Schnellbefehlen und Knöpfen (setRangeText) abreißt. Strg+Z, Strg+Y / Strg+Umschalt+Z, Knöpfe in der Leiste.
 const hist = {};
 function histSetup() {
-  const ta = $("#src"), H = [{ v: ta.value, s: ta.selectionStart, e: ta.selectionEnd }]; let i = 0, last = 0, kind = "";
+  const ta = $("#src"), fresh = () => [{ v: ta.value, s: ta.selectionStart, e: ta.selectionEnd }]; let H = fresh(), i = 0, last = 0, kind = "";
   const btns = () => { const u = $('[data-a="undo"]'), r = $('[data-a="redo"]'); if (u) u.disabled = i <= 0; if (r) r.disabled = i >= H.length - 1; };
   const rec = (type) => {
     if (ta.value === H[i].v) return;
@@ -233,6 +326,7 @@ function histSetup() {
     st.doc.content = h.v; changed(); ta.dispatchEvent(new Event("scroll")); btns(); ta.focus();
   };
   hist.undo = () => go(i - 1); hist.redo = () => go(i + 1); hist.rec = () => rec("");
+  hist.save = () => ({ H, i }); hist.load = (x) => { H = x?.H || fresh(); i = x?.i || 0; last = 0; kind = ""; btns(); };   // jeder Tab hat seine eigene Historie
   ta.addEventListener("input", (e) => rec(e.inputType));
   ta.addEventListener("beforeinput", (e) => { if (e.inputType === "historyUndo") { e.preventDefault(); hist.undo(); } else if (e.inputType === "historyRedo") { e.preventDefault(); hist.redo(); } });
   ta.addEventListener("keydown", (e) => {
@@ -262,7 +356,7 @@ function notesPanel() {
   scrim.onclick = $("#x", p).onclick = close;
   const fill = () => { const L = openItems(); $("#nl", p).innerHTML = L.length ? L.map((n, k) => `<button class="nitem ${n.d ? "d" : ""}" data-k="${k}"><small>${n.d ? "Entwurf" : "Notiz"}</small>${esc(n.text)}</button>`).join("") : '<p class="fld"><small>Noch nichts markiert.</small></p>'; return L; };
   let L = fill();
-  $("#nl", p).onclick = (e) => { const b = e.target.closest("[data-k]"); if (!b) return; const n = L[b.dataset.k], t = $("#src"); close(); t.focus(); t.setSelectionRange(n.at, n.end); const line = t.value.slice(0, n.at).split("\n").length; t.scrollTop = Math.max(0, (line - 4) * 22); };
+  $("#nl", p).onclick = (e) => { const b = e.target.closest("[data-k]"); if (!b) return; const n = L[b.dataset.k], t = $("#src"); close(); t.focus(); t.setSelectionRange(n.at, n.end); const line = t.value.slice(0, n.at).split("\n").length; t.scrollTop = Math.max(0, (line - 4) * prefs.edFs * 1.6); };
   $("#addn", p).onclick = () => { close(); wrap("[[Notiz: ", "]]", "Text"); };
   $("#addd", p).onclick = () => { close(); const t = $("#src"), sel = t.value.slice(t.selectionStart, t.selectionEnd); const pre = t.selectionStart && t.value[t.selectionStart - 1] !== "\n" ? "\n\n" : ""; t.setRangeText(`${pre}::: entwurf\n${sel || "Schnell aufschreiben, später überarbeiten …"}\n:::\n`, t.selectionStart, t.selectionEnd, "end"); t.dispatchEvent(new Event("input")); };
 }
@@ -279,7 +373,7 @@ function makeKey(src, own) {
   return k;
 }
 const keyRe = (k) => k.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-const citeCount = (k) => (st.doc.content.match(new RegExp("\\[@" + keyRe(k) + "[,\\]]", "g")) || []).length;
+const citeCount = (k) => (st.doc.tabs.map((t) => t.content).join("\n").match(new RegExp("\\[@" + keyRe(k) + "[,\\]]", "g")) || []).length;
 const italic = (t) => esc(t).replace(/\*([^*]+)\*/g, "<i>$1</i>");
 
 function sourcesPanel() {
@@ -332,7 +426,9 @@ function sourcesPanel() {
       cur.key = cur.key.trim().replace(/[\s,\[\]]+/g, "") || makeKey(cur, src?.key);
       if (S().some((x) => x.key === cur.key && x.key !== src?.key)) { toast("Diesen Schlüssel gibt es schon"); return false; }
       if (src && src.key !== cur.key) {   // Schlüssel umbenannt: Zitate im Text mitziehen
-        const t = $("#src"); t.value = t.value.replace(new RegExp("\\[@" + keyRe(src.key) + "(?=[,\\]])", "g"), `[@${cur.key}`); st.doc.content = t.value; hist.rec?.();
+        const t = $("#src"), re = new RegExp("\\[@" + keyRe(src.key) + "(?=[,\\]])", "g");
+        st.doc.tabs.forEach((x, n) => { if (n !== st.doc.tab) x.content = x.content.replace(re, `[@${cur.key}`); });
+        t.value = t.value.replace(re, `[@${cur.key}`); st.doc.content = t.value; hist.rec?.();
       }
       st.doc.sources = src ? S().map((x) => (x === src ? cur : x)) : [...S(), cur];
       src = cur; changed(); return true;
@@ -550,7 +646,7 @@ function settingsPanel() {
 
 // ---------------------------------------------------------------- Menü, Export
 function download(name, text, type) { const a = el(`<a download="${esc(name)}"></a>`); a.href = URL.createObjectURL(new Blob([text], { type })); a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 4000); }
-const fname = () => (st.doc.title || "Dokument").replace(/[^\p{L}\p{N} _-]+/gu, "").trim() || "Dokument";
+const fname = () => (st.doc.title + (st.doc.tabs.length > 1 ? ` - ${st.doc.tabs[st.doc.tab].title}` : "") || "Dokument").replace(/[^\p{L}\p{N} _-]+/gu, "").trim() || "Dokument";
 function moreMenu(btn) {
   const r = btn.getBoundingClientRect();
   const m = el(`<div class="menu" style="top:${r.bottom + 6}px;right:12px"><button data-x="pdf">${ico("picture_as_pdf")}Als PDF speichern</button><button data-x="md">${ico("markdown")}Als .md herunterladen</button>
@@ -562,7 +658,7 @@ function moreMenu(btn) {
   m.onclick = async (e) => {
     const x = e.target.closest("[data-x]")?.dataset.x; if (!x) return; close();
     if (x === "md") download(fname() + ".md", st.doc.content, "text/markdown");
-    if (x === "ida") download(fname() + ".idadocs", JSON.stringify({ format: "idadocs", version: 1, id: st.doc.id, title: st.doc.title, settings: diff(st.doc.settings), sources: st.doc.sources, content: st.doc.content }, null, 1), "application/json");
+    if (x === "ida") download((st.doc.title || "Dokument").replace(/[^\p{L}\p{N} _-]+/gu, "").trim().concat(".idadocs").replace(/^\.idadocs$/, "Dokument.idadocs"), JSON.stringify({ format: "idadocs", version: 1, id: st.doc.id, ...payload() }, null, 1), "application/json");
     if (x === "pdf") { const n = openItems().filter((o) => o.d).length; if (!n || confirm(`Es ${n === 1 ? "ist noch 1 Stelle" : `sind noch ${n} Stellen`} als Entwurf markiert. Trotzdem als PDF speichern?`)) printPdf(); }
     if (x === "del" && confirm("Dokument wirklich löschen?")) { await api("/docs/" + st.doc.id, { method: "DELETE" }).catch((er) => toast(er.message)); localStorage.removeItem("docs.c." + st.doc.id); st.dirty = false; home(); }
   };

@@ -44,15 +44,29 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .tools button:disabled { opacity: .35; cursor: default; pointer-events: none; }
 .tools button:hover { background: rgba(255,255,255,.08); } .tools button:active { background: var(--container); }
 .tools .ms { font-size: 21px; } .tools i { width: 1px; background: rgba(255,255,255,.12); margin: 8px 4px; flex: none; }
-.split { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; }
+.split { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, calc(var(--sp, 50%) - 5px)) 10px minmax(0, 1fr); }
+.gutter { cursor: col-resize; touch-action: none; display: flex; align-items: center; justify-content: center; }
+.gutter::before { content: ""; width: 3px; height: 44px; border-radius: 2px; background: rgba(255,255,255,.14); transition: background .15s, height .15s; }
+.gutter:hover::before, .gutter.on::before { background: var(--accent); height: 80px; }
+.gutter.on ~ .card, .split:has(.gutter.on) .card { pointer-events: none; user-select: none; }
+.split.nopv { grid-template-columns: minmax(0, 1fr); } .split.nopv .gutter, .split.nopv .card.pv { display: none; }
+.tabsbar { flex: none; display: flex; align-items: center; gap: 4px; overflow-x: auto; scrollbar-width: none; padding: 0 4px; }
+.tabsbar::-webkit-scrollbar { display: none; }
+.tab { flex: none; display: flex; align-items: center; height: 34px; border-radius: 17px; background: var(--surface-high); color: var(--muted); max-width: 240px; }
+.tab.on { background: var(--container); color: var(--on-container); }
+.tab .tn { border: 0; background: none; color: inherit; cursor: pointer; padding: 0 14px; height: 34px; font-size: .8125rem; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 200px; }
+.tab .tx { border: 0; background: none; color: inherit; cursor: pointer; width: 26px; height: 26px; margin-right: 4px; margin-left: -8px; border-radius: 50%; display: grid; place-items: center; } .tab .tx:hover { background: rgba(255,255,255,.12); } .tab .tx .ms { font-size: 16px; }
+.tadd { flex: none; width: 34px; height: 34px; border: 0; border-radius: 50%; background: var(--surface-high); color: var(--on-surface); cursor: pointer; display: grid; place-items: center; } .tadd:hover { background: var(--surface-highest); } .tadd .ms { font-size: 19px; }
 .card { min-height: 0; min-width: 0; background: var(--surface-high); border-radius: 28px; overflow: hidden; display: flex; flex-direction: column; }
-.src { flex: 1; min-height: 0; width: 100%; resize: none; border: 0; outline: 0; background: none; padding: 18px 20px; font: 14px/1.6 ui-monospace, "SF Mono", Consolas, monospace; tab-size: 2; }
+.src { flex: 1; min-height: 0; width: 100%; resize: none; border: 0; outline: 0; background: none; padding: 18px 20px; font: var(--ed-fs, 14px)/1.6 ui-monospace, "SF Mono", Consolas, monospace; tab-size: 2; }
 .prev { flex: 1; min-height: 0; overflow: auto; background: #0a0a0c; padding: 16px 0 60px; overscroll-behavior: contain; }
 .prevbar { flex: none; display: flex; align-items: center; gap: 6px; padding: 8px 10px; border-bottom: 1px solid rgba(255,255,255,.06); flex-wrap: wrap; }
 .prevbar .grow { flex: 1; } .prevbar .meta { color: var(--muted); font-size: .75rem; }
 .mtabs { display: none; }
 @media (max-width: 900px) {
-  .split { grid-template-columns: minmax(0, 1fr); }
+  .split, .split.nopv { grid-template-columns: minmax(0, 1fr); }
+  .gutter, #pvt { display: none !important; }
+  .split.nopv .card.pv { display: flex; }
   .split[data-m="src"] .card.pv, .split[data-m="pv"] .card.sr { display: none; }
   .mtabs { display: flex; gap: 4px; background: var(--surface-high); border-radius: 22px; padding: 4px; flex: none; }
   .mtabs button { flex: 1; height: 36px; border: 0; border-radius: 18px; background: none; color: var(--muted); cursor: pointer; font-weight: 500; }
@@ -146,7 +160,7 @@ a.btn { text-decoration: none; color: var(--on-surface); }
 .srcwrap .src { flex: 1; box-sizing: border-box; position: relative; z-index: 1; color: transparent; caret-color: var(--on-surface); }
 .srcwrap .src::placeholder { color: var(--muted); }
 .srcwrap .src::selection { color: transparent; background: rgba(var(--accent-rgb),.32); }
-.mirror { position: absolute; left: 0; top: 0; bottom: 0; visibility: hidden; overflow: hidden; box-sizing: border-box; padding: 18px 20px; font: 14px/1.6 ui-monospace, "SF Mono", Consolas, monospace; tab-size: 2; white-space: pre-wrap; overflow-wrap: break-word; pointer-events: none; }
+.mirror { position: absolute; left: 0; top: 0; bottom: 0; visibility: hidden; overflow: hidden; box-sizing: border-box; padding: 18px 20px; font: var(--ed-fs, 14px)/1.6 ui-monospace, "SF Mono", Consolas, monospace; tab-size: 2; white-space: pre-wrap; overflow-wrap: break-word; pointer-events: none; }
 .mirror .mk { display: inline-block; width: 0; height: 1.6em; vertical-align: top; }
 .marks { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
 .marks > div { position: relative; will-change: transform; }
@@ -167,7 +181,7 @@ a.btn { text-decoration: none; color: var(--on-surface); }
 
 /* Einfärbung des Editors: nur Farben und Hintergründe, damit sie exakt unter dem Text im Textfeld bleibt */
 .hl { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
-.hl > div { box-sizing: border-box; padding: 18px 20px; font: 14px/1.6 ui-monospace, "SF Mono", Consolas, monospace; tab-size: 2; white-space: pre-wrap; overflow-wrap: break-word; color: var(--on-surface); will-change: transform; }
+.hl > div { box-sizing: border-box; padding: 18px 20px; font: var(--ed-fs, 14px)/1.6 ui-monospace, "SF Mono", Consolas, monospace; tab-size: 2; white-space: pre-wrap; overflow-wrap: break-word; color: var(--on-surface); will-change: transform; }
 .hl > div > div { position: relative; margin: 0 -20px; padding: 0 20px; }
 .hl [data-tag]::after { content: attr(data-tag); position: absolute; right: 14px; top: 3px; font: 600 .6875rem/1.4 system-ui, sans-serif; padding: 0 8px; border-radius: 8px; background: rgba(255,255,255,.1); color: var(--muted); }
 .hl .l-reg { --c: 138,180,248; background: rgba(var(--c),.09); box-shadow: inset 3px 0 0 rgba(var(--c),.75); }
