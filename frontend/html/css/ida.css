@@ -119,6 +119,11 @@ select option { background: var(--bg-2); color: var(--text); }
 
 /* ---------- Editor-Fläche und Handy ---------- */
 .editor-pane { background: #000 !important; }
+@media (min-width: 769px) {
+  /* Editor als schwebende Karte wie Dateien und Vorschau */
+  .editor-pane { background: var(--bg-0) !important; border-radius: 24px; overflow: hidden; margin: 0 2px; }
+  .editor-pane .tabs-wrap { padding: 4px 4px 0; height: 44px; }
+}
 @media (max-width: 768px) {
   .app { grid-template-columns: minmax(0, 1fr) !important; grid-template-rows: minmax(0, 1fr) var(--row-term) 22px calc(52px + env(safe-area-inset-bottom, 0px)) !important; }
   .main { grid-row: 1 !important; }
