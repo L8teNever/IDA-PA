@@ -1,0 +1,129 @@
+/* IDA Docs – schwarz, runde schwebende Karten wie die anderen IDA-Seiten. Das Papier selbst ist weiß (wie gedruckt). */
+:root { --accent: #ffb86b; --accent-rgb: 255,184,107; --on-accent: #3d2200; --container: #3a2610; --on-container: #ffe0bd; --glow: rgba(255,170,80,.3);
+  --bar-h: 56px; --pw: 210mm; --ph: 297mm; }
+[hidden] { display: none !important; }
+* { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,.18) transparent; }
+body { overflow: hidden; }
+#app { flex: 1; min-height: 0; display: flex; flex-direction: column; position: relative; }
+button, input, select, textarea { font: inherit; color: inherit; }
+.btn { border: 0; cursor: pointer; border-radius: 22px; height: 44px; padding: 0 18px; display: inline-flex; align-items: center; gap: 8px; background: var(--surface-highest); font-weight: 500; font-size: .9375rem; transition: transform .2s var(--spring), background .2s; }
+.btn:active { transform: scale(.95); }
+.btn.pri { background: var(--accent); color: var(--on-accent); }
+.btn.ic { width: 44px; padding: 0; justify-content: center; }
+.btn.sm { height: 36px; padding: 0 14px; border-radius: 18px; font-size: .875rem; }
+.btn.on { background: var(--container); color: var(--on-container); }
+.btn .ms { font-size: 22px; }
+
+/* ---------- Startseite ---------- */
+.home { flex: 1; min-height: 0; overflow-y: auto; padding: calc(env(safe-area-inset-top) + 14px) 14px calc(env(safe-area-inset-bottom) + 110px); }
+.home-in { max-width: 760px; margin: 0 auto; }
+.home h1 { margin: 14px 6px 4px; font-size: 2rem; font-weight: 500; letter-spacing: -.5px; }
+.home .sub { margin: 0 6px 18px; color: var(--muted); font-size: .9375rem; }
+.row { display: flex; gap: 8px; flex-wrap: wrap; margin: 0 0 16px; }
+.dcard { display: block; width: 100%; text-align: left; border: 0; cursor: pointer; background: var(--surface-high); border-radius: 24px; padding: 16px 18px; margin-bottom: 8px; position: relative; transition: transform .3s var(--spring), background .2s; }
+.dcard:active { transform: scale(.98); background: #23252a; }
+.dcard b { display: block; font-weight: 500; font-size: 1.0625rem; padding-right: 40px; overflow-wrap: anywhere; }
+.dcard p { margin: 4px 0 8px; color: var(--muted); font-size: .875rem; line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.dcard small { color: var(--muted); font-size: .75rem; }
+.dcard .del { position: absolute; top: 10px; right: 10px; width: 36px; height: 36px; border-radius: 50%; border: 0; background: none; cursor: pointer; color: var(--muted); display: grid; place-items: center; }
+.dcard .del:hover { background: rgba(255,255,255,.08); color: #f28b82; }
+.fab { position: fixed; right: 18px; bottom: calc(env(safe-area-inset-bottom) + 18px); height: 60px; padding: 0 24px; border-radius: 30px; box-shadow: 0 8px 24px var(--glow); font-size: 1rem; }
+.empty { text-align: center; color: var(--muted); padding: 60px 20px; line-height: 1.5; }
+.empty .ms { font-size: 44px; display: block; margin-bottom: 10px; color: var(--accent); }
+.chip { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 12px; border-radius: 14px; background: var(--surface-high); color: var(--muted); font-size: .75rem; }
+.chip .ms { font-size: 16px; } .chip.ok { color: #7ee2b8; } .chip.bad { color: #f28b82; }
+
+/* ---------- Editor ---------- */
+.ed { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 8px; padding: calc(env(safe-area-inset-top) + 8px) 8px calc(env(safe-area-inset-bottom) + 8px); }
+.bar { flex: none; display: flex; align-items: center; gap: 8px; background: var(--surface-high); border-radius: 28px; padding: 6px; box-shadow: 0 4px 16px rgba(0,0,0,.6); }
+.bar input.title { flex: 1; min-width: 0; height: 44px; border: 0; background: none; outline: 0; font-size: 1.0625rem; font-weight: 500; padding: 0 8px; }
+.bar .state { color: var(--muted); font-size: .75rem; white-space: nowrap; }
+.tools { flex: none; display: flex; gap: 4px; overflow-x: auto; overflow-y: hidden; background: var(--surface-high); border-radius: 24px; padding: 4px; scrollbar-width: none; }
+.tools::-webkit-scrollbar { display: none; }
+.tools button { flex: none; min-width: 40px; height: 40px; border: 0; background: none; border-radius: 20px; cursor: pointer; display: grid; place-items: center; padding: 0 10px; color: var(--on-surface); font-size: .875rem; font-weight: 600; }
+.tools button:hover { background: rgba(255,255,255,.08); } .tools button:active { background: var(--container); }
+.tools .ms { font-size: 21px; } .tools i { width: 1px; background: rgba(255,255,255,.12); margin: 8px 4px; flex: none; }
+.split { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; }
+.card { min-height: 0; min-width: 0; background: var(--surface-high); border-radius: 28px; overflow: hidden; display: flex; flex-direction: column; }
+.src { flex: 1; min-height: 0; width: 100%; resize: none; border: 0; outline: 0; background: none; padding: 18px 20px; font: 14px/1.6 ui-monospace, "SF Mono", Consolas, monospace; tab-size: 2; }
+.prev { flex: 1; min-height: 0; overflow: auto; background: #0a0a0c; padding: 16px 0 60px; overscroll-behavior: contain; }
+.prevbar { flex: none; display: flex; align-items: center; gap: 6px; padding: 8px 10px; border-bottom: 1px solid rgba(255,255,255,.06); flex-wrap: wrap; }
+.prevbar .grow { flex: 1; } .prevbar .meta { color: var(--muted); font-size: .75rem; }
+.mtabs { display: none; }
+@media (max-width: 900px) {
+  .split { grid-template-columns: minmax(0, 1fr); }
+  .split[data-m="src"] .card.pv, .split[data-m="pv"] .card.sr { display: none; }
+  .mtabs { display: flex; gap: 4px; background: var(--surface-high); border-radius: 22px; padding: 4px; flex: none; }
+  .mtabs button { flex: 1; height: 36px; border: 0; border-radius: 18px; background: none; color: var(--muted); cursor: pointer; font-weight: 500; }
+  .mtabs button.on { background: var(--container); color: var(--on-container); }
+  .bar .state { display: none; }
+}
+
+/* ---------- Seiten (DIN A4) ---------- */
+.sheets { display: flex; flex-direction: column; align-items: center; gap: 18px; width: max-content; min-width: 100%; }
+.sheet { position: relative; flex: none; width: var(--pw); height: var(--ph); background: #fff; color: #000; box-shadow: 0 6px 30px rgba(0,0,0,.7); overflow: hidden; }
+.clip { position: absolute; overflow: hidden; }
+.flow, .measure { column-fill: auto; }
+.pgn { position: absolute; font-size: 10pt; color: #333; font-family: var(--doc-font); }
+.measure { position: absolute; left: -99999px; top: 0; visibility: hidden; }
+.sheet.dark, .webdoc.dark { background: #16171a; color: #e6e6ea; } .sheet.dark .pgn { color: #aaa; }
+
+/* ---------- Dokument-Typografie (gilt im Messbereich, in den Seiten und im Web-Modus) ---------- */
+.doc { font-family: var(--doc-font); font-size: calc(var(--fs) * 1pt); line-height: var(--lh); text-align: var(--al); hyphens: auto; -webkit-hyphens: auto; overflow-wrap: break-word; }
+.doc p { margin: 0 0 calc(var(--ps) * 1pt); orphans: 2; widows: 2; }
+.doc h1, .doc h2, .doc h3, .doc h4 { text-align: left; line-height: 1.25; font-weight: 700; break-after: avoid; margin: 0 0 calc(var(--ps) * 1pt); }
+.doc h1 { font-size: calc(var(--h1) * 1pt); margin-top: calc(var(--fs) * 1.4pt); }
+.doc h2 { font-size: calc(var(--h2) * 1pt); margin-top: calc(var(--fs) * 1pt); }
+.doc h3 { font-size: calc(var(--h3) * 1pt); margin-top: calc(var(--fs) * .7pt); }
+.doc h4 { font-size: calc(var(--fs) * 1pt); font-style: italic; }
+.doc > :first-child { margin-top: 0; }
+.doc .num { display: inline-block; min-width: 1.6em; }
+.doc ul, .doc ol { margin: 0 0 calc(var(--ps) * 1pt); padding-left: 1.6em; } .doc li { break-inside: avoid; }
+.doc blockquote { margin: 0 0 calc(var(--ps) * 1pt) 1.2em; padding-left: .9em; border-left: 3px solid #bbb; font-style: italic; }
+.doc blockquote p:last-child { margin-bottom: 0; }
+.doc code { font-family: "Courier New", monospace; font-size: .92em; background: rgba(128,128,128,.14); padding: 0 .25em; border-radius: 3px; }
+.doc pre { margin: 0 0 calc(var(--ps) * 1pt); padding: .6em .8em; background: rgba(128,128,128,.14); border-radius: 4px; white-space: pre-wrap; font-size: .9em; line-height: 1.35; text-align: left; break-inside: avoid; }
+.doc pre code { background: none; padding: 0; }
+.doc hr { border: 0; border-top: 1px solid #999; margin: .8em 0; }
+.doc a { color: inherit; text-decoration: underline; }
+.doc .tw { margin: 0 0 calc(var(--ps) * 1pt); }
+.doc table { border-collapse: collapse; width: 100%; font-size: .95em; line-height: 1.3; text-align: left; }
+.doc th, .doc td { border: 1px solid #888; padding: 4px 8px; vertical-align: top; } .doc th { background: rgba(128,128,128,.18); font-weight: 700; } .doc tr { break-inside: avoid; }
+.doc figure { margin: 0 0 calc(var(--ps) * 1pt); text-align: center; break-inside: avoid; } .doc img { max-width: 100%; max-height: 120mm; } .doc figcaption { font-size: .85em; font-style: italic; }
+.doc .pb { break-after: column; height: 0; } .web .pb { display: none; }
+.doc .box.center { text-align: center; } .doc .box.right { text-align: right; } .doc .box.left { text-align: left; } .doc .box.justify { text-align: justify; }
+.doc .box.title { text-align: center; padding-top: 30mm; } .doc .box.title p:first-child { font-size: 24pt; font-weight: 700; line-height: 1.25; margin-bottom: 14mm; } .doc .box.title p { margin-bottom: 6mm; }
+.doc sup.fnref { font-size: .7em; line-height: 0; } .doc .fns { font-size: .85em; line-height: 1.3; margin-top: 1em; } .doc .fns ol { padding-left: 1.4em; margin: 0; }
+.doc .toc { margin: 0 0 calc(var(--ps) * 1pt); } .doc .toc-title { font-size: calc(var(--h1) * 1pt); font-weight: 700; margin-bottom: 10pt; text-align: left; }
+.doc .toc a { display: flex; align-items: baseline; gap: 4px; text-decoration: none; margin: 0 0 3pt; text-align: left; }
+.doc .toc .dots { flex: 1; border-bottom: 1px dotted #666; min-width: 12px; transform: translateY(-3px); } .doc .toc .pg { min-width: 2ch; text-align: right; }
+.doc .toc-l1 { font-weight: 700; margin-top: 6pt !important; } .doc .toc-l2 { padding-left: 1.2em; } .doc .toc-l3 { padding-left: 2.4em; font-size: .95em; }
+.doc .muted { color: #888; }
+
+/* ---------- Web-Modus: fortlaufend wie eine Webseite, ohne Seitenumbrüche ---------- */
+.webdoc { width: min(100% - 24px, 860px); margin: 0 auto; background: #fff; color: #111; border-radius: 22px; padding: clamp(18px, 5vw, 56px); box-shadow: 0 6px 30px rgba(0,0,0,.6); }
+
+/* ---------- Einstellungen ---------- */
+.scrim { position: fixed; inset: 0; background: rgba(0,0,0,.55); z-index: 20; }
+.sheetp { position: fixed; z-index: 21; right: 8px; top: calc(env(safe-area-inset-top) + 8px); bottom: calc(env(safe-area-inset-bottom) + 8px); width: min(400px, calc(100vw - 16px)); background: var(--surface-high); border-radius: 28px; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 10px 40px rgba(0,0,0,.7); }
+.sheetp header { display: flex; align-items: center; justify-content: space-between; padding: 14px 14px 6px 22px; font-size: 1.25rem; font-weight: 500; }
+.sheetp .body { flex: 1; overflow-y: auto; padding: 4px 18px 18px; }
+.sheetp h3 { margin: 18px 4px 8px; font-size: .8125rem; font-weight: 600; color: var(--muted); letter-spacing: .3px; }
+.fld { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 6px 4px; font-size: .9375rem; }
+.fld input[type=number], .fld select { width: 118px; height: 38px; border: 0; border-radius: 12px; background: var(--surface-highest); padding: 0 10px; outline: 0; }
+.fld select { width: 150px; } .fld input[type=checkbox] { width: 22px; height: 22px; accent-color: var(--accent); }
+.fld small { color: var(--muted); }
+.menu { position: fixed; z-index: 22; min-width: 230px; background: var(--surface-highest); border-radius: 20px; padding: 6px; box-shadow: 0 10px 36px rgba(0,0,0,.7); }
+.menu button { display: flex; align-items: center; gap: 12px; width: 100%; height: 44px; border: 0; background: none; border-radius: 14px; padding: 0 14px; cursor: pointer; text-align: left; }
+.menu button:hover { background: rgba(255,255,255,.08); } .menu .ms { font-size: 21px; color: var(--accent); }
+
+/* ---------- Drucken / PDF: nur die Seiten, exakt A4 ---------- */
+@media print {
+  @page { size: A4; margin: 0; }
+  html, body { background: #fff !important; overflow: visible !important; height: auto !important; }
+  body > *:not(#printroot) { display: none !important; }
+  #printroot { display: block !important; }
+  #printroot .sheets { gap: 0; display: block; width: auto; }
+  #printroot .sheet { box-shadow: none; break-after: page; margin: 0; zoom: 1 !important; }
+}
+#printroot { display: none; }

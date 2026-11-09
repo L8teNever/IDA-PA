@@ -147,6 +147,24 @@ services:
     labels:
       com.centurylinklabs.watchtower.enable: "true"
 
+  # IDA Docs – Dokumente schreiben (Markdown, DIN A4, Inhaltsverzeichnis, PDF). Dateien liegen als .idadocs + .md im Volume docs-data;
+  # optional Backup nach Google Drive (GOOGLE_*-Werte). Davor gehört Cloudflare Access. Siehe docs/DOCS.md
+  docs:
+    image: ${DOCS_IMAGE:-ghcr.io/l8tenever/ida-docs:latest}
+    pull_policy: always
+    restart: unless-stopped
+    environment:
+      GOOGLE_CLIENT_ID: ${DOCS_GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${DOCS_GOOGLE_CLIENT_SECRET:-}
+      GOOGLE_REFRESH_TOKEN: ${DOCS_GOOGLE_REFRESH_TOKEN:-}
+      DRIVE_FOLDER_ID: ${DOCS_DRIVE_FOLDER_ID:-}
+    ports:
+      - "${DOCS_PORT:-8092}:8000"
+    volumes:
+      - docs-data:/data
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"
+
   # Code – eigene App (eigener Port, eigene PWA) für Projekte und Threads. Hat keine eigenen Daten: KI, Projekte, Git und
   # GitHub laufen weiter in IDA, die App reicht die Aufrufe intern an IDA weiter. Siehe docs/CODE.md
   code:
@@ -349,3 +367,4 @@ volumes:
   server-data:
   links-data:
   tasks-data:
+  docs-data:

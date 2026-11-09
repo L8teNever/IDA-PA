@@ -32,3 +32,9 @@ services:
     build:
       context: .
       dockerfile: dashboard/Dockerfile
+  docs:
+    image: ida-docs:dev
+    pull_policy: build
+    build:
+      context: .
+      dockerfile: dokumente/Dockerfile
