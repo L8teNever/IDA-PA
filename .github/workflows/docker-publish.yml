@@ -1,5 +1,5 @@
 # Tests (IDA: SQLite + PostgreSQL, Kalender/Wiki: SQLite, Code), dann Images bauen und nach GHCR pushen
-# (ghcr.io/<owner>/<repo>:latest, ida-kalender:latest, ida-wiki:latest, ida-code:latest, ida-dashboard:latest, ida-tasks:latest).
+# (ghcr.io/<owner>/<repo>:latest, ida-kalender:latest, ida-wiki:latest, ida-code:latest, ida-dashboard:latest, ida-tasks:latest, ida-html:latest).
 name: Test & Docker-Image
 
 on:
@@ -150,6 +150,7 @@ jobs:
           - { name: code, dockerfile: code/Dockerfile, image: "ghcr.io/${{ github.repository_owner }}/ida-code" }
           - { name: dashboard, dockerfile: dashboard/Dockerfile, image: "ghcr.io/${{ github.repository_owner }}/ida-dashboard" }
           - { name: tasks, dockerfile: tasks/Dockerfile, image: "ghcr.io/${{ github.repository_owner }}/ida-tasks" }
+          - { name: html, dockerfile: html/Dockerfile, image: "ghcr.io/${{ github.repository_owner }}/ida-html" }
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3

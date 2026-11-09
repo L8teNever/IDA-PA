@@ -1,0 +1,53 @@
+{
+  "name": "IDA HTML",
+  "short_name": "IDA HTML",
+  "description": "Browserbasierter Code-Editor mit Live-Vorschau. Deine Dateien bleiben lokal – kein Server, kein Account.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "theme_color": "#000000",
+  "background_color": "#000000",
+  "lang": "de",
+  "categories": [
+    "developer",
+    "productivity",
+    "utilities"
+  ],
+  "icons": [
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/maskable-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/icons/maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Neues Projekt",
+      "short_name": "Neu",
+      "description": "Starte ein neues leeres Projekt",
+      "url": "/?action=new"
+    }
+  ],
+  "screenshots": [],
+  "prefer_related_applications": false,
+  "id": "/ida-html"
+}

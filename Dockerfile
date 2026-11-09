@@ -31,6 +31,7 @@ RUN pip install -r requirements.txt
 
 COPY backend/ /app/backend/
 COPY frontend/ /app/frontend/
+RUN rm -rf /app/frontend/html   # IDA HTML hat ein eigenes Image (html/Dockerfile)
 
 # unprivileged user; /data is the volume (database for SQLite setups, Claude logins, sandbox, code projects)
 RUN useradd --create-home --uid 1000 ida && mkdir -p /data/projects && chown -R ida:ida /data /app

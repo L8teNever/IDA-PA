@@ -1,0 +1,139 @@
+/* CLEO im IDA-Look (Material 3 Expressive wie Kalender und Tasks). Liegt nach den Stilen der App und setzt nur Aussehen, keine Funktion. */
+@font-face { font-family: "Google Sans Flex"; font-style: normal; font-weight: 400 600; font-display: swap;
+  src: url(../fonts/GoogleSansFlex-latin-ext.woff2) format("woff2");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF; }
+@font-face { font-family: "Google Sans Flex"; font-style: normal; font-weight: 400 600; font-display: swap;
+  src: url(../fonts/GoogleSansFlex-latin.woff2) format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+:root {
+  --radius: 16px; --radius-sm: 12px; --radius-xs: 8px; --radius-pill: 999px;
+  --spring: cubic-bezier(.34,1.56,.64,1); --emph: cubic-bezier(.2,0,0,1);
+  --on-accent: #00363f; --container: #12333b; --on-container: #c4f0fa;
+  --face-top: #fff; --face-bottom: #dfe7f1; --ida-font: "Google Sans Flex","Google Sans",Roboto,system-ui,sans-serif;
+}
+html, body { background: #000; }
+body, body *:not(.monaco-editor):not(.monaco-editor *):not(code):not(code *):not(pre):not(pre *):not(kbd):not(textarea):not(.codicon) { font-family: var(--ida-font) !important; }
+* { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,.18) transparent; }
+
+/* Gesicht */
+.ida-face { width: 34px; height: 27px; border-radius: 34% / 40%; flex: none; display: flex; justify-content: center; align-items: center; gap: 6px; padding-top: 4px; margin: 12px 0 10px;
+  background: radial-gradient(120% 100% at 50% 25%, var(--face-top) 30%, var(--face-bottom) 100%); box-shadow: 0 0 14px rgba(120,217,236,.4); }
+.ida-face i { width: 5px; height: 5px; border-radius: 50%; background: #10121c; animation: ida-blink 5s infinite; }
+.ida-face-lg { width: 112px; height: 88px; gap: 22px; padding-top: 12px; margin: 0; box-shadow: 0 0 44px rgba(120,217,236,.32); }
+.ida-face-lg i { width: 17px; height: 17px; }
+@keyframes ida-blink { 0%,92%,100% { transform: scaleY(1) } 95% { transform: scaleY(.1) } }
+
+/* ---------- Rahmen: schwarze Fläche, schwebende Karten, keine Trennlinien ---------- */
+.activity-bar { background: #000 !important; border-right: 0; }
+.act-btn { width: 44px; height: 44px; margin: 2px 0; border-radius: 22px; color: #9a9ca3; transition: border-radius .3s var(--spring), background .2s, color .2s, transform .2s var(--spring); }
+.act-btn svg { width: 22px; height: 22px; }
+.act-btn:hover { color: var(--text); background: rgba(255,255,255,.06); }
+.act-btn:active { transform: scale(.92); border-radius: 14px; }
+.act-btn.active { background: var(--container) !important; color: var(--on-container) !important; border-radius: 16px; }
+.act-btn.active::before { display: none !important; }
+.statusbar { background: #000 !important; border-top: 0 !important; color: #9a9ca3; }
+.resize-handle { background: transparent !important; }
+.resize-handle::before { background: rgba(255,255,255,.14); border-radius: 3px; }
+@media (min-width: 769px) {
+  .app { grid-template-columns: 60px 1fr; }
+  .main { padding: 6px 8px 2px 0; gap: 0; }
+  .sidebar, .preview-pane { border: 0 !important; border-radius: 24px; overflow: hidden; background: var(--bg-1); }
+}
+
+/* Reiter */
+.tabs-wrap { background: transparent !important; border-bottom: 0 !important; }
+.tabs { padding: 4px 4px 2px; gap: 4px; background: transparent; }
+.tab { height: 34px; border: 0 !important; border-radius: 17px; background: transparent; padding: 0 8px 0 12px; font-size: 13px; transition: background .2s, color .2s, border-radius .3s var(--spring); }
+.tab:hover { background: rgba(255,255,255,.06); }
+.tab.active { background: var(--container) !important; color: var(--on-container) !important; border-radius: 12px; }
+.tab.active::after, .tab.active::before { display: none !important; }
+
+/* Dateien */
+.side-head, .explorer-section { background: transparent !important; border: 0 !important; }
+.file-row, .tree-folder { border-radius: 12px; margin: 1px 8px; }
+.file-row:hover, .tree-folder:hover { background: rgba(255,255,255,.06) !important; }
+.file-row.active { background: var(--container) !important; color: var(--on-container) !important; }
+.file-row.active::before { display: none !important; }
+.file-row .preview-badge { border-radius: 8px; border: 0; background: rgba(120,217,236,.14); }
+
+/* Vorschau-Leiste */
+.preview-bar { background: transparent !important; border-bottom: 0 !important; }
+.urlbar, .device-switch { background: var(--bg-2) !important; border: 0 !important; border-radius: 20px; }
+.preview-btn, .dev-btn { border: 0 !important; border-radius: 16px; transition: border-radius .3s var(--spring), background .2s; }
+.preview-btn { background: var(--bg-2) !important; }
+.preview-btn:hover { background: var(--bg-3) !important; }
+.dev-btn.active { background: var(--accent) !important; color: var(--on-accent) !important; border-radius: 12px; }
+
+/* ---------- Startseite ---------- */
+.start-card { background: var(--bg-2) !important; border: 0 !important; border-radius: 28px; transition: border-radius .35s var(--spring), transform .25s var(--spring), background .2s; }
+.start-card::before { display: none; }
+.start-card:hover { background: var(--bg-3) !important; border-radius: 22px; }
+.start-card:active { transform: scale(.98); border-radius: 18px; }
+
+/* ---------- Dialoge, Menüs, Felder ---------- */
+.modal-bg, .confirm-bg, .loading-bg { background: rgba(0,0,0,.6) !important; -webkit-backdrop-filter: none !important; backdrop-filter: none !important; }
+.modal, .confirm { background: var(--bg-1) !important; border: 0 !important; border-radius: 28px !important; box-shadow: 0 12px 48px rgba(0,0,0,.7); overflow: hidden; }
+.modal-head, .modal-foot, .confirm-head, .confirm-foot { background: transparent !important; border: 0 !important; }
+.modal-head { padding-top: 22px; font-size: 18px; }
+.modal-head .ic { border-radius: 14px; width: 36px; height: 36px; background: var(--container) !important; color: var(--accent) !important; }
+.modal-foot { padding-bottom: 20px; }
+.modal-foot button, .confirm-foot button { height: 48px; padding: 0 22px; border: 0 !important; border-radius: 24px; background: var(--bg-2) !important; color: var(--text) !important; font-size: 14px; font-weight: 500;
+  transition: border-radius .3s var(--spring), transform .2s var(--spring); }
+.modal-foot button.primary, .confirm-foot button.primary { background: var(--accent) !important; color: var(--on-accent) !important; }
+.modal-foot button:active, .confirm-foot button:active { border-radius: 14px; transform: scale(.96); }
+.modal input[type="text"], .sp-input, .settings-select, select { background: var(--bg-2) !important; border: 0 !important; border-radius: 16px !important; color: var(--text); box-shadow: none; }
+.modal input[type="text"] { height: 50px; padding: 0 16px; font-size: 15px; }
+.modal input[type="text"]:focus, .sp-input:focus, select:focus { outline: 0; box-shadow: inset 0 0 0 2px var(--accent) !important; }
+select option { background: var(--bg-2); color: var(--text); }
+.context-menu, .dropdown-content { background: var(--bg-3) !important; border: 0 !important; border-radius: 18px !important; padding: 6px !important; box-shadow: 0 8px 32px rgba(0,0,0,.65) !important; }
+.context-menu button, .context-menu a, .dropdown-content a { border-radius: 12px !important; }
+[data-tip]::after { border-radius: 10px !important; background: var(--bg-3) !important; border: 0 !important; }
+.monaco-editor .suggest-widget, .monaco-editor .monaco-hover, .monaco-menu { border-radius: 14px !important; overflow: hidden; }
+
+/* ---------- Willkommensseite ---------- */
+.tab-spacer, #wb-tabbar, #wb-tabspacer, #wb-statusbar { background: transparent !important; border: 0 !important; }
+.wb-card { background: var(--bg-2) !important; border: 0 !important; border-radius: 28px !important; padding: 22px !important; transition: border-radius .35s var(--spring), transform .25s var(--spring), background .2s !important; }
+.wb-card:hover { background: var(--bg-3) !important; border-radius: 22px !important; }
+.wb-card:active { transform: scale(.98); border-radius: 18px !important; }
+.wb-card > div:first-child { border-radius: 16px !important; background: var(--container) !important; }
+.wb-card-title { font-size: 16px !important; font-weight: 500 !important; }
+.wb-badge { position: absolute !important; top: 14px !important; right: 16px !important; border: 0 !important; border-radius: 8px !important; background: var(--bg-4) !important; }
+.wb-card-title { padding-right: 86px; }
+#wb-greeting { font-weight: 500 !important; letter-spacing: -1px; }
+#wb-lang-box { background: var(--bg-2) !important; border: 0 !important; border-radius: 28px !important; box-shadow: none !important; }
+#wb-lang-select { background: var(--bg-3) !important; border: 0 !important; border-radius: 16px !important; }
+#wb-header { border-bottom: 0 !important; }
+.resize-handle::before { opacity: 0; transition: opacity .2s; }
+.resize-handle:hover::before, .resize-handle.dragging::before { opacity: 1; }
+
+/* ---------- Terminal ---------- */
+.py-terminal { background: var(--bg-1) !important; border: 0 !important; border-radius: 24px 24px 0 0; overflow: hidden; }
+.py-terminal-header { background: transparent !important; border: 0 !important; height: 44px !important; }
+.py-tab { border-radius: 14px !important; border: 0 !important; }
+.py-tab.active { background: var(--container) !important; color: var(--on-container) !important; }
+.py-input-row, .py-pkg-row { background: var(--bg-2) !important; border: 0 !important; }
+.py-run-btn { background: var(--accent) !important; color: var(--on-accent) !important; border: 0 !important; border-radius: 12px !important; }
+.py-pkg-btn { border-radius: 12px !important; border: 0 !important; }
+.py-pkg-input { border-radius: 12px !important; border: 0 !important; background: var(--bg-3) !important; }
+.py-output, .py-output *, .py-repl-input, .py-pkg-input, .py-prompt { font-family: "JetBrains Mono", ui-monospace, monospace !important; }
+
+/* ---------- Editor-Fläche und Handy ---------- */
+.editor-pane { background: #000 !important; }
+@media (max-width: 768px) {
+  .app { grid-template-columns: minmax(0, 1fr) !important; grid-template-rows: minmax(0, 1fr) var(--row-term) 22px calc(52px + env(safe-area-inset-bottom, 0px)) !important; }
+  .main { grid-row: 1 !important; }
+  #py-terminal { grid-column: 1 !important; grid-row: 2 !important; }
+  .statusbar { grid-row: 3 !important; }
+  .activity-bar { grid-row: 4 !important; min-width: 0; }
+  .act-top, .act-bottom { width: auto !important; flex: 0 0 auto !important; }
+  .activity-bar .ida-face { display: none; }
+  .activity-bar { border-top: 0 !important; justify-content: space-evenly !important; }
+  .act-btn { width: 44px !important; height: 44px !important; flex: none; }
+  .statusbar { white-space: nowrap; overflow: hidden; }
+  .statusbar > * { flex-wrap: nowrap; }
+  #st-problems, #st-lang, #st-pos, #st-version { display: none !important; }
+  #wb-editor { padding: 20px 16px !important; }
+  #wb-cards { grid-template-columns: minmax(0, 1fr) !important; }
+  #wb-lang-box { width: 100% !important; max-width: none !important; }
+  .wb-card { padding: 18px !important; }
+}

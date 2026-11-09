@@ -137,6 +137,16 @@ services:
     labels:
       com.centurylinklabs.watchtower.enable: "true"
 
+  # IDA HTML (früher CLEO) – Code-Editor mit Live-Vorschau im Browser (html.… und cleo.…). Rein statisch, Projekte liegen im Browser. Siehe docs/HTML.md
+  html:
+    image: ${HTML_IMAGE:-ghcr.io/l8tenever/ida-html:latest}
+    pull_policy: always
+    restart: unless-stopped
+    ports:
+      - "${HTML_PORT:-8091}:8000"
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"
+
   # Code – eigene App (eigener Port, eigene PWA) für Projekte und Threads. Hat keine eigenen Daten: KI, Projekte, Git und
   # GitHub laufen weiter in IDA, die App reicht die Aufrufe intern an IDA weiter. Siehe docs/CODE.md
   code:
