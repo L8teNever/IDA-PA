@@ -29,9 +29,10 @@ const diff = (s) => Object.fromEntries(Object.entries(s || {}).filter(([k, v]) =
 const when = (t) => new Date(t * 1000).toLocaleString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
 
 // ---------------------------------------------------------------- Startseite
+const browserTitle = () => { document.title = st.doc?.title.trim() || "IDA Docs"; };
 async function home() {
   history.replaceState(null, "", "#/");
-  st.doc = null;
+  st.doc = null; browserTitle();
   let docs = [], offline = false;
   await syncPending().catch(() => {});
   try { docs = await api("/docs"); localStorage.setItem("docs.list", JSON.stringify(docs)); }
@@ -65,7 +66,7 @@ async function open(id) {
   const tabs = [{ id: "main", title: d.tabName || "Text", content: d.content }, ...(d.tabs || []).map((t) => ({ id: t.id, title: t.title, content: t.content }))];
   const tab = Math.min(tabs.length - 1, Math.max(0, parseInt(localStorage.getItem("docs.tab." + id)) || 0));
   st.doc = { id, title: d.title, content: tabs[tab].content, settings: d.settings || {}, sources: d.sources || cache?.sources || [], tabs, tab };
-  st.dirty = !!d._local; st.mpane = "src"; st.rev = 0;
+  st.dirty = !!d._local; st.mpane = "src"; st.rev = 0; browserTitle();
   app.innerHTML = `<div class="ed"><div class="bar"><button class="btn ic" id="back" aria-label="Zurück">${ico("arrow_back")}</button>
       <input class="title" id="title" maxlength="200" placeholder="Titel" value="${esc(st.doc.title)}"><span class="state" id="state"></span>
       <button class="btn ic" id="pvt"></button><button class="btn ic" id="cfg" aria-label="Seiteneinstellungen">${ico("tune")}</button><button class="btn ic" id="more" aria-label="Mehr">${ico("more_vert")}</button></div>
@@ -81,7 +82,7 @@ async function open(id) {
   buildTools(); buildTabs(); splitSetup();
   $("#tabs").onclick = tabClick;
   $("#back").onclick = async () => { await flush(); home(); };
-  $("#title").oninput = (e) => { st.doc.title = e.target.value; changed(); };
+  $("#title").oninput = (e) => { st.doc.title = e.target.value; browserTitle(); changed(); };
   $("#src").oninput = (e) => { st.doc.content = e.target.value; changed(); };
   $("#src").addEventListener("scroll", () => { const y = `translateY(${-$("#src").scrollTop}px)`; $("#marks").firstChild.style.transform = y; $("#hl").firstChild.style.transform = y; });
   new ResizeObserver(() => drawMarks()).observe($("#src"));
