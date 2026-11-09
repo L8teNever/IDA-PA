@@ -1,5 +1,4 @@
 """Docs-Dienst: Dokumente schreiben (Markdown, DIN A4) mit Dateispeicher, API, Oberfläche und PWA (docs/DOCS.md)."""
-import asyncio
 import hashlib
 import json
 import logging
@@ -10,7 +9,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import api, drive
+from . import api
 from .config import get_settings
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -52,10 +51,8 @@ def shell_files(own: Path, css: Path, fonts: Path, version: str) -> list[str]:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    task = asyncio.create_task(drive.worker())
-    log.info("Docs bereit (Drive-Backup %s)", "an" if get_settings().drive_on else "aus")
+    log.info("Docs bereit")
     yield
-    task.cancel()
 
 
 def create_app() -> FastAPI:

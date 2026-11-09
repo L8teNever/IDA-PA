@@ -8,12 +8,6 @@ Eigene App (Dienst `docs`, Ordner `dokumente/` + `frontend/docs/`) für Aufsätz
 - **Ansichten:** „Seiten“ = echte A4-Blätter mit Seitenumbruch (Spalten-Layout: jede Spalte ist eine Seite), „Web“ = fortlaufend wie eine Webseite. Hell/Dunkel gilt für das Papier. PDF: „Als PDF speichern“ öffnet den Druckdialog (Ziel „Als PDF speichern“, Ränder „Keine“).
 - **Markdown:** Überschriften, Listen (verschachtelt), fett/kursiv/durchgestrichen, Code, Zitate, Tabellen (mit `:--:`), Links, Bilder per Adresse, Fußnoten `[^1]`. Erweiterungen: `[TOC]` (Inhaltsverzeichnis mit Seitenzahlen), `\newpage`, `# Titel {-}` (ohne Nummer), `::: center|right|left|justify|title` … `:::`. Bausteine in der Werkzeugleiste: Titelblatt, Quellenverzeichnis, Selbstständigkeitserklärung.
 
-## Backup nach Google Drive (optional)
-
-**Über den Google-MCP (empfohlen):** `DOCS_GOOGLE_CLIENT_ID`/`_SECRET` wie beim Google-MCP und `DOCS_GOOGLE_TOKEN_FILE=/google/google_token.json`; das Volume des MCP ist dafür read-only eingehängt. Der MCP braucht den Scope `drive.file` (Modul `drive` in Ida-Google) – nach dem Hinzufügen einmal neu anmelden. Die Drive API muss im Google-Cloud-Projekt aktiviert sein.
-
-Alternativ mit eigenem Zugang: `DOCS_GOOGLE_CLIENT_ID`, `DOCS_GOOGLE_CLIENT_SECRET` und `DOCS_GOOGLE_REFRESH_TOKEN` (OAuth, Scope `https://www.googleapis.com/auth/drive.file`) lädt der Dienst nach jedem Speichern (20 s entprellt) beide Dateien je Dokument in den Drive-Ordner `DOCS_DRIVE_FOLDER_ID` (leer: Ordner „IDA Docs“ wird angelegt). Fehler stören das Speichern nicht; der Stand steht in `GET /api/v1/backup` und als Chip auf der Startseite. Ohne die Werte ist das Backup aus.
-
 ## Einrichten
 
 `DOCS_PORT` in der `.env` setzen (z. B. `10.7.0.1:8451`), `docker compose up -d docs`, im Tunnel eine Adresse (z. B. `docs.kulbarts.com`) auf diesen Port leiten und mit Cloudflare Access schützen (ohne Access gilt jeder als du).

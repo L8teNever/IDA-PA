@@ -148,22 +148,15 @@ services:
       com.centurylinklabs.watchtower.enable: "true"
 
   # IDA Docs – Dokumente schreiben (Markdown, DIN A4, Inhaltsverzeichnis, PDF). Dateien liegen als .idadocs + .md im Volume docs-data;
-  # optional Backup nach Google Drive (GOOGLE_*-Werte). Davor gehört Cloudflare Access. Siehe docs/DOCS.md
+  # Davor gehört Cloudflare Access. Siehe docs/DOCS.md
   docs:
     image: ${DOCS_IMAGE:-ghcr.io/l8tenever/ida-docs:latest}
     pull_policy: always
     restart: unless-stopped
-    environment:
-      GOOGLE_CLIENT_ID: ${DOCS_GOOGLE_CLIENT_ID:-}
-      GOOGLE_CLIENT_SECRET: ${DOCS_GOOGLE_CLIENT_SECRET:-}
-      GOOGLE_REFRESH_TOKEN: ${DOCS_GOOGLE_REFRESH_TOKEN:-}
-      GOOGLE_TOKEN_FILE: ${DOCS_GOOGLE_TOKEN_FILE:-}   # z. B. /google/google_token.json (Volume unten) = Anmeldung des Google-MCP mitbenutzen
-      DRIVE_FOLDER_ID: ${DOCS_DRIVE_FOLDER_ID:-}
     ports:
       - "${DOCS_PORT:-8092}:8000"
     volumes:
       - docs-data:/data
-      - google-mcp-data:/google:ro    # Token-Datei des Google-MCP (nur lesen)
     labels:
       com.centurylinklabs.watchtower.enable: "true"
 
@@ -370,6 +363,3 @@ volumes:
   links-data:
   tasks-data:
   docs-data:
-  google-mcp-data:
-    external: true
-    name: ida-google-mcp_ida-google-data

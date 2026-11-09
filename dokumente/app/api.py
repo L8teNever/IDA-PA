@@ -3,7 +3,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import PlainTextResponse, Response
 from pydantic import BaseModel, Field
 
-from . import drive, store
+from . import store
 
 router = APIRouter(prefix="/api/v1")
 MAX_MD = 2_000_000
@@ -46,7 +46,6 @@ async def list_docs():
 async def create(body: DocIn):
     i = store.new_id()
     d = store.save(i, body.title, body.content, body.settings)
-    drive.mark(i)
     return d
 
 
@@ -59,7 +58,6 @@ async def get_doc(i: str):
 async def put_doc(i: str, body: DocIn):
     _need(i)
     d = store.save(i, body.title, body.content, body.settings)
-    drive.mark(i)
     return {"id": i, "updated": d["updated"]}
 
 
@@ -87,10 +85,4 @@ async def import_doc(body: ImportIn):
         raise HTTPException(400, str(e)) from e
     i = store.new_id()
     d = store.save(i, title, md, settings)
-    drive.mark(i)
     return d
-
-
-@router.get("/backup")
-async def backup():
-    return drive.status()

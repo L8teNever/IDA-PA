@@ -29,12 +29,12 @@ const when = (t) => new Date(t * 1000).toLocaleString("de-DE", { day: "2-digit",
 async function home() {
   history.replaceState(null, "", "#/");
   st.doc = null;
-  let docs = [], backup = null, offline = false;
-  try { [docs, backup] = await Promise.all([api("/docs"), api("/backup").catch(() => null)]); localStorage.setItem("docs.list", JSON.stringify(docs)); }
+  let docs = [], offline = false;
+  try { docs = await api("/docs"); localStorage.setItem("docs.list", JSON.stringify(docs)); }
   catch { offline = true; docs = JSON.parse(localStorage.getItem("docs.list") || "[]"); }
   app.innerHTML = `<div class="home"><div class="home-in"><h1>Docs</h1><p class="sub">Aufsätze und Projektarbeiten in Markdown, auf DIN A4.</p>
     <div class="row"><button class="btn sm" id="imp">${ico("upload_file")}Importieren</button>
-      ${offline ? `<span class="chip bad">${ico("cloud_off")}Offline – nur gemerkte Liste</span>` : backup?.enabled ? `<span class="chip ${backup.last_error ? "bad" : "ok"}">${ico("cloud_done")}Drive-Backup ${backup.last_error ? "Fehler" : "an"}</span>` : `<span class="chip">${ico("cloud_off")}Drive-Backup aus</span>`}</div>
+      ${offline ? `<span class="chip bad">${ico("cloud_off")}Offline – nur gemerkte Liste</span>` : ""}</div>
     <div id="list">${docs.length ? docs.map((d) => `<div class="dcard" role="button" tabindex="0" data-id="${d.id}"><b>${esc(d.title)}</b><p>${esc(d.preview || "Leer")}</p><small>${when(d.updated)} · ${d.words} Wörter</small>
       <button class="del" data-del="${d.id}" aria-label="Löschen">${ico("delete")}</button></div>`).join("") : `<div class="empty">${ico("description")}<b>Noch kein Dokument</b><br>Leg mit „Neu“ los.</div>`}</div></div>
     <button class="btn pri fab" id="new">${ico("add")}Neu</button><input type="file" id="file" accept=".idadocs,.md,.markdown,.txt" hidden></div>`;

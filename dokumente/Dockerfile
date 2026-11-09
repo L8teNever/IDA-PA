@@ -1,4 +1,4 @@
-# IDA Docs – Dokumente schreiben (Markdown, DIN A4). Eigener Dienst; die Dateien liegen im Volume /data (.idadocs + .md), optional Backup nach Google Drive.
+# IDA Docs – Dokumente schreiben (Markdown, DIN A4). Eigener Dienst; die Dateien liegen im Volume /data (.idadocs + .md).
 # Build-Kontext ist das Repo-Root (die Oberfläche liegt in frontend/):  docker build -f dokumente/Dockerfile .
 FROM python:3.12-slim
 
