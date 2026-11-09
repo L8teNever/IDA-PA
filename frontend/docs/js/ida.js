@@ -16,7 +16,7 @@ Der Vorschlag ersetzt den Abschnitt BEREICH vollständig, gib also den ganzen ne
 Halte die Markdown-Syntax des Dokuments ein und lass Vorhandenes stehen, das nicht geändert werden soll: \\newpage (Seitenumbruch), [TOC], [QUELLEN], ::: title|center|right|left|entwurf … :::, ##Kommentar, [[Notiz: …]], [@schluessel, Seite], [^1]. Erfinde keine Quellen.`;
 
 export function createIda({ st, $, el, esc, ico, toast, api, switchTab }) {
-  const ai = { docId: null, chatId: null, msgs: [], sel: null, scope: "doc", running: false, ctrl: null, models: null, model: localStorage.getItem("docs.ai.model") || "", lastFull: "", status: "", applied: new Set(), loaded: false };
+  const ai = { docId: null, chatId: null, msgs: [], sel: null, scope: "doc", running: false, ctrl: null, models: null, model: localStorage.getItem("docs.ai.model") || "", lastFull: "", lastOthers: "", status: "", applied: new Set(), loaded: false };
   let timer = 0;
   const ta = () => $("#src"), open = () => $(".split")?.classList.contains("aion"), mobile = () => matchMedia("(max-width: 900px)").matches;
 
@@ -32,13 +32,20 @@ export function createIda({ st, $, el, esc, ico, toast, api, switchTab }) {
     const v = ta().value;
     if (ai.sel) return { kind: "sel", from: ai.sel.from, text: ai.sel.text, label: "Markierte Stelle" };
     if (ai.scope === "page") { const r = pageRange(); return { kind: "page", from: r.from, text: v.slice(r.from, r.to), label: `Seite ${r.page}` }; }
-    return { kind: "doc", from: 0, text: v, label: "Ganzer Tab" };
+    return { kind: "doc", from: 0, text: v, label: ai.scope === "all" ? "Ganzes Dokument" : "Ganzer Tab" };
   }
   function context() {
     const d = st.doc, tab = d.tabs[d.tab], v = ta().value, t = target(), full = `${tab.id}:${v}`, same = ai.lastFull === full;
     const area = t.kind === "doc" && same ? "BEREICH: unverändert seit deiner letzten Nachricht zu diesem Tab" : `<<<BEREICH\n${t.text}\n>>>BEREICH`;
     const rest = t.kind !== "doc" && !same ? `\n\nGesamter Text des Tabs, nur zum Verstehen:\n<<<GESAMT\n${v}\n>>>GESAMT` : "";
-    return { full, text: `${RULES}\n\nDokument: ${d.title}\nTab: ${tab.title}\nTab-ID: ${tab.id}\nArt: ${t.kind}\nPosition: ${t.from}\nBereich: ${t.label}\n${area}${rest}` };
+    let others = "", othersKey = "";
+    if (ai.scope === "all" && d.tabs.length > 1) {
+      const list = d.tabs.map((x, n) => [x, n]).filter(([, n]) => n !== d.tab).map(([x]) => x);
+      othersKey = list.map((x) => `${x.id}:${x.content}`).join("\u0001");
+      others = ai.lastOthers === othersKey ? "\n\nWeitere Tabs des Dokuments: unverändert seit deiner letzten Nachricht. Sie sind nur zum Verstehen, geändert wird nur der Bereich oben."
+        : `\n\nWeitere Tabs des Dokuments, nur zum Verstehen (geändert wird nur der Bereich oben):\n${list.map((x) => `<<<TAB ${x.title}\n${x.content}\n>>>TAB`).join("\n")}`;
+    }
+    return { full, othersKey, text: `${RULES}\n\nDokument: ${d.title}\nTab: ${tab.title}\nTab-ID: ${tab.id}\nArt: ${t.kind}\nPosition: ${t.from}\nBereich: ${t.label}\n${area}${rest}${others}` };
   }
   // Wozu gehört ein Vorschlag? Steht in der Nachricht davor (bei "unverändert" in einer früheren).
   function originOf(i) {
@@ -89,7 +96,7 @@ export function createIda({ st, $, el, esc, ico, toast, api, switchTab }) {
   function drawMsgs() {
     const box = $("#aimsgs"); if (!box) return;
     const stick = box.scrollHeight - box.scrollTop - box.clientHeight < 80;
-    box.innerHTML = (ai.msgs.length ? ai.msgs.map(msgHtml).join("") : `<div class="aiempty">${ico("auto_awesome")}<b>Frag Ida zu deinem Text</b>Markier eine Stelle oder wähl unten die Seite oder den Tab. Sie kann erklären, umschreiben oder ganze Teile neu aufbauen. Änderungen landen erst im Text, wenn du sie übernimmst.</div>`) + (ai.running ? `<div class="aistat"><i></i>${esc(ai.status || "Ida schreibt …")}</div>` : "");
+    box.innerHTML = (ai.msgs.length ? ai.msgs.map(msgHtml).join("") : `<div class="aiempty">${ico("auto_awesome")}<b>Frag Ida zu deinem Text</b>Markier eine Stelle oder wähl unten die Seite, den Tab oder das ganze Dokument. Sie kann erklären, umschreiben oder ganze Teile neu aufbauen. Änderungen landen erst im Text, wenn du sie übernimmst.</div>`) + (ai.running ? `<div class="aistat"><i></i>${esc(ai.status || "Ida schreibt …")}</div>` : "");
     if (stick) box.scrollTop = box.scrollHeight;
   }
   const later = () => { if (!timer) timer = setTimeout(() => { timer = 0; drawMsgs(); }, 90); };
@@ -97,7 +104,7 @@ export function createIda({ st, $, el, esc, ico, toast, api, switchTab }) {
     const box = $("#aiscope"); if (!box) return;
     const preview = ai.sel && ai.sel.text.replace(/\s+/g, " ").trim();
     box.innerHTML = ai.sel ? `<span class="aichip on">${ico("ink_highlighter")}<span>„${esc(preview.length > 42 ? preview.slice(0, 42) + " …" : preview)}“</span><button data-x aria-label="Auswahl entfernen">${ico("close")}</button></span>`
-      : [["page", "Aktuelle Seite"], ["doc", "Ganzer Tab"]].map(([k, t]) => `<button class="aichip ${ai.scope === k ? "on" : ""}" data-s="${k}">${t}</button>`).join("");
+      : [["page", "Aktuelle Seite"], ["doc", "Ganzer Tab"], ["all", "Ganzes Dokument"]].map(([k, t]) => `<button class="aichip ${ai.scope === k ? "on" : ""}" data-s="${k}">${t}</button>`).join("");
     const pill = $("#aipill"); if (pill) pill.hidden = !ai.sel || (open() && !mobile()) || st.mpane === "ai";
   }
   const modelName = (id) => id ? ai.models?.model_names?.[id] || id : "Standard";
@@ -140,7 +147,7 @@ export function createIda({ st, $, el, esc, ico, toast, api, switchTab }) {
     ai.msgs.push({ role: "user", text });
     const m = { role: "assistant", text: "" }; ai.msgs.push(m);
     input.value = ""; input.style.height = ""; $("#aimsgs").scrollTop = 1e9;
-    run(m, (signal) => fetch("/api/v1/ida/chat", { method: "POST", signal, headers: { "content-type": "application/json" }, body: JSON.stringify({ chat_id: ai.chatId, agent_id: ai.chatId ? null : "ida", text, model: ai.model || null }) }), () => { ai.lastFull = ctx.full; });
+    run(m, (signal) => fetch("/api/v1/ida/chat", { method: "POST", signal, headers: { "content-type": "application/json" }, body: JSON.stringify({ chat_id: ai.chatId, agent_id: ai.chatId ? null : "ida", text, model: ai.model || null }) }), () => { ai.lastFull = ctx.full; ai.lastOthers = ctx.othersKey; });
   }
   async function load() {
     ai.loaded = true;
@@ -191,7 +198,7 @@ export function createIda({ st, $, el, esc, ico, toast, api, switchTab }) {
     pill: `<button class="aipill" id="aipill" hidden>${ico("auto_awesome")}Ida fragen</button>`,
     setup(id) {
       ai.ctrl?.abort();
-      Object.assign(ai, { docId: id, chatId: localStorage.getItem("docs.ai." + id), msgs: [], sel: null, scope: "doc", running: false, ctrl: null, lastFull: "", status: "", applied: new Set(), loaded: false });
+      Object.assign(ai, { docId: id, chatId: localStorage.getItem("docs.ai." + id), msgs: [], sel: null, scope: "doc", running: false, ctrl: null, lastFull: "", lastOthers: "", status: "", applied: new Set(), loaded: false });
       const t = ta(), input = $("#aitxt");
       for (const ev of ["select", "keyup", "mouseup", "input"]) t.addEventListener(ev, track);
       $("#aib").onclick = () => (mobile() ? $('.mtabs [data-m="ai"]').click() : toggle());
@@ -199,7 +206,7 @@ export function createIda({ st, $, el, esc, ico, toast, api, switchTab }) {
       $("#aipill").onmousedown = (e) => e.preventDefault();
       $("#aipill").onclick = () => { if (mobile()) $('.mtabs [data-m="ai"]').click(); else toggle(true); $("#aitxt").focus(); };
       $("#aim").onclick = async (e) => { const b = e.currentTarget; await models(); modelMenu(b); };
-      $("#ainew").onclick = () => { if (ai.running) return toast("Ida schreibt noch"); ai.chatId = null; ai.msgs = []; ai.lastFull = ""; ai.applied = new Set(); localStorage.removeItem("docs.ai." + id); drawMsgs(); input.focus(); };
+      $("#ainew").onclick = () => { if (ai.running) return toast("Ida schreibt noch"); ai.chatId = null; ai.msgs = []; ai.lastFull = ""; ai.lastOthers = ""; ai.applied = new Set(); localStorage.removeItem("docs.ai." + id); drawMsgs(); input.focus(); };
       $("#aisend").onclick = () => { if (ai.running) { if (ai.chatId) fetch(`/api/v1/ida/chats/${ai.chatId}/stop`, { method: "POST" }); } else send(); };
       input.onkeydown = (e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); } };
       input.oninput = () => { input.style.height = "auto"; input.style.height = Math.min(160, input.scrollHeight) + "px"; };

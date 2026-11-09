@@ -3,6 +3,7 @@ import { render, bibEntry, citeShort, sortSources, stripComment, maskNotes } fro
 import { highlightLines } from "./highlight.js";
 import { createIda } from "./ida.js";
 import { suggest } from "./complete.js";
+import { initTooltips } from "./tooltip.js";
 
 // Muss zu DEFAULTS in dokumente/app/store.py passen: nur Abweichungen davon werden in .idadocs gespeichert.
 const DEFAULTS = { marginTop: 25, marginBottom: 20, marginLeft: 30, marginRight: 20, font: "Arial", size: 11, lineHeight: 1.5, paraSpacing: 6,
@@ -17,6 +18,7 @@ const ico = (n) => `<span class="ms">${n}</span>`;
 const prefs = { mode: localStorage.getItem("docs.mode") || "pages", dark: localStorage.getItem("docs.dark") === "1", split: parseFloat(localStorage.getItem("docs.split")) || 0.5, hidePv: localStorage.getItem("docs.hidePv") === "1", edFs: parseInt(localStorage.getItem("docs.edfs")) || 14 };
 const st = { pageStarts: {}, res: { used: [], missing: [] }, doc: null, mpane: "src", timer: 0, rtimer: 0, saving: false, dirty: false, rev: 0 };
 const app = $("#app");
+initTooltips();
 const ida = createIda({ st, $, el, esc, ico, toast, api, switchTab: (n) => switchTab(n) });
 
 async function api(path, opt = {}) {
@@ -70,14 +72,14 @@ async function open(id) {
   const tab = Math.min(tabs.length - 1, Math.max(0, parseInt(localStorage.getItem("docs.tab." + id)) || 0));
   st.doc = { id, title: d.title, content: tabs[tab].content, settings: d.settings || {}, sources: d.sources || cache?.sources || [], tabs, tab };
   st.dirty = !!d._local; st.mpane = "src"; st.rev = 0; browserTitle();
-  app.innerHTML = `<div class="ed"><div class="bar"><button class="btn ic" id="back" aria-label="Zurück">${ico("arrow_back")}</button>
+  app.innerHTML = `<div class="ed"><div class="bar"><button class="btn ic" id="back" aria-label="Zurück" title="Zurück zur Dokumentliste">${ico("arrow_back")}</button>
       <input class="title" id="title" maxlength="200" placeholder="Titel" value="${esc(st.doc.title)}"><span class="state" id="state"></span>
-      <button class="btn ic" id="aib" aria-label="Mit Ida chatten" title="Mit Ida chatten">${ico("auto_awesome")}</button><button class="btn ic" id="pvt"></button><button class="btn ic" id="cfg" aria-label="Seiteneinstellungen">${ico("tune")}</button><button class="btn ic" id="more" aria-label="Mehr">${ico("more_vert")}</button></div>
+      <button class="btn ic" id="qib" aria-label="Quellen" title="Quellen (Archiv)">${ico("library_books")}</button><button class="btn ic" id="aib" aria-label="Mit Ida chatten" title="Mit Ida chatten">${ico("auto_awesome")}</button><button class="btn ic" id="pvt"></button><button class="btn ic" id="cfg" aria-label="Seiteneinstellungen" title="Seite & Schrift: Ränder, Schriftart, Abstände">${ico("tune")}</button><button class="btn ic" id="more" aria-label="Mehr" title="Exportieren (PDF, .md, .idadocs) oder Dokument löschen">${ico("more_vert")}</button></div>
     <div class="mtabs"><button data-m="src" class="on">Schreiben</button><button data-m="pv">Vorschau</button><button data-m="ai">Ida</button></div>
     <div class="tabsbar" id="tabs" role="tablist"></div>
     <div class="split" data-m="src"><div class="card sr"><div class="tools" id="tools"></div><div class="srcwrap"><div class="hl" id="hl" aria-hidden="true"><div></div></div><textarea class="src" id="src" spellcheck="true" placeholder="Schreib hier in Markdown …"></textarea><div class="mirror" id="mirror" aria-hidden="true"></div><div class="marks" id="marks" aria-hidden="true"><div></div></div>${ida.pill}</div></div>
       <div class="gutter" id="gut" role="separator" aria-orientation="vertical" aria-label="Breite ändern" title="Ziehen = Breite ändern, Doppelklick = halb und halb"></div>
-      <div class="card pv"><div class="prevbar"><button class="btn sm on" id="vmode"></button><button class="btn sm" id="vdark"></button><button class="btn sm" id="vopen" title="Vorschau in neuem Browser-Tab öffnen">${ico("open_in_new")}Neuer Tab</button><span class="grow"></span><span class="meta" id="meta"></span></div><div class="prev" id="prev"></div></div>${ida.html}</div></div>`;
+      <div class="card pv"><div class="prevbar"><button class="btn sm on" id="vmode" title="Zwischen Seitenansicht (DIN A4) und Webansicht wechseln"></button><button class="btn sm" id="vdark" title="Vorschau hell oder dunkel anzeigen"></button><button class="btn sm" id="vopen" title="Vorschau in neuem Browser-Tab öffnen">${ico("open_in_new")}Neuer Tab</button><span class="grow"></span><span class="meta" id="meta"></span></div><div class="prev" id="prev"></div></div>${ida.html}</div></div>`;
   $("#src").value = st.doc.content;
   $(".srcwrap").style.setProperty("--ed-fs", prefs.edFs + "px");
   $(".srcwrap").addEventListener("wheel", (e) => { if (e.ctrlKey || e.metaKey) { e.preventDefault(); edZoom(e.deltaY < 0 ? 1 : -1); } }, { passive: false });
@@ -93,6 +95,7 @@ async function open(id) {
   selMenuSetup();
   histSetup();
   $("#cfg").onclick = settingsPanel;
+  $("#qib").onclick = sourcesPanel;
   $("#more").onclick = (e) => moreMenu(e.currentTarget);
   $(".mtabs").onclick = (e) => { const b = e.target.closest("[data-m]"); if (!b) return; st.mpane = b.dataset.m; $(".split").dataset.m = b.dataset.m; document.querySelectorAll(".mtabs button").forEach((x) => x.classList.toggle("on", x === b)); if (b.dataset.m === "pv") fit(); else if (b.dataset.m === "ai") ida.shown(); else drawMarks(); };
   $("#vopen").onclick = () => window.open(`#/v/${id}/${st.doc.tabs[st.doc.tab].id}`, "_blank");
@@ -118,7 +121,7 @@ async function viewer(id, tabId) {
     browserTitle();
   };
   apply(d);
-  app.innerHTML = `<div class="ed viewer"><div class="card pv"><div class="prevbar"><button class="btn sm on" id="vmode"></button><button class="btn sm" id="vdark"></button><span class="grow"></span><span class="meta" id="meta"></span></div><div class="prev" id="prev"></div></div></div>`;
+  app.innerHTML = `<div class="ed viewer"><div class="card pv"><div class="prevbar"><button class="btn sm on" id="vmode" title="Zwischen Seitenansicht (DIN A4) und Webansicht wechseln"></button><button class="btn sm" id="vdark" title="Vorschau hell oder dunkel anzeigen"></button><span class="grow"></span><span class="meta" id="meta"></span></div><div class="prev" id="prev"></div></div></div>`;
   previewBar();
   if (live) live.onmessage = (e) => { if (e.data.docId === id) { apply(e.data); layout(); } };
 }
