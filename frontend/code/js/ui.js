@@ -48,10 +48,38 @@ export function fmtBytes(n) {
   return `${(n / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+// Markdown-Tabellen: Kopfzeile + |---|---|-Trennzeile + Zeilen; Zellen bekommen Inline-Formatierung
+const mdCell = (t) => t.trim().replace(/`([^`\n]+)`/g, "<code>$1</code>").replace(/\*\*([^*\n]+)\*\*/g, "<b>$1</b>")
+  .replace(/(^|[\s(])\*([^*\n]+)\*/g, "$1<i>$2</i>").replace(/\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+const mdRow = (l) => l.trim().replace(/^\|/, "").replace(/\|$/, "").split("|");
+function mdTables(s, tables) {
+  const lines = s.split("\n"), out = [];
+  for (let i = 0; i < lines.length; i++) {
+    const sep = lines[i + 1];
+    if (lines[i].includes("|") && sep && /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/.test(sep) && sep.includes("-") && (sep.includes("|") || mdRow(lines[i]).length === 1)) {
+      const head = mdRow(lines[i]);
+      const al = mdRow(sep).map((c) => { c = c.trim(); return c.startsWith(":") && c.endsWith(":") ? "center" : c.endsWith(":") ? "right" : ""; });
+      const st = (k) => (al[k] ? ` style="text-align:${al[k]}"` : "");
+      let h = "<table class=\"md-table\"><thead><tr>" + head.map((c, k) => `<th${st(k)}>${mdCell(c)}</th>`).join("") + "</tr></thead><tbody>";
+      i += 2;
+      while (i < lines.length && lines[i].includes("|") && lines[i].trim()) {
+        const cells = mdRow(lines[i]);
+        h += "<tr>" + head.map((_, k) => `<td${st(k)}>${mdCell(cells[k] || "")}</td>`).join("") + "</tr>";
+        i++;
+      }
+      i--;
+      tables.push(h + "</tbody></table>");
+      out.push(`\u0001${tables.length - 1}\u0001`);
+    } else out.push(lines[i]);
+  }
+  return out.join("\n");
+}
+
 // Sicheres, schlankes Markdown für Antworten: Codeblöcke (mit Kopieren), Inline-Code, fett/kursiv, Überschriften, Listen, Links.
 export function md(src) {
-  const blocks = [];
+  const blocks = [], tables = [];
   let s = esc(src).replace(/```([\w+-]*)[^\n]*\n?([\s\S]*?)```/g, (_, lang, code) => { blocks.push([lang, code.replace(/\n$/, "")]); return `\u0000${blocks.length - 1}\u0000`; });
+  s = mdTables(s, tables);
   s = s.replace(/`([^`\n]+)`/g, "<code>$1</code>")
     .replace(/\*\*([^*\n]+)\*\*/g, "<b>$1</b>")
     .replace(/(^|[\s(])\*([^*\n]+)\*/g, "$1<i>$2</i>")
@@ -61,7 +89,9 @@ export function md(src) {
     .replace(/^\s*(\d+)\. (.+)$/gm, '<span class="md-li num" data-n="$1">$2</span>')
     // Blöcke (Listenpunkte, Überschriften, Code) brechen selbst um – der Zeilenumbruch danach wäre eine Leerzeile zu viel
     .replace(/(<\/span>|<b class="md-h">[^<]*<\/b>|\u0000\d+\u0000)\n/g, "$1")
-    .replace(/\n(\u0000\d+\u0000)/g, "$1");
+    .replace(/\n(\u0000\d+\u0000)/g, "$1")
+    .replace(/\n?(\u0001\d+\u0001)\n?/g, "$1");
+  s = s.replace(/\u0001(\d+)\u0001/g, (_, i) => tables[+i]);
   return s.replace(/\u0000(\d+)\u0000/g, (_, i) => {
     const [lang, code] = blocks[+i];
     return `<div class="md-code"><div class="md-code-head"><span>${lang || "code"}</span><button type="button" class="md-copy" title="Kopieren"><span class="ms">content_copy</span></button></div><pre>${code}</pre></div>`;

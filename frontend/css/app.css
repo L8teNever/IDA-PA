@@ -1206,3 +1206,8 @@ body.view-timeline #btnBack { display: none; }
   body:not(.live-view) .mini::before, body:not(.live-view) .mini::after,
   .eyes-mini i, .side-mini i, .wiz-prev .face-p i, .bubble { animation: none !important; }
 }
+
+/* Markdown-Tabellen im Chat */
+.md-table { display: block; max-width: 100%; overflow-x: auto; border-collapse: collapse; margin: 8px 0; font-size: 14px; white-space: normal; }
+.md-table th, .md-table td { padding: 6px 12px; border: 1px solid rgba(255,255,255,.12); text-align: left; vertical-align: top; }
+.md-table th { background: rgba(255,255,255,.06); font-weight: 600; }

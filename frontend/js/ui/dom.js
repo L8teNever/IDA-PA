@@ -78,10 +78,38 @@ export function enableSwipe(el, { onSwipe, onTap }) {
   el.addEventListener("pointercancel", () => { x0 = null; el.style.transform = ""; el.style.opacity = ""; });
 }
 
+// Markdown-Tabellen: Kopfzeile + |---|---|-Trennzeile + Zeilen; Zellen bekommen Inline-Formatierung
+const mdCell = (t) => t.trim().replace(/`([^`\n]+)`/g, "<code>$1</code>").replace(/\*\*([^*\n]+)\*\*/g, "<b>$1</b>")
+  .replace(/(^|[\s(])\*([^*\n]+)\*/g, "$1<i>$2</i>").replace(/\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+const mdRow = (l) => l.trim().replace(/^\|/, "").replace(/\|$/, "").split("|");
+function mdTables(s, tables) {
+  const lines = s.split("\n"), out = [];
+  for (let i = 0; i < lines.length; i++) {
+    const sep = lines[i + 1];
+    if (lines[i].includes("|") && sep && /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/.test(sep) && sep.includes("-") && (sep.includes("|") || mdRow(lines[i]).length === 1)) {
+      const head = mdRow(lines[i]);
+      const al = mdRow(sep).map((c) => { c = c.trim(); return c.startsWith(":") && c.endsWith(":") ? "center" : c.endsWith(":") ? "right" : ""; });
+      const st = (k) => (al[k] ? ` style="text-align:${al[k]}"` : "");
+      let h = "<table class=\"md-table\"><thead><tr>" + head.map((c, k) => `<th${st(k)}>${mdCell(c)}</th>`).join("") + "</tr></thead><tbody>";
+      i += 2;
+      while (i < lines.length && lines[i].includes("|") && lines[i].trim()) {
+        const cells = mdRow(lines[i]);
+        h += "<tr>" + head.map((_, k) => `<td${st(k)}>${mdCell(cells[k] || "")}</td>`).join("") + "</tr>";
+        i++;
+      }
+      i--;
+      tables.push(h + "</tbody></table>");
+      out.push(`\u0001${tables.length - 1}\u0001`);
+    } else out.push(lines[i]);
+  }
+  return out.join("\n");
+}
+
 // Minimal, safe markdown for answers: code blocks, inline code, bold/italic, headings, lists, links.
 export function md(src) {
-  const blocks = [];
+  const blocks = [], tables = [];
   let s = esc(src).replace(/```(\w*)\n?([\s\S]*?)```/g, (_, _l, code) => { blocks.push(code); return `\u0000${blocks.length - 1}\u0000`; });
+  s = mdTables(s, tables);
   s = s.replace(/`([^`\n]+)`/g, "<code>$1</code>")
     .replace(/\*\*([^*\n]+)\*\*/g, "<b>$1</b>")
     .replace(/(^|[\s(])\*([^*\n]+)\*/g, "$1<i>$2</i>")
@@ -89,7 +117,7 @@ export function md(src) {
     .replace(/^#{1,3} (.+)$/gm, "<b class=\"md-h\">$1</b>")
     .replace(/^\s*[-*] (.+)$/gm, "<span class=\"md-li\">$1</span>")
     .replace(/^\s*(\d+)\. (.+)$/gm, "<span class=\"md-li num\" data-n=\"$1\">$2</span>");
-  return s.replace(/\u0000(\d+)\u0000/g, (_, i) => `<pre class="md-pre">${blocks[+i]}</pre>`);
+  return s.replace(/\u0001(\d+)\u0001/g, (_, i) => tables[+i]).replace(/\u0000(\d+)\u0000/g, (_, i) => `<pre class="md-pre">${blocks[+i]}</pre>`);
 }
 
 // Textarea grows with its text (up to max-height in CSS), so long prompts are readable without an inner scrollbar.
