@@ -1,5 +1,6 @@
 // IDA Docs – Oberfläche: Dokumentliste, Markdown-Editor, Seitenvorschau in DIN A4, Einstellungen, Export.
 import { render, bibEntry, citeShort, sortSources, stripComment } from "./markdown.js";
+import { highlightLines } from "./highlight.js";
 
 // Muss zu DEFAULTS in dokumente/app/store.py passen: nur Abweichungen davon werden in .idadocs gespeichert.
 const DEFAULTS = { marginTop: 25, marginBottom: 20, marginLeft: 30, marginRight: 20, font: "Arial", size: 11, lineHeight: 1.5, paraSpacing: 6,
@@ -65,14 +66,15 @@ async function open(id) {
       <input class="title" id="title" maxlength="200" placeholder="Titel" value="${esc(st.doc.title)}"><span class="state" id="state"></span>
       <button class="btn ic" id="cfg" aria-label="Seiteneinstellungen">${ico("tune")}</button><button class="btn ic" id="more" aria-label="Mehr">${ico("more_vert")}</button></div>
     <div class="mtabs"><button data-m="src" class="on">Schreiben</button><button data-m="pv">Vorschau</button></div>
-    <div class="split" data-m="src"><div class="card sr"><div class="tools" id="tools"></div><div class="srcwrap"><textarea class="src" id="src" spellcheck="true" placeholder="Schreib hier in Markdown …"></textarea><div class="mirror" id="mirror" aria-hidden="true"></div><div class="marks" id="marks" aria-hidden="true"><div></div></div></div></div>
+    <div class="split" data-m="src"><div class="card sr"><div class="tools" id="tools"></div><div class="srcwrap"><div class="hl" id="hl" aria-hidden="true"><div></div></div><textarea class="src" id="src" spellcheck="true" placeholder="Schreib hier in Markdown …"></textarea><div class="mirror" id="mirror" aria-hidden="true"></div><div class="marks" id="marks" aria-hidden="true"><div></div></div></div></div>
       <div class="card pv"><div class="prevbar"><button class="btn sm on" id="vmode"></button><button class="btn sm" id="vdark"></button><span class="grow"></span><span class="meta" id="meta"></span></div><div class="prev" id="prev"></div></div></div></div>`;
   $("#src").value = st.doc.content;
+  hlLines = []; drawHl();
   buildTools();
   $("#back").onclick = async () => { await flush(); home(); };
   $("#title").oninput = (e) => { st.doc.title = e.target.value; changed(); };
   $("#src").oninput = (e) => { st.doc.content = e.target.value; changed(); };
-  $("#src").addEventListener("scroll", () => { $("#marks").firstChild.style.transform = `translateY(${-$("#src").scrollTop}px)`; });
+  $("#src").addEventListener("scroll", () => { const y = `translateY(${-$("#src").scrollTop}px)`; $("#marks").firstChild.style.transform = y; $("#hl").firstChild.style.transform = y; });
   new ResizeObserver(() => drawMarks()).observe($("#src"));
   slashSetup();
   histSetup();
@@ -91,7 +93,7 @@ function view() {
 }
 const stateText = (t) => { const s = $("#state"); if (s) s.textContent = t; };
 function changed() {
-  st.dirty = true; stateText("…");
+  st.dirty = true; stateText("…"); drawHl();
   localStorage.setItem("docs.c." + st.doc.id, JSON.stringify({ title: st.doc.title, content: st.doc.content, settings: st.doc.settings, sources: st.doc.sources, t: Date.now(), dirty: true }));
   clearTimeout(st.rtimer); st.rtimer = setTimeout(layout, 250);
   schedule();
@@ -382,55 +384,93 @@ function layout() {
   }
   const cw = PAGE_W - c.marginLeft - c.marginRight, ch = PAGE_H - c.marginTop - c.marginBottom;
   if (cw < 40 || ch < 40) { prev.innerHTML = '<div class="empty">Die Ränder sind zu groß für DIN A4.</div>'; return; }
-  const colCss = `width:${cw}mm;height:${ch}mm;column-width:${cw}mm;column-gap:${GAP}mm;`;
-  measure ||= document.body.appendChild(el('<div class="measure doc"></div>'));
-  measure.style.cssText = vars(c) + ";" + colCss;
-  measure.innerHTML = html;
-  const pitch = (cw + GAP) * PX;
-  breaks(ch * PX);
-  const count = () => Math.max(1, Math.round((measure.scrollWidth + GAP * PX) / pitch));
-  const place = () => { const x0 = measure.getBoundingClientRect().left; const m = {}; headings.forEach((h) => { const n = measure.querySelector("#" + CSS.escape(h.id)); if (n) m[h.id] = Math.floor((n.getBoundingClientRect().left - x0 + 2) / pitch) + 1; }); return m; };
+  const colCss = `width:${cw}mm;height:${ch}mm;column-width:${cw}mm;column-gap:${GAP}mm;`, pitch = (cw + GAP) * PX;
+  // Jeder Abschnitt zwischen zwei \newpage ist ein eigener Fluss in eigenen Spalten: Der Umbruch braucht so weder Messen noch Platzhalter.
+  const parts = sections(html);
+  measure ||= document.body.appendChild(el('<div class="measure"></div>'));
+  measure.style.cssText = `${vars(c)};width:${cw}mm`;
+  const S = parts.map(({ frag, line }) => { const n = el('<div class="sec doc"></div>'); n.style.cssText = colCss; n.append(frag); measure.append(n); return { n, line, first: 1, pages: 1 }; });
+  measure.replaceChildren(...S.map((x) => x.n));
+  const number = () => { let p = 1; for (const x of S) { x.first = p; x.pages = columns(x.n, pitch); p += x.pages; } return p - 1; };
+  const place = () => {
+    number();
+    const m = {};
+    for (const x of S) { const x0 = x.n.getBoundingClientRect().left; x.n.querySelectorAll("h1[id],h2[id],h3[id]").forEach((h) => { m[h.id] = x.first + Math.floor((h.getBoundingClientRect().left - x0 + 2) / pitch); }); }
+    return m;
+  };
   let pages = place();
   if (measure.querySelector(".pg")) {   // Inhaltsverzeichnis: Seitenzahlen eintragen und danach noch einmal messen (Zeilen bleiben gleich lang)
     for (let pass = 0; pass < 2; pass++) { measure.querySelectorAll(".pg").forEach((p) => { p.textContent = pages[p.dataset.h] || ""; }); const np = place(); if (JSON.stringify(np) === JSON.stringify(pages)) break; pages = np; }
   }
-  st.pageStarts = pageStarts(pitch);
-  const n = count(), inner = measure.innerHTML.replace(/ id="h-[^"]*"/g, "").replace(/ href="#h-[^"]*"/g, "");
+  const n = number();
+  st.pageStarts = pageStarts(S, pitch);
   const pos = { left: "left", center: "left:0;right:0;text-align:center", right: "right" }[c.pageNumberPos];
   const pn = (i) => !c.pageNumbers ? "" : `<div class="pgn" style="bottom:${Math.max(4, c.marginBottom / 2 - 2)}mm;${c.pageNumberPos === "center" ? pos : c.pageNumberPos === "left" ? `left:${c.marginLeft}mm` : `right:${c.marginRight}mm`}">${i + 1}</div>`;
   let out = "";
-  for (let i = 0; i < n; i++) out += `<div class="sheet ${prefs.dark ? "dark" : ""}"><div class="clip" style="left:${c.marginLeft}mm;top:${c.marginTop}mm;width:${cw}mm;height:${ch}mm"><div class="flow doc" style="${vars(c)};${colCss}transform:translateX(-${i * (cw + GAP)}mm)">${inner}</div></div>${pn(i)}</div>`;
+  for (const x of S) {
+    const inner = x.n.innerHTML.replace(/ id="h-[^"]*"/g, "").replace(/ href="#h-[^"]*"/g, "");
+    for (let i = 0; i < x.pages; i++) out += `<div class="sheet ${prefs.dark ? "dark" : ""}"><div class="clip" style="left:${c.marginLeft}mm;top:${c.marginTop}mm;width:${cw}mm;height:${ch}mm"><div class="flow doc" style="${vars(c)};${colCss}transform:translateX(-${i * (cw + GAP)}mm)">${inner}</div></div>${pn(x.first - 1 + i)}</div>`;
+  }
   const keep = prev.scrollTop;
-  prev.innerHTML = `<div class="sheets">${out}</div>`;
+  prev.innerHTML = `<div class="sheets-w"><div class="sheets">${out}</div></div>`;
+  fit();   // erst skalieren, dann die Scrollposition zurück: Vorher hat der Bereich noch nicht seine Höhe
   prev.scrollTop = keep;
   $("#meta").textContent = `${n} ${n === 1 ? "Seite" : "Seiten"} · ${st.doc.content.trim() ? st.doc.content.trim().split(/\s+/).length : 0} Wörter`;
-  fit(); drawMarks();
+  drawMarks(); relayoutOnImages();
 }
-// \newpage: Der Umbruch füllt den Rest der Seite mit einem leeren Block. Das gelingt in jedem Browser, anders als ein erzwungener Spaltenumbruch.
-function breaks(colH) {
-  const top = measure.getBoundingClientRect().top;
-  measure.querySelectorAll(".pb").forEach((b) => { b.style.height = "0px"; });
-  for (const b of measure.querySelectorAll(".pb")) {
-    const y = b.getBoundingClientRect().top - top;
-    const used = ((y % colH) + colH) % colH;
-    b.style.height = used < 1 || colH - used < 2 ? "0px" : `${Math.floor(colH - used - 1)}px`;
+// Zerlegt das HTML an jedem \newpage (auch wenn es in einem :::-Block steht) in Abschnitte. line = Markdown-Zeile, mit der der Abschnitt beginnt.
+function sections(html) {
+  const root = document.createElement("div"); root.innerHTML = html;
+  const out = [], hasContent = (f) => f.textContent.trim() || f.querySelector?.("img,table,hr");
+  let line = 0;
+  const push = (frag) => { const blanks = frag.querySelectorAll(":scope > .blank"); for (let k = blanks.length - 1; k >= 0 && !blanks[k].nextElementSibling; k--) blanks[k].remove(); out.push({ frag, line }); };
+  for (let pb; (pb = root.querySelector(".pb"));) {
+    const r = document.createRange(); r.setStart(root, 0); r.setEndBefore(pb);
+    const frag = r.extractContents();
+    if (out.length || hasContent(frag)) push(frag);   // \newpage ganz am Anfang erzeugt keine leere erste Seite
+    line = +pb.dataset.e;
+    let up = pb.parentElement; pb.remove();
+    while (up && up !== root && !up.childElementCount && !up.textContent.trim()) { const p = up.parentElement; up.remove(); up = p; }
   }
+  const rest = document.createDocumentFragment(); rest.append(...root.childNodes);
+  push(rest);
+  return out;
+}
+// Wie viele Spalten (= Seiten) belegt ein Abschnitt? Gezählt wird, wo wirklich etwas steht, damit ein überhängender Abstand keine leere Seite macht.
+function columns(n, pitch) {
+  const x0 = n.getBoundingClientRect().left, r = document.createRange(); r.selectNodeContents(n);
+  let max = 0; for (const q of r.getClientRects()) if (q.width || q.height) max = Math.max(max, q.left - x0);
+  return Math.floor((max + 2) / pitch) + 1;
+}
+// Bilder haben erst nach dem Laden ihre Höhe: dann neu umbrechen (je Bild höchstens dreimal, damit ein kaputtes Bild keine Schleife auslöst).
+const imgTries = new Map();
+function relayoutOnImages() {
+  measure.querySelectorAll("img").forEach((img) => {
+    const src = img.src, n = imgTries.get(src) || 0;
+    if (img.complete || n >= 3) return;
+    imgTries.set(src, n + 1);
+    const again = () => { clearTimeout(st.rtimer); st.rtimer = setTimeout(layout, 100); };
+    img.addEventListener("load", again, { once: true }); img.addEventListener("error", again, { once: true });
+  });
 }
 // Wo beginnt welche Seite im Markdown? Pro Block (data-l) die Startseite, bei Absätzen über den Seitenwechsel hinweg das erste Wort der neuen Seite.
 const SKIPTOK = /^(#{1,6}|[-*+]|\d+[.)]|\|+|:?-{2,}:?|>+|:::\w*)$/;
-function pageStarts(pitch) {
+function pageStarts(S, pitch) {
   const text = st.doc.content.replace(/\r\n?/g, "\n"), ls = [0];
   for (let i = text.indexOf("\n"); i >= 0; i = text.indexOf("\n", i + 1)) ls.push(i + 1);
-  const x0 = measure.getBoundingClientRect().left, col = (x) => Math.floor((x - x0 + 2) / pitch) + 1;
-  const out = {}, put = (pg, off) => { if (pg >= 2 && off != null && !(pg in out && out[pg] <= off)) out[pg] = off; };
+  const out = {}, fixed = new Set();   // die erste Seite eines Abschnitts beginnt genau hinter dem \newpage
+  for (const x of S) if (x.first >= 2) { out[x.first] = x.line < ls.length ? ls[x.line] : text.length; fixed.add(x.first); }
+  const put = (pg, off) => { if (pg >= 2 && off != null && !fixed.has(pg) && !(pg in out && out[pg] <= off)) out[pg] = off; };
   const wordsOf = (n) => { const w = [], tw = document.createTreeWalker(n, NodeFilter.SHOW_TEXT); for (let t; (t = tw.nextNode());) for (const m of t.data.matchAll(/\S+/g)) w.push([t, m.index, m.index + m[0].length]); return w; };
+  for (const sec of S) {
+  const x0 = sec.n.getBoundingClientRect().left, col = (x) => sec.first + Math.floor((x - x0 + 2) / pitch);
   const colOf = (w) => { const r = document.createRange(); r.setStart(w[0], w[1]); r.setEnd(w[0], w[2]); const q = r.getClientRects()[0]; return q ? col(q.left) : 0; };
-  measure.querySelectorAll("[data-l]").forEach((n) => {
+  sec.n.querySelectorAll("[data-l]").forEach((n) => {
     const a = +n.dataset.l, b = +n.dataset.e, rects = n.getClientRects();
     if (!rects.length || a >= ls.length) return;
     const c0 = col(rects[0].left), c1 = col(rects[rects.length - 1].left);
     put(c0, ls[a]);
-    if (c1 <= c0 || n.querySelector("[data-l]") || n.matches(".pb")) return;
+    if (c1 <= c0 || n.querySelector("[data-l]")) return;
     const words = wordsOf(n); if (!words.length) return;
     const seg = text.slice(ls[a], ls[b] ?? text.length).replace(/\[\[[^\]]*\]\]/g, (m) => " ".repeat(m.length)).split("\n").map((l) => { const c = stripComment(l); return c + " ".repeat(l.length - c.length); }).join("\n");
     const src = [...seg.matchAll(/\S+/g)].filter((m) => !SKIPTOK.test(m[0])).map((m) => ls[a] + m.index);
@@ -441,11 +481,28 @@ function pageStarts(pitch) {
       put(pg, src.length === words.length ? src[k] : src[Math.min(src.length - 1, Math.floor((k * src.length) / words.length))]);
     }
   });
+  }
   return out;
+}
+// Editor-Einfärbung: nur die geänderten Zeilen neu setzen, damit auch lange Texte ohne Verzögerung bleiben
+let hlLines = [];
+function drawHl() {
+  const ta = $("#src"), box = $("#hl")?.firstChild; if (!ta || !box) return;
+  const next = highlightLines(ta.value), old = hlLines, kids = box.children;
+  box.style.width = ta.clientWidth + "px";
+  let a = 0, e = 0;
+  while (a < old.length && a < next.length && old[a] === next[a]) a++;
+  while (e < old.length - a && e < next.length - a && old[old.length - 1 - e] === next[next.length - 1 - e]) e++;
+  if (a === next.length && a === old.length) return;
+  for (let i = old.length - e - 1; i >= a; i--) kids[i].remove();
+  const t = document.createElement("template"); t.innerHTML = next.slice(a, next.length - e).join("");
+  box.insertBefore(t.content, kids[a] || null);
+  hlLines = next;
 }
 // gestrichelte Linie im Markdown-Editor dort, wo im Dokument die nächste DIN-A4-Seite beginnt
 function drawMarks() {
   const ta = $("#src"), mir = $("#mirror"), mk = $("#marks"); if (!ta || !mir || !mk) return;
+  drawHl();
   const text = ta.value, list = Object.entries(st.pageStarts || {}).map(([p, o]) => [+p, o]).filter(([, o]) => o <= text.length).sort((x, y) => x[1] - y[1]);
   let html = "", prev = 0;
   for (const [p, o] of list) { html += esc(text.slice(prev, o)) + `<i class="mk" data-p="${p}"></i>`; prev = o; }
@@ -454,10 +511,12 @@ function drawMarks() {
   mk.firstChild.innerHTML = [...mir.querySelectorAll(".mk")].map((m) => `<div class="pgline" style="top:${m.offsetTop}px"><span>Seite ${m.dataset.p}</span></div>`).join("");
   mk.firstChild.style.transform = `translateY(${-ta.scrollTop}px)`;
 }
+// Skaliert per transform: Anders als "zoom" ändert das den Umbruch nicht, die Seiten bleiben also exakt so wie gemessen.
 function fit() {
-  const prev = $("#prev"), sh = prev?.querySelector(".sheets"); if (!sh) return;
-  const w = prev.clientWidth - 24, full = PAGE_W * PX;
-  sh.style.zoom = Math.min(1.4, Math.max(0.3, w / full));
+  const prev = $("#prev"), wrap = prev?.querySelector(".sheets-w"), sh = wrap?.firstChild; if (!sh) return;
+  const full = PAGE_W * PX, z = Math.min(1.4, Math.max(0.3, (prev.clientWidth - 24) / full));
+  sh.style.transform = `scale(${z})`;
+  wrap.style.width = `${full * z}px`; wrap.style.height = `${sh.offsetHeight * z}px`;
   prev.style.overflowX = "hidden";
 }
 
@@ -512,7 +571,7 @@ function printPdf() {
   // Immer die weißen Seiten drucken (egal ob Web-Modus oder dunkles Papier): kurz im Seitenmodus neu aufbauen
   const old = { ...prefs }; prefs.mode = "pages"; prefs.dark = false; layout();
   let root = $("#printroot") || document.body.appendChild(el('<div id="printroot"></div>'));
-  root.innerHTML = $(".sheets").outerHTML; root.querySelector(".sheets").style.zoom = 1;
+  root.innerHTML = $(".sheets").outerHTML;
   const t = document.title; document.title = fname();
   const done = () => { document.title = t; root.innerHTML = ""; Object.assign(prefs, old); layout(); removeEventListener("afterprint", done); };
   addEventListener("afterprint", done);

@@ -61,10 +61,11 @@ button, input, select, textarea { font: inherit; color: inherit; }
 }
 
 /* ---------- Seiten (DIN A4) ---------- */
-.sheets { display: flex; flex-direction: column; align-items: center; gap: 18px; width: max-content; min-width: 100%; }
+.sheets-w { margin: 0 auto; }
+.sheets { display: flex; flex-direction: column; gap: 18px; width: var(--pw); transform-origin: 0 0; }
 .sheet { position: relative; flex: none; width: var(--pw); height: var(--ph); background: #fff; color: #000; box-shadow: 0 6px 30px rgba(0,0,0,.7); overflow: hidden; }
 .clip { position: absolute; overflow: hidden; }
-.flow, .measure { column-fill: auto; }
+.flow, .measure .sec { column-fill: auto; }
 .pgn { position: absolute; font-size: 10pt; color: #333; font-family: var(--doc-font); }
 .measure { position: absolute; left: -99999px; top: 0; visibility: hidden; }
 .sheet.dark, .webdoc.dark { background: #16171a; color: #e6e6ea; } .sheet.dark .pgn { color: #aaa; }
@@ -127,10 +128,11 @@ button, input, select, textarea { font: inherit; color: inherit; }
   html, body { background: #fff !important; overflow: visible !important; height: auto !important; }
   body > *:not(#printroot) { display: none !important; }
   #printroot { display: block !important; }
-  #printroot .sheets { gap: 0; display: block; width: auto; }
+  #printroot .sheets { gap: 0; display: block; width: auto; transform: none !important; }
   #printroot .doc .cite.bad { color: inherit; }
   #printroot .box.entwurf { background: none; box-shadow: none; }
-  #printroot .sheet { box-shadow: none; break-after: page; margin: 0; zoom: 1 !important; }
+  #printroot .sheet { box-shadow: none; break-after: page; margin: 0; }
+  #printroot .sheet:last-child { break-after: auto; }
 }
 #printroot { display: none; }
 a.btn { text-decoration: none; color: var(--on-surface); }
@@ -141,7 +143,9 @@ a.btn { text-decoration: none; color: var(--on-surface); }
 .doc .bibe { padding-left: 10mm; text-indent: -10mm; text-align: left; }
 /* Seitenmarker im Markdown-Editor */
 .srcwrap { position: relative; flex: 1; min-height: 0; display: flex; }
-.srcwrap .src { flex: 1; box-sizing: border-box; }
+.srcwrap .src { flex: 1; box-sizing: border-box; position: relative; z-index: 1; color: transparent; caret-color: var(--on-surface); }
+.srcwrap .src::placeholder { color: var(--muted); }
+.srcwrap .src::selection { color: transparent; background: rgba(var(--accent-rgb),.32); }
 .mirror { position: absolute; left: 0; top: 0; bottom: 0; visibility: hidden; overflow: hidden; box-sizing: border-box; padding: 18px 20px; font: 14px/1.6 ui-monospace, "SF Mono", Consolas, monospace; tab-size: 2; white-space: pre-wrap; overflow-wrap: break-word; pointer-events: none; }
 .mirror .mk { display: inline-block; width: 0; height: 1.6em; vertical-align: top; }
 .marks { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
@@ -160,3 +164,22 @@ a.btn { text-decoration: none; color: var(--on-surface); }
 .slash button { display: flex; gap: 12px; align-items: baseline; text-align: left; border: 0; background: none; color: var(--on-surface); padding: 8px 12px; border-radius: 14px; cursor: pointer; font-size: .875rem; }
 .slash button.on { background: var(--container); } .slash button b { font-family: ui-monospace, Consolas, monospace; min-width: 8.5em; } .slash button span { color: var(--muted); }
 .slash small { color: var(--muted); padding: 2px 12px 4px; font-size: .75rem; }
+
+/* Einfärbung des Editors: nur Farben und Hintergründe, damit sie exakt unter dem Text im Textfeld bleibt */
+.hl { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
+.hl > div { box-sizing: border-box; padding: 18px 20px; font: 14px/1.6 ui-monospace, "SF Mono", Consolas, monospace; tab-size: 2; white-space: pre-wrap; overflow-wrap: break-word; color: var(--on-surface); will-change: transform; }
+.hl > div > div { position: relative; margin: 0 -20px; padding: 0 20px; }
+.hl [data-tag]::after { content: attr(data-tag); position: absolute; right: 14px; top: 3px; font: 600 .6875rem/1.4 system-ui, sans-serif; padding: 0 8px; border-radius: 8px; background: rgba(255,255,255,.1); color: var(--muted); }
+.hl .l-reg { --c: 138,180,248; background: rgba(var(--c),.09); box-shadow: inset 3px 0 0 rgba(var(--c),.75); }
+.hl .r-title { --c: 196,160,255; } .hl .r-entwurf { --c: 245,190,60; background: rgba(var(--c),.16); }
+.hl .l-h { color: var(--accent); }
+.hl .l-cmd { color: #7ee2b8; background: rgba(126,226,184,.1); }
+.hl .l-q { color: #c4c7d0; box-shadow: inset 3px 0 0 rgba(255,255,255,.25); }
+.hl .l-code { color: #7ee2b8; background: rgba(255,255,255,.04); }
+.hl .l-dim { color: var(--muted); }
+.hl .l-tb { color: #d6d9e0; }
+.hl .t-mk { color: var(--muted); opacity: .8; }
+.hl .l-h .t-mk { color: var(--accent); opacity: .55; }
+.hl .t-com { color: #6d7178; }
+.hl .t-note { color: #8d9199; background: rgba(255,255,255,.07); border-radius: 3px; }
+.hl .t-cite { color: #8ab4f8; } .hl .t-link { color: #8ab4f8; } .hl .t-code { color: #7ee2b8; } .hl .t-b { color: #ffd9a8; } .hl .t-i { color: #c9b6ff; } .hl .t-s { color: var(--muted); text-decoration: line-through; }
