@@ -75,6 +75,7 @@ async function open(id) {
   $("#src").addEventListener("scroll", () => { $("#marks").firstChild.style.transform = `translateY(${-$("#src").scrollTop}px)`; });
   new ResizeObserver(() => drawMarks()).observe($("#src"));
   slashSetup();
+  histSetup();
   $("#cfg").onclick = settingsPanel;
   $("#more").onclick = (e) => moreMenu(e.currentTarget);
   $(".mtabs").onclick = (e) => { const b = e.target.closest("[data-m]"); if (!b) return; st.mpane = b.dataset.m; $(".split").dataset.m = b.dataset.m; document.querySelectorAll(".mtabs button").forEach((x) => x.classList.toggle("on", x === b)); if (b.dataset.m === "pv") fit(); else drawMarks(); };
@@ -124,7 +125,7 @@ async function syncPending() {
 
 // ---------------------------------------------------------------- Werkzeugleiste
 function buildTools() {
-  const T = [["H1", "h1", "Überschrift 1"], ["H2", "h2", "Überschrift 2"], ["H3", "h3", "Überschrift 3"], "|", ["format_bold", "b", "Fett"], ["format_italic", "i", "Kursiv"], ["code", "code", "Code"], "|",
+  const T = [["undo", "undo", "Rückgängig (Strg+Z)"], ["redo", "redo", "Wiederholen (Strg+Y)"], "|", ["H1", "h1", "Überschrift 1"], ["H2", "h2", "Überschrift 2"], ["H3", "h3", "Überschrift 3"], "|", ["format_bold", "b", "Fett"], ["format_italic", "i", "Kursiv"], ["code", "code", "Code"], "|",
     ["format_align_left", "al", "Linksbündig"], ["format_align_center", "ac", "Zentriert"], ["format_align_right", "ar", "Rechtsbündig"], "|",
     ["format_list_bulleted", "ul", "Liste"], ["format_list_numbered", "ol", "Nummerierte Liste"], ["format_quote", "quote", "Zitat"], ["table", "table", "Tabelle"], ["link", "link", "Link"], ["image", "img", "Bild per Adresse"], ["footnote", "fn", "Fußnote"], "|",
     ["sticky_note_2", "notes", "Notizen & Entwürfe"], ["toc", "toc", "Inhaltsverzeichnis"], ["insert_page_break", "pb", "Seitenumbruch"], ["article", "title", "Titelblatt"], ["library_books", "lib", "Quellen (Archiv)"], ["menu_book", "src", "Quellenverzeichnis einfügen"], ["verified_user", "decl", "Selbstständigkeitserklärung"]];
@@ -153,7 +154,7 @@ function align(kind) {   // markierten Text (oder Platzhalter) in einen ausgeric
 const block = (s) => { const t = $("#src"); const pre = t.selectionStart && t.value[t.selectionStart - 1] !== "\n" ? "\n\n" : t.selectionStart ? "\n" : ""; ins(pre + s + "\n"); };
 function act(a) {
   const today = new Date().toLocaleDateString("de-DE", { day: "2-digit", month: "long", year: "numeric" });
-  ({ h1: () => prefix("# "), h2: () => prefix("## "), h3: () => prefix("### "), b: () => wrap("**", "**", "fett"), i: () => wrap("*", "*", "kursiv"), code: () => wrap("`", "`", "code"),
+  ({ undo: () => hist.undo?.(), redo: () => hist.redo?.(), h1: () => prefix("# "), h2: () => prefix("## "), h3: () => prefix("### "), b: () => wrap("**", "**", "fett"), i: () => wrap("*", "*", "kursiv"), code: () => wrap("`", "`", "code"),
     ul: () => prefix("- "), ol: () => prefix("1."), quote: () => prefix("> "), link: () => wrap("[", "](https://)", "Text"), img: () => ins("![Beschreibung](https://)"),
     fn: () => { const t = $("#src"), n = (t.value.match(/^\[\^\d+\]:/gm) || []).length + 1, pos = t.selectionEnd; t.setRangeText(`[^${n}]`, pos, pos, "end"); t.value = t.value.replace(/\s*$/, "") + `\n\n[^${n}]: Text der Fußnote.\n`; t.dispatchEvent(new Event("input")); },
     table: () => block("| Spalte 1 | Spalte 2 | Spalte 3 |\n|----------|:--------:|---------:|\n| Text     | Text     | Text     |\n"),
@@ -207,6 +208,37 @@ function slashSetup() {
     }
     if (e.key === "Tab") { e.preventDefault(); ins("  "); }
   });
+}
+
+// ---------------------------------------------------------------- Rückgängig / Wiederholen
+// Eigene Historie, weil das Browser-Undo bei Schnellbefehlen und Knöpfen (setRangeText) abreißt. Strg+Z, Strg+Y / Strg+Umschalt+Z, Knöpfe in der Leiste.
+const hist = {};
+function histSetup() {
+  const ta = $("#src"), H = [{ v: ta.value, s: ta.selectionStart, e: ta.selectionEnd }]; let i = 0, last = 0, kind = "";
+  const btns = () => { const u = $('[data-a="undo"]'), r = $('[data-a="redo"]'); if (u) u.disabled = i <= 0; if (r) r.disabled = i >= H.length - 1; };
+  const rec = (type) => {
+    if (ta.value === H[i].v) return;
+    const typing = /^(insert|delete)/.test(type || "") && type !== "insertFromPaste" && type !== "insertFromDrop";
+    const now = Date.now(), snap = { v: ta.value, s: ta.selectionStart, e: ta.selectionEnd };
+    H.length = i + 1;
+    if (typing && i > 0 && kind === type.slice(0, 6) && now - last < 800) H[i] = snap;   // Tippen zu einem Schritt zusammenfassen
+    else { H.push(snap); if (H.length > 400) H.shift(); i = H.length - 1; }
+    last = now; kind = typing ? type.slice(0, 6) : ""; btns();
+  };
+  const go = (n) => {
+    if (n < 0 || n >= H.length) return;
+    i = n; const h = H[i]; ta.value = h.v; ta.setSelectionRange(h.s, h.e); last = 0; kind = "";
+    st.doc.content = h.v; changed(); ta.dispatchEvent(new Event("scroll")); btns(); ta.focus();
+  };
+  hist.undo = () => go(i - 1); hist.redo = () => go(i + 1); hist.rec = () => rec("");
+  ta.addEventListener("input", (e) => rec(e.inputType));
+  ta.addEventListener("beforeinput", (e) => { if (e.inputType === "historyUndo") { e.preventDefault(); hist.undo(); } else if (e.inputType === "historyRedo") { e.preventDefault(); hist.redo(); } });
+  ta.addEventListener("keydown", (e) => {
+    if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
+    const k = e.key.toLowerCase();
+    if (k === "z" && !e.shiftKey) { e.preventDefault(); hist.undo(); } else if (k === "y" || (k === "z" && e.shiftKey)) { e.preventDefault(); hist.redo(); }
+  });
+  btns();
 }
 
 // ---------------------------------------------------------------- Notizen & Entwürfe
@@ -298,7 +330,7 @@ function sourcesPanel() {
       cur.key = cur.key.trim().replace(/[\s,\[\]]+/g, "") || makeKey(cur, src?.key);
       if (S().some((x) => x.key === cur.key && x.key !== src?.key)) { toast("Diesen Schlüssel gibt es schon"); return false; }
       if (src && src.key !== cur.key) {   // Schlüssel umbenannt: Zitate im Text mitziehen
-        const t = $("#src"); t.value = t.value.replace(new RegExp("\\[@" + keyRe(src.key) + "(?=[,\\]])", "g"), `[@${cur.key}`); st.doc.content = t.value;
+        const t = $("#src"); t.value = t.value.replace(new RegExp("\\[@" + keyRe(src.key) + "(?=[,\\]])", "g"), `[@${cur.key}`); st.doc.content = t.value; hist.rec?.();
       }
       st.doc.sources = src ? S().map((x) => (x === src ? cur : x)) : [...S(), cur];
       src = cur; changed(); return true;
