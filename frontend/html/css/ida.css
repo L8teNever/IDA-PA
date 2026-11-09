@@ -42,7 +42,7 @@ body, body *:not(.monaco-editor):not(.monaco-editor *):not(code):not(code *):not
 
 /* Reiter */
 .tabs-wrap { background: transparent !important; border-bottom: 0 !important; }
-.tabs { padding: 4px 4px 2px; gap: 4px; background: transparent; }
+.tabs { padding: 2px 4px; gap: 4px; background: transparent; box-sizing: border-box; overflow-x: auto; overflow-y: hidden; align-items: center; }
 .tab { height: 34px; border: 0 !important; border-radius: 17px; background: transparent; padding: 0 8px 0 12px; font-size: 13px; transition: background .2s, color .2s, border-radius .3s var(--spring); }
 .tab:hover { background: rgba(255,255,255,.06); }
 .tab.active { background: var(--container) !important; color: var(--on-container) !important; border-radius: 12px; }

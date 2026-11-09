@@ -3,7 +3,7 @@
    Cache-first für lokale Assets, Network-first für CDN-Ressourcen
    ============================================================ */
 
-const CACHE_NAME = 'ida-html-1';
+const CACHE_NAME = 'ida-html-2';
 
 /* Alle lokalen Dateien, die gecacht werden sollen */
 const LOCAL_ASSETS = [
