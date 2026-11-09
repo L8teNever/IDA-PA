@@ -91,6 +91,9 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .doc th, .doc td { border: 1px solid #888; padding: 4px 8px; vertical-align: top; } .doc th { background: rgba(128,128,128,.18); font-weight: 700; } .doc tr { break-inside: avoid; }
 .doc figure { margin: 0 0 calc(var(--ps) * 1pt); text-align: center; break-inside: avoid; } .doc img { max-width: 100%; max-height: 120mm; } .doc figcaption { font-size: .85em; font-style: italic; }
 .doc .pb { break-after: column; height: 0; } .web .pb { display: none; }
+.doc .box.entwurf { background: rgba(255,193,7,.22); box-shadow: -2.5mm 0 0 #f5a623; }   /* ohne Abstand/Rahmen, damit sich die Seitenumbrüche nicht verschieben */
+.notes-list { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; } .nitem { text-align: left; border: 0; border-radius: 16px; background: var(--surface-highest); color: var(--on-surface); padding: 10px 14px; cursor: pointer; font-size: .875rem; line-height: 1.35; }
+.nitem small { display: block; color: var(--muted); margin-bottom: 2px; } .nitem.d small { color: #f5a623; } .nitem:hover { background: var(--container); }
 .doc .box.center { text-align: center; } .doc .box.right { text-align: right; } .doc .box.left { text-align: left; } .doc .box.justify { text-align: justify; }
 .doc .box.title { text-align: center; padding-top: 30mm; } .doc .box.title p:first-child { font-size: 24pt; font-weight: 700; line-height: 1.25; margin-bottom: 14mm; } .doc .box.title p { margin-bottom: 6mm; }
 .doc sup.fnref { font-size: .7em; line-height: 0; } .doc .fns { font-size: .85em; line-height: 1.3; margin-top: 1em; } .doc .fns ol { padding-left: 1.4em; margin: 0; }
@@ -124,6 +127,29 @@ button, input, select, textarea { font: inherit; color: inherit; }
   body > *:not(#printroot) { display: none !important; }
   #printroot { display: block !important; }
   #printroot .sheets { gap: 0; display: block; width: auto; }
+  #printroot .doc .cite.bad { color: inherit; }
+  #printroot .box.entwurf { background: none; box-shadow: none; }
   #printroot .sheet { box-shadow: none; break-after: page; margin: 0; zoom: 1 !important; }
 }
 #printroot { display: none; }
+a.btn { text-decoration: none; color: var(--on-surface); }
+
+/* Blank-Zeilen, Zitate, Verzeichnis */
+.doc .blank { margin: 0 !important; line-height: calc(var(--fs) * var(--lh) * 1pt); }
+.doc .cite.bad { color: #d93025; font-weight: 600; }
+.doc .bibe { padding-left: 10mm; text-indent: -10mm; text-align: left; }
+/* Seitenmarker im Markdown-Editor */
+.srcwrap { position: relative; flex: 1; min-height: 0; display: flex; }
+.srcwrap .src { flex: 1; box-sizing: border-box; }
+.mirror { position: absolute; left: 0; top: 0; bottom: 0; visibility: hidden; overflow: hidden; box-sizing: border-box; padding: 18px 20px; font: 14px/1.6 ui-monospace, "SF Mono", Consolas, monospace; tab-size: 2; white-space: pre-wrap; overflow-wrap: break-word; pointer-events: none; }
+.mirror .mk { display: inline-block; width: 0; height: 1.6em; vertical-align: top; }
+.marks { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
+.marks > div { position: relative; will-change: transform; }
+.pgline { position: absolute; left: 0; right: 0; height: 0; border-top: 1.5px dashed var(--accent); opacity: .9; }
+.pgline span { position: absolute; right: 14px; top: -1px; transform: translateY(-100%); background: var(--accent); color: var(--on-accent); font: 600 .6875rem/1 system-ui, sans-serif; padding: 3px 8px; border-radius: 8px 8px 0 0; }
+/* Quellen-Panel */
+.fld.col { flex-direction: column; align-items: stretch; gap: 4px; } .fld.col input[type=text], .fld.col input[type=date], .quote input[type=text], .lookup input { width: 100%; height: 38px; border: 0; border-radius: 12px; background: var(--surface-highest); padding: 0 12px; outline: 0; }
+.lookup { gap: 8px; } .lookup input { flex: 1; min-width: 0; }
+.srci { border-radius: 18px; background: var(--surface-highest); padding: 12px 14px; } .srci p { margin: 4px 0; font-size: .875rem; line-height: 1.4; color: var(--muted); } .srci small { color: #7ee2b8; } .srci small.bad { color: #f5a623; } .srci .row { margin: 8px 0 0; } .srci code, .warn code { font-size: .75rem; color: var(--accent); }
+.warn { color: #f28b82; font-size: .875rem; margin: 10px 4px 0; }
+.quote { margin: 6px 0 12px; } .quote textarea { width: 100%; box-sizing: border-box; border: 0; border-radius: 14px; background: var(--surface-highest); padding: 10px 12px; outline: 0; resize: vertical; font: inherit; font-size: .875rem; } .quote .row { margin: 6px 0 0; } .quote input[type=text] { width: 90px; flex: none; }

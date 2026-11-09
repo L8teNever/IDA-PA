@@ -1,9 +1,9 @@
 // IDA Docs – Oberfläche: Dokumentliste, Markdown-Editor, Seitenvorschau in DIN A4, Einstellungen, Export.
-import { render } from "./markdown.js";
+import { render, bibEntry, citeShort, sortSources } from "./markdown.js";
 
 // Muss zu DEFAULTS in dokumente/app/store.py passen: nur Abweichungen davon werden in .idadocs gespeichert.
 const DEFAULTS = { marginTop: 25, marginBottom: 20, marginLeft: 30, marginRight: 20, font: "Arial", size: 11, lineHeight: 1.5, paraSpacing: 6,
-  align: "justify", h1: 16, h2: 14, h3: 12, headingNumbers: true, pageNumbers: true, pageNumberPos: "center" };
+  align: "justify", h1: 16, h2: 14, h3: 12, headingNumbers: true, pageNumbers: true, pageNumberPos: "center", citeStyle: "kurz", bibStyle: "din" };
 const FONTS = { Arial: 'Arial, "Liberation Sans", Helvetica, sans-serif', "Times New Roman": '"Times New Roman", "Liberation Serif", Times, serif',
   Calibri: 'Calibri, Carlito, "Segoe UI", sans-serif', Georgia: "Georgia, serif", Verdana: "Verdana, DejaVu Sans, sans-serif", "Courier New": '"Courier New", monospace' };
 const PAGE_W = 210, PAGE_H = 297, GAP = 10, PX = 96 / 25.4;
@@ -12,11 +12,11 @@ const el = (h) => { const t = document.createElement("template"); t.innerHTML = 
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 const ico = (n) => `<span class="ms">${n}</span>`;
 const prefs = { mode: localStorage.getItem("docs.mode") || "pages", dark: localStorage.getItem("docs.dark") === "1" };
-const st = { doc: null, mpane: "src", timer: 0, rtimer: 0, saving: false, dirty: false };
+const st = { pageStarts: {}, res: { used: [], missing: [] }, doc: null, mpane: "src", timer: 0, rtimer: 0, saving: false, dirty: false };
 const app = $("#app");
 
 async function api(path, opt = {}) {
-  const r = await fetch("/api/v1" + path, { ...opt, headers: { "content-type": "application/json" }, body: opt.body ? JSON.stringify(opt.body) : undefined });
+  const r = await fetch("/api/v1" + path, { keepalive: opt.method === "PUT", ...opt, headers: { "content-type": "application/json" }, body: opt.body ? JSON.stringify(opt.body) : undefined });
   if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || r.statusText);
   return r.status === 204 ? null : r.json();
 }
@@ -30,10 +30,11 @@ async function home() {
   history.replaceState(null, "", "#/");
   st.doc = null;
   let docs = [], offline = false;
+  await syncPending().catch(() => {});
   try { docs = await api("/docs"); localStorage.setItem("docs.list", JSON.stringify(docs)); }
   catch { offline = true; docs = JSON.parse(localStorage.getItem("docs.list") || "[]"); }
   app.innerHTML = `<div class="home"><div class="home-in"><h1>Docs</h1><p class="sub">Aufsätze und Projektarbeiten in Markdown, auf DIN A4.</p>
-    <div class="row"><button class="btn sm" id="imp">${ico("upload_file")}Importieren</button>
+    <div class="row"><button class="btn sm" id="imp">${ico("upload_file")}Importieren</button><a class="btn sm" href="/api/v1/backup" download>${ico("folder_zip")}Backup (ZIP)</a>
       ${offline ? `<span class="chip bad">${ico("cloud_off")}Offline – nur gemerkte Liste</span>` : ""}</div>
     <div id="list">${docs.length ? docs.map((d) => `<div class="dcard" role="button" tabindex="0" data-id="${d.id}"><b>${esc(d.title)}</b><p>${esc(d.preview || "Leer")}</p><small>${when(d.updated)} · ${d.words} Wörter</small>
       <button class="del" data-del="${d.id}" aria-label="Löschen">${ico("delete")}</button></div>`).join("") : `<div class="empty">${ico("description")}<b>Noch kein Dokument</b><br>Leg mit „Neu“ los.</div>`}</div></div>
@@ -57,24 +58,26 @@ async function open(id) {
   let d = null;
   const cache = JSON.parse(localStorage.getItem("docs.c." + id) || "null");
   try { d = await api("/docs/" + id); } catch (e) { if (!cache) { toast(e.message); return home(); } }
-  if (cache?.dirty && (!d || cache.t > d.updated * 1000)) d = { id, title: cache.title, content: cache.content, settings: cache.settings, updated: cache.t / 1000, _local: true };
-  st.doc = { id, title: d.title, content: d.content, settings: d.settings || {} };
+  if (cache?.dirty && (!d || cache.t > d.updated * 1000)) d = { id, title: cache.title, content: cache.content, settings: cache.settings, sources: cache.sources, updated: cache.t / 1000, _local: true };
+  st.doc = { id, title: d.title, content: d.content, settings: d.settings || {}, sources: d.sources || cache?.sources || [] };
   st.dirty = !!d._local; st.mpane = "src";
   app.innerHTML = `<div class="ed"><div class="bar"><button class="btn ic" id="back" aria-label="Zurück">${ico("arrow_back")}</button>
       <input class="title" id="title" maxlength="200" placeholder="Titel" value="${esc(st.doc.title)}"><span class="state" id="state"></span>
       <button class="btn ic" id="cfg" aria-label="Seiteneinstellungen">${ico("tune")}</button><button class="btn ic" id="more" aria-label="Mehr">${ico("more_vert")}</button></div>
     <div class="mtabs"><button data-m="src" class="on">Schreiben</button><button data-m="pv">Vorschau</button></div>
-    <div class="split" data-m="src"><div class="card sr"><div class="tools" id="tools"></div><textarea class="src" id="src" spellcheck="true" placeholder="Schreib hier in Markdown …"></textarea></div>
+    <div class="split" data-m="src"><div class="card sr"><div class="tools" id="tools"></div><div class="srcwrap"><textarea class="src" id="src" spellcheck="true" placeholder="Schreib hier in Markdown …"></textarea><div class="mirror" id="mirror" aria-hidden="true"></div><div class="marks" id="marks" aria-hidden="true"><div></div></div></div></div>
       <div class="card pv"><div class="prevbar"><button class="btn sm on" id="vmode"></button><button class="btn sm" id="vdark"></button><span class="grow"></span><span class="meta" id="meta"></span></div><div class="prev" id="prev"></div></div></div></div>`;
   $("#src").value = st.doc.content;
   buildTools();
   $("#back").onclick = async () => { await flush(); home(); };
   $("#title").oninput = (e) => { st.doc.title = e.target.value; changed(); };
   $("#src").oninput = (e) => { st.doc.content = e.target.value; changed(); };
+  $("#src").addEventListener("scroll", () => { $("#marks").firstChild.style.transform = `translateY(${-$("#src").scrollTop}px)`; });
+  new ResizeObserver(() => drawMarks()).observe($("#src"));
   $("#src").onkeydown = (e) => { if (e.key === "Tab") { e.preventDefault(); ins("  "); } };
   $("#cfg").onclick = settingsPanel;
   $("#more").onclick = (e) => moreMenu(e.currentTarget);
-  $(".mtabs").onclick = (e) => { const b = e.target.closest("[data-m]"); if (!b) return; st.mpane = b.dataset.m; $(".split").dataset.m = b.dataset.m; document.querySelectorAll(".mtabs button").forEach((x) => x.classList.toggle("on", x === b)); if (b.dataset.m === "pv") fit(); };
+  $(".mtabs").onclick = (e) => { const b = e.target.closest("[data-m]"); if (!b) return; st.mpane = b.dataset.m; $(".split").dataset.m = b.dataset.m; document.querySelectorAll(".mtabs button").forEach((x) => x.classList.toggle("on", x === b)); if (b.dataset.m === "pv") fit(); else drawMarks(); };
   $("#vmode").onclick = () => { prefs.mode = prefs.mode === "pages" ? "web" : "pages"; localStorage.setItem("docs.mode", prefs.mode); view(); layout(); };
   $("#vdark").onclick = () => { prefs.dark = !prefs.dark; localStorage.setItem("docs.dark", prefs.dark ? "1" : "0"); view(); layout(); };
   new ResizeObserver(fit).observe($("#prev"));
@@ -88,32 +91,43 @@ function view() {
 const stateText = (t) => { const s = $("#state"); if (s) s.textContent = t; };
 function changed() {
   st.dirty = true; stateText("…");
-  localStorage.setItem("docs.c." + st.doc.id, JSON.stringify({ title: st.doc.title, content: st.doc.content, settings: st.doc.settings, t: Date.now(), dirty: true }));
+  localStorage.setItem("docs.c." + st.doc.id, JSON.stringify({ title: st.doc.title, content: st.doc.content, settings: st.doc.settings, sources: st.doc.sources, t: Date.now(), dirty: true }));
   clearTimeout(st.rtimer); st.rtimer = setTimeout(layout, 250);
   schedule();
 }
-function schedule() { clearTimeout(st.timer); st.timer = setTimeout(save, 900); }
+function schedule() { clearTimeout(st.timer); st.timer = setTimeout(save, 700); }
 async function save() {
   clearTimeout(st.timer);
   if (!st.doc || !st.dirty || st.saving) return;
-  const { id, title, content, settings } = st.doc, t = Date.now();
+  const { id, title, content, settings, sources } = st.doc;
   st.saving = true; stateText("Speichert …");
   try {
-    await api("/docs/" + id, { method: "PUT", body: { title, content, settings: diff(settings) } });
+    await api("/docs/" + id, { method: "PUT", body: { title, content, settings: diff(settings), sources } });
     if (st.doc && st.doc.id === id && st.doc.content === content && st.doc.title === title) { st.dirty = false; localStorage.removeItem("docs.c." + id); stateText("Gespeichert"); }
     else schedule();
   } catch { stateText("Offline – lokal gesichert"); st.timer = setTimeout(save, 8000); }
   st.saving = false;
 }
 async function flush() { clearTimeout(st.rtimer); if (st.dirty) await save(); }
-addEventListener("online", () => st.dirty && save());
+addEventListener("online", () => { if (st.dirty) save(); syncPending(); });
 document.addEventListener("visibilitychange", () => { if (document.hidden && st.dirty) save(); });
+addEventListener("pagehide", () => { if (st.dirty) save(); });
+// Lokal gesicherte, noch nicht hochgeladene Dokumente (z. B. nach Offline-Schreiben) nachliefern – auch wenn man sie nicht wieder öffnet
+async function syncPending() {
+  for (const k of Object.keys(localStorage).filter((x) => x.startsWith("docs.c."))) {
+    const id = k.slice(7), c = JSON.parse(localStorage.getItem(k) || "null");
+    if (!c?.dirty || st.doc?.id === id) continue;
+    try { await api("/docs/" + id, { method: "PUT", body: { title: c.title, content: c.content, settings: diff(c.settings), sources: c.sources } }); if (JSON.parse(localStorage.getItem(k) || "null")?.t === c.t) localStorage.removeItem(k); }
+    catch (e) { if (/nicht gefunden/i.test(e.message)) localStorage.removeItem(k); }
+  }
+}
 
 // ---------------------------------------------------------------- Werkzeugleiste
 function buildTools() {
   const T = [["H1", "h1", "Überschrift 1"], ["H2", "h2", "Überschrift 2"], ["H3", "h3", "Überschrift 3"], "|", ["format_bold", "b", "Fett"], ["format_italic", "i", "Kursiv"], ["code", "code", "Code"], "|",
+    ["format_align_left", "al", "Linksbündig"], ["format_align_center", "ac", "Zentriert"], ["format_align_right", "ar", "Rechtsbündig"], "|",
     ["format_list_bulleted", "ul", "Liste"], ["format_list_numbered", "ol", "Nummerierte Liste"], ["format_quote", "quote", "Zitat"], ["table", "table", "Tabelle"], ["link", "link", "Link"], ["image", "img", "Bild per Adresse"], ["footnote", "fn", "Fußnote"], "|",
-    ["toc", "toc", "Inhaltsverzeichnis"], ["insert_page_break", "pb", "Seitenumbruch"], ["article", "title", "Titelblatt"], ["menu_book", "src", "Quellenverzeichnis"], ["verified_user", "decl", "Selbstständigkeitserklärung"]];
+    ["sticky_note_2", "notes", "Notizen & Entwürfe"], ["toc", "toc", "Inhaltsverzeichnis"], ["insert_page_break", "pb", "Seitenumbruch"], ["article", "title", "Titelblatt"], ["library_books", "lib", "Quellen (Archiv)"], ["menu_book", "src", "Quellenverzeichnis einfügen"], ["verified_user", "decl", "Selbstständigkeitserklärung"]];
   $("#tools").innerHTML = T.map((t) => t === "|" ? "<i></i>" : /^H\d$/.test(t[0]) ? `<button data-a="${t[1]}" title="${t[2]}" aria-label="${t[2]}">${t[0]}</button>` : `<button data-a="${t[1]}" title="${t[2]}" aria-label="${t[2]}">${ico(t[0])}</button>`).join("");
   $("#tools").onclick = (e) => { const b = e.target.closest("[data-a]"); if (b) act(b.dataset.a); };
 }
@@ -131,6 +145,11 @@ function prefix(p) {
   const lines = t.value.slice(a, e).split("\n").map((l, i) => (p === "1." ? `${i + 1}. ` : p) + l.replace(/^(#{1,4}\s+|[-*]\s+|\d+\.\s+|>\s?)/, ""));
   t.setRangeText(lines.join("\n"), a, e, "end"); t.dispatchEvent(new Event("input"));
 }
+function align(kind) {   // markierten Text (oder Platzhalter) in einen ausgerichteten Block setzen
+  const t = $("#src"), sel = t.value.slice(t.selectionStart, t.selectionEnd).replace(/^:::\s*\w+\n|\n:::\s*$/g, "") || "Text";
+  const pre = t.selectionStart && t.value[t.selectionStart - 1] !== "\n" ? "\n\n" : t.selectionStart ? "\n" : "";
+  ins(`${pre}::: ${kind}\n${sel}\n:::\n`);
+}
 const block = (s) => { const t = $("#src"); const pre = t.selectionStart && t.value[t.selectionStart - 1] !== "\n" ? "\n\n" : t.selectionStart ? "\n" : ""; ins(pre + s + "\n"); };
 function act(a) {
   const today = new Date().toLocaleDateString("de-DE", { day: "2-digit", month: "long", year: "numeric" });
@@ -138,10 +157,135 @@ function act(a) {
     ul: () => prefix("- "), ol: () => prefix("1."), quote: () => prefix("> "), link: () => wrap("[", "](https://)", "Text"), img: () => ins("![Beschreibung](https://)"),
     fn: () => { const t = $("#src"), n = (t.value.match(/^\[\^\d+\]:/gm) || []).length + 1, pos = t.selectionEnd; t.setRangeText(`[^${n}]`, pos, pos, "end"); t.value = t.value.replace(/\s*$/, "") + `\n\n[^${n}]: Text der Fußnote.\n`; t.dispatchEvent(new Event("input")); },
     table: () => block("| Spalte 1 | Spalte 2 | Spalte 3 |\n|----------|:--------:|---------:|\n| Text     | Text     | Text     |\n"),
-    toc: () => block("[TOC]\n"), pb: () => block("\\newpage\n"),
+    notes: notesPanel, lib: sourcesPanel, al: () => align("left"), ac: () => align("center"), ar: () => align("right"), toc: () => block("[TOC]\n"), pb: () => block("\\newpage\n"),
     title: () => block(`::: title\nTitel der Arbeit\n\nUntertitel oder Thema\n\nvon Vorname Nachname\n\nKlasse / Kurs · Schule\n\nBetreuende Lehrkraft: Name\n\nAbgabe: ${today}\n:::\n\n\\newpage\n`),
-    src: () => block("# Quellenverzeichnis {-}\n\n- Nachname, Vorname: *Titel des Werks*. Ort: Verlag, Jahr.\n- Autor/Organisation: „Titel der Seite“. https://adresse.de (abgerufen am " + today + ").\n"),
+    src: () => block("[QUELLEN]\n"),
     decl: () => block(`# Selbstständigkeitserklärung {-}\n\nHiermit erkläre ich, dass ich die vorliegende Arbeit selbstständig und nur mit den angegebenen Quellen und Hilfsmitteln angefertigt habe. Alle wörtlich oder sinngemäß übernommenen Stellen habe ich als solche gekennzeichnet.\n\nOrt, ${today}\n\n\n\n______________________________  \nUnterschrift\n`) })[a]?.();
+}
+
+// ---------------------------------------------------------------- Notizen & Entwürfe
+// [[Notiz]] erscheint nie im Dokument; "::: entwurf" … ":::" ist Text, der noch nicht fertig ist (auf dem Bildschirm gelb markiert, im PDF normal).
+function openItems() {
+  const t = st.doc.content, out = [];
+  for (const m of t.matchAll(/\[\[([^\]]*)\]\]/g)) out.push({ d: false, at: m.index, end: m.index + m[0].length, text: m[1].replace(/^Notiz:\s*/i, "") || "(leer)" });
+  for (const m of t.matchAll(/^:::\s*entwurf\s*\n([\s\S]*?)^:::\s*$/gm)) out.push({ d: true, at: m.index, end: m.index + m[0].length, text: m[1].trim().slice(0, 140) || "(leer)" });
+  return out.sort((a, b) => a.at - b.at);
+}
+function notesPanel() {
+  const scrim = el('<div class="scrim"></div>');
+  const p = el(`<aside class="sheetp"><header>Notizen &amp; Entwürfe<button class="btn ic" id="x" aria-label="Schließen">${ico("close")}</button></header><div class="body">
+    <div class="row" style="margin-top:6px"><button class="btn sm" id="addn">${ico("sticky_note_2")}Notiz</button><button class="btn sm" id="addd">${ico("edit_note")}Entwurf</button></div>
+    <p class="fld"><small><b>Notiz</b> <code>[[Notiz: …]]</code> erscheint nie im Dokument. <b>Entwurf</b> ist Text, der noch nicht fertig ist: Er bleibt im Dokument, ist am Bildschirm gelb markiert und vor dem PDF-Export erinnere ich dich daran.</small></p>
+    <div class="notes-list" id="nl"></div></div></aside>`);
+  document.body.append(scrim, p);
+  const close = () => { scrim.remove(); p.remove(); };
+  scrim.onclick = $("#x", p).onclick = close;
+  const fill = () => { const L = openItems(); $("#nl", p).innerHTML = L.length ? L.map((n, k) => `<button class="nitem ${n.d ? "d" : ""}" data-k="${k}"><small>${n.d ? "Entwurf" : "Notiz"}</small>${esc(n.text)}</button>`).join("") : '<p class="fld"><small>Noch nichts markiert.</small></p>'; return L; };
+  let L = fill();
+  $("#nl", p).onclick = (e) => { const b = e.target.closest("[data-k]"); if (!b) return; const n = L[b.dataset.k], t = $("#src"); close(); t.focus(); t.setSelectionRange(n.at, n.end); const line = t.value.slice(0, n.at).split("\n").length; t.scrollTop = Math.max(0, (line - 4) * 22); };
+  $("#addn", p).onclick = () => { close(); wrap("[[Notiz: ", "]]", "Text"); };
+  $("#addd", p).onclick = () => { close(); const t = $("#src"), sel = t.value.slice(t.selectionStart, t.selectionEnd); const pre = t.selectionStart && t.value[t.selectionStart - 1] !== "\n" ? "\n\n" : ""; t.setRangeText(`${pre}::: entwurf\n${sel || "Schnell aufschreiben, später überarbeiten …"}\n:::\n`, t.selectionStart, t.selectionEnd, "end"); t.dispatchEvent(new Event("input")); };
+}
+
+// ---------------------------------------------------------------- Quellenarchiv
+// Pro Dokument eine Liste von Quellen (in der .idadocs, nicht in der .md). Zitieren mit [@schluessel], Verzeichnis mit [QUELLEN].
+const TYPES = [["buch", "Buch"], ["artikel", "Artikel / Zeitschrift"], ["web", "Webseite"], ["sonst", "Sonstiges"]];
+const asciiName = (t) => String(t).toLowerCase().replace(/ä/g, "ae").replace(/ö/g, "oe").replace(/ü/g, "ue").replace(/ß/g, "ss").replace(/[^a-z0-9]+/g, "");
+function makeKey(src, own) {
+  const first = String(src.author || "").split(/;|\sund\s/)[0].split(",")[0];
+  const base = (asciiName(first) || asciiName(src.title || "").slice(0, 12) || "quelle") + (src.year || "");
+  let k = base, n = 0;
+  while (st.doc.sources.some((x) => x.key === k && x.key !== own)) { k = base + (n < 26 ? String.fromCharCode(97 + n) : n); n++; }
+  return k;
+}
+const keyRe = (k) => k.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const citeCount = (k) => (st.doc.content.match(new RegExp("\\[@" + keyRe(k) + "[,\\]]", "g")) || []).length;
+const italic = (t) => esc(t).replace(/\*([^*]+)\*/g, "<i>$1</i>");
+
+function sourcesPanel() {
+  const scrim = el('<div class="scrim"></div>');
+  const p = el(`<aside class="sheetp"><header>Quellen<button class="btn ic" id="x" aria-label="Schließen">${ico("close")}</button></header><div class="body" id="pb"></div></aside>`);
+  document.body.append(scrim, p);
+  const close = () => { scrim.remove(); p.remove(); };
+  scrim.onclick = $("#x", p).onclick = close;
+  const body = $("#pb", p), S = () => st.doc.sources;
+  const cfgNow = () => cfg(st.doc.settings);
+
+  function list() {
+    const miss = st.res.missing || [];
+    body.onclick = body.oninput = body.onchange = null;
+    body.innerHTML = `<div class="row" style="margin-top:6px"><button class="btn sm pri" id="new">${ico("add")}Neue Quelle</button></div>
+      ${miss.length ? `<p class="warn">Zitat ohne Quelle: ${miss.map((k) => `<code>${esc(k)}</code>`).join(", ")}</p>` : ""}
+      <div class="notes-list">${S().length ? sortSources(S()).map((x) => { const n = citeCount(x.key); return `<div class="srci" data-k="${esc(x.key)}"><b>${esc(citeShort(x))}</b> <code>[@${esc(x.key)}]</code>
+        <p>${italic(bibEntry(x, cfgNow().bibStyle))}</p><small class="${n ? "" : "bad"}">${n ? `${n}× zitiert` : "nicht zitiert"}${x.quotes?.length ? ` · ${x.quotes.length} Textstelle${x.quotes.length > 1 ? "n" : ""}` : ""}</small>
+        <div class="row"><button class="btn sm" data-a="cite">Zitat einfügen</button><button class="btn sm" data-a="edit">Bearbeiten</button></div></div>`; }).join("") : '<p class="fld"><small>Noch keine Quellen. Leg eine an – mit Adresse, ISBN oder DOI füllt die App Titel und Autor selbst aus.</small></p>'}</div>
+      <p class="fld"><small>Im Text zitieren mit <code>[@schluessel]</code> oder mit Seite <code>[@schluessel, 4]</code>. <code>[QUELLEN]</code> erzeugt das Quellenverzeichnis aus den zitierten Quellen. Zitierweise und Stil stellst du im Regler-Symbol ein.</small></p>`;
+    $("#new", body).onclick = () => edit(null);
+    body.onclick = (e) => {
+      const b = e.target.closest("[data-a]"); if (!b) return;
+      const x = S().find((o) => o.key === b.closest("[data-k]").dataset.k); if (!x) return;
+      if (b.dataset.a === "cite") { close(); ins(`[@${x.key}]`); } else edit(x);
+    };
+  }
+
+  function edit(src) {
+    const cur = src ? structuredClone(src) : { type: "buch", author: "", year: "", title: "", container: "", publisher: "", place: "", url: "", accessed: "", note: "", key: "", quotes: [] };
+    cur.quotes ||= [];
+    const f = (k, label, type = "text", ph = "") => `<label class="fld col"><span>${label}</span><input type="${type}" data-f="${k}" placeholder="${ph}" value="${esc(cur[k] || "")}"></label>`;
+    const draw = () => {
+      body.innerHTML = `<label class="fld"><span>Art</span><select data-f="type">${TYPES.map(([v, t]) => `<option value="${v}" ${cur.type === v ? "selected" : ""}>${t}</option>`).join("")}</select></label>
+        <div class="fld lookup"><input id="q" type="text" placeholder="Adresse, ISBN oder DOI einfügen …"><button class="btn sm" id="look">${ico("auto_fix_high")}Ausfüllen</button></div>
+        ${f("author", "Autor (Nachname, Vorname · mehrere mit ;)", "text", "Müller, Anna")}${f("year", "Jahr", "text", "2020")}${f("title", "Titel")}
+        ${cur.type === "artikel" ? f("container", "Zeitschrift / Sammelband") + f("note", "Heft, Seiten") : ""}
+        ${cur.type !== "web" ? f("place", "Ort") : ""}${f("publisher", cur.type === "web" ? "Webseite / Herausgeber" : "Verlag")}
+        ${cur.type === "web" || cur.type === "sonst" || cur.url ? f("url", "Adresse (URL)", "text", "https://") + f("accessed", "Abgerufen am", "date") : ""}
+        ${f("key", "Schlüssel zum Zitieren", "text", "leer = automatisch")}
+        <h3>TEXTSTELLEN (ZITATSAMMLUNG)</h3>
+        ${cur.quotes.map((q, k) => `<div class="quote"><textarea data-q="${k}" rows="3" placeholder="Wörtliche Textstelle …">${esc(q.text)}</textarea>
+          <div class="row"><input type="text" data-qp="${k}" placeholder="Seite" value="${esc(q.page || "")}"><button class="btn sm" data-qi="${k}">In Text einfügen</button><button class="btn sm" data-qd="${k}">Entfernen</button></div></div>`).join("")}
+        <div class="row"><button class="btn sm" id="addq">${ico("format_quote")}Textstelle hinzufügen</button></div>
+        <div class="row" style="margin-top:14px"><button class="btn sm pri" id="save">Speichern</button><button class="btn sm" id="cancel">Zurück</button>${src ? `<button class="btn sm" id="del">Löschen</button>` : ""}</div>`;
+    };
+    const commit = () => {   // Quelle sichern; false, wenn etwas fehlt
+      if (!cur.title.trim() && !cur.author.trim()) { toast("Titel oder Autor fehlt"); return false; }
+      cur.quotes = cur.quotes.filter((q) => q.text.trim());
+      cur.key = cur.key.trim().replace(/[\s,\[\]]+/g, "") || makeKey(cur, src?.key);
+      if (S().some((x) => x.key === cur.key && x.key !== src?.key)) { toast("Diesen Schlüssel gibt es schon"); return false; }
+      if (src && src.key !== cur.key) {   // Schlüssel umbenannt: Zitate im Text mitziehen
+        const t = $("#src"); t.value = t.value.replace(new RegExp("\\[@" + keyRe(src.key) + "(?=[,\\]])", "g"), `[@${cur.key}`); st.doc.content = t.value;
+      }
+      st.doc.sources = src ? S().map((x) => (x === src ? cur : x)) : [...S(), cur];
+      src = cur; changed(); return true;
+    };
+    const flat = Object.keys(cur);   // nur bekannte Felder per Eingabe setzen
+    body.onclick = body.oninput = body.onchange = null;
+    draw();
+    body.oninput = body.onchange = (e) => {
+      const t = e.target;
+      if (t.dataset.f && flat.includes(t.dataset.f)) { cur[t.dataset.f] = t.value; if (t.dataset.f === "type" && e.type === "change") draw(); }
+      else if (t.dataset.q != null) cur.quotes[t.dataset.q].text = t.value;
+      else if (t.dataset.qp != null) cur.quotes[t.dataset.qp].page = t.value;
+    };
+    body.onclick = async (e) => {
+      const b = e.target.closest("button"); if (!b) return;
+      if (b.id === "cancel") return list();
+      if (b.id === "save") { if (commit()) list(); return; }
+      if (b.id === "del") { if (confirm("Quelle löschen?")) { st.doc.sources = S().filter((x) => x.key !== src.key); changed(); list(); } return; }
+      if (b.id === "addq") { cur.quotes.push({ text: "", page: "" }); draw(); return; }
+      if (b.dataset.qd != null) { cur.quotes.splice(+b.dataset.qd, 1); draw(); return; }
+      if (b.dataset.qi != null) {
+        const q = cur.quotes[+b.dataset.qi]; if (!q.text.trim() || !commit()) return;
+        close(); block(`> „${q.text.trim().replace(/\n+/g, " ")}“ [@${cur.key}${q.page ? ", " + q.page : ""}]\n`); return;
+      }
+      if (b.id === "look") {
+        const q = $("#q", body).value.trim(); if (!q) return toast("Erst Adresse, ISBN oder DOI einfügen");
+        b.disabled = true;
+        try { const r = await api("/lookup?q=" + encodeURIComponent(q)); for (const [k, v] of Object.entries(r)) if (v && flat.includes(k)) cur[k] = v; draw(); toast("Ausgefüllt – bitte kurz prüfen"); }
+        catch (er) { b.disabled = false; toast(er.message); }
+      }
+    };
+  }
+  list();
 }
 
 // ---------------------------------------------------------------- Seiten
@@ -152,10 +296,11 @@ function vars(s) {
 let measure = null;
 function layout() {
   const prev = $("#prev"); if (!prev || !st.doc) return;
-  const c = cfg(st.doc.settings), { html, headings } = render(st.doc.content, { numbers: c.headingNumbers });
+  const c = cfg(st.doc.settings), { html, headings, used, missing } = render(st.doc.content, { numbers: c.headingNumbers, sources: st.doc.sources, citeStyle: c.citeStyle, bibStyle: c.bibStyle });
+  st.res = { used, missing };
   if (prefs.mode === "web") {
     prev.innerHTML = `<div class="webdoc web doc ${prefs.dark ? "dark" : ""}" style="${vars(c)};--fs:${Math.max(c.size, 12)}">${html.replace(/ href="#h-[^"]*"/g, "")}</div>`;
-    $("#meta").textContent = `${st.doc.content.trim() ? st.doc.content.trim().split(/\s+/).length : 0} Wörter`; fit(); return;
+    $("#meta").textContent = `${st.doc.content.trim() ? st.doc.content.trim().split(/\s+/).length : 0} Wörter`; st.pageStarts = {}; drawMarks(); fit(); return;
   }
   const cw = PAGE_W - c.marginLeft - c.marginRight, ch = PAGE_H - c.marginTop - c.marginBottom;
   if (cw < 40 || ch < 40) { prev.innerHTML = '<div class="empty">Die Ränder sind zu groß für DIN A4.</div>'; return; }
@@ -170,6 +315,7 @@ function layout() {
   if (measure.querySelector(".pg")) {   // Inhaltsverzeichnis: Seitenzahlen eintragen und danach noch einmal messen (Zeilen bleiben gleich lang)
     for (let pass = 0; pass < 2; pass++) { measure.querySelectorAll(".pg").forEach((p) => { p.textContent = pages[p.dataset.h] || ""; }); const np = place(); if (JSON.stringify(np) === JSON.stringify(pages)) break; pages = np; }
   }
+  st.pageStarts = pageStarts(pitch);
   const n = count(), inner = measure.innerHTML.replace(/ id="h-[^"]*"/g, "").replace(/ href="#h-[^"]*"/g, "");
   const pos = { left: "left", center: "left:0;right:0;text-align:center", right: "right" }[c.pageNumberPos];
   const pn = (i) => !c.pageNumbers ? "" : `<div class="pgn" style="bottom:${Math.max(4, c.marginBottom / 2 - 2)}mm;${c.pageNumberPos === "center" ? pos : c.pageNumberPos === "left" ? `left:${c.marginLeft}mm` : `right:${c.marginRight}mm`}">${i + 1}</div>`;
@@ -179,7 +325,45 @@ function layout() {
   prev.innerHTML = `<div class="sheets">${out}</div>`;
   prev.scrollTop = keep;
   $("#meta").textContent = `${n} ${n === 1 ? "Seite" : "Seiten"} · ${st.doc.content.trim() ? st.doc.content.trim().split(/\s+/).length : 0} Wörter`;
-  fit();
+  fit(); drawMarks();
+}
+// Wo beginnt welche Seite im Markdown? Pro Block (data-l) die Startseite, bei Absätzen über den Seitenwechsel hinweg das erste Wort der neuen Seite.
+const SKIPTOK = /^(#{1,6}|[-*+]|\d+[.)]|\|+|:?-{2,}:?|>+|:::\w*)$/;
+function pageStarts(pitch) {
+  const text = st.doc.content.replace(/\r\n?/g, "\n"), ls = [0];
+  for (let i = text.indexOf("\n"); i >= 0; i = text.indexOf("\n", i + 1)) ls.push(i + 1);
+  const x0 = measure.getBoundingClientRect().left, col = (x) => Math.floor((x - x0 + 2) / pitch) + 1;
+  const out = {}, put = (pg, off) => { if (pg >= 2 && off != null && !(pg in out && out[pg] <= off)) out[pg] = off; };
+  const wordsOf = (n) => { const w = [], tw = document.createTreeWalker(n, NodeFilter.SHOW_TEXT); for (let t; (t = tw.nextNode());) for (const m of t.data.matchAll(/\S+/g)) w.push([t, m.index, m.index + m[0].length]); return w; };
+  const colOf = (w) => { const r = document.createRange(); r.setStart(w[0], w[1]); r.setEnd(w[0], w[2]); const q = r.getClientRects()[0]; return q ? col(q.left) : 0; };
+  measure.querySelectorAll("[data-l]").forEach((n) => {
+    const a = +n.dataset.l, b = +n.dataset.e, rects = n.getClientRects();
+    if (!rects.length || a >= ls.length) return;
+    const c0 = col(rects[0].left), c1 = col(rects[rects.length - 1].left);
+    put(c0, ls[a]);
+    if (c1 <= c0 || n.querySelector("[data-l]") || n.matches(".pb")) return;
+    const words = wordsOf(n); if (!words.length) return;
+    const seg = text.slice(ls[a], ls[b] ?? text.length).replace(/\[\[[^\]]*\]\]/g, (m) => " ".repeat(m.length));
+    const src = [...seg.matchAll(/\S+/g)].filter((m) => !SKIPTOK.test(m[0])).map((m) => ls[a] + m.index);
+    for (let pg = c0 + 1; pg <= c1; pg++) {
+      let lo = 0, hi = words.length - 1, k = -1;
+      while (lo <= hi) { const mid = (lo + hi) >> 1; if (colOf(words[mid]) >= pg) { k = mid; hi = mid - 1; } else lo = mid + 1; }
+      if (k < 0 || !src.length) continue;
+      put(pg, src.length === words.length ? src[k] : src[Math.min(src.length - 1, Math.floor((k * src.length) / words.length))]);
+    }
+  });
+  return out;
+}
+// gestrichelte Linie im Markdown-Editor dort, wo im Dokument die nächste DIN-A4-Seite beginnt
+function drawMarks() {
+  const ta = $("#src"), mir = $("#mirror"), mk = $("#marks"); if (!ta || !mir || !mk) return;
+  const text = ta.value, list = Object.entries(st.pageStarts || {}).map(([p, o]) => [+p, o]).filter(([, o]) => o <= text.length).sort((x, y) => x[1] - y[1]);
+  let html = "", prev = 0;
+  for (const [p, o] of list) { html += esc(text.slice(prev, o)) + `<i class="mk" data-p="${p}"></i>`; prev = o; }
+  mir.style.width = ta.clientWidth + "px";
+  mir.innerHTML = html + esc(text.slice(prev)) + "\u200b";
+  mk.firstChild.innerHTML = [...mir.querySelectorAll(".mk")].map((m) => `<div class="pgline" style="top:${m.offsetTop}px"><span>Seite ${m.dataset.p}</span></div>`).join("");
+  mk.firstChild.style.transform = `translateY(${-ta.scrollTop}px)`;
 }
 function fit() {
   const prev = $("#prev"), sh = prev?.querySelector(".sheets"); if (!sh) return;
@@ -201,6 +385,7 @@ function settingsPanel() {
     ${sel("align", "Ausrichtung", [["justify", "Blocksatz"], ["left", "Linksbündig"], ["center", "Zentriert"], ["right", "Rechtsbündig"]])}
     <h3>ÜBERSCHRIFTEN</h3>${num("h1", "Überschrift 1", 0.5, "pt")}${num("h2", "Überschrift 2", 0.5, "pt")}${num("h3", "Überschrift 3", 0.5, "pt")}${chk("headingNumbers", "Nummerieren (1, 1.1 …)")}
     <h3>SEITENZAHL</h3>${chk("pageNumbers", "Anzeigen")}${sel("pageNumberPos", "Position", [["center", "Unten Mitte"], ["right", "Unten rechts"], ["left", "Unten links"]])}
+    <h3>QUELLEN</h3>${sel("citeStyle", "Zitieren im Text", [["kurz", "Kurzbeleg (Müller 2020, S. 4)"], ["fuss", "Fußnote"]])}${sel("bibStyle", "Verzeichnis-Stil", [["din", "Deutsch (Autor (Jahr): Titel)"], ["apa", "APA"]])}
     <div class="row" style="margin-top:18px"><button class="btn sm" id="reset">${ico("restart_alt")}Auf Standard zurücksetzen</button></div>
     <p class="fld"><small>Standard: DIN A4, Ränder 30/20/25/20 mm, ${DEFAULTS.font} ${DEFAULTS.size} pt, Zeilenabstand 1,5, Blocksatz. In der .idadocs-Datei stehen nur Abweichungen davon.</small></p></div></aside>`);
   document.body.append(scrim, p);
@@ -229,8 +414,8 @@ function moreMenu(btn) {
   m.onclick = async (e) => {
     const x = e.target.closest("[data-x]")?.dataset.x; if (!x) return; close();
     if (x === "md") download(fname() + ".md", st.doc.content, "text/markdown");
-    if (x === "ida") download(fname() + ".idadocs", JSON.stringify({ format: "idadocs", version: 1, id: st.doc.id, title: st.doc.title, settings: diff(st.doc.settings), content: st.doc.content }, null, 1), "application/json");
-    if (x === "pdf") printPdf();
+    if (x === "ida") download(fname() + ".idadocs", JSON.stringify({ format: "idadocs", version: 1, id: st.doc.id, title: st.doc.title, settings: diff(st.doc.settings), sources: st.doc.sources, content: st.doc.content }, null, 1), "application/json");
+    if (x === "pdf") { const n = openItems().filter((o) => o.d).length; if (!n || confirm(`Es ${n === 1 ? "ist noch 1 Stelle" : `sind noch ${n} Stellen`} als Entwurf markiert. Trotzdem als PDF speichern?`)) printPdf(); }
     if (x === "del" && confirm("Dokument wirklich löschen?")) { await api("/docs/" + st.doc.id, { method: "DELETE" }).catch((er) => toast(er.message)); localStorage.removeItem("docs.c." + st.doc.id); st.dirty = false; home(); }
   };
 }

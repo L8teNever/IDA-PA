@@ -14,7 +14,7 @@ DEFAULTS = {
     "marginTop": 25, "marginBottom": 20, "marginLeft": 30, "marginRight": 20,
     "font": "Arial", "size": 11, "lineHeight": 1.5, "paraSpacing": 6,
     "align": "justify", "h1": 16, "h2": 14, "h3": 12, "headingNumbers": True,
-    "pageNumbers": True, "pageNumberPos": "center",
+    "pageNumbers": True, "pageNumberPos": "center", "citeStyle": "kurz", "bibStyle": "din",
 }
 _ID = re.compile(r"^[a-z0-9]{6,20}$")
 
@@ -44,6 +44,28 @@ def diff_settings(raw: dict | None) -> dict:
     return out
 
 
+_SRC_FIELDS = ("author", "year", "title", "container", "publisher", "place", "url", "accessed", "note")
+
+
+def clean_sources(raw) -> list[dict]:
+    """Quellenarchiv eines Dokuments: nur bekannte Felder, begrenzte Länge, eindeutige Schlüssel."""
+    out, keys = [], set()
+    for r in (raw if isinstance(raw, list) else [])[:500]:
+        if not isinstance(r, dict):
+            continue
+        key = re.sub(r"[\s,\[\]]+", "", str(r.get("key", ""))[:60])
+        if not key or key in keys:
+            continue
+        keys.add(key)
+        s = {k: str(r.get(k, ""))[:500] for k in _SRC_FIELDS}
+        s["key"] = key
+        s["type"] = r.get("type") if r.get("type") in ("buch", "artikel", "web", "sonst") else "buch"
+        s["quotes"] = [{"text": str(q.get("text", ""))[:3000], "page": str(q.get("page", ""))[:30]}
+                       for q in (r.get("quotes") or [])[:200] if isinstance(q, dict) and str(q.get("text", "")).strip()]
+        out.append(s)
+    return out
+
+
 def _paths(i: str) -> tuple[Path, Path]:
     d = get_settings().docs_dir
     return d / f"{i}.idadocs", d / f"{i}.md"
@@ -55,19 +77,40 @@ def _atomic(p: Path, text: str) -> None:
     tmp.replace(p)
 
 
-def save(i: str, title: str, md: str, settings: dict | None, created: float | None = None) -> dict:
+def save(i: str, title: str, md: str, settings: dict | None, sources: list | None = None, created: float | None = None) -> dict:
     ida, mdp = _paths(i)
     now = time.time()
+    old = load(i) or {}
     if created is None:
-        try:
-            created = json.loads(ida.read_text(encoding="utf8")).get("created", now)
-        except (OSError, ValueError):
-            created = now
+        created = old.get("created", now)
+    srcs = clean_sources(old.get("sources") if sources is None else sources)   # None = vorhandene Quellen behalten
     doc = {"format": FORMAT, "version": VERSION, "id": i, "title": title.strip() or "Ohne Titel",
-           "created": created, "updated": now, "settings": diff_settings(settings), "content": md}
+           "created": created, "updated": now, "settings": diff_settings(settings), "sources": srcs, "content": md}
     _atomic(ida, json.dumps(doc, ensure_ascii=False, indent=1))
     _atomic(mdp, md)
+    _snapshot(i, doc, now)
     return doc
+
+
+SNAP_EVERY = 600     # höchstens ein Versionsstand alle 10 Minuten
+SNAP_KEEP = 40       # pro Dokument die letzten 40 behalten
+
+
+def _snapshot(i: str, doc: dict, now: float) -> None:
+    """Zusätzlicher Versionsstand in versions/<id>/<zeit>.idadocs – damit nach einem Fehler ein älterer Stand da ist."""
+    try:
+        d = get_settings().data_dir / "versions" / i
+        d.mkdir(parents=True, exist_ok=True)
+        old = sorted(d.glob("*.idadocs"))
+        if old:
+            last = json.loads(old[-1].read_text(encoding="utf8"))
+            if now - last.get("updated", 0) < SNAP_EVERY or last.get("content") == doc["content"]:
+                return
+        _atomic(d / f"{int(now)}.idadocs", json.dumps(doc, ensure_ascii=False))
+        for f in sorted(d.glob("*.idadocs"))[:-SNAP_KEEP]:
+            f.unlink()
+    except (OSError, ValueError):
+        pass   # ein fehlgeschlagener Versionsstand darf das Speichern nie verhindern
 
 
 def load(i: str) -> dict | None:
@@ -89,6 +132,18 @@ def listing() -> list[dict]:
     return sorted(out, key=lambda x: -x["updated"])
 
 
+def backup_zip() -> bytes:
+    """Alle Dokumente (.idadocs + .md) in einer ZIP-Datei."""
+    import io
+    import zipfile
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        for f in sorted(get_settings().docs_dir.iterdir()):
+            if f.suffix in (".idadocs", ".md"):
+                z.write(f, f.name)
+    return buf.getvalue()
+
+
 def delete(i: str) -> bool:
     gone = False
     for p in _paths(i):
@@ -98,8 +153,8 @@ def delete(i: str) -> bool:
     return gone
 
 
-def parse_import(name: str, text: str) -> tuple[str, str, dict]:
-    """.idadocs (JSON) oder .md → (Titel, Text, Einstellungen)."""
+def parse_import(name: str, text: str) -> tuple[str, str, dict, list]:
+    """.idadocs (JSON) oder .md → (Titel, Text, Einstellungen, Quellen)."""
     base = re.sub(r"\.(idadocs|md|markdown|txt)$", "", name or "Import", flags=re.I) or "Import"
     if (name or "").lower().endswith(".idadocs"):
         try:
@@ -108,6 +163,6 @@ def parse_import(name: str, text: str) -> tuple[str, str, dict]:
             raise ValueError("Keine gültige .idadocs-Datei") from e
         if not isinstance(d, dict) or d.get("format") != FORMAT or not isinstance(d.get("content"), str):
             raise ValueError("Keine gültige .idadocs-Datei")
-        return str(d.get("title") or base), d["content"], diff_settings(d.get("settings"))
+        return str(d.get("title") or base), d["content"], diff_settings(d.get("settings")), clean_sources(d.get("sources"))
     m = re.match(r"^#\s+(.+)", text)
-    return (m.group(1).strip() if m else base), text, {}
+    return (m.group(1).strip() if m else base), text, {}, []

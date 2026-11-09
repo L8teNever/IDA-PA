@@ -38,3 +38,33 @@ def test_import_and_delete(client):
     i = r.json()["id"]
     assert c.delete(f"/api/v1/docs/{i}").status_code == 204
     assert c.get(f"/api/v1/docs/{i}").status_code == 404
+
+
+def test_backup_zip_and_snapshot(client):
+    import io
+    import zipfile
+    c, root = client
+    i = c.post("/api/v1/docs", json={"title": "A", "content": "x"}).json()["id"]
+    z = zipfile.ZipFile(io.BytesIO(c.get("/api/v1/backup").content))
+    assert sorted(z.namelist()) == [f"{i}.idadocs", f"{i}.md"]
+    assert len(list((root / "versions" / i).glob("*.idadocs"))) == 1
+
+
+def test_sources_saved_kept_and_cleaned(client):
+    c, root = client
+    src = [{"key": "mueller2020", "type": "buch", "author": "Müller, Anna", "year": "2020", "title": "Buch", "quotes": [{"text": "Zitat", "page": "4"}, {"text": " "}]},
+           {"key": "mueller2020", "title": "doppelt"}, {"key": "", "title": "ohne Schlüssel"}, "kaputt"]
+    i = c.post("/api/v1/docs", json={"title": "A", "content": "x", "sources": src}).json()["id"]
+    d = c.get(f"/api/v1/docs/{i}").json()
+    assert [s["key"] for s in d["sources"]] == ["mueller2020"] and d["sources"][0]["quotes"] == [{"text": "Zitat", "page": "4"}]
+    c.put(f"/api/v1/docs/{i}", json={"title": "A", "content": "y"})          # ohne sources → bleiben erhalten
+    assert len(c.get(f"/api/v1/docs/{i}").json()["sources"]) == 1
+
+
+def test_lookup_blocks_internal_addresses_and_parses_pages(client):
+    c, _ = client
+    assert c.get("/api/v1/lookup", params={"q": "http://127.0.0.1:8000/"}).status_code == 400
+    assert c.get("/api/v1/lookup", params={"q": "hallo"}).status_code == 400
+    from app import lookup
+    r = lookup.parse_page('<html><head><title>Fallback</title><meta property="og:title" content="Ein &amp; Titel"><meta name="author" content="Lena Kurz"><meta property="article:published_time" content="2023-05-01T10:00"></head></html>', "https://www.beispiel.de/a")
+    assert (r["title"], r["author"], r["year"], r["publisher"]) == ("Ein & Titel", "Lena Kurz", "2023", "beispiel.de")
