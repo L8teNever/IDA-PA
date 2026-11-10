@@ -57,6 +57,9 @@ class GoogleAuthManager:
 
         self._lock = threading.Lock()
         self._pending_states: dict[str, float] = {}
+        self._state_return: dict[str, str] = {}        # state -> Adresse, zu der es nach der Anmeldung zurueckgeht
+        self._tickets: dict[str, tuple[float, str]] = {}  # einmalige Start-Tickets (aus IDA): Ablauf, return_to
+        self._info_cache: tuple[float, dict] | None = None
 
         # In-Memory-Cache fuer den aktuellen Access-Token, damit nicht bei
         # jedem Tool-Aufruf gegen Google getauscht werden muss.
@@ -69,7 +72,21 @@ class GoogleAuthManager:
 
     # -- Schritt 1: Authorize-URL --------------------------------------
 
-    def generate_state(self) -> str:
+    def make_ticket(self, return_to: str = "") -> str:
+        """Einmaliges Ticket, mit dem /authorize ohne AUTH_TOKEN gestartet werden kann (wird intern, z. B. von IDA, ausgestellt)."""
+        ticket = secrets.token_urlsafe(24)
+        now = time.monotonic()
+        with self._lock:
+            self._tickets = {t: v for t, v in self._tickets.items() if v[0] >= now}
+            self._tickets[ticket] = (now + 300, return_to)
+        return ticket
+
+    def use_ticket(self, ticket: str) -> tuple[bool, str]:
+        with self._lock:
+            exp, back = self._tickets.pop(ticket, (0.0, ""))
+        return (exp >= time.monotonic() and bool(ticket)), back
+
+    def generate_state(self, return_to: str = "") -> str:
         state = secrets.token_urlsafe(32)
         now = time.monotonic()
         with self._lock:
@@ -78,6 +95,8 @@ class GoogleAuthManager:
             for s in expired:
                 del self._pending_states[s]
             self._pending_states[state] = now + _STATE_TTL_SECONDS
+            if return_to:
+                self._state_return[state] = return_to
         return state
 
     def build_authorize_url(self, state: str) -> str:
@@ -94,13 +113,16 @@ class GoogleAuthManager:
 
     # -- Schritt 2/3: Callback -------------------------------------------
 
-    def consume_state(self, state: str) -> bool:
-        """Einmalig gueltig -- nach dem Aufruf (egal ob gueltig oder nicht)
-        ist derselbe state-Wert kein zweites Mal akzeptabel."""
+    def consume(self, state: str) -> tuple[bool, str]:
+        """Einmalig gueltig: (ok, Zieladresse nach der Anmeldung). Danach ist derselbe state ungueltig."""
         now = time.monotonic()
         with self._lock:
             expiry = self._pending_states.pop(state, None)
-        return expiry is not None and expiry >= now
+            back = self._state_return.pop(state, "")
+        return (expiry is not None and expiry >= now), back
+
+    def consume_state(self, state: str) -> bool:
+        return self.consume(state)[0]
 
     # -- Schritt 4: Code-Tausch --------------------------------------------
 
@@ -128,7 +150,10 @@ class GoogleAuthManager:
             )
 
         with self._lock:
-            self._save({"refresh_token": refresh_token, "granted_scopes": self._scopes})
+            granted = (data.get("scope") or "").split() or self._scopes
+            self._save({"refresh_token": refresh_token, "granted_scopes": granted})
+            self._info_cache = None
+            self._scoped_tokens.clear()
             self._access_token = data.get("access_token")
             self._access_token_expiry = time.monotonic() + float(data.get("expires_in", 0))
 
@@ -202,6 +227,46 @@ class GoogleAuthManager:
             expiry = time.monotonic() + float(data.get("expires_in", 0)) - _TOKEN_EXPIRY_SAFETY_MARGIN_SECONDS
             self._scoped_tokens[key] = (data["access_token"], expiry)
             return data["access_token"]
+
+    # -- Status / Abmelden ----------------------------------------------------
+
+    def required_scopes(self) -> list[str]:
+        return list(self._scopes)
+
+    def info(self) -> dict:
+        """Was Google wirklich erlaubt hat (tokeninfo): {verbunden, erteilt: [...], konto}. 60 s gemerkt."""
+        now = time.monotonic()
+        if self._info_cache and self._info_cache[0] > now:
+            return self._info_cache[1]
+        if not self.is_connected():
+            return {"verbunden": False, "erteilt": [], "konto": ""}
+        out: dict = {"verbunden": True, "erteilt": [], "konto": ""}
+        try:
+            token = self.get_access_token()
+            r = requests.get("https://oauth2.googleapis.com/tokeninfo", params={"access_token": token}, timeout=10)
+            if r.status_code == 200:
+                d = r.json()
+                out["erteilt"] = (d.get("scope") or "").split()
+                out["konto"] = d.get("email", "")
+            else:
+                out["fehler"] = "Google lehnt den gespeicherten Zugang ab – bitte neu anmelden"
+        except (GoogleAuthError, requests.RequestException, ValueError) as exc:
+            out["fehler"] = str(exc)[:200]
+        self._info_cache = (now + 60, out)
+        return out
+
+    def disconnect(self) -> None:
+        """Zugang bei Google widerrufen und lokal loeschen."""
+        stored = self._load()
+        if stored and stored.get("refresh_token"):
+            try:
+                requests.post("https://oauth2.googleapis.com/revoke", data={"token": stored["refresh_token"]}, timeout=10)
+            except requests.RequestException:
+                pass
+        with self._lock:
+            self._path.unlink(missing_ok=True)
+            self._access_token, self._access_token_expiry, self._info_cache = None, 0.0, None
+            self._scoped_tokens.clear()
 
     # -- Intern -------------------------------------------------------------
 

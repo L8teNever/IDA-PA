@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>IDA – Ladezustand für noch nicht geladene Bereiche</title>
+<link rel="stylesheet" href="../../frontend/css/tokens.css"><link rel="stylesheet" href="../../frontend/css/components.css">
+<style>
+ body{overflow:auto;height:auto;display:block;padding:24px;background:#0b0b0d;color:var(--on-surface);font-family:"Google Sans Flex","Google Sans",Roboto,system-ui,sans-serif}
+ h1{font:500 20px "Google Sans Flex";margin:0 0 4px}
+ p.lead{color:var(--muted);font-size:14px;margin:0 0 20px;max-width:680px;line-height:1.5}
+ .row{display:flex;gap:28px;flex-wrap:wrap;align-items:flex-start}
+ .col{width:360px;flex:none}
+ .col h2{font:500 14px "Google Sans Flex";color:var(--on-surface);margin:0 0 2px}
+ .col small{display:block;color:var(--muted);font-size:12.5px;line-height:1.45;margin-bottom:10px;min-height:36px}
+ .phone{position:relative;width:360px;height:560px;background:#000;border-radius:28px;overflow:hidden;border:1px solid #222;display:flex;flex-direction:column}
+ .topbar{height:56px;flex:none;display:flex;align-items:center;gap:10px;padding:0 14px;position:relative}
+ .topbar .ms{font-size:24px;color:var(--muted)}
+ .topbar b{font-weight:500;font-size:17px}
+ .body{flex:1;min-height:0;position:relative;padding:8px 14px 14px;overflow:hidden}
+ .ms{font-size:22px}
+ .btn{margin-top:10px;border:0;border-radius:999px;height:36px;padding:0 16px;background:var(--surface-highest);color:var(--on-surface);font:inherit;font-size:13px;font-weight:500;cursor:pointer}
+ .btn:active{transform:scale(.96)}
+
+ /* Gemeinsam: Schimmer wie .tile.skel im Dashboard */
+ .sk{border-radius:18px;background:linear-gradient(90deg,var(--surface) 0%,var(--surface-high) 50%,var(--surface) 100%);background-size:200% 100%;animation:skel 1.4s infinite}
+ @keyframes skel{to{background-position:-200% 0}}
+ .spin{animation:spin 1s linear infinite}
+ @keyframes spin{to{transform:rotate(360deg)}}
+
+ /* Geladen: blendet weich ein */
+ .real{position:absolute;inset:8px 14px 14px;display:flex;flex-direction:column;gap:12px;opacity:0;transform:translateY(6px);pointer-events:none;transition:opacity .35s var(--emph),transform .35s var(--emph)}
+ .phone.loaded .real{opacity:1;transform:none;pointer-events:auto}
+ .phone.loaded .ph{opacity:0;pointer-events:none}
+ .ph{position:absolute;inset:0;transition:opacity .25s}
+ .card{background:var(--surface-high);border-radius:24px;padding:14px;display:flex;flex-direction:column;gap:6px}
+ .card b{font-weight:500;font-size:15px}
+ .card small{color:var(--muted);font-size:12.5px;margin:0;min-height:0}
+ .pill{display:inline-flex;align-items:center;gap:4px;font-size:12px;padding:3px 9px;border-radius:999px;background:#31463a;color:var(--ok);width:max-content}
+ .pill .ms{font-size:15px}
+
+ /* ── A: Skeleton-Karten (Platzhalter in Form der echten Inhalte) ── */
+ .a .ph{padding:8px 14px;display:flex;flex-direction:column;gap:12px}
+ .a .sk-card{background:var(--surface);border-radius:24px;padding:14px;display:flex;flex-direction:column;gap:10px;height:104px}
+ .a .sk-card .sk{height:14px;border-radius:7px}
+ .a .sk-card .sk.ic{width:36px;height:36px;border-radius:12px}
+ .a .sk-card .top{display:flex;justify-content:space-between;align-items:center}
+ .a .sk-card .top .sk:last-child{width:70px;border-radius:999px}
+ .a .sk-card .sk.w1{width:55%}.a .sk-card .sk.w2{width:35%}
+
+ /* ── B: Mitte: Bereichs-Icon in Ring + Text ── */
+ .b .ph{display:grid;place-items:center;align-content:center;gap:16px;text-align:center}
+ .b .ring{position:relative;width:76px;height:76px;display:grid;place-items:center}
+ .b .ring::before{content:"";position:absolute;inset:0;border-radius:50%;border:3px solid rgba(var(--accent-rgb),.18);border-top-color:var(--accent);animation:spin .9s linear infinite}
+ .b .ring .ms{font-size:30px;color:var(--accent);animation:breathe 2s ease-in-out infinite}
+ @keyframes breathe{50%{transform:scale(.88);opacity:.7}}
+ .b .txt{font-size:14px;color:var(--muted)}
+ .b .txt b{display:block;font-weight:500;color:var(--on-surface);font-size:15px;margin-bottom:2px}
+
+ /* ── C: Dünner Balken oben + dezente Zeilen + Text ── */
+ .c .bar{position:absolute;left:0;right:0;top:0;height:3px;overflow:hidden;z-index:2}
+ .c .bar::after{content:"";position:absolute;inset:0 auto 0 0;width:35%;background:var(--accent);border-radius:0 3px 3px 0;animation:sweep 1.3s var(--emph) infinite}
+ @keyframes sweep{from{transform:translateX(-100%)}to{transform:translateX(300%)}}
+ .c .ph{padding:8px 14px;display:flex;flex-direction:column;gap:10px}
+ .c .line{height:52px;border-radius:16px;background:var(--surface);opacity:.7;animation:fade 1.4s ease-in-out infinite alternate}
+ .c .line:nth-child(2){animation-delay:.15s}.c .line:nth-child(3){animation-delay:.3s}.c .line:nth-child(4){animation-delay:.45s}.c .line:nth-child(5){animation-delay:.6s}
+ @keyframes fade{to{opacity:.3}}
+ .c .hint{margin-top:auto;display:flex;align-items:center;gap:8px;color:var(--muted);font-size:13px;justify-content:center;padding-bottom:6px}
+ .c .hint .ms{font-size:18px}
+
+ @media (prefers-reduced-motion: reduce){ .sk,.spin,.b .ring::before,.b .ring .ms,.c .bar::after,.c .line{animation:none} }
+</style></head>
+<body>
+
+<h1>Ladezustand, wenn ein Bereich noch nichts geladen hat</h1>
+<p class="lead">Bisher bleibt die Fläche kurz schwarz oder zeigt nur „Lade …“. Drei Varianten, wie der Bereich stattdessen aussehen könnte. Unter jedem Bildschirm startet „Neu laden“ die Ladephase (rund 3 Sekunden), danach blendet der echte Inhalt weich ein.</p>
+
+<div class="row">
+
+ <!-- A -->
+ <div class="col">
+  <h2>A · Platzhalter-Karten</h2>
+  <small>Graue Kästen mit Schimmer in der Form der echten Karten. Man sieht schon, wie die Seite aussehen wird.</small>
+  <div class="phone a" id="pa">
+   <div class="topbar"><span class="ms">deployed_code</span><b>Stacks</b></div>
+   <div class="body">
+    <div class="ph">
+     <div class="sk-card"><div class="top"><div class="sk ic"></div><div class="sk"></div></div><div class="sk w1"></div><div class="sk w2"></div></div>
+     <div class="sk-card"><div class="top"><div class="sk ic"></div><div class="sk"></div></div><div class="sk w1"></div><div class="sk w2"></div></div>
+     <div class="sk-card"><div class="top"><div class="sk ic"></div><div class="sk"></div></div><div class="sk w1"></div><div class="sk w2"></div></div>
+    </div>
+    <div class="real">
+     <div class="card"><b>nova-xr</b><small>/opt/stacks/nova-xr</small><span class="pill"><span class="ms">check_circle</span>Läuft</span></div>
+     <div class="card"><b>sofia-notes</b><small>/opt/stacks/sofianotes</small><span class="pill"><span class="ms">check_circle</span>Läuft</span></div>
+     <div class="card"><b>cleo</b><small>/opt/stacks/cleo</small><span class="pill"><span class="ms">check_circle</span>Läuft</span></div>
+    </div>
+   </div>
+  </div>
+  <button class="btn" data-reload="pa">Neu laden</button>
+ </div>
+
+ <!-- B -->
+ <div class="col">
+  <h2>B · Ring mit Bereichs-Icon</h2>
+  <small>Mitten auf der Fläche: das Icon des Bereichs in einem drehenden Ring, darunter ein Satz. Ruhig und klar, gut für ganze Seiten.</small>
+  <div class="phone b" id="pb">
+   <div class="topbar"><span class="ms">deployed_code</span><b>Stacks</b></div>
+   <div class="body">
+    <div class="ph">
+     <div class="ring"><span class="ms">deployed_code</span></div>
+     <div class="txt"><b>Stacks werden geladen</b>Einen Moment …</div>
+    </div>
+    <div class="real">
+     <div class="card"><b>nova-xr</b><small>/opt/stacks/nova-xr</small><span class="pill"><span class="ms">check_circle</span>Läuft</span></div>
+     <div class="card"><b>sofia-notes</b><small>/opt/stacks/sofianotes</small><span class="pill"><span class="ms">check_circle</span>Läuft</span></div>
+     <div class="card"><b>cleo</b><small>/opt/stacks/cleo</small><span class="pill"><span class="ms">check_circle</span>Läuft</span></div>
+    </div>
+   </div>
+  </div>
+  <button class="btn" data-reload="pb">Neu laden</button>
+ </div>
+
+ <!-- C -->
+ <div class="col">
+  <h2>C · Balken oben + leise Zeilen</h2>
+  <small>Ein dünner Streifen am oberen Rand (wie in Browser-Apps), darunter ruhig atmende Zeilen. Am dezentesten, gut für Listen.</small>
+  <div class="phone c" id="pc">
+   <div class="bar"></div>
+   <div class="topbar"><span class="ms">deployed_code</span><b>Stacks</b></div>
+   <div class="body">
+    <div class="ph">
+     <div class="line"></div><div class="line"></div><div class="line"></div><div class="line"></div><div class="line"></div>
+     <div class="hint"><span class="ms spin">progress_activity</span>Lade Stacks …</div>
+    </div>
+    <div class="real">
+     <div class="card"><b>nova-xr</b><small>/opt/stacks/nova-xr</small><span class="pill"><span class="ms">check_circle</span>Läuft</span></div>
+     <div class="card"><b>sofia-notes</b><small>/opt/stacks/sofianotes</small><span class="pill"><span class="ms">check_circle</span>Läuft</span></div>
+     <div class="card"><b>cleo</b><small>/opt/stacks/cleo</small><span class="pill"><span class="ms">check_circle</span>Läuft</span></div>
+    </div>
+   </div>
+  </div>
+  <button class="btn" data-reload="pc">Neu laden</button>
+ </div>
+
+</div>
+
+<script>
+// Jeder Bildschirm: erst Ladephase (3 s), dann Inhalt einblenden. „Neu laden“ startet von vorn.
+const timers = {};
+function run(id){
+  const el = document.getElementById(id);
+  el.classList.remove('loaded');
+  clearTimeout(timers[id]);
+  timers[id] = setTimeout(() => el.classList.add('loaded'), 3000);
+}
+['pa','pb','pc'].forEach(run);
+document.querySelectorAll('[data-reload]').forEach(b => b.addEventListener('click', () => run(b.dataset.reload)));
+</script>
+</body></html>

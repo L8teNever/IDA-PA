@@ -1,0 +1,251 @@
+<!doctype html>
+<html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>IDA Mail – Demo</title>
+<link rel="stylesheet" href="../../frontend/css/tokens.css"><link rel="stylesheet" href="../../frontend/css/components.css">
+<style>
+ body{overflow:hidden}
+ .ms{font-size:24px}
+ .ms.sm{font-size:18px}
+ .muted{color:var(--muted)}
+ button{border:0;background:none;color:inherit;font:inherit;cursor:pointer}
+
+ .app{display:grid;grid-template-columns:240px 380px 1fr;height:100dvh;min-height:0}
+
+ /* ── Seitenleiste ── */
+ .side{display:flex;flex-direction:column;gap:6px;padding:14px 12px;min-height:0;overflow-y:auto}
+ .brand{display:flex;align-items:center;gap:10px;padding:6px 10px 14px;font-size:20px;font-weight:500}
+ .brand .ms{color:var(--accent)}
+ .compose{display:flex;align-items:center;gap:10px;height:56px;padding:0 20px;border-radius:18px;background:var(--accent);color:var(--on-accent);font-weight:500;font-size:15px;margin-bottom:10px;transition:transform .2s var(--emph),border-radius .2s var(--emph)}
+ .compose:active{transform:scale(.97);border-radius:26px}
+ .nav{display:flex;align-items:center;gap:14px;height:46px;padding:0 16px;border-radius:23px;color:var(--muted);font-size:14.5px;width:100%;text-align:left}
+ .nav .ms{font-size:22px}
+ .nav .n{margin-left:auto;font-size:12.5px;font-weight:500}
+ .nav:hover{background:rgba(255,255,255,.05);color:var(--on-surface)}
+ .nav.on{background:var(--container);color:var(--on-container);font-weight:500}
+ .side h3{margin:16px 16px 4px;font-size:11.5px;font-weight:500;color:var(--muted);letter-spacing:.06em;text-transform:uppercase}
+ .dot{width:10px;height:10px;border-radius:50%;margin:0 6px}
+ .quota{margin:auto 10px 4px;padding:12px 14px;border-radius:18px;background:var(--surface);font-size:12.5px;color:var(--muted)}
+ .quota .bar{height:5px;border-radius:5px;background:var(--surface-highest);margin:8px 0 6px;overflow:hidden}
+ .quota .bar i{display:block;height:100%;width:34%;background:var(--accent);border-radius:5px}
+
+ /* ── Liste ── */
+ .list{display:flex;flex-direction:column;min-height:0;background:var(--surface);border-radius:28px 0 0 28px;margin:8px 0}
+ .lhead{padding:14px 14px 6px;display:flex;flex-direction:column;gap:10px}
+ .lhead .row{display:flex;align-items:center;gap:8px}
+ .lhead h2{margin:0;font-size:20px;font-weight:500;flex:1}
+ .iconbtn{width:40px;height:40px;border-radius:50%;display:grid;place-items:center;color:var(--on-surface);flex:none}
+ .iconbtn:hover{background:rgba(255,255,255,.08)}
+ .iconbtn .ms{font-size:22px}
+ .search{display:flex;align-items:center;gap:10px;height:46px;padding:0 16px;border-radius:23px;background:var(--surface-high);color:var(--muted)}
+ .search:focus-within{box-shadow:0 0 0 2px rgba(var(--accent-rgb),.55)}
+ .search input{flex:1;min-width:0;border:0;outline:0;background:transparent;color:var(--on-surface);font:inherit;font-size:14.5px}
+ .chips{display:flex;gap:8px;overflow-x:auto;padding:2px 0 6px;scrollbar-width:none}
+ .chip{flex:none;height:32px;padding:0 14px;border-radius:16px;background:var(--surface-high);color:var(--muted);font-size:13px;font-weight:500;transition:background .2s,color .2s}
+ .chip.on{background:var(--accent);color:var(--on-accent)}
+ .items{flex:1;min-height:0;overflow-y:auto;padding:4px 8px 12px}
+ .day{padding:12px 12px 6px;font-size:12px;color:var(--muted);font-weight:500}
+
+ .mail{display:grid;grid-template-columns:44px 1fr auto;gap:2px 12px;padding:12px 12px;border-radius:20px;cursor:pointer;position:relative;transition:background .15s}
+ .mail:hover{background:rgba(255,255,255,.04)}
+ .mail.sel{background:var(--container);color:var(--on-container)}
+ .mail .av{grid-row:1 / span 3;width:44px;height:44px;border-radius:50%;display:grid;place-items:center;font-size:17px;font-weight:500;color:var(--ev-on)}
+ .mail .from{font-size:14.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+ .mail .time{font-size:12px;color:var(--muted)}
+ .mail .subj{grid-column:2 / span 2;font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+ .mail .prev{grid-column:2 / span 2;font-size:12.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+ .mail.sel .prev,.mail.sel .time{color:inherit;opacity:.75}
+ .mail.unread .from,.mail.unread .subj{font-weight:600}
+ .mail.unread::before{content:"";position:absolute;left:3px;top:50%;width:6px;height:6px;margin-top:-3px;border-radius:50%;background:var(--accent)}
+ .mail .tags{grid-column:2 / span 2;display:flex;gap:6px;margin-top:4px}
+ .tag{font-size:11px;font-weight:500;padding:2px 8px;border-radius:999px;display:inline-flex;align-items:center;gap:3px}
+ .tag .ms{font-size:13px}
+ .star{color:var(--muted)} .star.on{color:#fbbc6e}
+
+ /* ── Leseansicht ── */
+ .read{display:flex;flex-direction:column;min-height:0;background:var(--surface);border-radius:0 28px 28px 0;margin:8px 8px 8px 0;overflow:hidden}
+ .rbar{display:flex;align-items:center;gap:2px;padding:10px 12px;border-bottom:1px solid #1d1f23}
+ .rbar .sp{flex:1}
+ .rbody{flex:1;min-height:0;overflow-y:auto;padding:22px 28px 28px}
+ .rbody h1{margin:0 0 14px;font-size:24px;font-weight:500;line-height:1.3}
+ .sender{display:flex;align-items:center;gap:12px;margin-bottom:22px}
+ .sender .av{width:46px;height:46px;border-radius:50%;display:grid;place-items:center;font-size:18px;font-weight:500;color:var(--ev-on)}
+ .sender b{font-weight:500;font-size:15px;display:block}
+ .sender small{color:var(--muted);font-size:12.5px}
+ .sender .when{margin-left:auto;color:var(--muted);font-size:12.5px;text-align:right}
+ .text{font-size:15px;line-height:1.7;max-width:640px}
+ .text p{margin:0 0 14px}
+ .attach{display:inline-flex;align-items:center;gap:10px;margin:6px 8px 0 0;padding:10px 14px;border-radius:16px;background:var(--surface-high);font-size:13.5px}
+ .attach .ms{color:var(--accent)}
+ .attach small{display:block;color:var(--muted);font-size:11.5px}
+ .reply{display:flex;gap:8px;margin-top:26px;flex-wrap:wrap}
+ .pbtn{display:inline-flex;align-items:center;gap:8px;height:42px;padding:0 18px;border-radius:999px;font-size:14px;font-weight:500;transition:transform .2s var(--emph),border-radius .2s var(--emph)}
+ .pbtn:active{transform:scale(.96);border-radius:14px}
+ .pbtn.primary{background:var(--accent);color:var(--on-accent)}
+ .pbtn.tonal{background:var(--surface-highest)}
+ .pbtn .ms{font-size:20px}
+ .ida-box{margin:0 0 22px;padding:14px 16px;border-radius:20px;background:var(--container);color:var(--on-container);display:flex;gap:12px;font-size:13.5px;line-height:1.55;max-width:640px}
+ .ida-box .ms{color:var(--accent);flex:none}
+ .ida-box b{font-weight:500}
+ .empty{margin:auto;text-align:center;color:var(--muted);line-height:1.6;padding:40px}
+ .empty .ms{font-size:56px;opacity:.5;display:block;margin-bottom:8px}
+
+ /* ── Handy: nur Liste, Leseansicht als Vollbild ── */
+ .back,.fab{display:none}
+ @media (max-width:980px){
+  .app{grid-template-columns:1fr}
+  .side{display:none}
+  .list{border-radius:0;margin:0;background:#000}
+  .read{position:fixed;inset:0;margin:0;border-radius:0;z-index:20;transform:translateX(100%);transition:transform .3s var(--emph);background:#000}
+  .app.reading .read{transform:none}
+  .back{display:grid}
+  .fab{display:flex;position:fixed;right:18px;bottom:18px;height:56px;padding:0 20px;border-radius:18px;background:var(--accent);color:var(--on-accent);align-items:center;gap:10px;font-weight:500;box-shadow:0 6px 20px rgba(0,0,0,.6);z-index:10}
+  .rbody{padding:16px}
+  .mail.sel{background:transparent;color:inherit}
+ }
+ .toast{position:fixed;left:50%;bottom:24px;transform:translate(-50%,80px);padding:12px 20px;border-radius:16px;background:var(--on-surface);color:#1b1b1f;font-size:14px;opacity:0;transition:transform .3s var(--spring),opacity .2s;z-index:50}
+ .toast.show{transform:translate(-50%,0);opacity:1}
+</style></head>
+<body>
+<div class="app" id="app">
+
+ <aside class="side">
+  <div class="brand"><span class="ms">mail</span>Mail</div>
+  <button class="compose" id="compose"><span class="ms">edit</span>Verfassen</button>
+  <div id="folders"></div>
+  <h3>Labels</h3>
+  <button class="nav"><span class="dot" style="background:var(--ev-blau)"></span>Schule</button>
+  <button class="nav"><span class="dot" style="background:var(--ev-gruen)"></span>Projekte</button>
+  <button class="nav"><span class="dot" style="background:var(--ev-orange)"></span>Server</button>
+  <div class="quota"><b style="color:var(--on-surface);font-weight:500">5,1 GB</b> von 15 GB belegt<div class="bar"><i></i></div>Google-Konto verbunden</div>
+ </aside>
+
+ <section class="list">
+  <div class="lhead">
+   <div class="row"><h2 id="listTitle">Posteingang</h2>
+    <button class="iconbtn" id="refresh" title="Neu laden"><span class="ms">refresh</span></button>
+    <button class="iconbtn" title="Mehr"><span class="ms">more_vert</span></button></div>
+   <label class="search"><span class="ms sm">search</span><input id="q" type="search" placeholder="In Mails suchen" autocomplete="off"></label>
+   <div class="chips" id="chips"></div>
+  </div>
+  <div class="items" id="items"></div>
+ </section>
+
+ <section class="read" id="read"></section>
+</div>
+<button class="fab" id="fab"><span class="ms">edit</span>Verfassen</button>
+<div class="toast" id="toast"></div>
+
+<script>
+const COL = {blau:"var(--ev-blau)",gruen:"var(--ev-gruen)",lila:"var(--ev-lila)",orange:"var(--ev-orange)",tuerkis:"var(--ev-tuerkis)",rot:"var(--ev-rot)",gelb:"var(--ev-gelb)"};
+const TAGS = {
+  schule:{t:"Schule",bg:"var(--evc-blau)",c:"var(--ev-blau)"},
+  projekte:{t:"Projekte",bg:"var(--evc-gruen)",c:"var(--ev-gruen)"},
+  server:{t:"Server",bg:"var(--evc-orange)",c:"var(--ev-orange)"},
+  wichtig:{t:"Wichtig",bg:"var(--evc-rot)",c:"var(--ev-rot)",i:"priority_high"}
+};
+let mails = [
+ {id:1,from:"Frau Limley",col:"blau",subj:"Themenblatt Projektarbeit",time:"09:12",day:"Heute",unread:true,star:true,tags:["schule","wichtig"],folder:"inbox",
+  prev:"Bitte denk daran, dass die Unterschrift deines Expertenlehrers noch fehlt …",
+  body:["Hallo Simon,","bitte denk daran, dass auf dem Themenblatt die Unterschrift deines Expertenlehrers noch fehlt. Ohne sie können wir das Thema nicht freigeben.","Außerdem brauchen wir bis Ende der Woche den Terminvorschlag für das erste Reflexionsgespräch.","Viele Grüße<br>Frau Limley"],att:[["Themenblatt.pdf","84 KB"]],ida:"Die Unterschrift von Herrn Samarajiwa fehlt noch. Soll ich ihm eine Mail dazu entwerfen?"},
+ {id:2,from:"GitHub",col:"lila",subj:"[IDA-PA] Pull request #12 wurde gemerged",time:"08:40",day:"Heute",unread:true,tags:["projekte"],folder:"inbox",
+  prev:"L8teNever merged 3 commits into main …",
+  body:["L8teNever hat Pull request #12 in <b>main</b> gemerged.","3 Commits, 14 Dateien geändert (+420, −38).","Die Änderungen sind auf dem Server noch nicht live."],att:[]},
+ {id:3,from:"Cloudflare",col:"orange",subj:"Zertifikat für code.kulbarts.com läuft in 14 Tagen ab",time:"06:55",day:"Heute",tags:["server","wichtig"],folder:"inbox",
+  prev:"Dein Edge-Zertifikat wird automatisch erneuert, sofern der DNS-Eintrag …",
+  body:["Das Zertifikat für <b>code.kulbarts.com</b> läuft in 14 Tagen ab.","Es wird automatisch erneuert, solange der DNS-Eintrag auf Cloudflare zeigt. Du musst nichts tun."],att:[]},
+ {id:4,from:"Untis",col:"tuerkis",subj:"Vertretung am Donnerstag, BK2T",time:"Gestern",day:"Gestern",unread:true,tags:["schule"],folder:"inbox",
+  prev:"3./4. Stunde Informatik entfällt, Aufgaben im Teams-Kanal …",
+  body:["Am Donnerstag entfällt die 3./4. Stunde Informatik.","Die Aufgaben stehen im Teams-Kanal der Klasse."],att:[]},
+ {id:5,from:"Kevin",col:"gruen",subj:"Re: Nova XR auf der Quest testen",time:"Gestern",day:"Gestern",star:true,tags:["projekte"],folder:"inbox",
+  prev:"Passthrough läuft bei mir, nur die Hände zittern noch …",
+  body:["Passthrough läuft bei mir.","Nur das Hand-Tracking zittert noch ein bisschen, wenn ich die Hände schnell bewege.","Mach mal ein Video, dann sehe ich es besser."],att:[["quest-test.mp4","12,3 MB"]]},
+ {id:6,from:"Paulinenpflege",col:"gelb",subj:"Betriebsbesichtigung cloud4you",time:"Mo",day:"Diese Woche",tags:["schule"],folder:"inbox",
+  prev:"Treffpunkt 07:45 am Haupteingang, Personalausweis mitbringen …",
+  body:["Treffpunkt ist um 07:45 am Haupteingang.","Bitte den Personalausweis mitbringen."],att:[]},
+ {id:7,from:"Hetzner",col:"rot",subj:"Rechnung 11/2026",time:"So",day:"Diese Woche",folder:"inbox",
+  prev:"Deine Rechnung für den Monat November ist verfügbar …",
+  body:["Deine Rechnung für November ist verfügbar."],att:[["Rechnung-2026-11.pdf","61 KB"]]},
+ {id:8,from:"Ich",col:"blau",subj:"Termin Reflexion",time:"Fr",day:"Letzte Woche",folder:"sent",prev:"Hallo Herr Samarajiwa, hätten Sie am Mittwoch Zeit …",body:["Hallo Herr Samarajiwa,","hätten Sie am Mittwoch Zeit für das erste Reflexionsgespräch?"],att:[]}
+];
+const FOLDERS = [["inbox","inbox","Posteingang"],["star","star","Markiert"],["sent","send","Gesendet"],["draft","draft","Entwürfe"],["trash","delete","Papierkorb"]];
+let folder="inbox", filter="all", q="", sel=null;
+const $=id=>document.getElementById(id);
+const initials=s=>s.trim()[0].toUpperCase();
+
+function counts(){ return {inbox:mails.filter(m=>m.folder==="inbox"&&m.unread).length}; }
+function drawFolders(){
+  const c=counts();
+  $("folders").innerHTML=FOLDERS.map(([k,ic,l])=>`<button class="nav ${folder===k?"on":""}" data-f="${k}"><span class="ms">${ic}</span>${l}${k==="inbox"&&c.inbox?`<span class="n">${c.inbox}</span>`:""}</button>`).join("");
+  $("folders").querySelectorAll("[data-f]").forEach(b=>b.onclick=()=>{folder=b.dataset.f;sel=null;draw()});
+}
+function drawChips(){
+  const F=[["all","Alle"],["unread","Ungelesen"],["star","Markiert"],["att","Mit Anhang"]];
+  $("chips").innerHTML=F.map(([k,l])=>`<button class="chip ${filter===k?"on":""}" data-c="${k}">${l}</button>`).join("");
+  $("chips").querySelectorAll("[data-c]").forEach(b=>b.onclick=()=>{filter=b.dataset.c;draw()});
+}
+function visible(){
+  return mails.filter(m=>{
+    if(folder==="star"? !m.star : m.folder!==folder) return false;
+    if(filter==="unread"&&!m.unread) return false;
+    if(filter==="star"&&!m.star) return false;
+    if(filter==="att"&&!m.att.length) return false;
+    if(q&&!(m.from+" "+m.subj+" "+m.prev).toLowerCase().includes(q)) return false;
+    return true;
+  });
+}
+function drawList(){
+  const l=visible(); let last="";
+  $("listTitle").textContent=FOLDERS.find(f=>f[0]===folder)[2];
+  $("items").innerHTML=l.length?l.map(m=>{
+    const h=m.day!==last?`<div class="day">${m.day}</div>`:""; last=m.day;
+    return h+`<div class="mail ${m.unread?"unread":""} ${sel===m.id?"sel":""}" data-id="${m.id}">
+      <div class="av" style="background:${COL[m.col]}">${initials(m.from)}</div>
+      <div class="from">${m.from}</div><div class="time">${m.time}</div>
+      <div class="subj">${m.subj}</div><div class="prev">${m.prev}</div>
+      ${m.tags?.length||m.att.length?`<div class="tags">${(m.tags||[]).map(t=>`<span class="tag" style="background:${TAGS[t].bg};color:${TAGS[t].c}">${TAGS[t].i?`<span class="ms">${TAGS[t].i}</span>`:""}${TAGS[t].t}</span>`).join("")}${m.att.length?`<span class="tag" style="background:var(--surface-highest);color:var(--muted)"><span class="ms">attach_file</span>${m.att.length}</span>`:""}</div>`:""}
+    </div>`;
+  }).join(""):`<div class="empty"><span class="ms">drafts</span>Nichts gefunden.<br>Hier ist alles aufgeräumt.</div>`;
+  $("items").querySelectorAll(".mail").forEach(el=>el.onclick=()=>open(+el.dataset.id));
+}
+function drawRead(){
+  const m=mails.find(x=>x.id===sel);
+  if(!m){ $("read").innerHTML=`<div class="empty"><span class="ms">mail</span>Wähle links eine Mail aus.</div>`; return; }
+  $("read").innerHTML=`
+   <div class="rbar">
+    <button class="iconbtn back" id="rBack" title="Zurück"><span class="ms">arrow_back</span></button>
+    <button class="iconbtn" data-a="archive" title="Archivieren"><span class="ms">archive</span></button>
+    <button class="iconbtn" data-a="del" title="Löschen"><span class="ms">delete</span></button>
+    <button class="iconbtn" data-a="unread" title="Als ungelesen markieren"><span class="ms">mark_email_unread</span></button>
+    <span class="sp"></span>
+    <button class="iconbtn star ${m.star?"on":""}" data-a="star" title="Markieren"><span class="ms">${m.star?"star":"star_border"}</span></button>
+    <button class="iconbtn" title="Mehr"><span class="ms">more_vert</span></button>
+   </div>
+   <div class="rbody">
+    <h1>${m.subj}</h1>
+    <div class="sender"><div class="av" style="background:${COL[m.col]}">${initials(m.from)}</div>
+     <div><b>${m.from}</b><small>an mich</small></div><div class="when">${m.day==="Heute"?"Heute, "+m.time:m.day+", "+m.time}</div></div>
+    ${m.ida?`<div class="ida-box"><span class="ms">auto_awesome</span><div><b>Ida:</b> ${m.ida}</div></div>`:""}
+    <div class="text">${m.body.map(p=>`<p>${p}</p>`).join("")}</div>
+    ${m.att.map(([n,s])=>`<span class="attach"><span class="ms">description</span><span>${n}<small>${s}</small></span></span>`).join("")}
+    <div class="reply"><button class="pbtn primary" data-a="reply"><span class="ms">reply</span>Antworten</button>
+     <button class="pbtn tonal" data-a="fwd"><span class="ms">forward</span>Weiterleiten</button>
+     <button class="pbtn tonal" data-a="ida"><span class="ms">auto_awesome</span>Ida antwortet</button></div>
+   </div>`;
+  $("read").querySelectorAll("[data-a]").forEach(b=>b.onclick=()=>act(b.dataset.a,m));
+  $("rBack")&&($("rBack").onclick=()=>{$("app").classList.remove("reading")});
+}
+function open(id){ sel=id; const m=mails.find(x=>x.id===id); m.unread=false; $("app").classList.add("reading"); draw(); }
+function act(a,m){
+  if(a==="star"){m.star=!m.star; draw(); return}
+  if(a==="unread"){m.unread=true; sel=null; $("app").classList.remove("reading"); toast("Als ungelesen markiert"); draw(); return}
+  if(a==="archive"||a==="del"){mails=mails.filter(x=>x!==m); sel=null; $("app").classList.remove("reading"); toast(a==="del"?"In den Papierkorb verschoben":"Archiviert"); draw(); return}
+  toast({reply:"Antwort wird geöffnet …",fwd:"Weiterleiten …",ida:"Ida schreibt einen Entwurf …"}[a]);
+}
+let tt; function toast(t){ const el=$("toast"); el.textContent=t; el.classList.add("show"); clearTimeout(tt); tt=setTimeout(()=>el.classList.remove("show"),1800); }
+function draw(){ drawFolders(); drawChips(); drawList(); drawRead(); }
+$("q").oninput=e=>{q=e.target.value.toLowerCase().trim(); drawList()};
+$("compose").onclick=$("fab").onclick=()=>toast("Neue Mail – Verfassen-Fenster kommt hier");
+$("refresh").onclick=()=>{const i=$("refresh").querySelector(".ms"); i.style.transition="transform .6s var(--emph)"; i.style.transform="rotate(360deg)"; setTimeout(()=>{i.style.transition="none";i.style.transform="";toast("Aktuell")},650)};
+draw();
+</script>
+</body></html>

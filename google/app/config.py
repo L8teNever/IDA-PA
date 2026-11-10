@@ -65,6 +65,8 @@ class Settings:
 
     # --- IDA-Stack: interne API und Abgleich-Aufgaben (alles optional) ---
     data_dir: str = "/data"
+    public_url: str = ""                 # oeffentliche Adresse der Anmeldeseite (z. B. https://google.kulbarts.com)
+    return_bases: tuple = ()             # Adressen, zu denen es nach der Anmeldung zurueckgehen darf (z. B. https://ida.kulbarts.com)
     # Interne REST-API (nur im Docker-Netz, wird NICHT auf den Host veroeffentlicht). api_token leer = ohne Token.
     api_host: str = "0.0.0.0"
     api_port: int = 4571
@@ -105,6 +107,8 @@ def load_settings() -> Settings:
             auth_token=auth_token,
             token_file_path=_optional("GOOGLE_TOKEN_FILE_PATH", "/data/google_token.json"),
             data_dir=_optional("DATA_DIR", "/data"),
+            public_url=_optional("GOOGLE_PUBLIC_URL", "").rstrip("/"),
+            return_bases=tuple(b.strip().rstrip("/") for b in _optional("GOOGLE_RETURN_BASES", "").split(",") if b.strip()),
             api_host=_optional("API_HOST", "0.0.0.0"),
             api_port=int(_optional("API_PORT", "4571")),
             api_token=_optional("GOOGLE_API_TOKEN", ""),

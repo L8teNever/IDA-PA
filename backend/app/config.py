@@ -46,6 +46,10 @@ class Settings(BaseSettings):
     kalender_ida_token: str = ""
     kalender_public_url: str = ""  # öffentliche Adresse der Kalender-App (Seitenleiste, Termin-Links); leer = Eintrag versteckt
 
+    # Google (eigener Dienst, siehe docs/GOOGLE.md): interne API-Adresse und Token; leer = Einstellungen → Google zeigt „nicht eingerichtet“
+    google_api_url: str = ""
+    google_api_token: str = ""
+
     # Tasks (eigener Dienst, siehe docs/TASKS.md): Adresse und gemeinsames Geheimnis; leer = tasks_*-Tools aus
     tasks_url: str = ""
     tasks_ida_token: str = ""

@@ -14,11 +14,28 @@ andere Dienste im Stack ─────> :4571  REST-API (/api/v1/…) – nur D
 **Nur 4569 und 4570 gehören an den Host/Tunnel. 4571 wird nie veröffentlicht**, dort kommen die anderen Dienste ran:
 `http://google:4571`. Ist `GOOGLE_API_TOKEN` gesetzt, braucht jeder Aufruf `Authorization: Bearer <token>`.
 
+## Anmelden aus IDA (Einstellungen → Google)
+
+In IDA unter **Einstellungen → Google** gibt es „Mit Google anmelden“. Der Button holt über die interne API einen einmaligen Link
+(`POST /api/v1/auth/start`, 5 Minuten gültig) und öffnet `https://<GOOGLE_PUBLIC_URL>/authorize?ticket=…` → Google fragt nach allen
+Berechtigungen → Rücksprung zu IDA. Dort stehen das verbundene Konto und welche Dienste erlaubt sind; „Fehlendes erlauben“ wiederholt
+die Anmeldung, „Abmelden“ widerruft den Zugang bei Google. Ohne Ticket geht `/authorize` nur mit `?token=<GOOGLE_AUTH_TOKEN>`.
+
+* **Anmeldeadresse** `GOOGLE_PUBLIC_URL` (z. B. `https://google.kulbarts.com`) → Tunnel auf Port 4570, **mit Cloudflare Access davor**.
+  Die Startseite zeigt nur den Stand (verbunden? Konto? fehlende Berechtigungen).
+* **Rückkehr-Adresse** ist die Redirect-URI aus `GOOGLE_REDIRECT_URI` und muss in der Google Cloud Console (OAuth-Client →
+  Autorisierte Weiterleitungs-URIs) eingetragen sein. Für eine neue Adresse dort `https://<neue-adresse>/oauth/callback` ergänzen und
+  `GOOGLE_REDIRECT_URI` umstellen.
+* Zurück nach IDA geht es nur zu Adressen aus `GOOGLE_RETURN_BASES` (= `IDA_PUBLIC_URL`).
+
 ## Interne REST-API (für Dienste im Stack)
 
 | Aufruf | Was |
 |---|---|
 | `GET /api/v1/status` | verbunden? Stand von Kalender-Abgleich und Docs-Backup |
+| `GET /api/v1/auth/status` | Anmeldung: verbunden, Konto, welche Dienste erlaubt sind |
+| `POST /api/v1/auth/start` | `{return_to}` → `{url}`: einmaliger Anmelde-Link |
+| `POST /api/v1/auth/disconnect` | Zugang bei Google widerrufen und löschen |
 | `GET /api/v1/tools` | alle Google-Funktionen (dieselben wie im MCP) mit Beschreibung und Parametern |
 | `POST /api/v1/tools/{name}` | eine Funktion ausführen, Body = JSON-Objekt mit den Parametern. Antwort `{"ergebnis": …}` |
 | `GET /api/v1/sync/calendar` | Stand des letzten Kalender-Abgleichs |

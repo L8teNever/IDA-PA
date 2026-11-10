@@ -8,6 +8,7 @@ import * as agentsSec from "./agents.js";
 import * as autoSec from "./auto.js";
 import * as codeSec from "./code.js";
 import * as github from "./github.js";
+import * as googleSec from "./google.js";
 import * as homeSec from "./home.js";
 import * as mcp from "./mcp.js";
 import * as memory from "./memory.js";
@@ -26,6 +27,7 @@ const SECTIONS = [
   ["App", [
     ["startseite", "today", "Startseite", () => "Kalender im Tagesplan", "pink", homeSec],
     ["stella", "record_voice_over", "Stella-Stimme", () => state.boot.voice_name || "Aoede", "pink", stellaSec],
+    ["google", "cloud_sync", "Google", () => "Anmelden und alles erlauben (Kalender, Mail, Drive, …)", "blau", googleSec],
     ["accounts", "person", "Accounts", () => `${state.boot.accounts.length} verbunden · Claude & Antigravity`, "orange", accounts],
   ]],
   ["Code", [

@@ -1,6 +1,9 @@
 """Interne REST-API fuer andere Dienste im IDA-Stack (Docker-Netz, NICHT nach aussen veroeffentlicht).
 
 * GET  /api/v1/status                    Verbindung, Abgleich- und Backup-Stand
+* GET  /api/v1/auth/status              Google-Anmeldung: verbunden, Konto, welche Dienste erlaubt sind
+* POST /api/v1/auth/start               {return_to} -> {url}: Link zum Anmelden (einmalig, 5 Minuten gueltig)
+* POST /api/v1/auth/disconnect          Zugang bei Google widerrufen und loeschen
 * GET  /api/v1/tools                     alle Google-Funktionen (dieselben wie im MCP) mit Beschreibung und Parametern
 * POST /api/v1/tools/{name}              eine Funktion ausfuehren, Body = JSON mit den Parametern
 * GET/POST /api/v1/sync/calendar         Stand / jetzt abgleichen (?dry_run=1 = nur anzeigen, was passieren wuerde)
@@ -9,6 +12,7 @@ Ist GOOGLE_API_TOKEN gesetzt, ist es als Bearer-Token noetig.
 """
 from __future__ import annotations
 
+import asyncio
 import hmac
 import json
 import logging
@@ -45,7 +49,14 @@ def _plain(result):
     return result
 
 
-def build_internal_app(settings, mcp, google, runner: Runner) -> Starlette:
+SERVICE_NAMES = {"tasks": "Aufgaben", "contacts": "Kontakte", "calendar": "Kalender", "gmail": "Gmail", "docs": "Docs", "drive": "Drive",
+                 "sheets": "Sheets", "slides": "Folien", "chat": "Chat", "meet": "Meet", "health": "Gesundheit"}
+
+
+def build_internal_app(settings, mcp, google, runner: Runner, services: dict | None = None) -> Starlette:
+    """services: Name des Dienstes (tasks, calendar, ...) -> seine Scopes, fuer die Anzeige „was ist schon erlaubt“."""
+    services = services or {}
+
     def _deny(request: Request) -> JSONResponse | None:
         if not settings.api_token:
             return None
@@ -85,6 +96,30 @@ def build_internal_app(settings, mcp, google, runner: Runner) -> Starlette:
             log.info("Funktion %s: %s", name, exc)
             return JSONResponse({"detail": str(exc)[:500]}, status_code=400)
 
+    async def auth_status(request: Request):
+        info = await asyncio.to_thread(google.info)
+        granted = set(info.get("erteilt", []))
+        dienste = [{"name": SERVICE_NAMES.get(k, k), "ok": bool(info.get("verbunden")) and set(v) <= granted} for k, v in services.items()]
+        missing = [x for x in google.required_scopes() if x not in granted] if info.get("verbunden") else google.required_scopes()
+        return JSONResponse({"verbunden": bool(info.get("verbunden")), "konto": info.get("konto", ""), "fehler": info.get("fehler", ""),
+                             "dienste": dienste, "fehlende_scopes": len(missing), "vollstaendig": bool(info.get("verbunden")) and not missing,
+                             "anmeldeseite": settings.public_url})
+
+    async def auth_start(request: Request):
+        try:
+            body = await request.json() if await request.body() else {}
+        except ValueError:
+            body = {}
+        back = str((body or {}).get("return_to") or "").strip()
+        if back and not any(back == b or back.startswith(b + "/") for b in settings.return_bases):
+            return JSONResponse({"detail": "Rueckkehr-Adresse nicht erlaubt"}, status_code=400)
+        base = settings.public_url or settings.google_redirect_uri.rsplit("/oauth/callback", 1)[0]
+        return JSONResponse({"url": f"{base}/authorize?ticket={google.make_ticket(back)}"})
+
+    async def auth_disconnect(request: Request):
+        await asyncio.to_thread(google.disconnect)
+        return JSONResponse({"ok": True})
+
     async def calendar_get(request: Request):
         return JSONResponse(runner.calendar_status())
 
@@ -101,6 +136,9 @@ def build_internal_app(settings, mcp, google, runner: Runner) -> Starlette:
     return Starlette(routes=[
         Route("/healthz", healthz),
         Route("/api/v1/status", guarded(status)),
+        Route("/api/v1/auth/status", guarded(auth_status)),
+        Route("/api/v1/auth/start", guarded(auth_start), methods=["POST"]),
+        Route("/api/v1/auth/disconnect", guarded(auth_disconnect), methods=["POST"]),
         Route("/api/v1/tools", guarded(tools)),
         Route("/api/v1/tools/{name}", guarded(call_tool), methods=["POST"]),
         Route("/api/v1/sync/calendar", guarded(calendar_get), methods=["GET"]),

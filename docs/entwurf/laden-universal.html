@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>IDA – universeller Ladezustand</title>
+<link rel="stylesheet" href="../../frontend/css/tokens.css"><link rel="stylesheet" href="../../frontend/css/components.css">
+<style>
+ body{overflow:auto;height:auto;display:block;padding:24px;background:#0b0b0d;color:var(--on-surface);font-family:"Google Sans Flex","Google Sans",Roboto,system-ui,sans-serif}
+ h1{font:500 20px "Google Sans Flex";margin:0 0 4px}
+ p.lead{color:var(--muted);font-size:14px;margin:0 0 20px;max-width:700px;line-height:1.5}
+ .row{display:flex;gap:24px;flex-wrap:wrap;align-items:flex-start}
+ .col{width:300px;flex:none}
+ .col h2{font:500 14px "Google Sans Flex";margin:0 0 2px}
+ .col small{display:block;color:var(--muted);font-size:12.5px;line-height:1.45;margin-bottom:10px;min-height:34px}
+ .phone{position:relative;width:300px;height:500px;background:#000;border-radius:28px;overflow:hidden;border:1px solid #222;display:flex;flex-direction:column}
+ .topbar{height:52px;flex:none;display:flex;align-items:center;gap:10px;padding:0 14px}
+ .topbar .ms{font-size:22px;color:var(--muted)}
+ .topbar b{font-weight:500;font-size:16px}
+ .body{flex:1;min-height:0;position:relative;overflow:hidden}
+ .ms{font-size:22px}
+ .btn{margin-top:10px;border:0;border-radius:999px;height:36px;padding:0 16px;background:var(--surface-highest);color:var(--on-surface);font:inherit;font-size:13px;font-weight:500;cursor:pointer}
+ .btn:active{transform:scale(.96)}
+ .box{background:var(--surface-high);border-radius:20px;padding:12px 14px;font-size:13.5px}
+ .box small{display:block;color:var(--muted);font-size:12px;min-height:0;margin:2px 0 0}
+
+ /* ═══════════════════════════════════════════════════════════
+    UNIVERSELLER LADER – diese Regeln würden in frontend/css/components.css wandern
+    und gelten dann in allen Bereichen. Benutzung: <div class="ld" data-ld="list"></div>
+    ═══════════════════════════════════════════════════════════ */
+ .ld{position:absolute;inset:0;padding:8px 14px;display:flex;flex-direction:column;gap:10px;background:#000;z-index:5;transition:opacity .25s var(--emph)}
+ .ld.off{opacity:0;pointer-events:none}
+ /* dünner Streifen ganz oben: zeigt auf jeder Seite gleich „es lädt“ */
+ .ld::before{content:"";position:absolute;left:0;right:0;top:0;height:3px;background:linear-gradient(90deg,transparent,var(--accent),transparent);background-size:35% 100%;background-repeat:no-repeat;animation:ld-bar 1.3s var(--emph) infinite}
+ @keyframes ld-bar{from{background-position:-40% 0}to{background-position:140% 0}}
+ .ld i{display:block;border-radius:16px;background:linear-gradient(90deg,var(--surface) 0%,var(--surface-high) 50%,var(--surface) 100%);background-size:200% 100%;animation:ld-sk 1.4s infinite}
+ @keyframes ld-sk{to{background-position:-200% 0}}
+ .ld .t{height:14px;border-radius:7px}
+ .ld .t.s{width:55%}.ld .t.xs{width:35%}
+ /* Layouts – wählbar mit data-ld */
+ .ld[data-ld="list"] i.row{height:56px}
+ .ld[data-ld="cards"] i.card{height:104px;border-radius:24px}
+ .ld[data-ld="doc"] i.title{height:22px;width:60%;border-radius:8px;margin-bottom:6px}
+ .ld[data-ld="doc"] i.t{height:12px}
+ .ld[data-ld="grid"] .g{display:grid;grid-template-columns:repeat(7,1fr);gap:6px}
+ .ld[data-ld="grid"] .g i{height:44px;border-radius:12px}
+ .ld[data-ld="chat"] i.bub{height:44px;width:70%;border-radius:18px}
+ .ld[data-ld="chat"] i.bub.me{align-self:flex-end;width:55%}
+ @media (prefers-reduced-motion: reduce){ .ld::before,.ld i{animation:none} }
+
+ /* Inhalt der Beispielseiten (nur für die Vorschau) */
+ .real{position:absolute;inset:0;padding:8px 14px;display:flex;flex-direction:column;gap:10px}
+ .gridreal{display:grid;grid-template-columns:repeat(7,1fr);gap:6px;font-size:11px;text-align:center}
+ .gridreal span{height:44px;border-radius:12px;background:var(--surface-high);display:grid;place-items:center;color:var(--muted)}
+</style></head>
+<body>
+
+<h1>Universeller Ladezustand für alle IDA-Seiten</h1>
+<p class="lead">Ein einziger Baustein statt vieler Einzellösungen. Derselbe Streifen oben und derselbe Schimmer, nur die Form der Platzhalter passt sich der Seite an. Wo die Form nicht bekannt ist, reicht der Standard „list“. Jeder Bildschirm lädt rund 3 Sekunden, danach blendet der Inhalt ein.</p>
+
+<div class="row">
+
+ <div class="col"><h2>Liste · Stacks, Chats, Aufgaben</h2><small>data-ld="list"</small>
+  <div class="phone" id="p1"><div class="topbar"><span class="ms">forum</span><b>Chats</b></div>
+   <div class="body">
+    <div class="real"><div class="box">Nova XR<small>Quest-Passthrough ist drin</small></div><div class="box">Sofia<small>Hausaufgaben Mo</small></div><div class="box">Cleo<small>Deploy fertig</small></div><div class="box">Stella<small>Anruf um 07:15</small></div></div>
+    <div class="ld" data-ld="list"><i class="row"></i><i class="row"></i><i class="row"></i><i class="row"></i><i class="row"></i><i class="row"></i></div>
+   </div></div><button class="btn" data-r="p1">Neu laden</button></div>
+
+ <div class="col"><h2>Karten · Dashboard, Projekte</h2><small>data-ld="cards"</small>
+  <div class="phone" id="p2"><div class="topbar"><span class="ms">dashboard</span><b>Server</b></div>
+   <div class="body">
+    <div class="real"><div class="box" style="height:104px">nova-xr<small>3/3 laufen</small></div><div class="box" style="height:104px">sofia-notes<small>3/3 laufen</small></div><div class="box" style="height:104px">cleo<small>2/2 laufen</small></div></div>
+    <div class="ld" data-ld="cards"><i class="card"></i><i class="card"></i><i class="card"></i></div>
+   </div></div><button class="btn" data-r="p2">Neu laden</button></div>
+
+ <div class="col"><h2>Dokument · Wiki, Docs</h2><small>data-ld="doc"</small>
+  <div class="phone" id="p3"><div class="topbar"><span class="ms">description</span><b>Wiki</b></div>
+   <div class="body">
+    <div class="real"><div style="font-size:19px;font-weight:500;margin-bottom:6px">Projektarbeit</div><div style="font-size:13.5px;line-height:1.6;color:var(--muted)">Selbstexperiment: wie kann KI bei ADHS im Alltag als Assistentin unterstützen? Termine, Erinnerungen, To-Dos …</div></div>
+    <div class="ld" data-ld="doc"><i class="title"></i><i class="t"></i><i class="t"></i><i class="t s"></i><i class="t" style="margin-top:10px"></i><i class="t"></i><i class="t xs"></i></div>
+   </div></div><button class="btn" data-r="p3">Neu laden</button></div>
+
+ <div class="col"><h2>Raster · Kalender</h2><small>data-ld="grid"</small>
+  <div class="phone" id="p4"><div class="topbar"><span class="ms">calendar_month</span><b>Kalender</b></div>
+   <div class="body">
+    <div class="real"><div class="gridreal"><span>1</span><span>2</span><span>3</span><span>4</span><span>5</span><span>6</span><span>7</span><span>8</span><span>9</span><span>10</span><span>11</span><span>12</span><span>13</span><span>14</span></div></div>
+    <div class="ld" data-ld="grid"><div class="g"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div><div class="g"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div><div class="g"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div></div>
+   </div></div><button class="btn" data-r="p4">Neu laden</button></div>
+
+</div>
+
+<script>
+const T = {};
+function run(id){
+  const ld = document.querySelector('#'+id+' .ld');
+  ld.classList.remove('off'); clearTimeout(T[id]);
+  T[id] = setTimeout(() => ld.classList.add('off'), 3000);
+}
+['p1','p2','p3','p4'].forEach(run);
+document.querySelectorAll('[data-r]').forEach(b => b.addEventListener('click', () => run(b.dataset.r)));
+</script>
+</body></html>

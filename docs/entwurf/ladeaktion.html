@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>IDA Code – Ladeaktion Entwürfe</title>
+<link rel="stylesheet" href="../../frontend/css/tokens.css"><link rel="stylesheet" href="../../frontend/css/components.css">
+<style>
+ body{overflow:auto;height:auto;display:block;padding:24px;background:#0b0b0d;color:var(--on-surface);font-family:"Google Sans Flex","Google Sans",Roboto,system-ui,sans-serif}
+ h1{font:500 20px "Google Sans Flex";margin:0 0 4px}
+ p.lead{color:var(--muted);font-size:14px;margin:0 0 24px;max-width:640px;line-height:1.5}
+ .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:20px}
+ .card{background:var(--surface);border:1px solid #1d1f23;border-radius:24px;padding:20px;display:flex;flex-direction:column;gap:16px}
+ .card h2{font:500 15px "Google Sans Flex";margin:0;display:flex;justify-content:space-between;align-items:center}
+ .card h2 span{color:var(--muted);font-size:12px;font-weight:400}
+ .card .desc{color:var(--muted);font-size:13px;line-height:1.5;margin:0}
+ .stage{background:#000;border-radius:18px;padding:28px 16px;display:flex;justify-content:center;align-items:center;min-height:120px}
+ .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;justify-content:center}
+ .ms{font-size:24px}
+
+ /* Basis-Buttons im Stil des Code-Bereichs (wie frontend/code/css/code.css) */
+ .btn-primary,.btn-tonal{border:none;border-radius:999px;padding:0 18px;height:40px;font:inherit;font-size:14px;font-weight:500;display:inline-flex;align-items:center;gap:6px;cursor:pointer;position:relative;overflow:hidden;transition:transform .2s var(--emph),border-radius .2s var(--emph)}
+ .btn-primary{background:var(--accent);color:var(--on-accent)}
+ .btn-tonal{background:var(--surface-highest);color:var(--on-surface)}
+ .btn-primary:active,.btn-tonal:active{transform:scale(.96);border-radius:14px}
+ .btn-primary .ms,.btn-tonal .ms{font-size:19px}
+ .btn-primary.big{height:52px;font-size:15px;padding:0 24px}
+ .icon-btn{width:40px;height:40px;border-radius:50%;border:none;background:var(--surface-highest);color:var(--on-surface);display:inline-flex;align-items:center;justify-content:center;cursor:pointer;position:relative;padding:0}
+ .icon-btn .ms{font-size:22px}
+
+ /* Spinner-Grundlage (wie .ms.spin in frontend/css/app.css) */
+ .ms.spin{animation:spin 1s linear infinite}
+ @keyframes spin{to{transform:rotate(360deg)}}
+
+ /* ── Variante 1: Icon-Wechsel ── */
+ .v1.loading{pointer-events:none}
+ .v1.loading .ms{animation:spin 1s linear infinite}
+
+ /* ── Variante 2: Balken läuft über den Button, Haken am Ende ── */
+ .v2.loading{pointer-events:none}
+ .v2.loading::after{content:"";position:absolute;left:0;bottom:0;height:3px;width:40%;background:var(--accent);border-radius:3px;animation:sweep 1.2s var(--emph) infinite}
+ .v2.done .ms{animation:pop .4s var(--spring)}
+ @keyframes sweep{from{transform:translateX(-100%)}to{transform:translateX(250%)}}
+ @keyframes pop{from{transform:scale(.4)}to{transform:scale(1)}}
+
+ /* ── Variante 3: Ring um das Icon eines runden Buttons ── */
+ .v3.loading{color:transparent;pointer-events:none}
+ .v3.loading::after{content:"";position:absolute;inset:9px;border-radius:50%;border:2px solid rgba(var(--accent-rgb),.25);border-top-color:var(--accent);animation:spin .8s linear infinite}
+ .v3.loading .ms{opacity:0}
+ .v3 .ms{transition:opacity .2s}
+
+ /* Balken-Bausteine für Variante 2 als eigenständige Anzeige (optional) */
+ .track{width:100%;height:4px;border-radius:4px;background:var(--surface-highest);overflow:hidden;position:relative}
+ .track::after{content:"";position:absolute;inset:0 auto 0 0;width:40%;background:var(--accent);border-radius:4px;animation:sweep 1.2s var(--emph) infinite}
+ .label{font-size:13px;color:var(--muted)}
+ .label .ms{font-size:16px;vertical-align:-4px;margin-right:4px}
+</style></head>
+<body>
+
+<h1>Ladeaktion – Entwürfe</h1>
+<p class="lead">Drei Varianten im Stil des Code-Bereichs. Auf „Test“ klicken: der Button lädt rund 2,5 Sekunden und zeigt danach kurz den Erfolg. Die Buttons laufen unabhängig voneinander.</p>
+
+<div class="grid">
+
+ <!-- Variante 1 -->
+ <section class="card">
+  <h2>1 · Icon-Wechsel <span>wie der Commit-Button</span></h2>
+  <p class="desc">Der Button bleibt gleich groß. Das Icon dreht sich, der Text wird zu „Läuft …“. Am dezentesten und schon im Code-Bereich vorhanden.</p>
+  <div class="stage"><div class="row">
+   <button class="btn-tonal v1" data-sim><span class="ms">auto_awesome</span><span class="txt">Nachricht erzeugen</span></button>
+   <button class="btn-primary v1" data-sim><span class="ms">cloud_upload</span><span class="txt">Commit</span></button>
+  </div></div>
+  <div class="label"><span class="ms">info</span>Nur das Icon ändert sich, die Breite bleibt fest.</div>
+ </section>
+
+ <!-- Variante 2 -->
+ <section class="card">
+  <h2>2 · Balken läuft <span>für Commit und Push</span></h2>
+  <p class="desc">Ein dünner Akzentstreifen gleitet in Schleife über den Button. Am Ende poppt ein Haken mit der Feder-Kurve auf.</p>
+  <div class="stage"><div class="row">
+   <button class="btn-tonal v2" data-sim data-done="check"><span class="ms">arrow_upward</span><span class="txt">Push</span></button>
+   <button class="btn-primary big v2" data-sim data-done="check"><span class="ms">commit</span><span class="txt">Commit und Push</span></button>
+  </div></div>
+  <div class="label"><span class="ms">info</span>Der Streifen zeigt, dass etwas läuft, auch ohne Prozentangabe.</div>
+ </section>
+
+ <!-- Variante 3 -->
+ <section class="card">
+  <h2>3 · Ring am runden Button <span>für Icon-Buttons</span></h2>
+  <p class="desc">Bei runden Icon-Buttons ersetzt ein drehender Akzentring das Symbol. Kennt man vom Anhang-Upload.</p>
+  <div class="stage"><div class="row">
+   <button class="icon-btn v3" data-sim title="Aktualisieren"><span class="ms">sync</span></button>
+   <button class="icon-btn v3" data-sim title="Projekt holen"><span class="ms">download</span></button>
+   <button class="icon-btn v3" data-sim title="Speichern"><span class="ms">save</span></button>
+  </div></div>
+  <div class="label"><span class="ms">info</span>Das Symbol verschwindet, der Ring zeigt den Fortschritt.</div>
+ </section>
+
+ <!-- Zum Vergleich: nur der Balken -->
+ <section class="card">
+  <h2>Zum Vergleich · Balken allein <span>unter Text</span></h2>
+  <p class="desc">Falls eine Aktion eine Zeile Status braucht, passt ein eigener Balken direkt unter dem Text. Dazu der übliche Text „wird geklont …“ aus der Projektliste.</p>
+  <div class="stage" style="flex-direction:column;align-items:stretch;gap:12px">
+   <div class="label"><span class="ms spin">progress_activity</span>Wird geklont …</div>
+   <div class="track"></div>
+  </div>
+  <div class="label"><span class="ms">info</span>Nur als Ergänzung, nicht als Button.</div>
+ </section>
+
+</div>
+
+<script>
+// Simulation: Klick startet den Ladezustand, nach 2,5 s kommt der Erfolg.
+document.querySelectorAll('[data-sim]').forEach(btn => {
+  const ic = btn.querySelector('.ms');
+  const txt = btn.querySelector('.txt');
+  const orig = { icon: ic.textContent, text: txt ? txt.textContent : null };
+  btn.addEventListener('click', () => {
+    if (btn.classList.contains('loading')) return;
+    btn.classList.remove('done');
+    btn.classList.add('loading');
+    btn.disabled = true;
+    if (txt) txt.textContent = 'Läuft …';
+    if (btn.classList.contains('v1')) ic.textContent = 'progress_activity';
+    setTimeout(() => {
+      btn.classList.remove('loading');
+      btn.disabled = false;
+      if (txt) txt.textContent = orig.text;
+      ic.textContent = orig.icon;
+      if (btn.dataset.done) {
+        ic.textContent = 'check';
+        btn.classList.add('done');
+        setTimeout(() => { ic.textContent = orig.icon; btn.classList.remove('done'); }, 1400);
+      }
+    }, 2500);
+  });
+});
+</script>
+</body></html>

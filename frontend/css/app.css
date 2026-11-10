@@ -1211,3 +1211,9 @@ body.view-timeline #btnBack { display: none; }
 .md-table { display: block; max-width: 100%; overflow-x: auto; border-collapse: collapse; margin: 8px 0; font-size: 14px; white-space: normal; }
 .md-table th, .md-table td { padding: 6px 12px; border: 1px solid rgba(255,255,255,.12); text-align: left; vertical-align: top; }
 .md-table th { background: rgba(255,255,255,.06); font-weight: 600; }
+
+/* Einstellungen → Google */
+.g-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 12px; }
+.chip-s { display: inline-flex; align-items: center; gap: 4px; height: 30px; padding: 0 12px 0 8px; border-radius: 12px; background: var(--surface-highest); font-size: 13px; color: var(--muted); }
+.chip-s .ms { font-size: 18px; }
+.chip-s.on { color: var(--on-container); background: var(--container); }

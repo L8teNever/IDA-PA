@@ -18,7 +18,7 @@ import uvicorn
 from app.auth_app import build_auth_app
 from app.internal_api import build_internal_app
 from app.jobs.runner import Runner
-from app.server import build_mcp_app, client, mcp
+from app.server import _SERVICE_MODULES, build_mcp_app, client, mcp
 from app.server import google as google_auth_manager
 from app.server import settings
 
@@ -62,7 +62,8 @@ async def _run() -> None:
 
     runner = Runner(settings, client, google_auth_manager)
     api_server = uvicorn.Server(
-        uvicorn.Config(build_internal_app(settings, mcp, google_auth_manager, runner), host=settings.api_host, port=settings.api_port,
+        uvicorn.Config(build_internal_app(settings, mcp, google_auth_manager, runner,
+                                           {m.__name__.rsplit(".", 1)[-1]: m.SCOPES for m in _SERVICE_MODULES}), host=settings.api_host, port=settings.api_port,
                        log_level="info", access_log=False)
     )
     log.info("Interne API %s:%s | Kalender-Abgleich: %s | Docs-Backup: %s", settings.api_host, settings.api_port,
