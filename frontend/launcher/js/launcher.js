@@ -184,7 +184,8 @@ const fmtDate = new Intl.DateTimeFormat("de-DE", { weekday: "long", day: "numeri
 let clockT = 0;
 function tick() {
   const d = new Date();
-  $("lcTime").textContent = fmtTime.format(d);
+  const [hh, mm] = fmtTime.format(d).split(":");
+  $("lcTime").innerHTML = `<span class="h">${hh}</span><span class="c">:</span><span class="m">${mm}</span>`;
   $("lcDate").textContent = fmtDate.format(d);
   clearTimeout(clockT);
   if (!document.hidden) clockT = setTimeout(tick, 60_000 - (d.getSeconds() * 1000 + d.getMilliseconds()) + 50); // genau zur nächsten Minute
