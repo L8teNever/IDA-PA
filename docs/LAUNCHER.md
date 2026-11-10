@@ -5,7 +5,8 @@ Gedacht für `home.kulbarts.com`.
 
 * **Automatisch**: Die Liste kommt aus Cloudflare. Quellen sind die **Access-Apps** (Zero Trust) und die **Adressen der Tunnel**.
   Kommt eine App oder Adresse dazu, erscheint sie nach spätestens einer Minute von selbst. Access-Apps mit ausgeschaltetem
-  „im App Launcher zeigen“ bleiben draußen. Adressen ohne Access-App sind mit „offen“ markiert.
+  „im App Launcher zeigen“ bleiben draußen. Standardmäßig sind es nur die Access-Apps (wie im Cloudflare-Launcher). Mit `LAUNCHER_SHOW_UNPROTECTED=true` kommen auch Tunnel-Adressen
+  ohne Access-App dazu, mit „offen“ markiert.
 * **Suche**: Tippen filtert nach Name und Adresse, Enter öffnet den ersten Treffer, `/` springt ins Suchfeld, Esc leert es.
 * **Symbole**: Zuerst das Logo der Access-App, sonst das Icon der Seite selbst. Seiten hinter Access sind von außen nicht lesbar,
   deshalb fragt der Launcher zuerst die interne Tunnel-Adresse (z. B. `http://10.7.0.1:8450`) ab und dann die öffentliche.
@@ -19,7 +20,7 @@ Gedacht für `home.kulbarts.com`.
 3. **Tunnel** `home.kulbarts.com` → `http://<Server>:<Port>` und **Cloudflare Access davor (Pflicht)**. Der Launcher hat keine eigene Anmeldung.
 
 Einstellungen (in der `.env`): `LAUNCHER_HIDE` (Adressen ausblenden, `*` erlaubt), `LAUNCHER_EXTRA` (zusätzliche Einträge `Name=https://…`),
-`LAUNCHER_SHOW_UNPROTECTED=false` (nur Access-Apps zeigen).
+`LAUNCHER_SHOW_UNPROTECTED=true` (auch Tunnel-Adressen ohne Access-App zeigen).
 
 ## Technik
 

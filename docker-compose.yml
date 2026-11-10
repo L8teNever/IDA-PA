@@ -161,7 +161,7 @@ services:
       CLOUDFLARE_ACCOUNT_ID: ${CLOUDFLARE_ACCOUNT_ID:-}
       HIDE: ${LAUNCHER_HIDE:-}                              # Adressen ausblenden, Komma-getrennt, * erlaubt
       EXTRA: ${LAUNCHER_EXTRA:-}                            # zusätzliche Einträge: Name=https://adresse, …
-      SHOW_UNPROTECTED: ${LAUNCHER_SHOW_UNPROTECTED:-true}  # auch Tunnel-Adressen ohne Access-App zeigen
+      SHOW_UNPROTECTED: ${LAUNCHER_SHOW_UNPROTECTED:-false} # true = auch Tunnel-Adressen ohne Access-App zeigen
     ports:
       - "${LAUNCHER_PORT:-8093}:8000"
     volumes:

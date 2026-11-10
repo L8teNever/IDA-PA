@@ -17,7 +17,7 @@ class Settings(BaseSettings):
     cache_seconds: int = 60                         # so lange gilt die Liste, bevor sie neu von Cloudflare geholt wird
     hide: str = ""                                  # Adressen, die nicht erscheinen sollen (Komma-getrennt, * erlaubt), z. B. "adminkira.*,*.l8tenever.com"
     extra: str = ""                                 # zusätzliche Einträge: "Name=https://adresse, Name2=https://adresse2"
-    show_unprotected: bool = True                   # auch Tunnel-Adressen ohne Access-App zeigen (mit Hinweis „offen“)
+    show_unprotected: bool = False                  # auch Tunnel-Adressen ohne Access-App zeigen (mit Hinweis „offen“); aus = nur Access-Apps
     title: str = "Willkommen zurück!"
 
 

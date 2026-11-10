@@ -62,7 +62,7 @@ def _hosts(a: dict) -> list[str]:
     out = []
     for d in doms:
         h = (d or "").strip().lower().split("/")[0]
-        if h and "*" not in h and h not in out:
+        if h and "*" not in h and "." in h and not h.endswith(".cloudflareaccess.com") and h not in out:
             out.append(h)
     return out
 
@@ -85,7 +85,7 @@ async def fetch() -> dict:
             continue
         for r in ((cfg or {}).get("config") or {}).get("ingress") or []:
             h = (r.get("hostname") or "").strip().lower()
-            if not h or "*" in h:
+            if not h or "*" in h or "." not in h:
                 continue
             e = items.get(h)
             if e:

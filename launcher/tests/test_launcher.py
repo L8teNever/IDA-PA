@@ -14,6 +14,7 @@ APPS = [
 @pytest.fixture
 def client(monkeypatch, tmp_path):
     monkeypatch.setenv("CLOUDFLARE_API_TOKEN", "x")
+    monkeypatch.setenv("SHOW_UNPROTECTED", "true")
     monkeypatch.setenv("DATA_DIR", str(tmp_path))
     get_settings.cache_clear()
     cloudflare._cache.clear()
