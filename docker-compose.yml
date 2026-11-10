@@ -149,6 +149,26 @@ services:
     labels:
       com.centurylinklabs.watchtower.enable: "true"
 
+  # IDA Launcher – Startseite mit allen Apps (wie der Cloudflare-Access-Launcher), im IDA-Stil mit Suche und Seiten-Symbolen.
+  # Die Liste kommt von selbst aus Cloudflare (Access-Apps + Tunnel-Adressen), neue Apps erscheinen ohne Zutun. Davor gehört
+  # Cloudflare Access. Siehe docs/LAUNCHER.md
+  launcher:
+    image: ${LAUNCHER_IMAGE:-ghcr.io/l8tenever/ida-launcher:latest}
+    pull_policy: always
+    restart: unless-stopped
+    environment:
+      CLOUDFLARE_API_TOKEN: ${CLOUDFLARE_API_TOKEN:-}      # derselbe Token wie beim Cloudflare-MCP (nur Lesen nötig)
+      CLOUDFLARE_ACCOUNT_ID: ${CLOUDFLARE_ACCOUNT_ID:-}
+      HIDE: ${LAUNCHER_HIDE:-}                              # Adressen ausblenden, Komma-getrennt, * erlaubt
+      EXTRA: ${LAUNCHER_EXTRA:-}                            # zusätzliche Einträge: Name=https://adresse, …
+      SHOW_UNPROTECTED: ${LAUNCHER_SHOW_UNPROTECTED:-true}  # auch Tunnel-Adressen ohne Access-App zeigen
+    ports:
+      - "${LAUNCHER_PORT:-8093}:8000"
+    volumes:
+      - launcher-data:/data
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"
+
   # IDA Docs – Dokumente schreiben (Markdown, DIN A4, Inhaltsverzeichnis, PDF). Dateien liegen als .idadocs + .md im Volume docs-data;
   # Davor gehört Cloudflare Access. Siehe docs/DOCS.md
   docs:
@@ -408,4 +428,5 @@ volumes:
   links-data:
   tasks-data:
   docs-data:
+  launcher-data:
   google-data:

@@ -1,0 +1,69 @@
+import pytest
+from fastapi.testclient import TestClient
+
+from app import cloudflare, icons
+from app.config import get_settings
+from app.main import app
+
+APPS = [
+    {"name": "Wiki", "host": "wiki.example.com", "logo": "", "protected": True, "service": "http://10.0.0.1:8443"},
+    {"name": "offen.example.com", "host": "offen.example.com", "logo": "", "protected": False, "service": ""},
+]
+
+
+@pytest.fixture
+def client(monkeypatch, tmp_path):
+    monkeypatch.setenv("CLOUDFLARE_API_TOKEN", "x")
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    get_settings.cache_clear()
+    cloudflare._cache.clear()
+
+    async def fake_fetch():
+        return {"apps": [dict(a) for a in APPS]}
+    monkeypatch.setattr(cloudflare, "fetch", fake_fetch)
+    yield TestClient(app)
+    get_settings.cache_clear()
+
+
+def test_health_und_startseite(client):
+    assert client.get("/api/v1/health").json() == {"ok": True}
+    assert client.get("/").status_code == 200
+
+
+def test_apps_liste(client):
+    d = client.get("/api/v1/apps").json()
+    assert [a["host"] for a in d["apps"]] == ["offen.example.com", "wiki.example.com"] or len(d["apps"]) == 2
+    wiki = next(a for a in d["apps"] if a["host"] == "wiki.example.com")
+    assert wiki["url"] == "https://wiki.example.com" and wiki["protected"] and wiki["icon"].startswith("/api/v1/icon/wiki.example.com")
+
+
+def test_verstecken_und_offene_ausblenden(client, monkeypatch):
+    monkeypatch.setenv("HIDE", "wiki.*")
+    get_settings.cache_clear(); cloudflare._cache.clear()
+    assert [a["host"] for a in client.get("/api/v1/apps").json()["apps"]] == ["offen.example.com"]
+    monkeypatch.setenv("HIDE", ""); monkeypatch.setenv("SHOW_UNPROTECTED", "false")
+    get_settings.cache_clear(); cloudflare._cache.clear()
+    assert [a["host"] for a in client.get("/api/v1/apps").json()["apps"]] == ["wiki.example.com"]
+
+
+def test_ohne_token_meldet_fehler(client, monkeypatch):
+    monkeypatch.setenv("CLOUDFLARE_API_TOKEN", "")
+    get_settings.cache_clear()
+    d = client.get("/api/v1/apps").json()
+    assert d["apps"] == [] and "TOKEN" in d["error"]
+
+
+def test_icon_nur_fuer_bekannte_adressen(client, monkeypatch):
+    assert client.get("/api/v1/icon/fremd.example.org").status_code == 404
+
+    async def fake(app):
+        return b"PNG", "image/png"
+    monkeypatch.setattr(icons, "icon", fake)
+    client.get("/api/v1/apps")
+    r = client.get("/api/v1/icon/wiki.example.com")
+    assert r.status_code == 200 and r.content == b"PNG" and r.headers["content-type"] == "image/png"
+
+
+def test_icon_links_werden_gefunden():
+    html = '<link rel="icon" href="/a.png"><link rel="apple-touch-icon" sizes="180x180" href="b.png"><link rel="mask-icon" href="m.svg">'
+    assert icons._candidates(html, "http://x/app/") == ["http://x/app/b.png", "http://x/a.png"]
