@@ -342,6 +342,50 @@ services:
     labels:
       com.centurylinklabs.watchtower.enable: "true"
 
+  # Google (ersetzt den einzeln laufenden Ida-Google-MCP): ein Dienst für alle Google-Funktionen (Tasks, Kontakte, Kalender, Gmail, Docs,
+  # Sheets, Slides, Chat, Meet, Health, Drive) mit drei Zugängen – 4569: MCP für die Agents (Bearer MCP_AUTH_TOKEN, per Tunnel erreichbar),
+  # 4570: Google-Anmeldung (einmalig, davor Cloudflare Access), 4571: INTERNE REST-API für die anderen Dienste, bewusst nicht veröffentlicht:
+  # http://google:4571/api/v1/… (siehe docs/GOOGLE.md). Dazu zwei Aufgaben im Hintergrund: Kalender-Abgleich (CALENDAR_SYNC=1) und
+  # Docs-Backup nach Google Drive (DOCS_BACKUP=1). An mit COMPOSE_PROFILES=google in .env.
+  google:
+    image: ${GOOGLE_IMAGE:-ghcr.io/l8tenever/ida-google-stack:latest}
+    profiles: ["google"]
+    pull_policy: always
+    restart: unless-stopped
+    environment:
+      TIMEZONE: ${TIMEZONE:-Europe/Berlin}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI:-}      # https://<auth-adresse>/oauth/callback
+      MCP_AUTH_TOKEN: ${GOOGLE_MCP_TOKEN:-}
+      AUTH_TOKEN: ${GOOGLE_AUTH_TOKEN:-}
+      GOOGLE_API_TOKEN: ${GOOGLE_API_TOKEN:-}            # leer = interne API ohne Token (nur im Docker-Netz erreichbar)
+      GOOGLE_TOKEN_FILE_PATH: /data/google_token.json
+      DATA_DIR: /data
+      KALENDER_URL: http://kalender:8000
+      KALENDER_IDA_TOKEN: ${KALENDER_IDA_TOKEN:-}
+      CALENDAR_SYNC: ${GOOGLE_CALENDAR_SYNC:-0}          # 1 = IDA-Kalender und Google-Kalender gleichen sich ab
+      CALENDAR_SYNC_KALENDER: ${GOOGLE_CALENDAR_SYNC_KALENDER:-}   # Name/ID des IDA-Kalenders; leer = Standardkalender
+      DOCS_URL: http://docs:8000
+      DOCS_BACKUP: ${GOOGLE_DOCS_BACKUP:-0}              # 1 = täglich eine Sicherung von IDA Docs nach Google Drive
+    ports:
+      - "${GOOGLE_MCP_PORT:-127.0.0.1:4569}:4569"        # z. B. 10.7.0.1:4569, wenn der Tunnel darauf zeigt
+      - "${GOOGLE_AUTH_PORT:-127.0.0.1:4570}:4570"
+    volumes:
+      - google-data:/data                                 # google_token.json (Anmeldung) und hub.db (Abgleich-Stand)
+    depends_on:
+      - kalender
+      - docs
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"
+
   # optional: holt neue Images von GitHub automatisch (alle 10 Minuten) und startet die App neu.
   # Das Tool „Updates“ im IDA Server kann das mit Zeitplan und Ausnahmen; beides zusammen nicht nutzen.
   watchtower:
@@ -364,3 +408,4 @@ volumes:
   links-data:
   tasks-data:
   docs-data:
+  google-data:

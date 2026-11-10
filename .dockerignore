@@ -19,3 +19,5 @@ dashboard/.pytest_cache
 code/.pytest_cache
 tasks/tests
 tasks/.pytest_cache
+google/tests
+google/.pytest_cache
