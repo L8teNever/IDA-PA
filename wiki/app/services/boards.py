@@ -25,6 +25,7 @@ Antworte AUSSCHLIESSLICH mit dem fertigen Board in Markdown, ohne Einleitung, oh
 Wähle den Aufbau frei, so wie er zum Thema passt. Die Oberfläche macht aus jedem „## Überschrift“ automatisch eine eigene kleine Karte (wie Artikel in einer Zeitung, mehrere nebeneinander). Das ist nur eine Möglichkeit, kein Muss:
 - Bei vielen verschiedenen Themen: kurze Abschnitte mit „## Überschrift“ (je höchstens etwa 8 Zeilen) sind praktisch.
 - Bei einem einzigen zusammenhängenden Thema darfst du ohne Überschriften schreiben, oder nur wenige.
+- Breite der Karte: Hänge ans Ende der Überschrift eine Breite in geschweiften Klammern, z. B. „## Termine {breit}“. Möglich: {schmal} (Standard, eine Spalte), {breit} (zwei Spalten), {sehr breit} (drei), {voll} (ganze Zeile). Tabellen mit 3 oder mehr Spalten, lange Listen oder Diagramme bekommen {breit} oder {voll}, kurze Listen und Notizen {schmal}. Die Klammer wird nicht angezeigt.
 - Nimm die Form, die passt: Checkliste („- [ ] …“, erledigt „- [x] …“) für Aufgaben, Tabelle für Termine und Zahlen, Stichpunkte für Fakten, Absatz für Hinweise. Mische frei.
 - Wichtiges und Fristen zuerst, mit Datum. Wo es hilft, nenne kurz die Quelle (z. B. „aus Chat vom 03.11.“).
 - Bilder nur, wenn du eine echte Adresse hast: „![Beschreibung](https://…)“. Nichts erfinden.

@@ -128,6 +128,8 @@ function draw(root) {
   if (b) fillBody(host, b);
 }
 
+const WIDTH = { schmal: "1", normal: "1", mittel: "2", breit: "2", "sehr breit": "3", voll: "full", ganz: "full", 1: "1", 2: "2", 3: "3", 4: "4" };
+
 // Markdown rendern und jeden Abschnitt („## …“) als eigene Karte legen (mehrere nebeneinander, wie in einer Zeitung).
 // Ohne Überschriften bleibt es ein einziger Text.
 function fillBody(host, b) {
@@ -146,8 +148,23 @@ function fillBody(host, b) {
       cur = document.createElement("section");
       cur.className = "bcard" + (k.tagName === "H2" ? "" : " intro");
       cards.push(cur);
+      if (k.tagName === "H2") {
+        // Ida legt die Breite fest: „## Termine {breit}“ (schmal, normal, breit, voll oder eine Zahl 1–4)
+        const m = k.innerHTML.match(/\s*\{\s*([^{}]*?)\s*\}\s*$/);
+        if (m) {
+          k.innerHTML = k.innerHTML.slice(0, m.index);
+          const w = WIDTH[m[1].toLowerCase()];
+          if (w) cur.dataset.w = w;
+        }
+      }
     }
     cur.appendChild(k);
+  }
+  for (const c of cards) {
+    if (c.dataset.w) continue;
+    const cols = c.querySelector("table thead tr")?.children.length || 0;
+    if (cols >= 5) c.dataset.w = "full";
+    else if (cols >= 3) c.dataset.w = "2";
   }
   prose.replaceChildren(...cards);
 }

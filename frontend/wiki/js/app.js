@@ -306,7 +306,7 @@ export async function startWikiApp(rootEl) {
             </button>`,
             )
             .join("")}
-          ${folderHtml}
+          ${state.view === "boards" ? "" : folderHtml}
 
           ${
             state.view !== "boards" && state.tags.length
