@@ -69,3 +69,10 @@ body { overflow-y: auto; display: block; height: auto; min-height: 100dvh; }
 .lc-date { margin-top: 10px; font-size: clamp(15px, 2.6vw, 19px); color: var(--muted); text-shadow: 0 1px 12px rgba(0, 0, 0, .6); }
 .lc-bg.on ~ .lc .lc-date { color: rgba(255, 255, 255, .78); }
 .lc h1 { font-size: clamp(20px, 3vw, 26px); font-weight: 500; color: var(--muted); }
+
+/* Eigene Scrollleiste: die normale ist aus, damit beim Tippen nichts verrutscht. Die neue liegt über der Seite und taucht nur beim Scrollen kurz auf. */
+html, body { scrollbar-width: none; }
+html::-webkit-scrollbar, body::-webkit-scrollbar { display: none; width: 0; height: 0; }
+.lc-sb { position: fixed; z-index: 6; top: 0; right: 3px; bottom: 0; width: 6px; pointer-events: none; opacity: 0; transition: opacity .35s var(--emph); }
+.lc-sb.on { opacity: 1; }
+.lc-sb i { position: absolute; left: 0; right: 0; border-radius: 3px; background: rgba(255, 255, 255, .38); box-shadow: 0 0 0 1px rgba(0, 0, 0, .25); }

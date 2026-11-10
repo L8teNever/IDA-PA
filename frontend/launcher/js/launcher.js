@@ -192,3 +192,20 @@ function tick() {
 }
 document.addEventListener("visibilitychange", tick);
 tick();
+
+// ── Eigene Scrollleiste (verschiebt nichts, blendet sich nach dem Scrollen aus) ──
+const sb = $("lcSb"), thumb = sb.firstElementChild;
+let sbT = 0;
+function sbUpdate(show = true) {
+  const el = document.scrollingElement, vh = innerHeight, total = el.scrollHeight;
+  if (total <= vh + 1) { sb.classList.remove("on"); return; }
+  const h = Math.max(36, (vh / total) * vh);
+  thumb.style.height = `${h}px`;
+  thumb.style.top = `${(el.scrollTop / (total - vh)) * (vh - h)}px`;
+  if (!show) return;
+  sb.classList.add("on");
+  clearTimeout(sbT);
+  sbT = setTimeout(() => sb.classList.remove("on"), 900);
+}
+addEventListener("scroll", () => sbUpdate(), { passive: true });
+addEventListener("resize", () => sbUpdate(false));
