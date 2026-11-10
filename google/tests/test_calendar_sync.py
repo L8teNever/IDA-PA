@@ -194,3 +194,71 @@ class HelperTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class MultiTest(unittest.TestCase):
+    """Zuordnung der Kalender (Namen) und Anlegen fehlender Gegenstuecke."""
+
+    class Kal(FakeKal):
+        def __init__(self):
+            super().__init__()
+            self.cals = [{"id": "c1", "name": "Privat", "kind": "normal", "is_default": True}, {"id": "c2", "name": "Ida", "kind": "normal"},
+                         {"id": "h", "name": "Feiertage", "kind": "holidays", "read_only": True}]
+            self.by_cal = {}
+
+        def calendars(self):
+            return self.cals
+
+        def event_ids(self, cid, frm, to):
+            return [i for i, c in self.by_cal.items() if c == cid and i in self.events]
+
+        def create_calendar(self, name):
+            c = {"id": f"c{len(self.cals) + 1}", "name": name, "kind": "normal"}
+            self.cals.append(c)
+            return c
+
+    class Client:
+        def __init__(self):
+            self.created, self.events = [], {"primary": [], "g_untis": [{"id": "e1", "summary": "Untis-Termin", "status": "confirmed", "start": {"date": "2026-11-12"}, "end": {"date": "2026-11-13"}}], "g_leer": []}
+
+        def request(self, method, url, **kw):
+            if url.endswith("calendarList"):
+                return {"items": [{"id": "l8@gmail.com", "summary": "l8@gmail.com", "primary": True}, {"id": "g_untis", "summary": "Untis"}, {"id": "g_leer", "summary": "Leer"},
+                                  {"id": "de#holiday@group.v.calendar.google.com", "summary": "Feiertage"}]}
+            if method == "POST" and url.endswith("/calendars"):
+                self.created.append(kw["json_body"]["summary"])
+                return {"id": "g_new"}
+            if "/events" in url and method == "GET":
+                cid = url.split("/calendars/")[1].split("/events")[0].replace("%40", "@")
+                return {"items": self.events.get("primary" if cid == "l8@gmail.com" else cid, [])}
+            raise AssertionError((method, url))
+
+    def make(self, **kw):
+        k = self.Kal()
+        k.create(timed("Zahnarzt")); k.by_cal["k1"] = "c1"
+        return k, self.Client(), cs.MultiSync(k, self.Client(), State(":memory:"), now=NOW, **kw)
+
+    def test_zuordnung_standard_name_und_anlegen(self):
+        k, _, m = self.make()
+        m.client = c = self.Client()
+        k.create(timed("KI-Termin", start="2026-11-15T10:00:00+01:00", end="2026-11-15T11:00:00+01:00")); k.by_cal["k2"] = "c2"
+        notes: list = []
+        pairs = {(a["name"], b["name"]) for a, b in m.pairs(False, notes)}
+        # Privat <-> Hauptkalender, Ida hat Termine -> wird in Google angelegt, Untis hat Termine -> wird in IDA angelegt, Leer/Feiertage bleiben aussen vor
+        self.assertEqual(pairs, {("Privat", "l8@gmail.com"), ("Ida", "Ida"), ("Untis", "Untis")})
+        self.assertEqual(c.created, ["Ida"])
+        self.assertEqual([x["name"] for x in k.cals if x["kind"] == "normal"], ["Privat", "Ida", "Untis"])
+
+    def test_probelauf_legt_nichts_an(self):
+        k, _, m = self.make()
+        m.client = c = self.Client()
+        notes: list = []
+        pairs = m.pairs(True, notes)
+        self.assertEqual((c.created, len(k.cals)), ([], 3))
+        self.assertIn("Neuer Kalender in IDA: Untis", notes)
+        self.assertEqual({a["name"] for a, _ in pairs}, {"Privat"})
+
+    def test_nur_ein_kalender(self):
+        k, _, m = self.make(only_calendar="Privat")
+        m.client = self.Client()
+        self.assertEqual([(a["name"], b["name"]) for a, b in m.pairs(False, [])], [("Privat", "l8@gmail.com")])

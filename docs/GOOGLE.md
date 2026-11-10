@@ -55,14 +55,17 @@ Löschende Funktionen verlangen weiter `bestaetigt=true`, genau wie im MCP.
 
 * Der Dienst `kalender` bleibt wie er ist (keine Verbindung nach außen). Der Abgleich läuft im Dienst `google` und spricht
   intern mit der Kalender-API (`http://kalender:8000`, als Agent `google-sync`, sichtbar im Verlauf).
-* An mit `GOOGLE_CALENDAR_SYNC=1`. Standard: der Standardkalender von IDA ⇄ der Hauptkalender (`primary`) von Google;
-  anderer IDA-Kalender mit `GOOGLE_CALENDAR_SYNC_KALENDER=<Name oder ID>`. Alle 5 Minuten, Zeitraum 30 Tage zurück bis 365 Tage voraus.
-* Beide Richtungen: neue, geänderte und gelöschte Termine. Haben sich beide Seiten geändert, gewinnt die jüngere Änderung.
-  Jede Seite wird nur mit ihrem eigenen letzten Stand verglichen, deshalb gibt es kein Hin-und-Her (Echo).
+* An mit `GOOGLE_CALENDAR_SYNC=1`. Alle 5 Minuten, Zeitraum 30 Tage zurück bis 365 Tage voraus. Danach sind **beide Seiten gleich**:
+  neue, geänderte und gelöschte Termine gehen in beide Richtungen, egal wer sie angelegt hat (auch die Agents).
+* **Alle Kalender:** Der Standardkalender von IDA gehört zum Hauptkalender von Google. Alle anderen Kalender werden über den Namen
+  zugeordnet („Ida“ ⇄ „Ida“). Fehlt die Gegenseite, wird sie angelegt, aber nur, wenn der Kalender Termine hat. Feiertage, Geburtstage und
+  abonnierte Kalender von Google bleiben außen vor. Nur einen Kalender abgleichen: `GOOGLE_CALENDAR_SYNC_KALENDER=<Name oder ID>`.
+* Haben sich beide Seiten geändert, gewinnt die jüngere Änderung. Jede Seite wird nur mit ihrem eigenen letzten Stand verglichen,
+  deshalb gibt es kein Hin-und-Her (Echo).
 * Beim ersten Lauf werden gleiche Termine (Titel + Zeit) auf beiden Seiten verbunden, nicht doppelt angelegt.
-* Serien (täglich, wöchentlich, monatlich, jährlich) werden als Serie abgeglichen. **Einzelne geänderte Vorkommen** einer Serie
-  werden übersprungen und im Ergebnis unter `skipped` gemeldet.
-* Sicherheitsnetz: Würde ein Lauf mehr als 20 Termine löschen, bricht er ab und löscht nichts (`CALENDAR_SYNC_MAX_DELETES`).
+* Abgeglichen werden Titel, Beschreibung, Ort, Zeit, ganztägig und Wiederholung (täglich, wöchentlich, monatlich, jährlich).
+  Erinnerungen, Farben und Teilnehmer nicht. **Einzelne geänderte Vorkommen** einer Serie werden übersprungen und unter `skipped` gemeldet.
+* Sicherheitsnetz: Würde ein Lauf mehr als 20 Termine in einem Kalender löschen, bricht er ab und löscht nichts (`CALENDAR_SYNC_MAX_DELETES`).
 * Vorab ansehen, was passieren würde: `POST /api/v1/sync/calendar?dry_run=1` (ändert nichts).
 
 ## Docs-Backup nach Google Drive

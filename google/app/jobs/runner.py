@@ -32,11 +32,10 @@ class Runner:
         return {"aktiv": self.s.docs_backup, "stunde": self.s.docs_backup_hour, "behalten": self.s.docs_backup_keep, **self.state.get_job("backup")}
 
     # -- Kalender --------------------------------------------------------------
-    def _calendar_sync(self) -> cs.CalendarSync:
+    def _calendar_sync(self) -> cs.MultiSync:
         s = self.s
-        return cs.CalendarSync(cs.KalenderApi(s.kalender_url, s.kalender_token), cs.GoogleCal(self.client, s.google_calendar_id), self.state,
-                               calendar=s.kalender_calendar, timezone_name=s.timezone, past_days=s.sync_past_days,
-                               future_days=s.sync_future_days, max_deletes=s.sync_max_deletes)
+        return cs.MultiSync(cs.KalenderApi(s.kalender_url, s.kalender_token), self.client, self.state, only_calendar=s.kalender_calendar,
+                            timezone_name=s.timezone, past_days=s.sync_past_days, future_days=s.sync_future_days, max_deletes=s.sync_max_deletes)
 
     async def run_calendar(self, dry_run: bool = False) -> dict:
         if self._locks["calendar"].locked():

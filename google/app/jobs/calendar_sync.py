@@ -145,6 +145,9 @@ class KalenderApi:
     def calendars(self) -> list[dict]:
         return (self._call("GET", "/calendars") or {}).get("calendars", [])
 
+    def create_calendar(self, name: str) -> dict:
+        return self._call("POST", "/calendars", json={"name": name})
+
     def event_ids(self, calendar_id: str, frm: str, to: str) -> list[str]:
         d = self._call("GET", "/events", params={"from": frm, "to": to, "calendars": calendar_id}) or {}
         return sorted({e["event_id"] for e in d.get("events", []) if e.get("event_id") and not e.get("read_only")})
@@ -343,3 +346,97 @@ class CalendarSync:
             if do("Neu in IDA", g["title"], create_k):
                 rep["new_in_ida"] += 1
         return rep
+
+
+# ---------------------------------------------------------------------------------------------------------------- Mehrere Kalender
+_NO_SYNC_IDS = ("#holiday@group.v.calendar.google.com", "#contacts@group.v.calendar.google.com", "@import.calendar.google.com")
+
+
+def google_calendars(client: GoogleApiClient) -> list[dict]:
+    """Alle Google-Kalender, in die geschrieben werden darf (ohne Feiertage, Geburtstage und Abos)."""
+    d = client.request("GET", f"{G_BASE}/users/me/calendarList", scopes=SCOPES, params={"minAccessRole": "writer"}) or {}
+    return [{"id": c["id"], "name": c.get("summaryOverride") or c.get("summary") or c["id"], "primary": bool(c.get("primary"))}
+            for c in d.get("items", []) if not any(c["id"].endswith(x) for x in _NO_SYNC_IDS)]
+
+
+class MultiSync:
+    """Gleicht ALLE Kalender ab. Der Standardkalender von IDA gehoert zum Hauptkalender von Google, alle anderen Kalender werden ueber den
+    Namen zugeordnet. Fehlt die Gegenseite, wird sie angelegt, aber nur, wenn der Kalender Termine hat (leere bleiben aussen vor)."""
+
+    def __init__(self, kal: KalenderApi, client: GoogleApiClient, state: State, *, only_calendar: str = "", timezone_name: str = "Europe/Berlin",
+                 past_days: int = 30, future_days: int = 365, max_deletes: int = 20, now: datetime | None = None) -> None:
+        self.kal, self.client, self.state, self.only = kal, client, state, only_calendar
+        self.kw = {"timezone_name": timezone_name, "past_days": past_days, "future_days": future_days, "max_deletes": max_deletes, "now": now}
+        self._now = now or datetime.now(UTC)
+        self.past, self.future = past_days, future_days
+
+    def _window(self) -> tuple[str, str]:
+        return (self._now - timedelta(days=self.past)).date().isoformat(), (self._now + timedelta(days=self.future)).date().isoformat()
+
+    def _google_has_events(self, gid: str) -> bool:
+        a, b = (self._now - timedelta(days=self.past)), (self._now + timedelta(days=self.future))
+        items = GoogleCal(self.client, gid).list(a.strftime("%Y-%m-%dT%H:%M:%SZ"), b.strftime("%Y-%m-%dT%H:%M:%SZ"))
+        return any(e.get("status") != "cancelled" and "start" in e for e in items)
+
+    def pairs(self, dry_run: bool, notes: list[str]) -> list[tuple[dict, dict]]:
+        kcals = [c for c in self.kal.calendars() if c.get("kind") == "normal" and not c.get("read_only")]
+        gcals = google_calendars(self.client)
+        primary = next((g for g in gcals if g["primary"]), None)
+        if not kcals or primary is None:
+            raise SyncAbort("Es fehlt ein IDA-Kalender oder der Google-Hauptkalender")
+        default = next((c for c in kcals if c.get("is_default")), kcals[0])
+        if self.only:
+            hit = next((c for c in kcals if c["id"] == self.only or c["name"].casefold() == self.only.casefold()), None)
+            if not hit:
+                raise SyncAbort(f"Kalender „{self.only}“ gibt es im IDA-Kalender nicht")
+            return [(hit, primary)]
+        pairs, used_k, used_g = [(default, primary)], {default["id"]}, {primary["id"]}
+        frm, to = self._window()
+        for k in kcals:                                    # IDA-Kalender -> Google (Name)
+            if k["id"] in used_k:
+                continue
+            g = next((x for x in gcals if x["id"] not in used_g and x["name"].casefold() == k["name"].casefold()), None)
+            if g is None:
+                if not self.kal.event_ids(k["id"], frm, to):
+                    continue
+                notes.append(f"Neuer Kalender in Google: {k['name']}")
+                if dry_run:
+                    continue
+                g = {"id": self.client.request("POST", f"{G_BASE}/calendars", scopes=SCOPES, json_body={"summary": k["name"]})["id"], "name": k["name"], "primary": False}
+            used_k.add(k["id"]); used_g.add(g["id"])
+            pairs.append((k, g))
+        names = {c["name"].casefold() for c in kcals}
+        for g in gcals:                                    # Google-Kalender -> IDA (Name)
+            if g["id"] in used_g:
+                continue
+            k = next((x for x in kcals if x["id"] not in used_k and x["name"].casefold() == g["name"].casefold()), None)
+            if k is None:
+                if not self._google_has_events(g["id"]):
+                    continue
+                name = g["name"] if g["name"].casefold() not in names else f"{g['name']} (Google)"
+                notes.append(f"Neuer Kalender in IDA: {name}")
+                if dry_run:
+                    continue
+                k = self.kal.create_calendar(name)
+                names.add(name.casefold())
+            used_k.add(k["id"]); used_g.add(g["id"])
+            pairs.append((k, g))
+        return pairs
+
+    def run(self, dry_run: bool = False) -> dict:
+        notes: list[str] = []
+        total = {"dry_run": dry_run, "pull": 0, "push": 0, "new_in_ida": 0, "new_in_google": 0, "linked": 0, "deleted_ida": 0,
+                 "deleted_google": 0, "skipped": [], "errors": [], "plan": notes, "kalender": []}
+        for k, g in self.pairs(dry_run, notes):
+            try:
+                rep = CalendarSync(self.kal, GoogleCal(self.client, g["id"]), self.state, calendar=k["id"], **self.kw).run(dry_run=dry_run)
+            except (SyncAbort, GoogleApiError) as exc:
+                total["errors"].append(f"{k['name']}: {exc}")
+                continue
+            total["kalender"].append(f"{k['name']} ⇄ {g['name']}")
+            for key in ("pull", "push", "new_in_ida", "new_in_google", "linked", "deleted_ida", "deleted_google"):
+                total[key] += rep[key]
+            total["skipped"] += rep["skipped"]
+            total["errors"] += [f"{k['name']}: {e}" for e in rep["errors"]]
+            total["plan"] += [f"[{k['name']}] {p}" for p in rep["plan"]]
+        return total
