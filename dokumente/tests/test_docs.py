@@ -67,13 +67,13 @@ def test_ida_proxy_only_allows_chat_and_filters_bootstrap(client, monkeypatch):
     def answer(req):
         seen.append((req.method, req.url.path, req.content))
         if req.url.path.endswith("/bootstrap"):
-            return httpx.Response(200, json={"models": ["m"], "model_names": {"m": "M"}, "default_model": "m", "accounts": [{"id": "geheim"}], "agents": []})
+            return httpx.Response(200, json={"models": ["m"], "model_names": {"m": "M"}, "default_model": "m", "skills": [{"id": "humanizer", "name": "H"}], "accounts": [{"id": "geheim"}], "agents": []})
         return httpx.Response(200, stream=httpx.ByteStream(b'{"text":"Hi"}\n'), headers={"content-type": "application/x-ndjson"})
 
     real = httpx.AsyncClient
     monkeypatch.setattr(ida, "_client", lambda: real(base_url="http://ida", transport=httpx.MockTransport(answer)))
     c, _ = client
-    assert c.get("/api/v1/ida/bootstrap").json() == {"models": ["m"], "model_names": {"m": "M"}, "default_model": "m"}
+    assert c.get("/api/v1/ida/bootstrap").json() == {"models": ["m"], "model_names": {"m": "M"}, "default_model": "m", "skills": [{"id": "humanizer", "name": "H"}]}
     r = c.post("/api/v1/ida/chat", json={"text": "x"})
     assert r.status_code == 200 and r.text == '{"text":"Hi"}\n' and seen[-1][:2] == ("POST", "/api/v1/chat")
     assert c.post("/api/v1/ida/chats/abc/stop", json={}).status_code == 200
