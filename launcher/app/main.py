@@ -7,7 +7,7 @@ import logging
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request, Response
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from pydantic import BaseModel
@@ -147,7 +147,11 @@ async def manifest():
 
 @app.get("/")
 async def index():
-    return FileResponse(_fe() / "launcher" / "index.html", headers={"cache-control": "no-cache"})
+    # Versionsnummer an CSS/JS hängen, damit nach einem Update nie alte Dateien aus dem Browser-Cache kommen
+    root = _fe() / "launcher"
+    v = max((int(f.stat().st_mtime) for f in (root / "js" / "launcher.js", root / "css" / "launcher.css") if f.exists()), default=0)
+    html = (root / "index.html").read_text(encoding="utf-8").replace("__V__", str(v))
+    return HTMLResponse(html, headers={"cache-control": "no-cache"})
 
 
 app.mount("/static/shared/css", Static(directory=_fe() / "css", check_dir=False), name="shared-css")

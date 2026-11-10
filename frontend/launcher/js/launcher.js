@@ -178,3 +178,17 @@ $("lcFile").addEventListener("change", async (e) => {
 });
 
 loadBgs().then(showBg);
+
+// ── Uhr ────────────────────────────────────────────────────────────
+const fmtTime = new Intl.DateTimeFormat("de-DE", { hour: "2-digit", minute: "2-digit", timeZone: "Europe/Berlin" });
+const fmtDate = new Intl.DateTimeFormat("de-DE", { weekday: "long", day: "numeric", month: "long", timeZone: "Europe/Berlin" });
+let clockT = 0;
+function tick() {
+  const d = new Date();
+  $("lcTime").textContent = fmtTime.format(d);
+  $("lcDate").textContent = fmtDate.format(d);
+  clearTimeout(clockT);
+  if (!document.hidden) clockT = setTimeout(tick, 60_000 - (d.getSeconds() * 1000 + d.getMilliseconds()) + 50); // genau zur nächsten Minute
+}
+document.addEventListener("visibilitychange", tick);
+tick();

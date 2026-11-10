@@ -10,7 +10,7 @@
 <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
 <title>Apps</title>
 <link rel="stylesheet" href="/static/shared/css/tokens.css">
-<link rel="stylesheet" href="/static/css/launcher.css">
+<link rel="stylesheet" href="/static/css/launcher.css?v=__V__">
 </head>
 <body>
 <div class="lc-bg" id="lcBg" aria-hidden="true"></div>
@@ -23,6 +23,7 @@
   <label class="lc-allbtn lc-add"><span class="ms">add_photo_alternate</span> Bilder hinzufügen<input type="file" id="lcFile" accept="image/jpeg,image/png,image/webp,image/gif" multiple hidden></label>
 </dialog>
 <main class="lc">
+  <div class="lc-clock" id="lcClock" aria-live="off"><div class="lc-time" id="lcTime"></div><div class="lc-date" id="lcDate"></div></div>
   <h1 id="lcTitle">Willkommen zurück!</h1>
   <label class="lc-search">
     <span class="ms">search</span>
@@ -31,6 +32,6 @@
   <div id="lcGrid" aria-live="polite"></div>
   <p class="lc-empty" id="lcEmpty" hidden></p>
 </main>
-<script type="module" src="/static/js/launcher.js"></script>
+<script type="module" src="/static/js/launcher.js?v=__V__"></script>
 </body>
 </html>

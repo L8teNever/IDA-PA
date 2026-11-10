@@ -62,3 +62,10 @@ body { overflow-y: auto; display: block; height: auto; min-height: 100dvh; }
 .lc-thumb button .ms { font-size: 18px; }
 .lc-dlg-msg { min-height: 1.3em; margin: 0 0 10px; font-size: 13.5px; color: var(--muted); }
 .lc-add { cursor: pointer; }
+
+/* Uhr */
+.lc-clock { text-align: center; margin: 0 0 26px; }
+.lc-time { font-size: clamp(64px, 14vw, 112px); font-weight: 300; line-height: 1; letter-spacing: -.03em; font-variant-numeric: tabular-nums; text-shadow: 0 2px 24px rgba(0, 0, 0, .45); }
+.lc-date { margin-top: 10px; font-size: clamp(15px, 2.6vw, 19px); color: var(--muted); text-shadow: 0 1px 12px rgba(0, 0, 0, .6); }
+.lc-bg.on ~ .lc .lc-date { color: rgba(255, 255, 255, .78); }
+.lc h1 { font-size: clamp(20px, 3vw, 26px); font-weight: 500; color: var(--muted); }
