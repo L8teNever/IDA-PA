@@ -30,14 +30,35 @@ class FakeIda:
     def __init__(self):
         self.received: list[dict] = []
         self.headers: list[dict] = []
+        self.deleted: list[str] = []
         self.answer_text = "Hier ist Idas Antwort zur Seite."
         outer = self
 
         class H(BaseHTTPRequestHandler):
+            def do_GET(self):
+                self.send_response(200)
+                self.send_header("content-type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps({"models": ["m1"], "model_names": {"m1": "Modell 1"}, "default_model": "m1", "geheim": 1}).encode("utf-8"))
+
+            def do_DELETE(self):
+                outer.deleted.append(self.path)
+                self.send_response(200)
+                self.send_header("content-type", "application/json")
+                self.end_headers()
+                self.wfile.write(b"{}")
+
             def do_POST(self):
                 n = int(self.headers.get("content-length", 0))
                 body = json.loads(self.rfile.read(n) or b"{}")
                 outer.received.append(body)
+                if self.path == "/api/v1/chat":
+                    self.send_response(200)
+                    self.send_header("content-type", "application/x-ndjson")
+                    self.end_headers()
+                    for ev in ({"chat": {"id": "boardchat1"}}, {"text": "## Stand\n"}, {"text": f"- Punkt {len(outer.received)}"}, {"done": {"ok": True}}):
+                        self.wfile.write((json.dumps(ev) + "\n").encode("utf-8"))
+                    return
                 outer.headers.append({k.lower(): v for k, v in self.headers.items()})
                 self.send_response(200)
                 self.send_header("content-type", "application/json")
@@ -86,6 +107,7 @@ def server_env(fake_ida):
         "WIKI_MCP_TOKEN": MCP_TOKEN,
         "WIKI_PUBLIC_URL": "https://wiki.kulbarts.com",
         "IDA_INTERNAL_URL": fake_ida.url,
+        "IDA_CHAT_URL": fake_ida.url,
     })
     import uvicorn
     from app.config import get_settings

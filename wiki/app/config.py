@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     wiki_ida_token: str = ""                 # IDA <-> Wiki (nur im internen Docker-Netz)
     wiki_mcp_token: str = ""                 # Master-Token für externes MCP unter /mcp; leer = nur benannte Tokens oder aus
     ida_internal_url: str = ""               # für „Ida fragen“ und Direktlinks zurück in IDA
+    ida_chat_url: str = ""                   # IDA-Chat intern (z. B. http://app:8000) für Smart Boards
     ollama_url: str = ""                     # optional: lokale Embeddings für semantische Gedächtnissuche
     embed_model: str = ""                    # leer = automatisch erkennen
 

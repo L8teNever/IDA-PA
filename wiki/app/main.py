@@ -14,10 +14,11 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import db, seed
-from .api import files, history, internal, mcp, pages, search, sync
+from .api import boards, files, history, internal, mcp, pages, search, sync
 from .config import get_settings
 from .errors import Conflict, Forbidden, Invalid, NotFound
 from .services import backup, scheduler
+from .services import boards as boards_svc
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("wiki")
@@ -78,6 +79,7 @@ def migrate() -> None:
 async def lifespan(app: FastAPI):
     await asyncio.to_thread(migrate)
     await seed.seed()
+    await boards_svc.reset_stuck()
     if get_settings().scheduler_enabled:
         scheduler.start()
     log.info("IDA Wiki bereit")
@@ -103,7 +105,7 @@ def create_app() -> FastAPI:
             return handler
         app.add_exception_handler(exc, make(code))
 
-    for r in (pages, history, files, search, sync, internal, mcp):
+    for r in (pages, history, files, search, sync, boards, internal, mcp):
         app.include_router(r.router)
 
     if s.wiki_testing:

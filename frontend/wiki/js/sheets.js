@@ -6,7 +6,7 @@ import * as api from "./api.js";
 import { getAllPages } from "./db.js";
 import { esc, formatBytes, renderMarkdown, renderUnifiedDiff } from "./markdown.js";
 
-function openModal(html, { wide = false, onClose } = {}) {
+export function openModal(html, { wide = false, onClose } = {}) {
   const backdrop = document.createElement("div");
   backdrop.className = "wk-backdrop";
   backdrop.innerHTML = `<div class="wk-sheet ${wide ? "wide" : ""}" role="dialog" aria-modal="true">${html}</div>`;

@@ -5,6 +5,7 @@
 // - Lückenloser Wiki-Verlauf (`?ansicht=verlauf`) mit Diff-Vergleich & 1-Klick-Wiederherstellung.
 
 import * as api from "./api.js";
+import { mountBoards, renderBoardsStage } from "./boards.js";
 import { getAllPages, getMeta, getPage, putPages } from "./db.js";
 import { mountGraph } from "./graph.js";
 import { buildPageIndex, esc, formatBytes, renderMarkdown, renderUnifiedDiff, toggleCheckboxAtLine } from "./markdown.js";
@@ -28,7 +29,7 @@ const SPACE_META = {
 
 export async function startWikiApp(rootEl) {
   const state = {
-    view: "page", // "page" | "graph" | "history"
+    view: "page", // "page" | "graph" | "history" | "boards"
     space: "privat",
     currentPath: "privat/_start",
     currentPage: null,
@@ -76,6 +77,7 @@ export async function startWikiApp(rootEl) {
     const seite = u.searchParams.get("seite");
     if (ansicht === "graph") state.view = "graph";
     else if (ansicht === "verlauf") state.view = "history";
+    else if (ansicht === "boards") state.view = "boards";
     else state.view = "page";
     if (seite) {
       state.currentPath = seite;
@@ -91,6 +93,8 @@ export async function startWikiApp(rootEl) {
       u.searchParams.set("ansicht", "graph");
     } else if (state.view === "history") {
       u.searchParams.set("ansicht", "verlauf");
+    } else if (state.view === "boards") {
+      u.searchParams.set("ansicht", "boards");
     } else {
       u.searchParams.delete("ansicht");
       if (state.currentPath) u.searchParams.set("seite", state.currentPath);
@@ -216,6 +220,7 @@ export async function startWikiApp(rootEl) {
         </div>
         <div class="rail-group">
           ${btn(`data-switch-view="graph"`, state.view === "graph", "hub", "Wissensgraph")}
+          ${btn(`data-switch-view="boards"`, state.view === "boards", "dashboard", "Boards")}
           ${btn(`data-switch-view="history"`, state.view === "history", "history", "Verlauf")}
         </div>
         <div class="rail-spacer"></div>
@@ -586,6 +591,7 @@ export async function startWikiApp(rootEl) {
         <button type="button" class="bnav-btn ${state.view === "page" && state.space === "memory" ? "active" : ""}" data-switch-space="memory"><span class="ms">auto_awesome</span><small>Gedächtnis</small></button>
         <button type="button" class="bnav-btn ${state.view === "page" && state.space === "ki" ? "active" : ""}" data-switch-space="ki"><span class="ms">forum</span><small>Chats</small></button>
         <button type="button" class="bnav-btn ${state.view === "graph" ? "active" : ""}" data-switch-view="graph"><span class="ms">hub</span><small>Graph</small></button>
+        <button type="button" class="bnav-btn ${state.view === "boards" ? "active" : ""}" data-switch-view="boards"><span class="ms">dashboard</span><small>Boards</small></button>
         <button type="button" class="bnav-btn ${state.view === "history" ? "active" : ""}" data-switch-view="history"><span class="ms">history</span><small>Verlauf</small></button>
       </nav>
     `;
@@ -621,7 +627,9 @@ export async function startWikiApp(rootEl) {
         ? renderGraphStage()
         : state.view === "history"
           ? renderHistoryStage()
-          : renderPageStage();
+          : state.view === "boards"
+            ? renderBoardsStage()
+            : renderPageStage();
 
     rootEl.innerHTML = `<div class="wk-shell view-${state.view}">${renderRail()}${renderSidebar()}${stage}${renderBottomBar()}</div>`;
     watchFloatingBars();
@@ -685,6 +693,8 @@ export async function startWikiApp(rootEl) {
       }
     } else if (state.view === "history") {
       await loadGlobalHistory();
+    } else if (state.view === "boards") {
+      await mountBoards(rootEl);
     }
   }
 

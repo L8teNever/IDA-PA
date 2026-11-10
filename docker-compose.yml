@@ -109,6 +109,7 @@ services:
       WIKI_IDA_TOKEN: ${WIKI_IDA_TOKEN:-}
       WIKI_MCP_TOKEN: ${WIKI_MCP_TOKEN:-}
       WIKI_PUBLIC_URL: ${WIKI_PUBLIC_URL:-https://wiki.kulbarts.com}
+      IDA_CHAT_URL: http://app:8000               # Smart Boards: Ida befüllt sie über den internen Chat
       OLLAMA_URL: ${OLLAMA_URL:-http://ollama:11434}
     ports:
       - "${WIKI_PORT:-8083}:8000"

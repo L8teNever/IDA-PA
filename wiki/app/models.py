@@ -135,3 +135,18 @@ class Setting(Base):
 
     key: Mapped[str] = mapped_column(String(64), primary_key=True)
     value: Mapped[dict] = mapped_column(JSON)
+
+
+class Board(Timestamps, Base):
+    """Smart Board: Thema/Prompt + Modell; Ida sucht dazu in Chats, Wiki & Co. und legt das Ergebnis als Markdown ab."""
+    __tablename__ = "boards"
+
+    id: Mapped[str] = mapped_column(String(12), primary_key=True, default=new_id)
+    title: Mapped[str] = mapped_column(String(120))
+    prompt: Mapped[str] = mapped_column(Text)
+    model: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    content: Mapped[str] = mapped_column(Text, default="")
+    status: Mapped[str] = mapped_column(String(12), default="idle")    # idle | running | error
+    error: Mapped[str] = mapped_column(String(400), default="")
+    last_run_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    run_count: Mapped[int] = mapped_column(Integer, default=0)
