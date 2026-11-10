@@ -1,6 +1,13 @@
 """Smart Boards (nur Wiki-Oberfläche): Thema + Modell eingeben, Ida befüllt das Board, „Neu laden“ aktualisiert es."""
+import mimetypes
+import re
+import shutil
+from pathlib import Path
+from urllib.parse import quote
+
 import httpx
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, File, UploadFile
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 
@@ -21,6 +28,7 @@ class BoardIn(BaseModel):
 
 
 class BoardPatch(BaseModel):
+    content: str | None = Field(None, max_length=200_000)   # von Hand geändert (z. B. Aufgabe abgehakt)
     title: str | None = Field(None, max_length=120)
     prompt: str | None = Field(None, max_length=4000)
     model: str | None = Field(None, max_length=80)
@@ -31,12 +39,40 @@ def _user(c: Caller) -> None:
         raise Forbidden("Nur für die Wiki-Oberfläche verfügbar.")
 
 
+def _dir(board_id: str) -> Path:
+    return get_settings().files_dir / "boards" / board_id
+
+
+def _files(board_id: str) -> list[dict]:
+    d = _dir(board_id)
+    if not d.is_dir():
+        return []
+    out = []
+    for f in sorted(d.iterdir(), key=lambda x: x.stat().st_mtime):
+        mime = mimetypes.guess_type(f.name)[0] or "application/octet-stream"
+        out.append({"name": f.name, "size": f.stat().st_size, "mime": mime, "image": mime.startswith("image/") and mime != "image/svg+xml",
+                    "url": f"/api/v1/boards/{board_id}/files/{quote(f.name)}"})
+    return out
+
+
+def _safe_name(name: str, d: Path) -> str:
+    base = re.sub(r"[^\w .()+\-]", "_", Path(name or "datei").name).strip(" .") or "datei"
+    base = base[:100]
+    stem, suf = Path(base).stem, Path(base).suffix
+    n, out = 1, base
+    while (d / out).exists():
+        n += 1
+        out = f"{stem} ({n}){suf}"
+    return out
+
+
 def _ser(b: Board, full: bool = True) -> dict:
     d = {"id": b.id, "title": b.title, "prompt": b.prompt, "model": b.model, "status": b.status, "error": b.error,
          "last_run_at": b.last_run_at.isoformat() if b.last_run_at else None, "run_count": b.run_count,
          "created_at": b.created_at.isoformat(), "preview": " ".join(b.content.split())[:140]}
     if full:
         d["content"] = b.content
+        d["files"] = _files(b.id)
     return d
 
 
@@ -98,6 +134,8 @@ async def update(board_id: str, body: BoardPatch, c: Caller = Depends(caller)):
         b = await db.get(Board, board_id)
         if not b:
             raise NotFound("Board nicht gefunden")
+        if body.content is not None:
+            b.content = body.content
         if body.title is not None and body.title.strip():
             b.title = body.title.strip()
         if body.prompt is not None:
@@ -130,4 +168,48 @@ async def delete(board_id: str, c: Caller = Depends(caller)):
         if not b:
             raise NotFound("Board nicht gefunden")
         await db.delete(b)
+    shutil.rmtree(_dir(board_id), ignore_errors=True)
     return {"ok": True}
+
+
+@router.post("/{board_id}/files")
+async def upload(board_id: str, file: UploadFile = File(...), c: Caller = Depends(caller)):
+    """Bild oder Datei auf das Board legen (für dich; Ida bekommt beim Neu laden die Namen mitgeteilt)."""
+    _user(c)
+    async with session_scope() as db:
+        if not await db.get(Board, board_id):
+            raise NotFound("Board nicht gefunden")
+    data = await file.read()
+    if len(data) > get_settings().wiki_max_file_mb * 1024 * 1024:
+        raise Invalid(f"Die Datei ist zu groß (höchstens {get_settings().wiki_max_file_mb} MB)")
+    if not data:
+        raise Invalid("Die Datei ist leer")
+    d = _dir(board_id)
+    d.mkdir(parents=True, exist_ok=True)
+    (d / _safe_name(file.filename or "datei", d)).write_bytes(data)
+    return {"files": _files(board_id)}
+
+
+def _file(board_id: str, name: str) -> Path:
+    f = _dir(board_id) / Path(name).name
+    if not f.is_file():
+        raise NotFound("Datei nicht gefunden")
+    return f
+
+
+@router.get("/{board_id}/files/{name}")
+async def download(board_id: str, name: str, c: Caller = Depends(caller)):
+    _user(c)
+    f = _file(board_id, name)
+    mime = mimetypes.guess_type(f.name)[0] or "application/octet-stream"
+    inline = mime.startswith("image/") and mime != "image/svg+xml" or mime == "application/pdf"
+    return FileResponse(f, media_type=mime if inline else "application/octet-stream",
+                        headers={"Content-Disposition": f"{'inline' if inline else 'attachment'}; filename*=UTF-8''{quote(f.name)}",
+                                 "X-Content-Type-Options": "nosniff", "Cache-Control": "private, max-age=3600"})
+
+
+@router.delete("/{board_id}/files/{name}")
+async def remove_file(board_id: str, name: str, c: Caller = Depends(caller)):
+    _user(c)
+    _file(board_id, name).unlink()
+    return {"files": _files(board_id)}

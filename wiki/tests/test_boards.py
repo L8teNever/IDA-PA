@@ -41,3 +41,30 @@ def test_board_lifecycle(client, fake_ida):
 
 def test_boards_only_for_user(agent_client):
     assert agent_client("main").get(f"{API}/boards").status_code == 403
+
+
+def test_board_inhalt_und_dateien(client, fake_ida):
+    bid = client.post(f"{API}/boards", json={"prompt": "Dateien testen"}).json()["id"]
+    _wait(client, bid)
+    # Aufgabe abhaken = Inhalt von Hand ändern
+    assert client.patch(f"{API}/boards/{bid}", json={"content": "## Aufgaben\n- [x] erledigt\n"}).json()["content"].startswith("## Aufgaben")
+    # Bild hochladen, anzeigen, löschen
+    png = bytes.fromhex("89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000d49444154789c6360000002000001e221bc330000000049454e44ae426082")
+    up = client.post(f"{API}/boards/{bid}/files", files={"file": ("../../böse name?.png", png, "image/png")})
+    assert up.status_code == 200, up.text
+    f = up.json()["files"][0]
+    assert f["image"] and "/" not in f["name"] and f["name"].endswith(".png")
+    got = client.get(f["url"])
+    assert got.status_code == 200 and got.content == png and got.headers["content-type"] == "image/png"
+    assert [x["name"] for x in client.get(f"{API}/boards/{bid}").json()["files"]] == [f["name"]]
+    # Ida erfährt beim Neu laden die Dateinamen
+    client.post(f"{API}/boards/{bid}/refresh")
+    _wait(client, bid)
+    assert f["name"] in fake_ida.received[-1]["text"] and "Wähle den Aufbau frei" in fake_ida.received[-1]["text"]
+    # Nicht-Bilder werden nie inline ausgeliefert
+    client.post(f"{API}/boards/{bid}/files", files={"file": ("x.html", b"<script>1</script>", "text/html")})
+    h = client.get(f"{API}/boards/{bid}/files/x.html")
+    assert h.headers["content-disposition"].startswith("attachment") and h.headers["content-type"] == "application/octet-stream"
+    assert client.delete(f"{API}/boards/{bid}/files/x.html").json()["files"][0]["name"] == f["name"]
+    assert client.delete(f"{API}/boards/{bid}").status_code == 200
+    assert client.get(f["url"]).status_code in (403, 404)

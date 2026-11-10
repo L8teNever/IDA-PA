@@ -5,7 +5,7 @@
 // - Lückenloser Wiki-Verlauf (`?ansicht=verlauf`) mit Diff-Vergleich & 1-Klick-Wiederherstellung.
 
 import * as api from "./api.js";
-import { mountBoards, renderBoardsStage } from "./boards.js";
+import { mountBoards, renderBoardList, renderBoardsStage } from "./boards.js";
 import { getAllPages, getMeta, getPage, putPages } from "./db.js";
 import { mountGraph } from "./graph.js";
 import { buildPageIndex, esc, formatBytes, renderMarkdown, renderUnifiedDiff, toggleCheckboxAtLine } from "./markdown.js";
@@ -296,8 +296,8 @@ export async function startWikiApp(rootEl) {
         </div>
 
         <div class="tree-scroll">
-          <div class="space-caption">${esc(SPACE_META[state.space].desc)}</div>
-          ${rootPages
+          ${state.view === "boards" ? renderBoardList() : `<div class="space-caption">${esc(SPACE_META[state.space].desc)}</div>`}
+          ${(state.view === "boards" ? [] : rootPages)
             .map(
               (p) => `
             <button type="button" class="tree-page root-page ${p.path === state.currentPath && state.view === "page" ? "active" : ""}" data-open-page="${esc(p.path)}">
@@ -309,7 +309,7 @@ export async function startWikiApp(rootEl) {
           ${folderHtml}
 
           ${
-            state.tags.length
+            state.view !== "boards" && state.tags.length
               ? `<div class="tag-cloud-sec">
                   <div class="space-caption">Schlagworte</div>
                   <div class="tag-cloud">
@@ -1254,7 +1254,7 @@ export async function startWikiApp(rootEl) {
 
   // Interaktive Checklisten direkt im Lese-Modus abhaken!
   rootEl.addEventListener("change", async (e) => {
-    if (e.target.matches("[data-task-line]") && state.currentPage && !state.editing) {
+    if (e.target.matches("[data-task-line]") && state.view === "page" && state.currentPage && !state.editing) {
       const lineIdx = Number(e.target.dataset.taskLine);
       const updatedBody = toggleCheckboxAtLine(state.currentPage.body || "", lineIdx);
       await savePageChanges({

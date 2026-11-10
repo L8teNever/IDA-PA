@@ -29,8 +29,26 @@ export function renderBoardsStage() {
           <button type="button" class="btn-primary sm" id="wkBoardNew" title="Neues Board erstellen"><span class="ms">add</span> Neues Board</button>
         </div>
       </header>
-      <div class="boards-split" id="wkBoards"><div class="empty-hint">Lade Boards …</div></div>
+      <div class="board-view" id="wkBoards"><div class="empty-hint">Lade Boards …</div></div>
     </main>`;
+}
+
+// Liste der Boards für die Hauptseitenleiste
+export function renderBoardList() {
+  const items = bs.list.length
+    ? bs.list.map((x) => `
+        <button type="button" class="tree-page board-item ${x.id === bs.sel ? "active" : ""}" data-board="${x.id}">
+          <span class="ms page-ic board-st ${x.status}">${x.status === "running" ? "progress_activity" : x.status === "error" ? "error" : "dashboard"}</span>
+          <span class="tree-label">${esc(x.title)}</span>
+        </button>`).join("")
+    : `<div class="empty-hint">Noch kein Board.</div>`;
+  return `<div id="wkBoardList"><div class="space-caption">Deine Smart Boards</div>${items}
+    <button type="button" class="tree-page board-item" data-board-new><span class="ms page-ic">add</span><span class="tree-label">Neues Board</span></button></div>`;
+}
+
+function drawList(root) {
+  const el = root.querySelector("#wkBoardList");
+  if (el) el.outerHTML = renderBoardList();
 }
 
 export async function mountBoards(root) {
@@ -39,6 +57,23 @@ export async function mountBoards(root) {
   clearTimeout(bs.timer);
   root.querySelector("#wkBoardNew").onclick = () => openForm(root);
   host.addEventListener("click", (e) => onClick(e, root));
+  host.addEventListener("change", (e) => onChange(e, root));
+  bindDrop(host, root);
+  if (!root._boardsBound) {
+    root._boardsBound = true;
+    // Die Board-Liste steht in der Hauptseitenleiste (außerhalb von #wkBoards)
+    root.addEventListener("click", (e) => {
+      if (!root.querySelector("#wkBoards")) return;
+      const side = e.target.closest("#wkBoardList");
+      if (!side) return;
+      if (e.target.closest("[data-board-new]")) return openForm(root);
+      const card = e.target.closest("[data-board]");
+      if (card) {
+        root.querySelector(".wk-sidebar")?.classList.remove("open");
+        select(root, card.dataset.board);
+      }
+    });
+  }
   try {
     const r = await api.get("/api/v1/boards");
     bs.list = r.boards;
@@ -88,22 +123,39 @@ function draw(root) {
   const host = root.querySelector("#wkBoards");
   if (!host) return;
   const b = bs.current;
-  host.classList.toggle("has-sel", !!b);
-  const list = bs.list.length
-    ? bs.list.map((x) => `
-        <button type="button" class="hist-card board-card ${x.id === bs.sel ? "active" : ""}" data-board="${x.id}">
-          <div class="hist-card-top"><span class="ms board-st ${x.status}">${x.status === "running" ? "progress_activity" : x.status === "error" ? "error" : "dashboard"}</span>
-            <span class="hist-title">${esc(x.title)}</span></div>
-          <div class="board-prev">${esc(x.preview || (x.status === "running" ? "Ida sammelt gerade …" : "Noch leer"))}</div>
-        </button>`).join("")
-    : `<div class="empty-hint">Noch kein Board.<br>Lege mit <strong>Neues Board</strong> eins an: Thema eingeben, Modell wählen, Ida erledigt den Rest.</div>`;
-  host.innerHTML = `<div class="history-list board-list">${list}</div><div class="history-inspector board-view">${b ? view(b) : `<div class="empty-hint">Wähle links ein Board.</div>`}</div>`;
+  drawList(root);
+  host.innerHTML = b ? view(b) : `<div class="empty-hint">${bs.list.length ? "Wähle links ein Board." : "Noch kein Board.<br>Lege mit <strong>Neues Board</strong> eins an: Thema eingeben, Modell wählen, Ida erledigt den Rest."}</div>`;
+  if (b) fillBody(host, b);
+}
+
+// Markdown rendern und jeden Abschnitt („## …“) als eigene Karte legen (mehrere nebeneinander, wie in einer Zeitung).
+// Ohne Überschriften bleibt es ein einziger Text.
+function fillBody(host, b) {
+  const prose = host.querySelector(".board-prose");
+  if (!prose) return;
+  prose.innerHTML = renderMarkdown(b.content, { space: "memory", pageIndex: null, attachments: [], prefixUrl: api.apiUrl });
+  const kids = [...prose.children];
+  if (!kids.some((k) => k.tagName === "H2")) {
+    prose.classList.add("single");
+    return;
+  }
+  const cards = [];
+  let cur = null;
+  for (const k of kids) {
+    if (k.tagName === "H2" || !cur) {
+      cur = document.createElement("section");
+      cur.className = "bcard" + (k.tagName === "H2" ? "" : " intro");
+      cards.push(cur);
+    }
+    cur.appendChild(k);
+  }
+  prose.replaceChildren(...cards);
 }
 
 function view(b) {
   const running = b.status === "running";
   const body = b.content.trim()
-    ? `<div class="md-prose board-prose">${renderMarkdown(b.content, { space: "memory", pageIndex: null, attachments: [], prefixUrl: api.apiUrl, readonlyTasks: true })}</div>`
+    ? `<div class="md-prose board-prose"></div>`
     : `<div class="empty-hint">${running ? "Ida sucht gerade alles dazu zusammen. Das kann eine Weile dauern." : "Noch kein Inhalt. Mit „Neu laden“ startest du die Suche."}</div>`;
   return `
     <div class="board-head">
@@ -118,8 +170,86 @@ function view(b) {
     </div>
     ${b.status === "error" ? `<div class="board-err"><span class="ms">error</span> ${esc(b.error || "Das hat nicht geklappt")}</div>` : ""}
     <details class="board-prompt"><summary>Auftrag an Ida</summary><p>${esc(b.prompt)}</p></details>
-    ${body}`;
+    ${body}
+    ${filesHtml(b)}`;
 }
+
+function filesHtml(b) {
+  const files = b.files || [];
+  const imgs = files.filter((f) => f.image);
+  const other = files.filter((f) => !f.image);
+  return `<section class="board-files">
+    <div class="board-files-head"><h4><span class="ms">attach_file</span> Bilder &amp; Dateien</h4>
+      <button type="button" class="btn-ghost sm" data-board-upload><span class="ms">upload</span> Hinzufügen</button>
+      <input type="file" id="wkBoardFile" multiple hidden></div>
+    ${files.length ? "" : `<div class="board-drop-hint">Bilder oder Dateien hierher ziehen oder auf „Hinzufügen“ tippen.</div>`}
+    ${imgs.length ? `<div class="board-gallery">${imgs.map((f) => `
+      <figure><a href="${esc(api.apiUrl(f.url))}" target="_blank" rel="noopener"><img loading="lazy" src="${esc(api.apiUrl(f.url))}" alt="${esc(f.name)}"></a>
+        <button type="button" class="icon-btn" data-file-del="${esc(f.name)}" title="Entfernen"><span class="ms">close</span></button></figure>`).join("")}</div>` : ""}
+    ${other.length ? `<div class="board-filelist">${other.map((f) => `
+      <div class="board-file"><span class="ms">description</span><a href="${esc(api.apiUrl(f.url))}" target="_blank" rel="noopener">${esc(f.name)}</a>
+        <small>${Math.max(1, Math.round(f.size / 1024))} KB</small>
+        <button type="button" class="icon-btn" data-file-del="${esc(f.name)}" title="Entfernen"><span class="ms">close</span></button></div>`).join("")}</div>` : ""}
+  </section>`;
+}
+
+async function upload(root, fileList) {
+  const b = bs.current;
+  if (!b) return;
+  for (const f of fileList) {
+    const fd = new FormData();
+    fd.append("file", f);
+    try {
+      const r = await fetch(api.apiUrl(`/api/v1/boards/${b.id}/files`), { method: "POST", body: fd, credentials: "include" });
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || `Upload fehlgeschlagen (${r.status})`);
+      b.files = (await r.json()).files;
+    } catch (err) {
+      alert(err.message);
+    }
+  }
+  draw(root);
+}
+
+function bindDrop(host, root) {
+  host.addEventListener("dragover", (e) => { if (bs.current) { e.preventDefault(); host.classList.add("drop"); } });
+  host.addEventListener("dragleave", () => host.classList.remove("drop"));
+  host.addEventListener("drop", (e) => {
+    host.classList.remove("drop");
+    if (!bs.current || !e.dataTransfer?.files?.length) return;
+    e.preventDefault();
+    upload(root, [...e.dataTransfer.files]);
+  });
+  host.addEventListener("paste", (e) => {
+    const fs = [...(e.clipboardData?.files || [])];
+    if (fs.length && bs.current) upload(root, fs);
+  });
+}
+
+// Aufgabe abhaken: Zeile im Board-Text umschalten und speichern
+async function onChange(e, root) {
+  const cb = e.target.closest("[data-task-line]");
+  const b = bs.current;
+  if (cb && b) {
+    const lines = b.content.replace(/\r\n/g, "\n").split("\n");
+    const i = Number(cb.dataset.taskLine);
+    if (!/\[[ xX]\]/.test(lines[i] || "")) return;
+    lines[i] = lines[i].replace(/\[[ xX]\]/, cb.checked ? "[x]" : "[ ]");
+    const old = b.content;
+    b.content = lines.join("\n");
+    cb.closest(".md-task")?.classList.toggle("done", cb.checked);
+    try {
+      await api.patch(`/api/v1/boards/${b.id}`, { content: b.content });
+    } catch (err) {
+      b.content = old;
+      alert(err.message);
+      draw(root);
+    }
+  } else if (e.target.id === "wkBoardFile" && e.target.files?.length) {
+    upload(root, [...e.target.files]);
+  }
+}
+
+const host_input = (root) => root.querySelector("#wkBoardFile")?.click();
 
 async function onClick(e, root) {
   const card = e.target.closest("[data-board]");
@@ -130,6 +260,13 @@ async function onClick(e, root) {
   }
   const b = bs.current;
   if (!b) return;
+  if (e.target.closest("[data-board-upload]")) return host_input(root);
+  const fd = e.target.closest("[data-file-del]");
+  if (fd) {
+    const r = await api.del(`/api/v1/boards/${b.id}/files/${encodeURIComponent(fd.dataset.fileDel)}`).catch((err) => alert(err.message));
+    if (r) { b.files = r.files; draw(root); }
+    return;
+  }
   if (e.target.closest("[data-board-refresh]")) {
     try {
       await api.post(`/api/v1/boards/${b.id}/refresh`);

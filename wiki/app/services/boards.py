@@ -22,18 +22,34 @@ MAX_CONTENT = 200_000
 RULES = """Du baust ein „Smart Board“ für Simon: eine übersichtliche Seite, die alles Wichtige zu einem Thema bündelt.
 Hole die Infos selbst mit deinen Werkzeugen: durchsuche deine früheren Chats (chat_search, chat_read), das Gedächtnis (memory_search), das Wiki (wiki_search, wiki_read) und, wenn es zum Thema passt, Mails, Kalender, Aufgaben und Sofia/Stundenplan. Erfinde nichts; was du nicht findest, lässt du weg.
 Antworte AUSSCHLIESSLICH mit dem fertigen Board in Markdown, ohne Einleitung, ohne Schlusssatz, ohne Rückfragen und ohne Code-Zaun um das Ganze.
-Aufbau: oben 1–3 Sätze Zusammenfassung, darunter Abschnitte mit „## Überschrift“, Stichpunkte, Tabellen oder Checklisten (- [ ] / - [x]), je nachdem was zum Inhalt passt. Wichtiges und Fristen zuerst, mit Datum. Wo es hilft, nenne kurz die Quelle (z. B. „aus Chat vom 03.11.“). Deutsch, knapp, locker."""
+Wähle den Aufbau frei, so wie er zum Thema passt. Die Oberfläche macht aus jedem „## Überschrift“ automatisch eine eigene kleine Karte (wie Artikel in einer Zeitung, mehrere nebeneinander). Das ist nur eine Möglichkeit, kein Muss:
+- Bei vielen verschiedenen Themen: kurze Abschnitte mit „## Überschrift“ (je höchstens etwa 8 Zeilen) sind praktisch.
+- Bei einem einzigen zusammenhängenden Thema darfst du ohne Überschriften schreiben, oder nur wenige.
+- Nimm die Form, die passt: Checkliste („- [ ] …“, erledigt „- [x] …“) für Aufgaben, Tabelle für Termine und Zahlen, Stichpunkte für Fakten, Absatz für Hinweise. Mische frei.
+- Wichtiges und Fristen zuerst, mit Datum. Wo es hilft, nenne kurz die Quelle (z. B. „aus Chat vom 03.11.“).
+- Bilder nur, wenn du eine echte Adresse hast: „![Beschreibung](https://…)“. Nichts erfinden.
+- Haken, die Simon schon gesetzt hat („- [x]“), bleiben erhalten.
+Deutsch, knapp, locker."""
+
+
+def _files_note(b: Board) -> str:
+    d = get_settings().files_dir / "boards" / b.id
+    names = sorted(f.name for f in d.iterdir()) if d.is_dir() else []
+    if not names:
+        return ""
+    return ("\nSimon hat diese Bilder/Dateien auf dem Board abgelegt (sie werden unter dem Text gezeigt, du musst sie nicht einbinden): "
+            + ", ".join(names[:30]) + "\n")
 
 
 def _prompt(b: Board) -> str:
     now = utcnow().astimezone().strftime("%d.%m.%Y %H:%M")
     if b.content.strip():
         since = b.last_run_at.astimezone().strftime("%d.%m.%Y %H:%M") if b.last_run_at else "dem letzten Stand"
-        return (f"{RULES}\n\nThema/Auftrag des Boards „{b.title}“:\n{b.prompt}\n\nJetzt: {now}. Das Board wurde zuletzt am {since} aktualisiert. "
+        return (f"{RULES}\n\nThema/Auftrag des Boards „{b.title}“:\n{b.prompt}\n{_files_note(b)}\nJetzt: {now}. Das Board wurde zuletzt am {since} aktualisiert. "
                 f"Das ist der aktuelle Stand:\n<<<BOARD\n{b.content}\n>>>BOARD\n\nSuche gezielt nach Neuem und Geändertem seit damals "
                 "(neue Chat-Nachrichten, geänderte Wiki-Seiten, neue Termine, Mails …) und gib das KOMPLETTE aktualisierte Board aus. "
                 "Unverändertes übernimmst du, Veraltetes oder Erledigtes passt du an oder streichst es.")
-    return f"{RULES}\n\nThema/Auftrag des Boards „{b.title}“:\n{b.prompt}\n\nJetzt: {now}. Erstelle das Board."
+    return f"{RULES}\n\nThema/Auftrag des Boards „{b.title}“:\n{b.prompt}\n{_files_note(b)}\nJetzt: {now}. Erstelle das Board."
 
 
 async def _ask(b: Board) -> str:
