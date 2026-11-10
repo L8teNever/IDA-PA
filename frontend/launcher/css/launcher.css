@@ -67,9 +67,9 @@ body { overflow-y: auto; display: block; height: auto; min-height: 100dvh; }
 .lc-add { cursor: pointer; }
 
 /* Uhr */
-/* Uhr im Material-3-Stil: tonale Karte mit großem Radius, Minuten in Akzentfarbe, Datum als Chip */
-.lc-clock { display: flex; flex-direction: column; align-items: center; gap: 14px; width: fit-content; max-width: 100%; margin: 0 auto 28px; padding: 22px clamp(28px, 6vw, 52px) 20px;
-  border-radius: 36px; background: rgba(var(--accent-rgb), .10); border: 1px solid rgba(var(--accent-rgb), .22); backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px); box-shadow: 0 6px 28px rgba(0, 0, 0, .35); }
+/* Uhr ohne Karte: Minuten in Akzentfarbe, Datum als Chip */
+.lc-clock { display: flex; flex-direction: column; align-items: center; gap: 14px; width: fit-content; max-width: 100%; margin: 0 auto 28px; padding: 0;
+  text-shadow: 0 2px 18px rgba(0, 0, 0, .45); }
 .lc-time { display: flex; align-items: baseline; font-family: 'Fredoka', sans-serif; font-size: clamp(60px, 14vw, 104px); font-weight: 700; line-height: 1; letter-spacing: 0; font-variant-numeric: tabular-nums; color: var(--on-surface); }
 .lc-time .c { margin: 0 .04em; opacity: .55; position: relative; top: -.05em; }
 .lc-time .m { color: var(--accent); }
