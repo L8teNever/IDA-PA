@@ -11,16 +11,22 @@ function letters(name) {
   return (w.length > 1 ? w[0][0] + w[1][0] : (w[0] || "?").slice(0, 2)).replace(/^./, (c) => c.toUpperCase());
 }
 
-function draw() {
-  const q = norm($("lcSearch").value.trim());
-  const list = q ? apps.filter((a) => norm(`${a.name} ${a.host}`).includes(q)) : apps;
-  $("lcGrid").innerHTML = list.map((a, i) => `
-    <a class="lc-card ${q && i === 0 ? "first" : ""}" href="${esc(a.url)}" rel="noopener">
+function card(a, first) {
+  return `
+    <a class="lc-card ${first ? "first" : ""}" href="${esc(a.url)}" rel="noopener">
       <span class="lc-ico" data-l="${esc(letters(a.name))}"><img src="${esc(a.icon)}" alt="" loading="lazy" decoding="async"></span>
       <span class="lc-name" title="${esc(a.name)}">${esc(a.name)}</span>
       <span class="lc-host">${esc(a.host)}</span>
       ${a.protected ? "" : `<span class="lc-open">offen</span>`}
-    </a>`).join("");
+    </a>`;
+}
+
+function draw() {
+  const q = norm($("lcSearch").value.trim());
+  const list = q ? apps.filter((a) => norm(`${a.name} ${a.host}`).includes(q)) : apps;
+  const mine = list.filter((a) => a.ida), rest = list.filter((a) => !a.ida);
+  const sec = (title, arr, off) => (arr.length ? `<h2 class="lc-sec">${title}</h2><div class="lc-grid">${arr.map((a, i) => card(a, q && i + off === 0)).join("")}</div>` : "");
+  $("lcGrid").innerHTML = sec("IDA", mine, 0) + sec(mine.length ? "Weitere Apps" : "Apps", rest, mine.length);
   // Fehlt das Symbol, bleibt der Anfangsbuchstabe
   for (const img of $("lcGrid").querySelectorAll(".lc-ico img")) {
     img.addEventListener("error", () => { const p = img.parentElement; img.remove(); p.textContent = p.dataset.l; }, { once: true });

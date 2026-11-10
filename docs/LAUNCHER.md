@@ -7,6 +7,9 @@ Gedacht für `home.kulbarts.com`.
   Kommt eine App oder Adresse dazu, erscheint sie nach spätestens einer Minute von selbst. Access-Apps mit ausgeschaltetem
   „im App Launcher zeigen“ bleiben draußen. Standardmäßig sind es nur die Access-Apps (wie im Cloudflare-Launcher). Mit `LAUNCHER_SHOW_UNPROTECTED=true` kommen auch Tunnel-Adressen
   ohne Access-App dazu, mit „offen“ markiert.
+* **Zwei Bereiche**: Oben stehen die **IDA-Apps** (IDA, Kalender, Wiki, Code, Aufgaben, Dokumente, HTML, Dashboard, Server, Links, Launcher) mit schönen Namen,
+  darunter alle **weiteren Apps**. IDA-App = Tunnel-Adresse, deren Ziel auf einem Port aus `IDA_PORTS` liegt (Standard 8440–8459);
+  zeigen mehrere Adressen auf denselben Dienst (z. B. `cleo.` und `html.`), bleibt die bevorzugte. Zusätzlich mit `IDA_HOSTS`.
 * **Suche**: Tippen filtert nach Name und Adresse, Enter öffnet den ersten Treffer, `/` springt ins Suchfeld, Esc leert es.
 * **Symbole**: Zuerst das Logo der Access-App, sonst das Icon der Seite selbst. Seiten hinter Access sind von außen nicht lesbar,
   deshalb fragt der Launcher zuerst die interne Tunnel-Adresse (z. B. `http://10.7.0.1:8450`) ab und dann die öffentliche.

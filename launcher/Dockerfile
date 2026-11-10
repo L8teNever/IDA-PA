@@ -18,7 +18,6 @@ COPY launcher/app /app/launcher/app
 COPY frontend/launcher/ /app/frontend/launcher/
 COPY frontend/css/tokens.css /app/frontend/css/
 COPY frontend/fonts/ /app/frontend/fonts/
-COPY frontend/icons/ /app/frontend/icons/
 
 VOLUME /data
 EXPOSE 8000

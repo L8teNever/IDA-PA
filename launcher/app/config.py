@@ -19,6 +19,9 @@ class Settings(BaseSettings):
     extra: str = ""                                 # zusätzliche Einträge: "Name=https://adresse, Name2=https://adresse2"
     show_unprotected: bool = False                  # auch Tunnel-Adressen ohne Access-App zeigen (mit Hinweis „offen“); aus = nur Access-Apps
     title: str = "Willkommen zurück!"
+    # Welche Apps zum IDA-Stack gehören (stehen oben): alle Tunnel-Adressen, deren Ziel auf einem dieser Ports liegt
+    ida_ports: str = "8440-8459"
+    ida_hosts: str = ""                             # zusätzlich als IDA-App zeigen (Komma-getrennt, * erlaubt)
 
 
 @lru_cache

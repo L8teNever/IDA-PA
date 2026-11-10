@@ -68,3 +68,19 @@ def test_icon_nur_fuer_bekannte_adressen(client, monkeypatch):
 def test_icon_links_werden_gefunden():
     html = '<link rel="icon" href="/a.png"><link rel="apple-touch-icon" sizes="180x180" href="b.png"><link rel="mask-icon" href="m.svg">'
     assert icons._candidates(html, "http://x/app/") == ["http://x/app/b.png", "http://x/a.png"]
+
+
+def test_ida_apps_stehen_oben_mit_schoenen_namen(client, monkeypatch):
+    async def fake_fetch():
+        return {"apps": [
+            {"name": "zzz fremd", "host": "fremd.example.com", "logo": "", "protected": True, "service": "http://10.0.0.1:9000"},
+            {"name": "docs.example.com", "host": "docs.example.com", "logo": "", "protected": True, "service": "http://10.0.0.1:8451"},
+            {"name": "x", "host": "cleo.example.com", "logo": "", "protected": False, "service": "http://10.0.0.1:8450"},
+            {"name": "y", "host": "html.example.com", "logo": "", "protected": False, "service": "http://10.0.0.1:8450"},
+            {"name": "w", "host": "wiki.example.com", "logo": "", "protected": True, "service": "http://10.0.0.1:8443"},
+        ]}
+    monkeypatch.setattr(cloudflare, "fetch", fake_fetch)
+    cloudflare._cache.clear()
+    d = client.get("/api/v1/apps").json()["apps"]
+    assert [(a["name"], a["ida"]) for a in d] == [("Wiki", True), ("Dokumente", True), ("HTML", True), ("zzz fremd", False)]
+    assert d[2]["host"] == "html.example.com"

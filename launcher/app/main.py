@@ -37,7 +37,7 @@ async def health():
 
 def _view(a: dict) -> dict:
     h = hashlib.sha1(a["host"].encode()).hexdigest()[:8]
-    return {"name": a["name"], "host": a["host"], "url": a.get("url") or f"https://{a['host']}", "protected": a["protected"],
+    return {"name": a["name"], "host": a["host"], "url": a.get("url") or f"https://{a['host']}", "protected": a["protected"], "ida": bool(a.get("ida")),
             "icon": f"/api/v1/icon/{a['host']}?v={h}"}
 
 
@@ -87,5 +87,5 @@ async def index():
 
 app.mount("/static/shared/css", Static(directory=_fe() / "css", check_dir=False), name="shared-css")
 app.mount("/static/shared/fonts", Static(directory=_fe() / "fonts", check_dir=False), name="shared-fonts")
-app.mount("/icons", Static(directory=_fe() / "icons", check_dir=False), name="icons")
+app.mount("/icons", Static(directory=_fe() / "launcher" / "icons", check_dir=False), name="icons")
 app.mount("/static", Static(directory=_fe() / "launcher", check_dir=False), name="static")

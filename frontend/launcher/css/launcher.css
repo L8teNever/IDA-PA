@@ -8,6 +8,8 @@ body { overflow-y: auto; display: block; height: auto; min-height: 100dvh; }
 .lc-search .ms { color: var(--muted); font-size: 22px; }
 .lc-search input { flex: 1; min-width: 0; background: none; border: 0; outline: 0; color: var(--on-surface); font: inherit; font-size: 16px; }
 .lc-search input::-webkit-search-cancel-button { display: none; }
+.lc-sec { margin: 34px 4px 14px; font-size: 13px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.lc-sec:first-child { margin-top: 0; }
 .lc-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(168px, 1fr)); gap: 14px; }
 .lc-card { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 22px 12px 18px; border-radius: 24px; text-decoration: none; color: var(--on-surface);
   background: var(--surface); border: 1px solid #1f2126; transition: transform .25s var(--spring), background .2s var(--emph), border-color .2s var(--emph); min-width: 0; }
