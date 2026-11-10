@@ -10,6 +10,9 @@ Gedacht für `home.kulbarts.com`.
 * **Zwei Bereiche**: Oben stehen die **IDA-Apps** (IDA, Kalender, Wiki, Code, Aufgaben, Dokumente, HTML, Dashboard, Server, Links, Launcher) mit schönen Namen,
   darunter alle **weiteren Apps**. IDA-App = Tunnel-Adresse, deren Ziel auf einem Port aus `IDA_PORTS` liegt (Standard 8440–8459);
   zeigen mehrere Adressen auf denselben Dienst (z. B. `cleo.` und `html.`), bleibt die bevorzugte. Zusätzlich mit `IDA_HOSTS`.
+* **Startansicht**: Nur die IDA-Apps, darunter **Oft genutzt** (mind. 2× geöffnet, die 6 häufigsten) und **Zuletzt genutzt** (die 6 letzten). Alles andere
+  findest du über die Suche oder den Button **Alle Apps** (eigene Ansicht mit allen untereinander, `#alle`). Geöffnet wird per Klick auf eine Kachel gezählt;
+  die Zähler liegen in `usage.json` im Volume und gelten für alle Geräte.
 * **Suche**: Tippen filtert nach Name und Adresse, Enter öffnet den ersten Treffer, `/` springt ins Suchfeld, Esc leert es.
 * **Symbole**: Zuerst das Logo der Access-App, sonst das Icon der Seite selbst. Seiten hinter Access sind von außen nicht lesbar,
   deshalb fragt der Launcher zuerst die interne Tunnel-Adresse (z. B. `http://10.7.0.1:8450`) ab und dann die öffentliche.

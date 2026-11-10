@@ -84,3 +84,13 @@ def test_ida_apps_stehen_oben_mit_schoenen_namen(client, monkeypatch):
     d = client.get("/api/v1/apps").json()["apps"]
     assert [(a["name"], a["ida"]) for a in d] == [("Wiki", True), ("Dokumente", True), ("HTML", True), ("zzz fremd", False)]
     assert d[2]["host"] == "html.example.com"
+
+
+def test_nutzung_wird_gemerkt(client):
+    assert client.post("/api/v1/visit", json={"host": "fremd.example.org"}).status_code == 404
+    first = {a["host"]: a for a in client.get("/api/v1/apps").json()["apps"]}
+    assert first["wiki.example.com"]["n"] == 0
+    assert client.post("/api/v1/visit", json={"host": "wiki.example.com"}).json() == {"ok": True}
+    client.post("/api/v1/visit", json={"host": "wiki.example.com"})
+    w = {a["host"]: a for a in client.get("/api/v1/apps").json()["apps"]}["wiki.example.com"]
+    assert w["n"] == 2 and w["last"] > 0

@@ -25,3 +25,12 @@ body { overflow-y: auto; display: block; height: auto; min-height: 100dvh; }
 .lc-empty { text-align: center; color: var(--muted); margin-top: 40px; }
 @media (max-width: 520px) { .lc-grid { grid-template-columns: repeat(2, 1fr); gap: 10px; } .lc-card { padding: 18px 8px 14px; border-radius: 20px; } }
 @media (prefers-reduced-motion: reduce) { .lc-card { transition: none; } .lc-card:hover { transform: none; } }
+.lc-all { margin-top: 30px; text-align: center; }
+.lc-all p { margin: 14px 0 0; color: var(--muted); font-size: 13.5px; }
+.lc-allbtn, .lc-back { display: inline-flex; align-items: center; gap: 8px; padding: 0 22px; height: 46px; border-radius: 23px; border: 1px solid #1f2126; background: var(--surface-high);
+  color: var(--on-surface); font: inherit; font-size: 15px; cursor: pointer; transition: background .2s var(--emph), border-color .2s var(--emph), transform .25s var(--spring); }
+.lc-allbtn:hover, .lc-back:hover { background: var(--surface-highest); border-color: rgba(var(--accent-rgb), .45); }
+.lc-allbtn:active, .lc-back:active { transform: scale(.97); }
+.lc-allbtn small { color: var(--muted); font-size: 13px; }
+.lc-allbtn .ms, .lc-back .ms { font-size: 20px; color: var(--accent); }
+.lc-back { height: 40px; margin-bottom: 22px; }

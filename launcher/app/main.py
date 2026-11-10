@@ -10,7 +10,9 @@ from fastapi import FastAPI, HTTPException, Response
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import cloudflare, icons
+from pydantic import BaseModel
+
+from . import cloudflare, icons, usage
 from .config import get_settings
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -35,9 +37,10 @@ async def health():
     return {"ok": True}
 
 
-def _view(a: dict) -> dict:
+def _view(a: dict, use: dict | None = None) -> dict:
+    u = (use or {}).get(a["host"]) or {}
     h = hashlib.sha1(a["host"].encode()).hexdigest()[:8]
-    return {"name": a["name"], "host": a["host"], "url": a.get("url") or f"https://{a['host']}", "protected": a["protected"], "ida": bool(a.get("ida")),
+    return {"name": a["name"], "host": a["host"], "url": a.get("url") or f"https://{a['host']}", "protected": a["protected"], "ida": bool(a.get("ida")), "n": u.get("n", 0), "last": u.get("last", 0),
             "icon": f"/api/v1/icon/{a['host']}?v={h}"}
 
 
@@ -50,7 +53,26 @@ async def list_apps(refresh: bool = False):
         items = await cloudflare.apps(force=refresh)
     except cloudflare.CloudflareError as e:
         return JSONResponse({"title": s.title, "apps": [], "error": str(e)})
-    return {"title": s.title, "apps": [_view(a) for a in items], "error": ""}
+    use = usage.load()
+    return {"title": s.title, "apps": [_view(a, use) for a in items], "error": ""}
+
+
+class Visit(BaseModel):
+    host: str
+
+
+@app.post("/api/v1/visit")
+async def visit(body: Visit):
+    """Merkt sich, dass eine App geöffnet wurde (nur Adressen aus der Liste)."""
+    try:
+        items = await cloudflare.apps()
+    except cloudflare.CloudflareError:
+        raise HTTPException(404)
+    host = body.host.strip().lower()
+    if not any(x["host"] == host for x in items):
+        raise HTTPException(404)
+    usage.visit(host)
+    return {"ok": True}
 
 
 @app.get("/api/v1/icon/{host}")
