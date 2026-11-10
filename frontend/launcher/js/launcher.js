@@ -5,6 +5,7 @@ const norm = (s) => s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
 
 let apps = [];
 let timer = 0;
+let again = 0;
 
 function letters(name) {
   const w = name.replace(/^https?:\/\//, "").split(/[\s._-]+/).filter(Boolean);
@@ -14,6 +15,7 @@ function letters(name) {
 function card(a, first) {
   return `
     <a class="lc-card ${first ? "first" : ""}" href="${esc(a.url)}" data-host="${esc(a.host)}" rel="noopener">
+      ${a.up === null || a.up === undefined ? "" : `<span class="lc-dot ${a.up ? "up" : "down"}" title="${a.up ? "erreichbar" : "nicht erreichbar"}"></span>`}
       <span class="lc-ico" data-l="${esc(letters(a.name))}"><img src="${esc(a.icon)}" alt="" loading="lazy" decoding="async"></span>
       <span class="lc-name" title="${esc(a.name)}">${esc(a.name)}</span>
       <span class="lc-host">${esc(a.host)}</span>
@@ -82,6 +84,8 @@ async function load() {
     $("lcTitle").textContent = d.title || "Apps";
     $("lcEmpty").dataset.err = d.error ? `Fehler: ${d.error}` : "";
     apps = d.apps || [];
+    clearTimeout(again);
+    if (d.pending) again = setTimeout(load, 4000); // Titel und Status werden noch im Hintergrund geholt
   } catch {
     $("lcEmpty").dataset.err = "Keine Verbindung.";
   }

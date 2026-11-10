@@ -34,3 +34,7 @@ body { overflow-y: auto; display: block; height: auto; min-height: 100dvh; }
 .lc-allbtn small { color: var(--muted); font-size: 13px; }
 .lc-allbtn .ms, .lc-back .ms { font-size: 20px; color: var(--accent); }
 .lc-back { height: 40px; margin-bottom: 22px; }
+.lc-card { position: relative; }
+.lc-dot { position: absolute; top: 12px; right: 12px; width: 9px; height: 9px; border-radius: 50%; background: #5f6368; }
+.lc-dot.up { background: #34d399; box-shadow: 0 0 6px rgba(52, 211, 153, .55); }
+.lc-dot.down { background: #f87171; box-shadow: 0 0 6px rgba(248, 113, 113, .55); }

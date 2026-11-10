@@ -12,7 +12,7 @@ from fastapi.staticfiles import StaticFiles
 
 from pydantic import BaseModel
 
-from . import cloudflare, icons, usage
+from . import cloudflare, icons, status, usage
 from .config import get_settings
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -40,7 +40,10 @@ async def health():
 def _view(a: dict, use: dict | None = None) -> dict:
     u = (use or {}).get(a["host"]) or {}
     h = hashlib.sha1(a["host"].encode()).hexdigest()[:8]
-    return {"name": a["name"], "host": a["host"], "url": a.get("url") or f"https://{a['host']}", "protected": a["protected"], "ida": bool(a.get("ida")), "n": u.get("n", 0), "last": u.get("last", 0),
+    st = status.read(a["host"]) or {}
+    # IDA-Apps behalten ihren schönen Namen, bei allen anderen gilt der Titel der Website
+    name = a["name"] if a.get("ida") or not st.get("title") else st["title"]
+    return {"name": name, "up": st.get("up"), "host": a["host"], "url": a.get("url") or f"https://{a['host']}", "protected": a["protected"], "ida": bool(a.get("ida")), "n": u.get("n", 0), "last": u.get("last", 0),
             "icon": f"/api/v1/icon/{a['host']}?v={h}"}
 
 
@@ -54,7 +57,8 @@ async def list_apps(refresh: bool = False):
     except cloudflare.CloudflareError as e:
         return JSONResponse({"title": s.title, "apps": [], "error": str(e)})
     use = usage.load()
-    return {"title": s.title, "apps": [_view(a, use) for a in items], "error": ""}
+    pending = status.warm(items)
+    return {"title": s.title, "apps": [_view(a, use) for a in items], "error": "", "pending": pending}
 
 
 class Visit(BaseModel):

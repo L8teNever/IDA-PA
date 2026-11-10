@@ -32,3 +32,9 @@ Einstellungen (in der `.env`): `LAUNCHER_HIDE` (Adressen ausblenden, `*` erlaubt
 
 FastAPI (`launcher/app/`): `/api/v1/apps` (Liste), `/api/v1/icon/<host>` (nur für Adressen aus der Liste, kein beliebiger Abruf), `/api/v1/health`.
 Oberfläche: `frontend/launcher/`. Tests: `cd launcher && python -m pytest`.
+
+## Titel und Erreichbarkeit
+
+Für jede App holt der Launcher im Hintergrund die Startseite (zuerst über die interne Tunnel-Adresse): der `<title>` der Website ersetzt den Namen
+(IDA-Apps behalten ihren schönen Namen), und ein kleiner Punkt in der Kachel zeigt grün = erreichbar, rot = nicht erreichbar (Verbindungsfehler oder Serverfehler ab 500).
+Die Ergebnisse liegen in `/data/status/` und werden alle 10 Minuten erneuert; die Liste wartet nie darauf.

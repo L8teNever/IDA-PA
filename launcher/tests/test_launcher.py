@@ -94,3 +94,20 @@ def test_nutzung_wird_gemerkt(client):
     client.post("/api/v1/visit", json={"host": "wiki.example.com"})
     w = {a["host"]: a for a in client.get("/api/v1/apps").json()["apps"]}["wiki.example.com"]
     assert w["n"] == 2 and w["last"] > 0
+
+
+def test_titel_und_status_aus_cache(client):
+    import json
+    from app import status
+    status._file("wiki.example.com").write_text(json.dumps({"title": "Mein Wiki", "up": True, "ts": 1}))
+    status._file("offen.example.com").write_text(json.dumps({"title": "Offene Seite", "up": False, "ts": 1}))
+    d = client.get("/api/v1/apps").json()
+    wiki = next(a for a in d["apps"] if a["host"] == "wiki.example.com")
+    offen = next(a for a in d["apps"] if a["host"] == "offen.example.com")
+    assert offen["name"] == "Offene Seite" and offen["up"] is False
+    assert wiki["up"] is True
+
+
+def test_titel_wird_bereinigt():
+    from app import status
+    assert status.clean_title("  A &amp;\n B  ") == "A & B"
