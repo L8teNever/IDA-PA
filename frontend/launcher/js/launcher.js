@@ -47,8 +47,7 @@ function draw() {
     const recent = rest.filter((a) => a.last && !often.includes(a)).sort((x, y) => y.last - x.last).slice(0, SHOW);
     html = sec("IDA", apps.filter((a) => a.ida)) + sec("Oft genutzt", often) + sec("Zuletzt genutzt", recent);
     if (rest.length) {
-      html += `<div class="lc-all"><button type="button" class="lc-allbtn" id="lcAll"><span class="ms">apps</span> Alle Apps <small>${rest.length}</small></button>
-        ${often.length || recent.length ? "" : `<p>Hier erscheinen bald die Apps, die du oft oder zuletzt geöffnet hast. Den Rest findest du über die Suche.</p>`}</div>`;
+      html += `<div class="lc-all"><button type="button" class="lc-allbtn" id="lcAll"><span class="ms">apps</span> Alle Apps <small>${rest.length}</small></button></div>`;
     }
     e.hidden = apps.length > 0;
     if (!apps.length) e.textContent = e.dataset.err || "Noch keine Apps.";
