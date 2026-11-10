@@ -1,3 +1,6 @@
+/* Schrift Fredoka (selbst gehostet) für Begrüßung, Uhrzeit und Datum */
+@font-face { font-family: 'Fredoka'; font-style: normal; font-weight: 300 700; font-display: swap; src: url(/static/fonts/Fredoka-latin-ext.woff2) format('woff2'); unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF; }
+@font-face { font-family: 'Fredoka'; font-style: normal; font-weight: 300 700; font-display: swap; src: url(/static/fonts/Fredoka-latin.woff2) format('woff2'); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
 /* IDA Launcher – dunkel wie der Rest von IDA (Farben und Schrift kommen aus tokens.css) */
 body { overflow-y: auto; display: block; height: auto; min-height: 100dvh; }
 .lc { max-width: 1100px; margin: 0 auto; padding: calc(env(safe-area-inset-top) + 48px) 20px calc(env(safe-area-inset-bottom) + 48px); }
@@ -67,12 +70,12 @@ body { overflow-y: auto; display: block; height: auto; min-height: 100dvh; }
 /* Uhr im Material-3-Stil: tonale Karte mit großem Radius, Minuten in Akzentfarbe, Datum als Chip */
 .lc-clock { display: flex; flex-direction: column; align-items: center; gap: 14px; width: fit-content; max-width: 100%; margin: 0 auto 28px; padding: 22px clamp(28px, 6vw, 52px) 20px;
   border-radius: 36px; background: rgba(var(--accent-rgb), .10); border: 1px solid rgba(var(--accent-rgb), .22); backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px); box-shadow: 0 6px 28px rgba(0, 0, 0, .35); }
-.lc-time { display: flex; align-items: baseline; font-size: clamp(60px, 14vw, 104px); font-weight: 500; line-height: 1; letter-spacing: -.02em; font-variant-numeric: tabular-nums; color: var(--on-surface); }
+.lc-time { display: flex; align-items: baseline; font-family: 'Fredoka', sans-serif; font-size: clamp(60px, 14vw, 104px); font-weight: 700; line-height: 1; letter-spacing: 0; font-variant-numeric: tabular-nums; color: var(--on-surface); }
 .lc-time .c { margin: 0 .04em; opacity: .55; position: relative; top: -.05em; }
 .lc-time .m { color: var(--accent); }
-.lc-date { padding: 7px 16px; border-radius: 999px; background: rgba(var(--accent-rgb), .18); font-size: clamp(13px, 2.4vw, 16px); font-weight: 500; letter-spacing: .01em; color: var(--on-surface); }
+.lc-date { font-family: 'Fredoka', sans-serif; padding: 7px 16px; border-radius: 999px; background: rgba(var(--accent-rgb), .18); font-size: clamp(13px, 2.4vw, 16px); font-weight: 600; letter-spacing: .01em; color: var(--on-surface); }
 
-.lc h1 { font-size: clamp(20px, 3vw, 26px); font-weight: 500; color: var(--muted); }
+.lc h1 { font-family: 'Fredoka', sans-serif; font-size: clamp(20px, 3vw, 26px); font-weight: 600; color: var(--muted); }
 
 /* Eigene Scrollleiste: die normale ist aus, damit beim Tippen nichts verrutscht. Die neue liegt über der Seite und taucht nur beim Scrollen kurz auf. */
 html, body { scrollbar-width: none; }
