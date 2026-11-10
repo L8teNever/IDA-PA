@@ -130,6 +130,8 @@ function draw(root) {
 
 const WIDTH = { schmal: "1", normal: "1", mittel: "2", breit: "2", "sehr breit": "3", voll: "full", ganz: "full", 1: "1", 2: "2", 3: "3", 4: "4" };
 
+const COLORS = new Set(["rot", "orange", "gelb", "gruen", "grün", "blau", "lila", "tuerkis", "türkis", "rosa", "grau"]);
+
 // Markdown rendern und jeden Abschnitt („## …“) als eigene Karte legen (mehrere nebeneinander, wie in einer Zeitung).
 // Ohne Überschriften bleibt es ein einziger Text.
 function fillBody(host, b) {
@@ -153,8 +155,10 @@ function fillBody(host, b) {
         const m = k.innerHTML.match(/\s*\{\s*([^{}]*?)\s*\}\s*$/);
         if (m) {
           k.innerHTML = k.innerHTML.slice(0, m.index);
-          const w = WIDTH[m[1].toLowerCase()];
-          if (w) cur.dataset.w = w;
+          for (const t of m[1].toLowerCase().split(/[,;|]/).map((x) => x.trim())) {
+            if (WIDTH[t]) cur.dataset.w = WIDTH[t];
+            else if (COLORS.has(t)) cur.dataset.c = t;
+          }
         }
       }
     }
@@ -167,6 +171,7 @@ function fillBody(host, b) {
     else if (cols >= 3) c.dataset.w = "2";
   }
   prose.replaceChildren(...cards);
+  masonry(prose, cards);
 }
 
 function view(b) {
@@ -348,4 +353,37 @@ async function openForm(root, edit = null) {
       alert(err.message);
     }
   };
+}
+
+
+// Masonry: Karten rutschen nach oben in freie Lücken; Breite je Karte in Spalten (1, 2, 3, … oder ganze Zeile)
+function masonry(prose, cards) {
+  bs.ro?.disconnect();
+  const GAP = 14, MIN = 280;
+  const layout = () => {
+    const W = prose.clientWidth;
+    if (!W) return;
+    const n = Math.max(1, Math.floor((W + GAP) / (MIN + GAP)));
+    const colW = (W - (n - 1) * GAP) / n;
+    const h = new Array(n).fill(0);
+    for (const c of cards) {
+      const w = c.dataset.w;
+      const span = c.classList.contains("intro") || w === "full" ? n : Math.min(n, Number(w) || 1);
+      c.style.width = `${span * colW + (span - 1) * GAP}px`;
+      let best = 0, bestTop = Infinity;
+      for (let i = 0; i + span <= n; i++) {
+        const top = Math.max(...h.slice(i, i + span));
+        if (top < bestTop - 0.5) { bestTop = top; best = i; }
+      }
+      c.style.left = `${best * (colW + GAP)}px`;
+      c.style.top = `${bestTop}px`;
+      const bottom = bestTop + c.offsetHeight + GAP;
+      for (let i = best; i < best + span; i++) h[i] = bottom;
+    }
+    prose.style.height = `${Math.max(...h) - GAP}px`;
+  };
+  layout();
+  bs.ro = new ResizeObserver(() => layout());
+  bs.ro.observe(prose);
+  cards.forEach((c) => bs.ro.observe(c));
 }

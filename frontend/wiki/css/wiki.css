@@ -1049,13 +1049,19 @@
 .board-view.drop { outline: 2px dashed var(--accent); outline-offset: -8px; }
 .board-item .board-st { font-size: 18px; }
 /* Zeitungs-Layout: Karten fließen in Spalten, jede Karte bleibt am Stück */
-.board-prose:not(.single) { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px; align-items: start; grid-auto-flow: dense; }
-.bcard[data-w="2"] { grid-column: span 2; } .bcard[data-w="3"] { grid-column: span 3; } .bcard[data-w="4"] { grid-column: span 4; } .bcard[data-w="full"], .bcard.intro { grid-column: 1 / -1; }
-@media (max-width: 700px) { .bcard[data-w] { grid-column: 1 / -1; } }
-.bcard { min-width: 0; margin: 0; padding: 12px 16px; border-radius: 16px; background: var(--panel, rgba(255,255,255,.04)); border: 1px solid var(--border, rgba(255,255,255,.08)); }
-.bcard.intro { background: transparent; border-style: dashed; }
+.board-prose { font-size: 15.5px; line-height: 1.55; }
+.board-prose:not(.single) { position: relative; }
+.bcard { --c: var(--accent); position: absolute; box-sizing: border-box; min-width: 0; margin: 0; padding: 14px 18px 16px; border-radius: 16px; background: var(--panel, rgba(255,255,255,.04)); border: 1px solid var(--border, rgba(255,255,255,.08)); border-top: 3px solid var(--c); }
+.bcard[data-c="rot"] { --c: #f28b82; } .bcard[data-c="orange"] { --c: #fbab5b; } .bcard[data-c="gelb"] { --c: #fdd663; }
+.bcard[data-c="gruen"], .bcard[data-c="grün"] { --c: #81c995; } .bcard[data-c="blau"] { --c: #8ab4f8; } .bcard[data-c="lila"] { --c: #c58af9; }
+.bcard[data-c="tuerkis"], .bcard[data-c="türkis"] { --c: #78d9ec; } .bcard[data-c="rosa"] { --c: #ff8bcb; } .bcard[data-c="grau"] { --c: #9aa0a6; }
+.bcard[data-c] { background: color-mix(in srgb, var(--c) 7%, var(--panel, #111)); }
+.bcard h2 { color: var(--c); }
+.bcard strong, .board-prose strong { color: #fff; font-weight: 700; }
+.bcard em, .board-prose em { color: color-mix(in srgb, var(--c, var(--accent)) 70%, #fff); }
+.bcard.intro { font-size: 17.5px; line-height: 1.55; border-top-width: 1px; }
 .bcard > :first-child { margin-top: 0; } .bcard > :last-child { margin-bottom: 0; }
-.bcard h2 { font-size: 16px; margin: 0 0 8px; }
+.bcard h2 { font-size: 17.5px; font-weight: 700; margin: 0 0 10px; padding-bottom: 8px; border-bottom: 1px solid color-mix(in srgb, var(--c) 30%, transparent); }
 .bcard .md-table-wrap { overflow-x: auto; }
 .bcard img { max-width: 100%; border-radius: 10px; }
 .board-files { margin-top: 18px; }
