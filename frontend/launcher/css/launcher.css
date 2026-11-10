@@ -38,3 +38,27 @@ body { overflow-y: auto; display: block; height: auto; min-height: 100dvh; }
 .lc-dot { position: absolute; top: 12px; right: 12px; width: 9px; height: 9px; border-radius: 50%; background: #5f6368; }
 .lc-dot.up { background: #34d399; box-shadow: 0 0 6px rgba(52, 211, 153, .55); }
 .lc-dot.down { background: #f87171; box-shadow: 0 0 6px rgba(248, 113, 113, .55); }
+
+/* Hintergrundbild: bei jedem Öffnen ein zufälliges der hochgeladenen */
+.lc-bg { position: fixed; inset: 0; z-index: -1; background: #000 center / cover no-repeat; opacity: 0; transition: opacity .8s var(--emph); }
+.lc-bg.on { opacity: 1; }
+.lc-bg::after { content: ""; position: absolute; inset: 0; background: linear-gradient(rgba(0,0,0,.5), rgba(0,0,0,.72)); }
+.lc-bg.on ~ .lc .lc-card { background: rgba(18, 19, 22, .72); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); }
+.lc-bg.on ~ .lc .lc-card:hover, .lc-bg.on ~ .lc .lc-card:focus-visible { background: rgba(32, 34, 40, .8); }
+.lc-bgbtn { position: fixed; z-index: 5; top: calc(env(safe-area-inset-top) + 14px); right: 14px; width: 44px; height: 44px; border-radius: 50%; border: 1px solid #1f2126;
+  background: rgba(18, 19, 22, .7); backdrop-filter: blur(10px); color: var(--on-surface); display: grid; place-items: center; cursor: pointer; transition: background .2s var(--emph), border-color .2s var(--emph); }
+.lc-bgbtn:hover { background: var(--surface-highest); border-color: rgba(var(--accent-rgb), .45); }
+.lc-dlg { width: min(560px, calc(100vw - 32px)); max-height: calc(100dvh - 48px); padding: 22px; border-radius: 28px; border: 1px solid #1f2126; background: var(--surface); color: var(--on-surface); }
+.lc-dlg::backdrop { background: rgba(0, 0, 0, .65); backdrop-filter: blur(4px); }
+.lc-dlg-head { display: flex; align-items: center; justify-content: space-between; }
+.lc-dlg h2 { margin: 0; font-size: 20px; font-weight: 600; }
+.lc-x { width: 38px; height: 38px; border-radius: 50%; border: 0; background: var(--surface-high); color: var(--on-surface); display: grid; place-items: center; cursor: pointer; }
+.lc-dlg-sub { margin: 6px 0 16px; color: var(--muted); font-size: 13.5px; }
+.lc-thumbs { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 10px; margin-bottom: 14px; }
+.lc-thumb { position: relative; aspect-ratio: 16 / 10; border-radius: 14px; overflow: hidden; background: var(--surface-high); }
+.lc-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.lc-thumb button { position: absolute; top: 6px; right: 6px; width: 28px; height: 28px; border-radius: 50%; border: 0; background: rgba(0, 0, 0, .65); color: #fff; display: grid; place-items: center; cursor: pointer; }
+.lc-thumb button:hover { background: #b3261e; }
+.lc-thumb button .ms { font-size: 18px; }
+.lc-dlg-msg { min-height: 1.3em; margin: 0 0 10px; font-size: 13.5px; color: var(--muted); }
+.lc-add { cursor: pointer; }

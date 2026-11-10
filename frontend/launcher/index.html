@@ -13,6 +13,15 @@
 <link rel="stylesheet" href="/static/css/launcher.css">
 </head>
 <body>
+<div class="lc-bg" id="lcBg" aria-hidden="true"></div>
+<button type="button" class="lc-bgbtn" id="lcBgBtn" title="Hintergrundbilder" aria-label="Hintergrundbilder"><span class="ms">wallpaper</span></button>
+<dialog class="lc-dlg" id="lcDlg">
+  <div class="lc-dlg-head"><h2>Hintergrundbilder</h2><button type="button" class="lc-x" id="lcDlgClose" aria-label="Schließen"><span class="ms">close</span></button></div>
+  <p class="lc-dlg-sub">Bei jedem Öffnen wird eines davon zufällig gezeigt.</p>
+  <div class="lc-thumbs" id="lcThumbs"></div>
+  <p class="lc-dlg-msg" id="lcDlgMsg" role="status"></p>
+  <label class="lc-allbtn lc-add"><span class="ms">add_photo_alternate</span> Bilder hinzufügen<input type="file" id="lcFile" accept="image/jpeg,image/png,image/webp,image/gif" multiple hidden></label>
+</dialog>
 <main class="lc">
   <h1 id="lcTitle">Willkommen zurück!</h1>
   <label class="lc-search">

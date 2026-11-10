@@ -111,3 +111,20 @@ def test_titel_und_status_aus_cache(client):
 def test_titel_wird_bereinigt():
     from app import status
     assert status.clean_title("  A &amp;\n B  ") == "A & B"
+
+
+PNG = b"\x89PNG\r\n\x1a\n" + b"0" * 32
+
+
+def test_hintergruende(client):
+    assert client.get("/api/v1/backgrounds").json() == {"items": []}
+    assert client.post("/api/v1/backgrounds", content=b"kein bild").status_code == 400
+    r = client.post("/api/v1/backgrounds", content=PNG)
+    assert r.status_code == 200
+    bid = r.json()["id"]
+    assert [i["id"] for i in client.get("/api/v1/backgrounds").json()["items"]] == [bid]
+    g = client.get(f"/api/v1/background/{bid}")
+    assert g.status_code == 200 and g.headers["content-type"] == "image/png" and g.content == PNG
+    assert client.get("/api/v1/background/..%2Fusage.json").status_code == 404
+    assert client.delete(f"/api/v1/background/{bid}").status_code == 200
+    assert client.get(f"/api/v1/background/{bid}").status_code == 404

@@ -6,13 +6,13 @@ import hashlib
 import logging
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Response
+from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from pydantic import BaseModel
 
-from . import cloudflare, icons, status, usage
+from . import backgrounds, cloudflare, icons, status, usage
 from .config import get_settings
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -94,6 +94,45 @@ async def icon(host: str):
         raise HTTPException(404)
     return Response(got[0], media_type=got[1], headers={"cache-control": "private, max-age=86400", "x-content-type-options": "nosniff",
                                                          "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'"})
+
+
+@app.get("/api/v1/backgrounds")
+async def list_backgrounds():
+    return {"items": [{"id": i, "url": f"/api/v1/background/{i}"} for i in backgrounds.ids()]}
+
+
+@app.post("/api/v1/backgrounds")
+async def add_background(request: Request):
+    """Bild hochladen: der Body ist das Bild selbst (kein Formular)."""
+    if int(request.headers.get("content-length") or 0) > backgrounds.MAX_BYTES:
+        raise HTTPException(413, "Bild ist zu groß (max. 12 MB).")
+    data = b""
+    async for chunk in request.stream():
+        data += chunk
+        if len(data) > backgrounds.MAX_BYTES:
+            raise HTTPException(413, "Bild ist zu groß (max. 12 MB).")
+    try:
+        name = backgrounds.add(data)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {"id": name, "url": f"/api/v1/background/{name}"}
+
+
+@app.get("/api/v1/background/{name}")
+async def background(name: str):
+    p = backgrounds.path(name)
+    if not p:
+        raise HTTPException(404)
+    return FileResponse(p, media_type=backgrounds.content_type(name),
+                        headers={"cache-control": "private, max-age=31536000, immutable", "x-content-type-options": "nosniff",
+                                 "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'"})
+
+
+@app.delete("/api/v1/background/{name}")
+async def delete_background(name: str):
+    if not backgrounds.remove(name):
+        raise HTTPException(404)
+    return {"ok": True}
 
 
 @app.get("/manifest.webmanifest")

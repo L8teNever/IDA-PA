@@ -108,3 +108,73 @@ document.addEventListener("keydown", (e) => {
 document.addEventListener("visibilitychange", () => { if (!document.hidden) load(); schedule(); });
 load();
 schedule();
+
+// ── Hintergrundbilder ──────────────────────────────────────────────
+let bgs = [];
+
+function showBg() {
+  const el = $("lcBg");
+  if (!bgs.length) { el.classList.remove("on"); el.style.backgroundImage = ""; return; }
+  // zufällig, aber nicht zweimal hintereinander dasselbe (wenn es mehrere gibt)
+  const last = localStorage.getItem("lcBgLast");
+  const pool = bgs.length > 1 ? bgs.filter((b) => b.id !== last) : bgs;
+  const pick = pool[Math.floor(Math.random() * pool.length)];
+  localStorage.setItem("lcBgLast", pick.id);
+  const img = new Image();
+  img.onload = () => { el.style.backgroundImage = `url("${pick.url}")`; el.classList.add("on"); };
+  img.src = pick.url;
+}
+
+async function loadBgs() {
+  try { bgs = (await (await fetch("/api/v1/backgrounds", { cache: "no-store" })).json()).items || []; } catch { bgs = []; }
+}
+
+function drawThumbs() {
+  $("lcThumbs").innerHTML = bgs.map((b) => `<div class="lc-thumb"><img src="${esc(b.url)}" alt="" loading="lazy"><button type="button" data-id="${esc(b.id)}" title="Löschen" aria-label="Löschen"><span class="ms">delete</span></button></div>`).join("");
+}
+
+// Vor dem Hochladen auf max. 2400 px verkleinern und als JPEG speichern (spart Platz und Ladezeit); GIFs bleiben unverändert
+async function shrink(file) {
+  if (file.type === "image/gif" || file.size < 600 * 1024) return file;
+  try {
+    const bmp = await createImageBitmap(file);
+    const k = Math.min(1, 2400 / Math.max(bmp.width, bmp.height));
+    const c = document.createElement("canvas");
+    c.width = Math.round(bmp.width * k); c.height = Math.round(bmp.height * k);
+    c.getContext("2d").drawImage(bmp, 0, 0, c.width, c.height);
+    const blob = await new Promise((r) => c.toBlob(r, "image/jpeg", 0.86));
+    return blob && blob.size < file.size ? blob : file;
+  } catch { return file; }
+}
+
+$("lcBgBtn").addEventListener("click", () => { drawThumbs(); $("lcDlgMsg").textContent = bgs.length ? "" : "Noch keine Bilder."; $("lcDlg").showModal(); });
+$("lcDlgClose").addEventListener("click", () => $("lcDlg").close());
+$("lcDlg").addEventListener("click", (e) => { if (e.target === $("lcDlg")) $("lcDlg").close(); });
+$("lcDlg").addEventListener("close", showBg);
+
+$("lcThumbs").addEventListener("click", async (e) => {
+  const b = e.target.closest("button[data-id]");
+  if (!b) return;
+  const r = await fetch(`/api/v1/background/${encodeURIComponent(b.dataset.id)}`, { method: "DELETE" });
+  if (r.ok) { bgs = bgs.filter((x) => x.id !== b.dataset.id); drawThumbs(); $("lcDlgMsg").textContent = bgs.length ? "" : "Noch keine Bilder."; }
+});
+
+$("lcFile").addEventListener("change", async (e) => {
+  const files = [...e.target.files];
+  e.target.value = "";
+  const msg = $("lcDlgMsg");
+  let ok = 0, err = "";
+  for (const [i, f] of files.entries()) {
+    msg.textContent = `Lade hoch … ${i + 1}/${files.length}`;
+    try {
+      const body = await shrink(f);
+      const r = await fetch("/api/v1/backgrounds", { method: "POST", body, headers: { "content-type": "application/octet-stream" } });
+      if (r.ok) ok++; else err = (await r.json().catch(() => ({}))).detail || "Hochladen fehlgeschlagen.";
+    } catch { err = "Keine Verbindung."; }
+  }
+  await loadBgs();
+  drawThumbs();
+  msg.textContent = err ? `${ok} hochgeladen. ${err}` : `${ok} hochgeladen.`;
+});
+
+loadBgs().then(showBg);
