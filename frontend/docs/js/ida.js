@@ -140,14 +140,28 @@ export function createIda({ st, $, el, esc, ico, toast, api, switchTab }) {
     if (ai.docId !== doc || ctrl !== ai.ctrl) return;
     ai.running = false; ai.status = ""; ai.ctrl = null; clearTimeout(timer); timer = 0; drawMsgs(); drawInput();
   }
+  // "/" am Anfang: Skills aus IDA (z. B. /humanizer)
+  let slash = [], slashIdx = 0;
+  const skills = () => ai.models?.skills || [];
+  function drawSlash() {
+    const box = $("#aislash"); if (!box) return;
+    const m = /^\/([a-z0-9-]*)$/.exec($("#aitxt").value);
+    slash = m ? skills().filter((s) => s.id.startsWith(m[1]) || s.name.toLowerCase().startsWith(m[1])) : [];
+    box.hidden = !slash.length; if (!slash.length) return;
+    slashIdx = Math.min(slashIdx, slash.length - 1);
+    box.innerHTML = slash.map((s, i) => `<button type="button" data-sk="${esc(s.id)}" class="${i === slashIdx ? "on" : ""}">${ico(s.icon || "auto_fix_high")}<span><b>/${esc(s.id)}</b><small>${esc(s.description || s.name)}</small></span></button>`).join("");
+  }
+  function pickSlash(id) { const i = $("#aitxt"); i.value = `/${id} `; $("#aislash").hidden = true; slash = []; i.focus(); }
   function send() {
-    const input = $("#aitxt"), q = input.value.trim();
-    if (!q || ai.running) return;
+    const input = $("#aitxt"); let q = input.value.trim(), skill = null;
+    const sm = /^\/([a-z0-9-]+)(?:\s+([\s\S]*))?$/.exec(q);
+    if (sm && skills().some((s) => s.id === sm[1])) { skill = sm[1]; q = (sm[2] || "").trim(); }
+    if ((!q && !skill) || ai.running) return;
     const ctx = context(), text = q + MARK + ctx.text;
-    ai.msgs.push({ role: "user", text });
+    ai.msgs.push({ role: "user", text: (skill ? `/${skill} ` : "") + text });
     const m = { role: "assistant", text: "" }; ai.msgs.push(m);
     input.value = ""; input.style.height = ""; $("#aimsgs").scrollTop = 1e9;
-    run(m, (signal) => fetch("/api/v1/ida/chat", { method: "POST", signal, headers: { "content-type": "application/json" }, body: JSON.stringify({ chat_id: ai.chatId, agent_id: ai.chatId ? null : "ida", text, model: ai.model || null }) }), () => { ai.lastFull = ctx.full; ai.lastOthers = ctx.othersKey; });
+    run(m, (signal) => fetch("/api/v1/ida/chat", { method: "POST", signal, headers: { "content-type": "application/json" }, body: JSON.stringify({ chat_id: ai.chatId, agent_id: ai.chatId ? null : "ida", text, model: ai.model || null, skill }) }), () => { ai.lastFull = ctx.full; ai.lastOthers = ctx.othersKey; });
   }
   async function load() {
     ai.loaded = true;
@@ -194,7 +208,7 @@ export function createIda({ st, $, el, esc, ico, toast, api, switchTab }) {
   return {
     html: `<div class="card ai"><header class="aih"><b>Ida</b><button class="aim" id="aim" aria-label="Modell wählen" title="Modell wählen"></button><span class="grow"></span><button class="btn ic" id="ainew" aria-label="Neuer Chat" title="Neuer Chat">${ico("add_comment")}</button><button class="btn ic" id="aix" aria-label="Schließen" title="Schließen">${ico("close")}</button></header>
       <div class="aimsgs" id="aimsgs"></div><div class="aiscope" id="aiscope"></div>
-      <div class="aiinp"><textarea id="aitxt" rows="1" placeholder="Frag Ida oder lass etwas umschreiben …"></textarea><button class="aisend" id="aisend"></button></div></div>`,
+      <div class="slashm" id="aislash" hidden></div><div class="aiinp"><textarea id="aitxt" rows="1" placeholder="Frag Ida oder lass etwas umschreiben …"></textarea><button class="aisend" id="aisend"></button></div></div>`,
     pill: `<button class="aipill" id="aipill" hidden>${ico("auto_awesome")}Ida fragen</button>`,
     setup(id) {
       ai.ctrl?.abort();
@@ -208,8 +222,15 @@ export function createIda({ st, $, el, esc, ico, toast, api, switchTab }) {
       $("#aim").onclick = async (e) => { const b = e.currentTarget; await models(); modelMenu(b); };
       $("#ainew").onclick = () => { if (ai.running) return toast("Ida schreibt noch"); ai.chatId = null; ai.msgs = []; ai.lastFull = ""; ai.lastOthers = ""; ai.applied = new Set(); localStorage.removeItem("docs.ai." + id); drawMsgs(); input.focus(); };
       $("#aisend").onclick = () => { if (ai.running) { if (ai.chatId) fetch(`/api/v1/ida/chats/${ai.chatId}/stop`, { method: "POST" }); } else send(); };
-      input.onkeydown = (e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); } };
-      input.oninput = () => { input.style.height = "auto"; input.style.height = Math.min(160, input.scrollHeight) + "px"; };
+      input.onkeydown = (e) => {
+        if (slash.length && !$("#aislash").hidden) {
+          if (e.key === "ArrowDown" || e.key === "ArrowUp") { e.preventDefault(); slashIdx = (slashIdx + (e.key === "ArrowDown" ? 1 : -1) + slash.length) % slash.length; drawSlash(); return; }
+          if (e.key === "Enter" || e.key === "Tab") { e.preventDefault(); pickSlash(slash[slashIdx].id); return; }
+          if (e.key === "Escape") { e.preventDefault(); $("#aislash").hidden = true; slash = []; return; }
+        }
+        if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); } };
+      input.oninput = () => { input.style.height = "auto"; input.style.height = Math.min(160, input.scrollHeight) + "px"; slashIdx = 0; if (!ai.models) models().then(drawSlash); drawSlash(); };
+      $("#aislash").onmousedown = (e) => { const b = e.target.closest("[data-sk]"); if (b) { e.preventDefault(); pickSlash(b.dataset.sk); } };
       $("#aiscope").onclick = (e) => { if (e.target.closest("[data-x]")) { ai.sel = null; drawScope(); return; } const b = e.target.closest("[data-s]"); if (b) { ai.scope = b.dataset.s; drawScope(); } };
       $("#aimsgs").onclick = (e) => {
         const b = e.target.closest("[data-apply]"); if (!b) return;

@@ -42,6 +42,7 @@ export function current() {
 
 export function composerHtml(placeholder) {
   return `<form class="composer" id="composer" autocomplete="off">
+    <div class="slash-menu" id="slashList" role="listbox"></div>
     <div class="queue" id="queue" hidden></div>
     <div class="att-list" id="attList" hidden></div>
     <textarea id="input" rows="1" placeholder="${esc(placeholder)}" aria-label="Nachricht"></textarea>
@@ -234,13 +235,36 @@ export function setFiles(list) {
   restoreFiles(list);
 }
 
+// "/" am Anfang: Skills aus IDA (z. B. /humanizer) zur Auswahl; die Nachricht geht mit diesem Skill raus
+let slashItems = [], slashIdx = 0;
+function renderSlash() {
+  const m = /^\/([a-z0-9-]*)$/.exec($("input").value), list = $("slashList");
+  slashItems = m ? (state.boot?.skills || []).filter((s) => s.id.startsWith(m[1]) || s.name.toLowerCase().startsWith(m[1])) : [];
+  list.classList.toggle("open", slashItems.length > 0);
+  if (!slashItems.length) return;
+  slashIdx = Math.min(slashIdx, slashItems.length - 1);
+  list.innerHTML = slashItems.map((s, i) => `<button type="button" data-skill="${esc(s.id)}" class="${i === slashIdx ? "on" : ""}"><span class="ms">${esc(s.icon || "auto_fix_high")}</span><span><b>/${esc(s.id)}</b><small>${esc(s.description || s.name)}</small></span></button>`).join("");
+}
+function pickSlash(id) {
+  $("input").value = `/${id} `;
+  $("slashList").classList.remove("open");
+  $("input").focus();
+  updateSend();
+}
+
 // nach dem Zeichnen der Thread-Ansicht aufrufen
 export function bindComposer() {
   initQuote();
   const input = $("input"), form = $("composer");
+  $("slashList").addEventListener("mousedown", (e) => { const b = e.target.closest("[data-skill]"); if (b) { e.preventDefault(); pickSlash(b.dataset.skill); } });
   const grow = () => { input.style.height = "auto"; input.style.height = `${Math.min(input.scrollHeight, innerHeight * 0.4)}px`; };
-  input.addEventListener("input", () => { grow(); updateSend(); });
+  input.addEventListener("input", () => { grow(); updateSend(); slashIdx = 0; renderSlash(); });
   input.addEventListener("keydown", (e) => {
+    if (slashItems.length && $("slashList").classList.contains("open")) {
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") { e.preventDefault(); slashIdx = (slashIdx + (e.key === "ArrowDown" ? 1 : -1) + slashItems.length) % slashItems.length; renderSlash(); return; }
+      if (e.key === "Enter" || e.key === "Tab") { e.preventDefault(); pickSlash(slashItems[slashIdx].id); return; }
+      if (e.key === "Escape") { e.preventDefault(); $("slashList").classList.remove("open"); slashItems = []; return; }
+    }
     if (e.key === "Enter" && !e.shiftKey && !e.isComposing && !matchMedia("(pointer: coarse)").matches) { e.preventDefault(); form.requestSubmit(); }
   });
   input.addEventListener("paste", (e) => { // manche Handys liefern Bilder nur in items, nicht in files
@@ -270,16 +294,19 @@ export function bindComposer() {
     e.preventDefault();
     if (ctx.busy && $("send").dataset.mode === "stop") return e.submitter ? stopAnswer() : undefined; // leeres Feld: der Knopf stoppt
     if (files.some((x) => x.state === "up")) return toast("Moment – die Dateien werden noch hochgeladen");
-    const text = input.value.trim();
+    let text = input.value.trim(), skill = null;
+    const sm = /^\/([a-z0-9-]+)(?:\s+([\s\S]*))?$/.exec(text);
+    if (sm && (state.boot?.skills || []).some((x) => x.id === sm[1])) { skill = sm[1]; text = (sm[2] || "").trim(); }
     const ready = draftFiles();
-    if (!text && !ready.length) return;
+    if (!text && !ready.length && !skill) return;
     forgetFiles();
     renderFiles();
     input.value = "";
     grow();
     draftSent();
+    renderSlash();
     const { model, account, effort } = current();
-    const body = text ? withQuote(text) : text, opts = { model, accountId: account?.id, effort, files: ready };
+    const body = text ? withQuote(text) : text, opts = { model, accountId: account?.id, effort, skill, files: ready };
     if (ctx.busy) { enqueue(body, opts); updateSend(); } // die KI arbeitet noch: die Nachricht wartet in der Schlange
     else send(body, opts);
   };

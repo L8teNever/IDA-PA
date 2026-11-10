@@ -317,6 +317,7 @@ class QueueItem(BaseModel):
     model: str | None = None
     account_id: str | None = None
     effort: str | None = None
+    skill: str | None = None
     files: list[str] = Field(default_factory=list, max_length=20)
 
 

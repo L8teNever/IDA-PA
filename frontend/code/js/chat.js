@@ -342,14 +342,14 @@ async function follow(start, since = null) {
   }
 }
 
-export async function send(text, { model, accountId, effort, files = [] } = {}) {
+export async function send(text, { model, accountId, effort, skill, files = [] } = {}) {
   if (ctx.busy) return toast("Die Antwort läuft noch …");
   const agent = mainAgent();
   if (!agent) return toast("Kein Agent in IDA gefunden");
   box().querySelector(".code-intro")?.remove();
   if (!box().querySelector(".chat-day")) box().insertAdjacentHTML("afterbegin", `<div class="chat-day">${new Date().toLocaleString("de-DE", { weekday: "long", hour: "2-digit", minute: "2-digit" })}</div>`);
   addUser(text, files);
-  const body = { chat_id: ctx.id, agent_id: agent.id, text, model, account_id: accountId, effort, files: files.map((f) => f.id),
+  const body = { chat_id: ctx.id, agent_id: agent.id, text, model, account_id: accountId, effort, skill: skill || null, files: files.map((f) => f.id),
     project_id: ctx.id ? null : ctx.project.id, permission_mode: ctx.mode };
   await follow((onEvent, signal) => streamChat(body, onEvent, signal));
 }

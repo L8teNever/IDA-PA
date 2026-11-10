@@ -16,7 +16,7 @@ _ID = r"[A-Za-z0-9_-]{1,64}"
 # Nur das Nötigste: Chatten und Modelle ansehen. Was nicht hier steht, ist über Docs nicht erreichbar.
 ALLOWED = {"GET": [re.compile(p) for p in (rf"chats/{_ID}", rf"chats/{_ID}/live")],
            "POST": [re.compile(p) for p in (r"chat", rf"chats/{_ID}/stop")]}
-BOOT_KEYS = ("models", "model_names", "default_model")
+BOOT_KEYS = ("models", "model_names", "default_model", "skills")
 BAD_GATEWAY = {"detail": "Ida ist gerade nicht erreichbar"}
 
 

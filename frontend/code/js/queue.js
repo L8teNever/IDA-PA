@@ -16,7 +16,7 @@ let steer = false; // „Jetzt senden“ gedrückt
 let loadedFor = null;
 
 const url = (id) => `/code/queue/${encodeURIComponent(id)}`;
-const toServer = (text, opts = {}) => ({ text, model: opts.model || null, account_id: opts.accountId || null, effort: opts.effort || null,
+const toServer = (text, opts = {}) => ({ text, model: opts.model || null, account_id: opts.accountId || null, effort: opts.effort || null, skill: opts.skill || null,
   files: (opts.files || []).map((f) => f.id) });
 
 // zurück ins Eingabefeld, samt Dateien

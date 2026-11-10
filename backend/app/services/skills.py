@@ -27,8 +27,8 @@ def _clean(f: dict, partial: bool) -> dict:
         v["name"] = n
     if not partial or "body" in f:
         b = str(f.get("body") or "").strip()
-        if not b or len(b) > 8000:
-            raise Invalid("Die Anleitung fehlt (höchstens 8000 Zeichen)")
+        if not b or len(b) > 40000:
+            raise Invalid("Die Anleitung fehlt (höchstens 40000 Zeichen)")
         v["body"] = b
     if "description" in f:
         d = str(f.get("description") or "").strip()
