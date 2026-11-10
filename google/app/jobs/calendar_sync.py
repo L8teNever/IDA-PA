@@ -267,7 +267,13 @@ class CalendarSync:
                 continue
             g_all[e["id"]] = g_norm(e, self.tz)
 
-        pairs = {p["k_id"]: p for p in self.state.pairs()}
+        # nur die Zuordnungen DIESES Kalenders (aeltere ohne Kalender werden uebernommen, wenn ihr Termin hier liegt)
+        pairs = {}
+        for p in self.state.pairs():
+            if p["k_cal"] == cal_id or (p["k_cal"] == "" and p["k_id"] in k_all):
+                if p["k_cal"] == "" and not dry_run:
+                    self.state.set_cal(p["k_id"], cal_id)
+                pairs[p["k_id"]] = p
         g_pairs = {p["g_id"]: p for p in pairs.values()}
         deletes: list = []
 
@@ -295,13 +301,13 @@ class CalendarSync:
             if to_google:
                 def push(kid=kid, k=k, p=p):
                     e = self.goo.update(p["g_id"], to_google_body(k, kid, clear=True))
-                    self.state.put_pair(kid, p["g_id"], fingerprint(k), fingerprint(g_norm(e, self.tz)))
+                    self.state.put_pair(kid, p["g_id"], fingerprint(k), fingerprint(g_norm(e, self.tz)), cal_id)
                 if do("Nach Google", k["title"], push):
                     rep["push"] += 1
             else:
                 def pull(kid=kid, g=g, p=p):
                     d = self.kal.update(kid, to_kalender_body(g))
-                    self.state.put_pair(kid, p["g_id"], fingerprint(k_norm({**d, "event_id": kid})), fingerprint(g))
+                    self.state.put_pair(kid, p["g_id"], fingerprint(k_norm({**d, "event_id": kid})), fingerprint(g), cal_id)
                 if do("Nach IDA", g["title"], pull):
                     rep["pull"] += 1
 
@@ -330,19 +336,19 @@ class CalendarSync:
                 continue
             g = new_g.pop(gid)
             new_k.pop(kid)
-            if do("Verbinden", k["title"], lambda kid=kid, k=k, gid=gid, g=g: self.state.put_pair(kid, gid, fingerprint(k), fingerprint(g))):
+            if do("Verbinden", k["title"], lambda kid=kid, k=k, gid=gid, g=g: self.state.put_pair(kid, gid, fingerprint(k), fingerprint(g), cal_id)):
                 rep["linked"] += 1
         for kid, k in new_k.items():
             def create_g(kid=kid, k=k):
                 e = self.goo.create(to_google_body(k, kid))
-                self.state.put_pair(kid, e["id"], fingerprint(k), fingerprint(g_norm(e, self.tz)))
+                self.state.put_pair(kid, e["id"], fingerprint(k), fingerprint(g_norm(e, self.tz)), cal_id)
             if do("Neu in Google", k["title"], create_g):
                 rep["new_in_google"] += 1
         for gid, g in new_g.items():
             def create_k(gid=gid, g=g):
                 d = self.kal.create({**to_kalender_body(g), "calendar_id": cal_id, "uid": f"{gid}@google-sync"})
                 kid = d["event_id"] if "event_id" in d else d["id"]
-                self.state.put_pair(kid, gid, fingerprint(k_norm({**d, "event_id": kid})), fingerprint(g))
+                self.state.put_pair(kid, gid, fingerprint(k_norm({**d, "event_id": kid})), fingerprint(g), cal_id)
             if do("Neu in IDA", g["title"], create_k):
                 rep["new_in_ida"] += 1
         return rep

@@ -262,3 +262,35 @@ class MultiTest(unittest.TestCase):
         k, _, m = self.make(only_calendar="Privat")
         m.client = self.Client()
         self.assertEqual([(a["name"], b["name"]) for a, b in m.pairs(False, [])], [("Privat", "l8@gmail.com")])
+
+
+class ZweiKalenderTest(unittest.TestCase):
+    """Zuordnungen eines Kalenders duerfen den Abgleich eines anderen nie als „geloescht“ erscheinen lassen."""
+
+    def test_zweiter_kalender_loescht_nichts_vom_ersten(self):
+        st = State(":memory:")
+        k1, g1 = FakeKal(), FakeGoogle()
+        for i in range(30):
+            k1.create(timed(f"T{i}", start=f"2026-11-{12 + i % 15:02d}T{8 + i // 15:02d}:00:00+01:00", end=f"2026-11-{12 + i % 15:02d}T{9 + i // 15:02d}:00:00+01:00"))
+        cs.CalendarSync(k1, g1, st, calendar="c1", now=NOW).run()
+        self.assertEqual(len(st.pairs()), 30)
+        # zweiter Kalender: eigene (leere) Seiten, gleicher Zuordnungsspeicher
+        k2, g2 = FakeKal(), FakeGoogle()
+        k2.calendars = lambda: [{"id": "c2", "name": "Zwei", "kind": "normal"}]
+        r = cs.CalendarSync(k2, g2, st, calendar="c2", now=NOW, max_deletes=3).run()
+        self.assertEqual((r["deleted_ida"], r["deleted_google"], r["errors"]), (0, 0, []))
+        self.assertEqual((len(k1.events), len(g1.events), len(st.pairs())), (30, 30, 30))
+
+    def test_alte_zuordnungen_ohne_kalender_werden_uebernommen(self):
+        st = State(":memory:")
+        k, g = FakeKal(), FakeGoogle()
+        k.create(timed("Alt"))
+        cs.CalendarSync(k, g, st, now=NOW).run()
+        for p in st.pairs():
+            st.put_pair(p["k_id"], p["g_id"], p["k_hash"], p["g_hash"], "")   # wie vor der Aenderung gespeichert
+        k.delete("k1")
+        r = cs.CalendarSync(k, g, st, now=NOW).run()
+        self.assertEqual(r["deleted_google"], 0)   # k1 liegt nicht mehr im Kalender -> gehoert (noch) zu keinem; nichts wird angefasst
+        k.create(timed("Neu"))
+        r = cs.CalendarSync(k, g, st, now=NOW).run()
+        self.assertEqual((r["errors"], r["new_in_google"]), ([], 1))

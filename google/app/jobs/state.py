@@ -22,20 +22,27 @@ class State:
                 CREATE TABLE IF NOT EXISTS job (name TEXT PRIMARY KEY, data TEXT NOT NULL);
                 """
             )
+            if "k_cal" not in {r[1] for r in self._db.execute("PRAGMA table_info(cal_map)")}:
+                self._db.execute("ALTER TABLE cal_map ADD COLUMN k_cal TEXT NOT NULL DEFAULT ''")   # aelter: gehoert zu keinem bestimmten Kalender
 
     # -- Zuordnung ---------------------------------------------------------
     def pairs(self) -> list[dict]:
         with self._lock:
-            rows = self._db.execute("SELECT k_id, g_id, k_hash, g_hash FROM cal_map").fetchall()
-        return [{"k_id": r[0], "g_id": r[1], "k_hash": r[2], "g_hash": r[3]} for r in rows]
+            rows = self._db.execute("SELECT k_id, g_id, k_hash, g_hash, k_cal FROM cal_map").fetchall()
+        return [{"k_id": r[0], "g_id": r[1], "k_hash": r[2], "g_hash": r[3], "k_cal": r[4]} for r in rows]
 
-    def put_pair(self, k_id: str, g_id: str, k_hash: str, g_hash: str) -> None:
+    def set_cal(self, k_id: str, k_cal: str) -> None:
+        with self._lock:
+            self._db.execute("UPDATE cal_map SET k_cal = ? WHERE k_id = ?", (k_cal, k_id))
+            self._db.commit()
+
+    def put_pair(self, k_id: str, g_id: str, k_hash: str, g_hash: str, k_cal: str = "") -> None:
         with self._lock:
             self._db.execute("DELETE FROM cal_map WHERE g_id = ? AND k_id != ?", (g_id, k_id))
             self._db.execute(
-                "INSERT INTO cal_map (k_id, g_id, k_hash, g_hash) VALUES (?,?,?,?) "
-                "ON CONFLICT(k_id) DO UPDATE SET g_id=excluded.g_id, k_hash=excluded.k_hash, g_hash=excluded.g_hash",
-                (k_id, g_id, k_hash, g_hash),
+                "INSERT INTO cal_map (k_id, g_id, k_hash, g_hash, k_cal) VALUES (?,?,?,?,?) "
+                "ON CONFLICT(k_id) DO UPDATE SET g_id=excluded.g_id, k_hash=excluded.k_hash, g_hash=excluded.g_hash, k_cal=excluded.k_cal",
+                (k_id, g_id, k_hash, g_hash, k_cal),
             )
             self._db.commit()
 
