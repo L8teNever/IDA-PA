@@ -1,17 +1,16 @@
 // Einstellungen → Google: einmal anmelden und alles erlauben (Aufgaben, Kontakte, Kalender, Gmail, Docs, Drive, …).
-// Die Anmeldung läuft über den Google-Dienst (eigene Adresse); danach kommt man hierher zurück. Der Zugang bleibt auf dem Server.
+// Die Anmeldung läuft komplett über IDA: Knopf → Google fragt nach den Berechtigungen → Rückweg über IDA → wieder hier. Der Zugang bleibt auf dem Server.
 import { api } from "../../api.js";
 import { $, attempt, esc, toast } from "../../ui/dom.js";
 import { subHead } from "./index.js";
 
-const BACK = () => `${location.origin}/einstellungen/google`;
-
 export async function render(el) {
   const head = subHead("Google", "/einstellungen");
   const s = await api.get("/google/status").catch((e) => ({ error: e.message }));
-  if (new URLSearchParams(location.search).get("google") === "ok") {
+  const back = new URLSearchParams(location.search);
+  if (back.get("google")) {
     history.replaceState(null, "", location.pathname);
-    toast("Mit Google verbunden");
+    toast(back.get("google") === "ok" ? "Mit Google verbunden" : `Anmeldung nicht geklappt: ${back.get("grund") || "abgebrochen"}`);
   }
   if (s.error || !s.configured) {
     el.innerHTML = head + `<div class="soon-box"><span class="ms">cloud_off</span>${s.error ? esc(s.error) : "Der Google-Dienst ist hier nicht eingerichtet."}</div>`;
@@ -40,7 +39,7 @@ export async function render(el) {
   $("gLogin").onclick = async () => {
     $("gLogin").disabled = true;
     try {
-      const r = await api.post("/google/login", { return_to: BACK() });
+      const r = await api.post("/google/login");
       location.href = r.url;
     } catch (e) { toast(e.message); $("gLogin").disabled = false; }
   };

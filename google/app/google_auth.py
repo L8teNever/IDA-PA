@@ -4,10 +4,10 @@ Google-Tools auf dem MCP-Port. Ein Account, ein gespeicherter Refresh-Token
 -- kein Multi-User-Handling noetig, dieser Server ist wie alle anderen
 Ida-*-Projekte strukturell auf genau eine Person/einen Account ausgelegt.
 
-Ablauf:
-1. GET /authorize -> Weiterleitung zu Googles Consent-Screen mit allen
+Ablauf (die Oberflaeche liegt in IDA: Einstellungen -> Google, siehe docs/GOOGLE.md):
+1. IDA ruft POST /api/v1/auth/start -> Adresse von Googles Consent-Screen mit allen
    aktuell benoetigten Scopes (siehe app/services/*.py).
-2. Google leitet zu GET /oauth/callback?code=...&state=... zurueck.
+2. Google leitet zu IDA zurueck (GOOGLE_REDIRECT_URI), IDA reicht code und state an POST /api/v1/auth/callback weiter.
 3. state wird gegen den beim Schritt 1 gemerkten Wert geprueft (CSRF-Schutz
    fuer den OAuth-Redirect selbst -- unabhaengig davon, wer den Auth-Port
    ueberhaupt erreichen darf).
@@ -57,8 +57,6 @@ class GoogleAuthManager:
 
         self._lock = threading.Lock()
         self._pending_states: dict[str, float] = {}
-        self._state_return: dict[str, str] = {}        # state -> Adresse, zu der es nach der Anmeldung zurueckgeht
-        self._tickets: dict[str, tuple[float, str]] = {}  # einmalige Start-Tickets (aus IDA): Ablauf, return_to
         self._info_cache: tuple[float, dict] | None = None
 
         # In-Memory-Cache fuer den aktuellen Access-Token, damit nicht bei
@@ -72,21 +70,7 @@ class GoogleAuthManager:
 
     # -- Schritt 1: Authorize-URL --------------------------------------
 
-    def make_ticket(self, return_to: str = "") -> str:
-        """Einmaliges Ticket, mit dem /authorize ohne AUTH_TOKEN gestartet werden kann (wird intern, z. B. von IDA, ausgestellt)."""
-        ticket = secrets.token_urlsafe(24)
-        now = time.monotonic()
-        with self._lock:
-            self._tickets = {t: v for t, v in self._tickets.items() if v[0] >= now}
-            self._tickets[ticket] = (now + 300, return_to)
-        return ticket
-
-    def use_ticket(self, ticket: str) -> tuple[bool, str]:
-        with self._lock:
-            exp, back = self._tickets.pop(ticket, (0.0, ""))
-        return (exp >= time.monotonic() and bool(ticket)), back
-
-    def generate_state(self, return_to: str = "") -> str:
+    def generate_state(self) -> str:
         state = secrets.token_urlsafe(32)
         now = time.monotonic()
         with self._lock:
@@ -95,8 +79,6 @@ class GoogleAuthManager:
             for s in expired:
                 del self._pending_states[s]
             self._pending_states[state] = now + _STATE_TTL_SECONDS
-            if return_to:
-                self._state_return[state] = return_to
         return state
 
     def build_authorize_url(self, state: str) -> str:
@@ -113,16 +95,12 @@ class GoogleAuthManager:
 
     # -- Schritt 2/3: Callback -------------------------------------------
 
-    def consume(self, state: str) -> tuple[bool, str]:
-        """Einmalig gueltig: (ok, Zieladresse nach der Anmeldung). Danach ist derselbe state ungueltig."""
+    def consume_state(self, state: str) -> bool:
+        """Einmalig gueltig -- nach dem Aufruf (egal ob gueltig oder nicht) ist derselbe state kein zweites Mal akzeptabel."""
         now = time.monotonic()
         with self._lock:
             expiry = self._pending_states.pop(state, None)
-            back = self._state_return.pop(state, "")
-        return (expiry is not None and expiry >= now), back
-
-    def consume_state(self, state: str) -> bool:
-        return self.consume(state)[0]
+        return expiry is not None and expiry >= now
 
     # -- Schritt 4: Code-Tausch --------------------------------------------
 

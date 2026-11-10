@@ -3,30 +3,30 @@
 Ein Dienst im Stack für alles, was mit Google zu tun hat. Er ersetzt den einzeln laufenden Ida-Google-MCP
 (Code stammt von github.com/L8teNever/Ida-Google, jetzt hier unter `google/`).
 
+**Der Dienst hat keine öffentliche Adresse.** Alles läuft über IDA oder im Docker-Netz:
+
 ```
-Agents / claude.ai ──Tunnel──> :4569  MCP (/mcp, Bearer GOOGLE_MCP_TOKEN)      ┐
-Browser (einmalig) ──Access──> :4570  Anmeldung (/authorize, /oauth/callback)  ├─ Dienst "google"
-andere Dienste im Stack ─────> :4571  REST-API (/api/v1/…) – nur Docker-Netz   ┘      │
-                                                                                      ▼
-                                              Google (OAuth-Refresh-Token in Volume google-data)
+IDA (Einstellungen → Google) ──> Anmelden/Abmelden/Stand ─┐
+andere Dienste im Stack ──────> :4571  REST-API (/api/v1/…)├─ Dienst "google" ──> Google
+Agents (Veldora, Stella, …) ──> :4569  MCP (Bearer GOOGLE_MCP_TOKEN, nur im Haus) ┘      (Token im Volume google-data)
 ```
 
-**Nur 4569 und 4570 gehören an den Host/Tunnel. 4571 wird nie veröffentlicht**, dort kommen die anderen Dienste ran:
-`http://google:4571`. Ist `GOOGLE_API_TOKEN` gesetzt, braucht jeder Aufruf `Authorization: Bearer <token>`.
+## Anmelden (Einstellungen → Google)
 
-## Anmelden aus IDA (Einstellungen → Google)
+Der Knopf „Mit Google anmelden“ holt über die interne API die Adresse von Googles Zustimmungsseite (`POST /api/v1/auth/start`, mit
+einmaligem `state`). Google fragt nach allen Berechtigungen und kommt zu **`<IDA_PUBLIC_URL>/api/v1/google/callback`** zurück. IDA reicht
+`code` und `state` an `POST /api/v1/auth/callback` weiter, der Dienst prüft den `state`, tauscht den Code und speichert den Zugang. Danach
+geht es zurück zu den Einstellungen, die zeigen das verbundene Konto und welche Dienste erlaubt sind. „Fehlendes erlauben“ wiederholt die
+Anmeldung, „Abmelden“ widerruft den Zugang bei Google.
 
-In IDA unter **Einstellungen → Google** gibt es „Mit Google anmelden“. Der Button holt über die interne API einen einmaligen Link
-(`POST /api/v1/auth/start`, 5 Minuten gültig) und öffnet `https://<GOOGLE_PUBLIC_URL>/authorize?ticket=…` → Google fragt nach allen
-Berechtigungen → Rücksprung zu IDA. Dort stehen das verbundene Konto und welche Dienste erlaubt sind; „Fehlendes erlauben“ wiederholt
-die Anmeldung, „Abmelden“ widerruft den Zugang bei Google. Ohne Ticket geht `/authorize` nur mit `?token=<GOOGLE_AUTH_TOKEN>`.
+**Einmalig in der Google Cloud Console** (APIs & Dienste → Anmeldedaten → OAuth-Client → Autorisierte Weiterleitungs-URIs):
+`https://ida.kulbarts.com/api/v1/google/callback` eintragen (die Adresse kommt aus `IDA_PUBLIC_URL`). Das geht nur dort, nicht per API.
+Alte Weiterleitungs-URIs können gelöscht werden.
 
-* **Anmeldeadresse** `GOOGLE_PUBLIC_URL` (z. B. `https://google.kulbarts.com`) → Tunnel auf Port 4570, **mit Cloudflare Access davor**.
-  Die Startseite zeigt nur den Stand (verbunden? Konto? fehlende Berechtigungen).
-* **Rückkehr-Adresse** ist die Redirect-URI aus `GOOGLE_REDIRECT_URI` und muss in der Google Cloud Console (OAuth-Client →
-  Autorisierte Weiterleitungs-URIs) eingetragen sein. Für eine neue Adresse dort `https://<neue-adresse>/oauth/callback` ergänzen und
-  `GOOGLE_REDIRECT_URI` umstellen.
-* Zurück nach IDA geht es nur zu Adressen aus `GOOGLE_RETURN_BASES` (= `IDA_PUBLIC_URL`).
+## MCP (nur intern)
+
+Port 4569, Bearer `GOOGLE_MCP_TOKEN`. `GOOGLE_MCP_PORT` entscheidet, wo er lauscht: Standard `127.0.0.1:4569`; sollen Dienste in anderen
+Stacks (z. B. Veldora, Stella) ihn erreichen, die interne Adresse des Servers eintragen (z. B. `10.7.0.1:4569`). Nie in den Tunnel hängen.
 
 ## Interne REST-API (für Dienste im Stack)
 
@@ -34,19 +34,19 @@ die Anmeldung, „Abmelden“ widerruft den Zugang bei Google. Ohne Ticket geht 
 |---|---|
 | `GET /api/v1/status` | verbunden? Stand von Kalender-Abgleich und Docs-Backup |
 | `GET /api/v1/auth/status` | Anmeldung: verbunden, Konto, welche Dienste erlaubt sind |
-| `POST /api/v1/auth/start` | `{return_to}` → `{url}`: einmaliger Anmelde-Link |
-| `POST /api/v1/auth/disconnect` | Zugang bei Google widerrufen und löschen |
+| `POST /api/v1/auth/start` / `auth/callback` / `auth/disconnect` | Anmelde-Ablauf (nutzt IDA) und Abmelden |
 | `GET /api/v1/tools` | alle Google-Funktionen (dieselben wie im MCP) mit Beschreibung und Parametern |
 | `POST /api/v1/tools/{name}` | eine Funktion ausführen, Body = JSON-Objekt mit den Parametern. Antwort `{"ergebnis": …}` |
 | `GET /api/v1/sync/calendar` | Stand des letzten Kalender-Abgleichs |
 | `POST /api/v1/sync/calendar?dry_run=1` | Abgleich jetzt (mit `dry_run`: nur anzeigen, was passieren würde) |
 | `GET/POST /api/v1/backup/docs` | Stand / Docs-Sicherung jetzt nach Drive legen |
 
+Port 4571 wird nie veröffentlicht. Ist `GOOGLE_API_TOKEN` gesetzt, braucht jeder Aufruf `Authorization: Bearer <token>`.
+
 Beispiele (aus einem anderen Container):
 
 ```
 curl -s http://google:4571/api/v1/tools/google_termine_liste -X POST -H 'content-type: application/json' -d '{"max_ergebnisse": 5}'
-curl -s http://google:4571/api/v1/tools/google_aufgaben_liste -X POST -d '{}'
 ```
 
 Löschende Funktionen verlangen weiter `bestaetigt=true`, genau wie im MCP.
@@ -72,11 +72,9 @@ Löschende Funktionen verlangen weiter `bestaetigt=true`, genau wie im MCP.
 * Scope `drive.file`: der Dienst sieht in Drive nur, was er selbst angelegt hat.
 * Sofort sichern: `POST /api/v1/backup/docs`.
 
-## Einrichten / Umziehen
+## Einrichten
 
-1. `.env` des Stacks: `COMPOSE_PROFILES=google` (mit Komma zu anderen Profilen), `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`,
-   `GOOGLE_REDIRECT_URI`, `GOOGLE_MCP_TOKEN`, `GOOGLE_AUTH_TOKEN`; `GOOGLE_MCP_PORT` / `GOOGLE_AUTH_PORT` (z. B. `10.7.0.1:4569`),
-   wenn der Tunnel darauf zeigt. Dann `docker compose up -d google`.
-2. Einmal mit Google verbinden: `https://<auth-adresse>/authorize?token=<GOOGLE_AUTH_TOKEN>`. Beim Umzug vom alten Container
-   die Datei `google_token.json` ins Volume `google-data` kopieren, dann entfällt das.
+1. `.env` des Stacks: `COMPOSE_PROFILES=google` (mit Komma zu anderen Profilen), `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_MCP_TOKEN`,
+   `GOOGLE_API_TOKEN`, `IDA_PUBLIC_URL`; ggf. `GOOGLE_MCP_PORT` (siehe oben). Dann `docker compose up -d google`.
+2. Weiterleitungs-URI in der Google Cloud Console eintragen (siehe oben), dann in IDA unter Einstellungen → Google anmelden.
 3. Nach neuen Google-Funktionen oder Scopes die Anmeldung einmal wiederholen (sonst „insufficient authentication scopes“).

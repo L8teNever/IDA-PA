@@ -92,26 +92,38 @@ class AuthFlowTest(unittest.TestCase):
         from app.google_auth import GoogleAuthManager
         from types import SimpleNamespace
         import tempfile, os
-        self.s = SimpleNamespace(api_token="", public_url="https://google.example", return_bases=("https://ida.example",),
-                                 google_redirect_uri="https://auth.example/oauth/callback", google_client_id="c", google_client_secret="s",
+        self.s = SimpleNamespace(api_token="", google_redirect_uri="https://ida.example/api/v1/google/callback", google_client_id="c", google_client_secret="s",
                                  token_file_path=os.path.join(tempfile.mkdtemp(), "t.json"))
         self.g = GoogleAuthManager(self.s, ["https://www.googleapis.com/auth/calendar", "https://www.googleapis.com/auth/drive.file"])
         self.c = TestClient(build_internal_app(self.s, FakeMcp(), self.g, FakeRunner(), {"calendar": ["https://www.googleapis.com/auth/calendar"]}))
 
-    def test_start_gibt_einmal_link_und_prueft_ruecksprung(self):
-        bad = self.c.post("/api/v1/auth/start", json={"return_to": "https://boese.example/x"})
-        self.assertEqual(bad.status_code, 400)
-        url = self.c.post("/api/v1/auth/start", json={"return_to": "https://ida.example/einstellungen/google"}).json()["url"]
-        self.assertTrue(url.startswith("https://google.example/authorize?ticket="))
-        ticket = url.split("ticket=")[1]
-        ok, back = self.g.use_ticket(ticket)
-        self.assertEqual((ok, back), (True, "https://ida.example/einstellungen/google"))
-        self.assertFalse(self.g.use_ticket(ticket)[0])   # nur einmal
+    def test_start_gibt_google_adresse_mit_ida_ruecksprung(self):
+        from urllib.parse import parse_qs, urlparse
+        url = self.c.post("/api/v1/auth/start").json()["url"]
+        q = parse_qs(urlparse(url).query)
+        self.assertTrue(url.startswith("https://accounts.google.com/"))
+        self.assertEqual(q["redirect_uri"], ["https://ida.example/api/v1/google/callback"])
+        self.assertEqual(q["access_type"], ["offline"])
+        self.assertIn("drive.file", q["scope"][0])
 
-    def test_state_traegt_zieladresse(self):
-        st = self.g.generate_state("https://ida.example/x")
-        self.assertEqual(self.g.consume(st), (True, "https://ida.example/x"))
-        self.assertEqual(self.g.consume(st), (False, ""))
+    def test_callback_prueft_state_und_tauscht_code(self):
+        calls = []
+        self.g.exchange_code = lambda code: calls.append(code)
+        self.assertEqual(self.c.post("/api/v1/auth/callback", json={"code": "c1", "state": "falsch"}).status_code, 400)
+        state = self.g.generate_state()
+        self.assertEqual(self.c.post("/api/v1/auth/callback", json={"code": "c1", "state": state}).json(), {"ok": True})
+        self.assertEqual(calls, ["c1"])
+        # derselbe state ein zweites Mal geht nicht
+        self.assertEqual(self.c.post("/api/v1/auth/callback", json={"code": "c2", "state": state}).status_code, 400)
+
+    def test_google_fehler_wird_gemeldet(self):
+        from app.google_auth import GoogleAuthError
+
+        def boom(code):
+            raise GoogleAuthError("Google hat keinen Refresh-Token geliefert")
+        self.g.exchange_code = boom
+        r = self.c.post("/api/v1/auth/callback", json={"code": "c", "state": self.g.generate_state()})
+        self.assertEqual((r.status_code, "Refresh-Token" in r.json()["detail"]), (400, True))
 
     def test_status_ohne_verbindung(self):
         d = self.c.get("/api/v1/auth/status").json()

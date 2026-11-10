@@ -52,21 +52,12 @@ class Settings:
     mcp_host: str
     mcp_port: int
 
-    # Auth-Port: nur fuer den einmaligen (oder bei neuen Scopes erneuten)
-    # Google-Anmelde-Flow. Gedacht, um zusaetzlich hinter Cloudflare Zero
-    # Trust Access zu liegen -- auth_token ist nur ein zusaetzliches,
-    # kostenloses Sicherheitsnetz, falls das mal nicht greift.
-    auth_host: str
-    auth_port: int
-    auth_token: str
 
     # Wo der Google-Refresh-Token dauerhaft gespeichert wird (Docker-Volume).
     token_file_path: str
 
     # --- IDA-Stack: interne API und Abgleich-Aufgaben (alles optional) ---
     data_dir: str = "/data"
-    public_url: str = ""                 # oeffentliche Adresse der Anmeldeseite (z. B. https://google.kulbarts.com)
-    return_bases: tuple = ()             # Adressen, zu denen es nach der Anmeldung zurueckgehen darf (z. B. https://ida.kulbarts.com)
     # Interne REST-API (nur im Docker-Netz, wird NICHT auf den Host veroeffentlicht). api_token leer = ohne Token.
     api_host: str = "0.0.0.0"
     api_port: int = 4571
@@ -93,7 +84,6 @@ class Settings:
 def load_settings() -> Settings:
     try:
         mcp_auth_token = _require_min_length("MCP_AUTH_TOKEN", 16)
-        auth_token = _require_min_length("AUTH_TOKEN", 16)
 
         settings = Settings(
             google_client_id=_require("GOOGLE_CLIENT_ID"),
@@ -102,13 +92,8 @@ def load_settings() -> Settings:
             mcp_auth_token=mcp_auth_token,
             mcp_host=_optional("MCP_HOST", "0.0.0.0"),
             mcp_port=int(_optional("MCP_PORT", "4569")),
-            auth_host=_optional("AUTH_HOST", "0.0.0.0"),
-            auth_port=int(_optional("AUTH_PORT", "4570")),
-            auth_token=auth_token,
             token_file_path=_optional("GOOGLE_TOKEN_FILE_PATH", "/data/google_token.json"),
             data_dir=_optional("DATA_DIR", "/data"),
-            public_url=_optional("GOOGLE_PUBLIC_URL", "").rstrip("/"),
-            return_bases=tuple(b.strip().rstrip("/") for b in _optional("GOOGLE_RETURN_BASES", "").split(",") if b.strip()),
             api_host=_optional("API_HOST", "0.0.0.0"),
             api_port=int(_optional("API_PORT", "4571")),
             api_token=_optional("GOOGLE_API_TOKEN", ""),

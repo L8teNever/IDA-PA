@@ -1,17 +1,15 @@
 """Einstellungen → Google: Anmelden/Abmelden und Stand. Die Google-Anmeldung selbst macht der Dienst `google` (siehe docs/GOOGLE.md);
 IDA reicht nur durch und bekommt dafür einen einmaligen Anmelde-Link. Der Zugang bleibt im Dienst, weder Browser noch KI sehen ihn."""
+from urllib.parse import quote
+
 import httpx
 from fastapi import APIRouter
-from pydantic import BaseModel
+from fastapi.responses import RedirectResponse
 
 from ..config import get_settings
 from ..services.errors import Invalid
 
 router = APIRouter(prefix="/api/v1/google", tags=["google"])
-
-
-class LoginIn(BaseModel):
-    return_to: str = ""
 
 
 def _client() -> httpx.AsyncClient:
@@ -45,9 +43,21 @@ async def status():
 
 
 @router.post("/login")
-async def login(body: LoginIn):
-    """Gibt den Link zum Anmelden bei Google zurück (einmalig, 5 Minuten gültig); danach geht es zu `return_to` zurück."""
-    return await _call("POST", "/auth/start", json={"return_to": body.return_to})
+async def login():
+    """Gibt die Adresse von Googles Zustimmungsseite zurück. Google kommt danach zu /api/v1/google/callback in IDA zurück."""
+    return await _call("POST", "/auth/start")
+
+
+@router.get("/callback", include_in_schema=False)
+async def callback(code: str = "", state: str = "", error: str = ""):
+    """Rückweg von Google: code und state gehen an den Google-Dienst, danach zurück in die Einstellungen."""
+    if error or not code:
+        return RedirectResponse(f"/einstellungen/google?google=fehler&grund={quote(error or 'abgebrochen')}", status_code=303)
+    try:
+        await _call("POST", "/auth/callback", json={"code": code, "state": state})
+    except Invalid as e:
+        return RedirectResponse(f"/einstellungen/google?google=fehler&grund={quote(str(e))}", status_code=303)
+    return RedirectResponse("/einstellungen/google?google=ok", status_code=303)
 
 
 @router.delete("")

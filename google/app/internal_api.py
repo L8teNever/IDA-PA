@@ -2,7 +2,8 @@
 
 * GET  /api/v1/status                    Verbindung, Abgleich- und Backup-Stand
 * GET  /api/v1/auth/status              Google-Anmeldung: verbunden, Konto, welche Dienste erlaubt sind
-* POST /api/v1/auth/start               {return_to} -> {url}: Link zum Anmelden (einmalig, 5 Minuten gueltig)
+* POST /api/v1/auth/start               -> {url}: Googles Zustimmungsseite (state 10 Minuten gueltig)
+* POST /api/v1/auth/callback            {code, state}: Rueckweg von Google (kommt aus IDA), speichert den Zugang
 * POST /api/v1/auth/disconnect          Zugang bei Google widerrufen und loeschen
 * GET  /api/v1/tools                     alle Google-Funktionen (dieselben wie im MCP) mit Beschreibung und Parametern
 * POST /api/v1/tools/{name}              eine Funktion ausfuehren, Body = JSON mit den Parametern
@@ -22,6 +23,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette.routing import Route
 
+from app.google_auth import GoogleAuthError
 from app.google_client import GoogleApiError
 from app.jobs.runner import Runner
 
@@ -103,18 +105,26 @@ def build_internal_app(settings, mcp, google, runner: Runner, services: dict | N
         missing = [x for x in google.required_scopes() if x not in granted] if info.get("verbunden") else google.required_scopes()
         return JSONResponse({"verbunden": bool(info.get("verbunden")), "konto": info.get("konto", ""), "fehler": info.get("fehler", ""),
                              "dienste": dienste, "fehlende_scopes": len(missing), "vollstaendig": bool(info.get("verbunden")) and not missing,
-                             "anmeldeseite": settings.public_url})
+                             })
 
     async def auth_start(request: Request):
+        """Adresse von Googles Zustimmungsseite (mit frischem state). Zurueck kommt Google bei GOOGLE_REDIRECT_URI (in IDA)."""
+        return JSONResponse({"url": google.build_authorize_url(google.generate_state())})
+
+    async def auth_callback(request: Request):
+        """IDA reicht code und state vom Rueckweg durch; hier wird der state geprueft und der Zugang gespeichert."""
         try:
-            body = await request.json() if await request.body() else {}
+            body = await request.json()
         except ValueError:
             body = {}
-        back = str((body or {}).get("return_to") or "").strip()
-        if back and not any(back == b or back.startswith(b + "/") for b in settings.return_bases):
-            return JSONResponse({"detail": "Rueckkehr-Adresse nicht erlaubt"}, status_code=400)
-        base = settings.public_url or settings.google_redirect_uri.rsplit("/oauth/callback", 1)[0]
-        return JSONResponse({"url": f"{base}/authorize?ticket={google.make_ticket(back)}"})
+        code, state = str((body or {}).get("code") or ""), str((body or {}).get("state") or "")
+        if not code or not google.consume_state(state):
+            return JSONResponse({"detail": "Ungueltiger oder abgelaufener Anmelde-Versuch – bitte noch einmal starten"}, status_code=400)
+        try:
+            await asyncio.to_thread(google.exchange_code, code)
+        except GoogleAuthError as exc:
+            return JSONResponse({"detail": str(exc)}, status_code=400)
+        return JSONResponse({"ok": True})
 
     async def auth_disconnect(request: Request):
         await asyncio.to_thread(google.disconnect)
@@ -138,6 +148,7 @@ def build_internal_app(settings, mcp, google, runner: Runner, services: dict | N
         Route("/api/v1/status", guarded(status)),
         Route("/api/v1/auth/status", guarded(auth_status)),
         Route("/api/v1/auth/start", guarded(auth_start), methods=["POST"]),
+        Route("/api/v1/auth/callback", guarded(auth_callback), methods=["POST"]),
         Route("/api/v1/auth/disconnect", guarded(auth_disconnect), methods=["POST"]),
         Route("/api/v1/tools", guarded(tools)),
         Route("/api/v1/tools/{name}", guarded(call_tool), methods=["POST"]),

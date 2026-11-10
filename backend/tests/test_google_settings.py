@@ -18,7 +18,7 @@ def test_nicht_eingerichtet(monkeypatch):
     monkeypatch.setattr(g, "get_settings", lambda: SimpleNamespace(google_api_url="", google_api_token=""))
     assert asyncio.run(g.status()) == {"configured": False}
     with pytest.raises(Invalid):
-        asyncio.run(g.login(g.LoginIn(return_to="x")))
+        asyncio.run(g.login())
 
 
 def test_status_und_login(monkeypatch):
@@ -28,18 +28,37 @@ def test_status_und_login(monkeypatch):
         seen.append((req.method, req.url.path, req.content))
         if req.url.path.endswith("/auth/status"):
             return httpx.Response(200, json={"verbunden": True, "konto": "a@b.de", "dienste": []})
-        return httpx.Response(200, json={"url": "https://google.example/authorize?ticket=t"})
+        return httpx.Response(200, json={"url": "https://accounts.google.com/o/oauth2/v2/auth?x=1"})
 
     _setup(monkeypatch, handler)
     assert asyncio.run(g.status())["konto"] == "a@b.de"
-    assert asyncio.run(g.login(g.LoginIn(return_to="https://ida.example/einstellungen/google")))["url"].endswith("ticket=t")
-    assert seen[1][0:2] == ("POST", "/api/v1/auth/start") and b"einstellungen/google" in seen[1][2]
+    assert asyncio.run(g.login())["url"].startswith("https://accounts.google.com/")
+    assert seen[1][0:2] == ("POST", "/api/v1/auth/start")
+
+
+def test_rueckweg_von_google(monkeypatch):
+    seen = []
+
+    def handler(req: httpx.Request):
+        seen.append((req.url.path, req.content))
+        if b"schlecht" in req.content:
+            return httpx.Response(400, json={"detail": "Ungueltiger oder abgelaufener Anmelde-Versuch"})
+        return httpx.Response(200, json={"ok": True})
+
+    _setup(monkeypatch, handler)
+    ok = asyncio.run(g.callback(code="c1", state="s1"))
+    assert ok.headers["location"] == "/einstellungen/google?google=ok"
+    assert seen[0][0] == "/api/v1/auth/callback" and b'"code"' in seen[0][1] and b"s1" in seen[0][1]
+    bad = asyncio.run(g.callback(code="c1", state="schlecht"))
+    assert bad.headers["location"].startswith("/einstellungen/google?google=fehler&grund=")
+    nope = asyncio.run(g.callback(code="", state="", error="access_denied"))
+    assert nope.headers["location"].endswith("grund=access_denied")
 
 
 def test_fehler_und_nicht_erreichbar(monkeypatch):
-    _setup(monkeypatch, lambda req: httpx.Response(400, json={"detail": "Rueckkehr-Adresse nicht erlaubt"}))
-    with pytest.raises(Invalid, match="nicht erlaubt"):
-        asyncio.run(g.login(g.LoginIn(return_to="https://boese.example")))
+    _setup(monkeypatch, lambda req: httpx.Response(400, json={"detail": "kaputt"}))
+    with pytest.raises(Invalid, match="kaputt"):
+        asyncio.run(g.login())
 
     def down(req):
         raise httpx.ConnectError("weg")
