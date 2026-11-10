@@ -96,7 +96,7 @@ async def fetch() -> dict:
 
 
 # Bekannte IDA-Apps nach Port: (Reihenfolge, Name, bevorzugte Adresse, wenn mehrere auf denselben Port zeigen)
-IDA_APPS = {8440: ("IDA", "ida"), 8442: ("Kalender", "kalender"), 8443: ("Wiki", "wiki"), 8444: ("Code", "idacode"), 8449: ("Aufgaben", "tasks"),
+IDA_APPS = {8440: ("IDA", "ida"), 8442: ("Kalender", "kalender"), 8443: ("Wiki", "wiki"), 8444: ("Code", "code"), 8449: ("Aufgaben", "tasks"),
             8451: ("Dokumente", "docs"), 8450: ("HTML", "html"), 8445: ("Dashboard", "dashboard"), 8446: ("Server", "server"),
             8448: ("Links", "link"), 8452: ("Launcher", "home")}
 _ORDER = list(IDA_APPS)
