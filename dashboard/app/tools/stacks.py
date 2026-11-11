@@ -143,12 +143,14 @@ async def stack_action(name: str, body: ActionIn, req: Request):
         only = other_services(s) if s["self"] else []
 
         async def work(job: Job) -> bool:
-            if s["self"]:
-                job.write("Hinweis: Das Dashboard selbst wird dabei ausgelassen (es aktualisiert sich im IDA Server unter Updates).")
             if body.action == "update":
                 if not await run_cmd(job, base + ["pull"] + only, cwd=s["dir"], env=env):
                     return False
-                return await run_cmd(job, base + ["up", "-d", "--remove-orphans"] + only, cwd=s["dir"], env=env)
+                if not await run_cmd(job, base + ["up", "-d", "--remove-orphans"] + only, cwd=s["dir"], env=env):
+                    return False
+                return await update_self(job, d, s, base, env) if s["self"] else True
+            if s["self"]:
+                job.write("Hinweis: Das Dashboard selbst wird dabei ausgelassen (sonst beendet es sich mitten im Vorgang).")
             return await run_cmd(job, base + cmd + only, cwd=s["dir"], env=env)
     else:
         if body.action not in ("start", "stop", "restart"):
@@ -170,6 +172,29 @@ async def stack_action(name: str, body: ActionIn, req: Request):
 
     job = js.start(f"{title}: {name}", "stack:" + name, work)
     return {"job": job.view()}
+
+
+async def update_self(job: Job, d: Docker, s: dict, base: list[str], env: dict) -> bool:
+    """Beim Update des eigenen Stacks kommt das Dashboard zum Schluss dran: neues Image holen und – nur wenn es sich geändert
+    hat – über einen Hilfscontainer neu erstellen (selbst würde es sich dabei mitten im Vorgang beenden)."""
+    from .updates import restart_self  # updates importiert aus diesem Modul
+    mine = [c for c in s["containers"] if c["self"]]
+    if not await run_cmd(job, base + ["pull", *dict.fromkeys(c["service"] for c in mine)], cwd=s["dir"], env=env):
+        return False
+    for c in mine:
+        try:
+            info = await d.inspect(c["id"])
+            ref = (info.get("Config") or {}).get("Image") or c["image"]
+            new = (await d.image(ref)).get("Id")
+        except DockerError as e:
+            job.write(f"{c['service']}: neues Image nicht lesbar ({e})")
+            return False
+        if new and new == info.get("Image"):
+            job.write(f"\n{c['service']} (das Dashboard selbst) ist schon aktuell.")
+            continue
+        if not await restart_self(job, s, {"service": c["service"], "image": ref}):
+            return False
+    return True
 
 
 @router.post("/api/v1/containers/{cid}/action")

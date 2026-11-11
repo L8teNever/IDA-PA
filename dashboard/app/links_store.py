@@ -44,7 +44,8 @@ CREATE TABLE IF NOT EXISTS links (
   last_open INTEGER,
   device_mode TEXT NOT NULL DEFAULT 'any',
   bound_device TEXT,
-  confirm INTEGER NOT NULL DEFAULT 0
+  confirm INTEGER NOT NULL DEFAULT 0,
+  preview TEXT NOT NULL DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS visits (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -87,6 +88,9 @@ class Store:
         self.db.execute("PRAGMA foreign_keys=ON")
         self.db.execute("PRAGMA busy_timeout=10000")
         self.db.executescript(SCHEMA)
+        cols = {r[1] for r in self.db.execute("PRAGMA table_info(links)")}
+        if "preview" not in cols:  # eigene Link-Vorschau (JSON), kam später dazu
+            self.db.execute("ALTER TABLE links ADD COLUMN preview TEXT NOT NULL DEFAULT ''")
 
     def close(self) -> None:
         self.db.close()
@@ -219,6 +223,25 @@ def status(link: dict, now: int | None = None) -> str:
     if link.get("max_uses") and link["uses"] >= link["max_uses"]:
         return "used_up"
     return "active"
+
+
+# ---------- eigene Link-Vorschau (WhatsApp, Telegram, iMessage, Discord …) ----------
+MEDIA_RE = re.compile(r"^[0-9]+-[a-z0-9]{10}\.(jpg|png|gif|webp|mp4|webm)$")
+MEDIA_KINDS = ("image", "video", "bg")   # bg = Hintergrund des gestalteten Bildes (nur zum Weiterbearbeiten)
+
+
+def media_dir(db_path: str | Path) -> Path:
+    return Path(db_path).parent / "previews"
+
+
+def preview_of(link: dict) -> dict:
+    """Die gespeicherte Vorschau als dict (leer = keine eigene Vorschau)."""
+    import json
+    try:
+        p = json.loads(link.get("preview") or "{}")
+    except ValueError:
+        return {}
+    return p if isinstance(p, dict) else {}
 
 
 def device_id() -> str:

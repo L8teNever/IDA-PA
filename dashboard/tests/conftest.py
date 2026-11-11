@@ -46,7 +46,7 @@ class FakeDocker:
             c = next((x for x in self.containers if x["Id"].startswith(cid)), None)
             if not c:
                 return httpx.Response(404, json={"message": "No such container"})
-            return httpx.Response(200, json={"Id": c["Id"], "Name": c["Names"][0], "State": {"Running": c["State"] == "running"},
+            return httpx.Response(200, json={"Id": c["Id"], "Name": c["Names"][0], "Image": c["ImageID"], "State": {"Running": c["State"] == "running"},
                                               "Config": {"Tty": False, "Image": c.get("ConfigImage") or c["Image"], "Env": c.get("Env") or [], "Labels": c.get("Labels") or {}},
                                               "HostConfig": c.get("HostConfig") or {}})
         if p.startswith("/networks/") and p.endswith("/connect"):

@@ -107,6 +107,40 @@ async def test_self_stack_skips_dashboard(client, tmp_path, settings, monkeypatc
     assert r.status_code == 400
 
 
+async def test_self_stack_update_includes_dashboard(client, tmp_path, settings, monkeypatch):
+    shop = setup_stacks(client, tmp_path, settings)
+    client.docker.containers.append(ctr("e", "dashboard", "shop", wd=str(shop), service="dashboard", labels={"ida.dashboard": "self"},
+                                        image="sha256:alt"))
+    client.docker.containers[-1]["ConfigImage"] = "ghcr.io/x/dash:latest"
+    (shop / "compose.yaml").write_text("services:\n  web:\n    image: nginx\n  db:\n    image: postgres\n  dashboard:\n    image: x\n")
+    calls = []
+
+    async def fake_run(job, args, cwd=None, env=None):
+        calls.append(args)
+        return True
+    monkeypatch.setattr(stacks_mod, "run_cmd", fake_run)
+    from app.tools import updates as updates_mod
+    monkeypatch.setattr(updates_mod, "run_cmd", fake_run)
+
+    # neues Image da: erst die anderen, dann das Dashboard über den Hilfscontainer
+    client.docker.images["ghcr.io/x/dash:latest"] = {"Id": "sha256:neu"}
+    r = await client.post("/api/v1/stacks/shop/action", json={"action": "update"})
+    ev = lines((await client.get(f"/api/v1/jobs/{r.json()['job']['id']}/live")).text)
+    assert ev[-1]["done"]["ok"] is True
+    assert calls[0][-3:] == ["pull", "web", "db"] and calls[1][-2:] == ["web", "db"]
+    assert calls[2][-2:] == ["pull", "dashboard"]
+    helper = calls[3]
+    assert helper[:2] == ["docker", "run"] and "ghcr.io/x/dash:latest" in helper and helper[-1].endswith("dashboard")
+
+    # schon aktuell: kein Neustart
+    calls.clear()
+    client.docker.images["ghcr.io/x/dash:latest"] = {"Id": "sha256:img-sha256:alt"}
+    r = await client.post("/api/v1/stacks/shop/action", json={"action": "update"})
+    ev = lines((await client.get(f"/api/v1/jobs/{r.json()['job']['id']}/live")).text)
+    assert ev[-1]["done"]["ok"] is True
+    assert len(calls) == 3
+
+
 async def test_api_actions_without_files(client, tmp_path, settings):
     setup_stacks(client, tmp_path, settings)
     r = await client.post("/api/v1/stacks/fremd/action", json={"action": "update"})
