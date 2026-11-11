@@ -4,6 +4,7 @@ import re
 from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 from sqlalchemy import or_, select
+from sqlalchemy.orm.attributes import flag_modified
 
 from ..models import Chat, ChatMessage
 from ..schemas import ChatDraft, ChatFork, ChatSend, ChatUpdate
@@ -55,9 +56,21 @@ async def put_chat_draft(key: str, body: ChatDraft, db: DB):
     return await _draft_out(db, d)
 
 
+# angepinnte zuerst (früher angepinnt = weiter oben), dann wie bisher nach letzter Änderung
+PIN_ORDER = (Chat.pinned_at.is_(None), Chat.pinned_at.asc(), Chat.updated_at.desc())
+
+
+def set_pinned(c: Chat, on: bool) -> None:
+    """An-/Abpinnen ändert nicht „zuletzt geändert“ (sonst springt der Chat in der Liste nach oben)."""
+    if on == (c.pinned_at is not None):
+        return
+    c.pinned_at = utcnow() if on else None
+    flag_modified(c, "updated_at")  # alter Wert bleibt; onupdate greift nur, wenn die Spalte nicht im UPDATE steht
+
+
 @router.get("/chats")
 async def list_chats(db: DB, q: str = "", agent: str | None = None, limit: int = 200):
-    stmt = select(Chat).where(Chat.kind != "code").order_by(Chat.updated_at.desc()).limit(min(limit, 500))  # code threads: /code
+    stmt = select(Chat).where(Chat.kind != "code").order_by(*PIN_ORDER).limit(min(limit, 500))  # code threads: /code
     if agent:
         stmt = stmt.where(Chat.agent_id == agent)
     if q.strip():
@@ -85,18 +98,22 @@ async def get_chat(chat_id: str, db: DB):
 
 @router.patch("/chats/{chat_id}")
 async def rename(chat_id: str, body: ChatUpdate, db: DB):
+    """Umbenennen und/oder an-/abpinnen."""
     c = await db.get(Chat, chat_id)
     if not c:
         raise NotFound("Chat nicht gefunden")
-    t = body.title.strip()
-    if not t:
-        raise Invalid("Titel fehlt")
-    c.title = t[:120]
-    try:
-        from ..services import wiki_sync
-        wiki_sync.enqueue_chat(chat_id)
-    except Exception:
-        pass
+    if body.pinned is not None:
+        set_pinned(c, body.pinned)
+    if body.title is not None:
+        t = body.title.strip()
+        if not t:
+            raise Invalid("Titel fehlt")
+        c.title = t[:120]
+        try:
+            from ..services import wiki_sync
+            wiki_sync.enqueue_chat(chat_id)
+        except Exception:
+            pass
     return ser.chat(c)
 
 

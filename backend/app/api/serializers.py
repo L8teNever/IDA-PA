@@ -44,6 +44,7 @@ def skill(s: Skill, agents: list[str] | None = None) -> dict:
 def chat(c: Chat, last: ChatMessage | None = None) -> dict:
     out = {"id": c.id, "agent_id": c.agent_id, "title": c.title, "model": c.model, "account_id": c.account_id,
            "kind": c.kind, "project_id": c.project_id, "permission_mode": c.permission_mode,
+           "pinned": c.pinned_at is not None, "pinned_at": iso(c.pinned_at),
            "created_at": iso(c.created_at), "updated_at": iso(c.updated_at)}
     if last is not None:
         out["last"] = {"role": last.role, "text": (last.text or "")[:200]}

@@ -18,6 +18,7 @@ from ..services import server_stack, settings_store
 from ..services.code import approvals, commit_msg, git, github, projects, sandbox
 from ..services.errors import Invalid, NotFound
 from . import serializers as ser
+from .chats import PIN_ORDER, set_pinned
 from .deps import DB
 
 router = APIRouter(prefix="/api/v1/code", tags=["code"])
@@ -175,7 +176,7 @@ async def project_raw_file(pid: str, file_path: str, db: DB):
 async def threads(pid: str, db: DB):
     await code_area.require(db)
     await projects.get(db, pid)
-    rows = (await db.scalars(select(Chat).where(Chat.project_id == pid).order_by(Chat.updated_at.desc()))).all()
+    rows = (await db.scalars(select(Chat).where(Chat.project_id == pid).order_by(*PIN_ORDER))).all()
     out = []
     for c in rows:
         last = await db.scalar(select(ChatMessage).where(ChatMessage.chat_id == c.id, ChatMessage.role != "system").order_by(ChatMessage.at.desc()).limit(1))
@@ -185,7 +186,7 @@ async def threads(pid: str, db: DB):
 
 @router.patch("/threads/{cid}")
 async def update_thread(cid: str, body: ThreadUpdate, db: DB):
-    """Title and rights of a thread (new rights apply from the next message on)."""
+    """Title, pin and rights of a thread (new rights apply from the next message on)."""
     await code_area.require(db)
     c = await db.get(Chat, cid)
     if not c or c.kind != "code":
@@ -194,6 +195,8 @@ async def update_thread(cid: str, body: ThreadUpdate, db: DB):
         if not body.title.strip():
             raise Invalid("Titel fehlt")
         c.title = body.title.strip()[:120]
+    if body.pinned is not None:
+        set_pinned(c, body.pinned)
     if body.permission_mode:
         c.permission_mode = body.permission_mode
     return ser.chat(c)

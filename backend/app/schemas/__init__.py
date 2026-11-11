@@ -63,7 +63,8 @@ class ChatSend(BaseModel):
 
 
 class ChatUpdate(BaseModel):
-    title: str
+    title: str | None = None
+    pinned: bool | None = None
 
 
 class Trigger(BaseModel):
@@ -325,6 +326,7 @@ class QueueItem(BaseModel):
 
 class ThreadUpdate(BaseModel):
     title: str | None = None
+    pinned: bool | None = None
     permission_mode: Mode | None = None
 
 

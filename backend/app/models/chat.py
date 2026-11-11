@@ -22,6 +22,8 @@ class Chat(Timestamps, Base):
     kind: Mapped[str] = mapped_column(String(8), default="chat", server_default="chat", index=True)
     project_id: Mapped[str | None] = mapped_column(ForeignKey("code_projects.id", ondelete="CASCADE"), index=True, default=None)
     permission_mode: Mapped[str] = mapped_column(String(8), default="ask", server_default="ask")  # ask | edits | full
+    # angepinnt: steht oben in der Liste (Chats bzw. Threads des Projekts); früher angepinnt = weiter oben
+    pinned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
 
     messages: Mapped[list["ChatMessage"]] = relationship(back_populates="chat", cascade="all, delete-orphan", order_by="ChatMessage.at", lazy="raise")
 

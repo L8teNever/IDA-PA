@@ -66,6 +66,24 @@ def test_chat_stream_persist_resume_and_skill(client):
     assert act["agents"] == {} and act["done"]["ida"]["ok"] is True
 
 
+def test_chat_rename_and_pin(client):
+    a = chat(client, text="Erster")[0]["chat"]["id"]
+    b = chat(client, text="Zweiter")[0]["chat"]["id"]
+    c = chat(client, text="Dritter")[0]["chat"]["id"]
+    ids = lambda: [x["id"] for x in client.get(f"{API}/chats").json()]  # noqa: E731
+    assert ids()[:3] == [c, b, a]
+    before = client.get(f"{API}/chats/{a}").json()["updated_at"]
+    r = client.patch(f"{API}/chats/{a}", json={"pinned": True}).json()
+    assert r["pinned"] is True and r["updated_at"] == before  # Anpinnen zählt nicht als Änderung
+    client.patch(f"{API}/chats/{b}", json={"pinned": True})
+    assert ids()[:3] == [a, b, c]  # angepinnt oben, früher angepinnt zuerst
+    r = client.patch(f"{API}/chats/{a}", json={"title": "  Wichtig  "}).json()
+    assert r["title"] == "Wichtig" and r["pinned"] is True
+    client.patch(f"{API}/chats/{a}", json={"pinned": False})
+    assert ids()[:3] == [b, a, c]  # Umbenennen zählt als Änderung
+    assert client.patch(f"{API}/chats/{a}", json={"title": " "}).status_code == 400
+
+
 def test_activity_steps():
     from app.services import activity
     rid = activity.start("stella", "run")

@@ -124,6 +124,14 @@ a { color: inherit; }
 .side-thread.active { background: var(--container); color: var(--on-container); font-weight: 500; }
 .side-thread.active .ms { color: var(--accent); }
 .side-thread.wait .ms { color: var(--warn); }
+/* angepinnt + Menü je Thread (am PC beim Drüberfahren, am Handy immer) */
+.side-thread .side-pin { font-size: 15px; color: var(--accent); margin-left: -4px; }
+.side-thread .side-more { display: none; width: 26px; height: 26px; margin: -4px -6px -4px -2px; flex: none; }
+.side-thread .side-more .ms { font-size: 18px; color: var(--muted); }
+.side-thread:hover .side-more, .side-thread:focus-within .side-more { display: inline-flex; }
+.side-thread:hover .tree-count { display: none; }
+@media (hover: none) { .side-thread .side-more { display: inline-flex; } .side-thread .tree-count:empty { display: none; } }
+.thread-pin { font-size: 16px; color: var(--accent); vertical-align: -3px; margin-right: 4px; }
 .side-none { padding: 6px 10px; font-size: 12.5px; color: var(--muted); }
 .sidebar-foot { position: absolute; left: 0; right: 0; bottom: 0; z-index: 2; padding: 18px 12px 12px; display: flex; align-items: center; justify-content: space-between; gap: 8px;
   background: linear-gradient(to top, var(--surface) calc(100% - 18px), transparent); font-size: 12.5px; color: var(--muted); }

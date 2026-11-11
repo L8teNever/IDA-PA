@@ -617,6 +617,8 @@
   .crow b { font-weight: 500; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .crow .ctime { color: var(--muted); font-size: 12px; flex: none; }
   .crow small { display: block; color: var(--muted); font-size: 13px; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .crow .c-pin { font-size: 16px; color: var(--accent); vertical-align: -3px; margin-right: 4px; }
+  .crow .c-more { flex: none; width: 36px; height: 36px; margin: -6px -8px -6px -6px; color: var(--muted); }
 
   /* ---------- Einstellungen ---------- */
   #pageSettings { padding-inline: max(16px, env(safe-area-inset-left)); }

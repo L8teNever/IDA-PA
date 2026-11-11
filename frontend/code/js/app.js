@@ -151,9 +151,10 @@ function drawSide() {
           <span class="tree-label">${esc(p.name)}</span>${busy ? `<span class="ms spin side-busy">progress_activity</span>` : `<span class="tree-count">${p.threadList.length || ""}</span>`}</a>
         <a class="icon-btn sm side-add" href="/p/${p.id}/neu" title="Neuer Thread in ${esc(p.name)}" aria-label="Neuer Thread"><span class="ms">add</span></a>
       </div>
-      ${expanded ? `<div class="side-threads">${threads.map((t) => `<a class="side-thread ${route.thread === t.id ? "active" : ""} ${t.waiting ? "wait" : ""}" href="/p/${p.id}/t/${t.id}">
+      ${expanded ? `<div class="side-threads">${threads.map((t) => `<a class="side-thread ${route.thread === t.id ? "active" : ""} ${t.waiting ? "wait" : ""} ${t.pinned ? "pinned" : ""}" href="/p/${p.id}/t/${t.id}" data-thread="${t.id}">
           <span class="ms ${t.running && !t.waiting ? "spin" : ""}">${threadIcon(t)}</span>
-          <span class="tree-label">${esc(t.title)}</span><span class="tree-count">${t.waiting ? "Freigabe" : t.running ? "" : fmtRel(t.updated_at)}</span></a>`).join("")
+          <span class="tree-label">${esc(t.title)}</span>${t.pinned ? `<span class="ms side-pin" title="Angepinnt">keep</span>` : ""}<span class="tree-count">${t.waiting ? "Freigabe" : t.running ? "" : fmtRel(t.updated_at)}</span>
+          <button type="button" class="icon-btn sm side-more" data-thread-menu="${t.id}" title="Umbenennen, anpinnen …" aria-label="Thread-Menü"><span class="ms">more_horiz</span></button></a>`).join("")
         || `<div class="side-none">${p.status === "cloning" ? "wird geklont …" : "Noch keine Threads"}</div>`}</div>` : ""}
     </div>`;
   }).join("");
@@ -443,9 +444,9 @@ function drawProjectThreads() {
     const last = t.last ? (t.last.role === "user" ? "Du: " : "") + t.last.text.split("\n")[0] : "";
     return `<div class="thread-card ${t.waiting ? "wait" : ""}"><a class="thread-link" href="/p/${cur.id}/t/${t.id}">
         <span class="thread-ic"><span class="ms ${t.running && !t.waiting ? "spin" : ""}">${threadIcon(t)}</span></span>
-        <span class="thread-main"><span class="thread-top"><b>${esc(t.title)}</b><span class="muted">${fmtRel(t.updated_at)}</span></span>
+        <span class="thread-main"><span class="thread-top"><b>${t.pinned ? `<span class="ms thread-pin" title="Angepinnt">keep</span>` : ""}${esc(t.title)}</b><span class="muted">${fmtRel(t.updated_at)}</span></span>
         <small>${t.waiting ? `<span class="c-wait">wartet auf deine Freigabe</span>` : t.running ? `<span class="c-run">arbeitet gerade …</span>` : esc(last)}</small></span></a>
-      <button type="button" class="icon-btn sm" data-del-thread="${t.id}" title="Thread löschen" aria-label="Thread löschen"><span class="ms">delete</span></button></div>`;
+      <button type="button" class="icon-btn sm" data-thread-menu="${t.id}" title="Umbenennen, anpinnen, löschen" aria-label="Thread-Menü"><span class="ms">more_vert</span></button></div>`;
   }).join("")}</div>`
     : cur.status === "ready" ? `<div class="hero-box small"><span class="ms">forum</span><p>Noch keine Threads. Starte einen – z. B. „Erklär mir den Aufbau des Projekts“.</p>
       <a class="btn-primary" href="/p/${cur.id}/neu"><span class="ms">edit_square</span>Neuer Thread</a></div>`
@@ -559,17 +560,35 @@ function modeMenu(anchor) {
   }, { align: "right" });
 }
 
-function threadMenu(anchor) {
-  const id = ctx.id;
+const findThread = (id) => {
+  for (const p of state.projects) { const t = p.threadList.find((x) => x.id === id); if (t) return { p, t }; }
+  return { p: null, t: null };
+};
+
+// Menü eines Threads: oben in der Kopfzeile (offener Thread), in der Seitenleiste und in der Liste des Projekts
+function threadMenu(anchor, id = ctx.id, { align = "right" } = {}) {
   if (!id) return;
-  popMenu(anchor, [{ value: "rename", icon: "edit", label: "Umbenennen" }, "-", { value: "delete", icon: "delete", label: "Thread löschen", danger: true }], async (v) => {
+  const { t } = findThread(id);
+  const pinned = !!(t?.pinned ?? (id === ctx.id && thread?.pinned));
+  popMenu(anchor, [
+    { value: "rename", icon: "edit", label: "Umbenennen" },
+    { value: "pin", icon: pinned ? "keep_off" : "keep", label: pinned ? "Lösen" : "Anpinnen", sub: pinned ? "nicht mehr oben im Projekt" : "steht dann oben im Projekt" },
+    "-", { value: "delete", icon: "delete", label: "Thread löschen", danger: true },
+  ], async (v) => {
     if (v === "rename") {
-      const t = projectById(cur.id)?.threadList.find((x) => x.id === id);
-      const r = await formDialog("Thread umbenennen", [{ name: "title", label: "Titel", value: t?.title || thread?.title || "", required: true, max: 120 }], { icon: "edit" });
-      if (r && await attempt(() => api.patch(`/code/threads/${id}`, { title: r.title }), "Umbenannt")) { thread = { ...thread, title: r.title }; await loadTree().catch(() => {}); drawThreadTitle(); }
+      const r = await formDialog("Thread umbenennen", [{ name: "title", label: "Titel", value: t?.title || (id === ctx.id ? thread?.title : "") || "", required: true, max: 120 }], { icon: "edit" });
+      if (r && await attempt(() => api.patch(`/code/threads/${id}`, { title: r.title }), "Umbenannt")) {
+        if (id === ctx.id) thread = { ...thread, title: r.title };
+        await loadTree().catch(() => {});
+        drawThreadTitle();
+      }
+    }
+    if (v === "pin" && await attempt(() => api.patch(`/code/threads/${id}`, { pinned: !pinned }), pinned ? "Gelöst" : "Angepinnt")) {
+      if (id === ctx.id) thread = { ...thread, pinned: !pinned };
+      await loadTree().catch(() => {});
     }
     if (v === "delete") deleteThread(id);
-  }, { align: "right" });
+  }, { align });
 }
 
 async function deleteThread(id) {
@@ -599,6 +618,8 @@ async function onClick(e) {
   if (tog) { const id = tog.dataset.toggle; if (open.has(id) && route.project !== id) open.delete(id); else open.add(id); drawSide(); return; }
   const del = t.closest("[data-del-thread]");
   if (del) return deleteThread(del.dataset.delThread);
+  const tm = t.closest("[data-thread-menu]");
+  if (tm) { e.preventDefault(); e.stopImmediatePropagation(); return threadMenu(tm, tm.dataset.threadMenu, { align: tm.closest("#sideList") ? "left" : "right" }); }
   if (t.closest("#sideList a")) closeDrawer();
   if (!act) return;
   switch (act.dataset.act) {

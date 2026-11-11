@@ -125,6 +125,14 @@ def test_code_thread_runs_in_the_project_with_real_tools(client, code_on, github
     assert c["id"] in [t["id"] for t in client.get(f"{API}/code/projects/{p['id']}/threads").json()]
     assert c["id"] not in [x["id"] for x in client.get(f"{API}/chats").json()]
     assert client.patch(f"{API}/code/threads/{c['id']}", json={"title": "Erster Thread", "permission_mode": "ask"}).json()["permission_mode"] == "ask"
+    # anpinnen: steht oben im Projekt
+    c2 = chat(client, project_id=p["id"], text="PWD noch einer")[0]["chat"]
+    th = lambda: [t["id"] for t in client.get(f"{API}/code/projects/{p['id']}/threads").json()]  # noqa: E731
+    assert th() == [c2["id"], c["id"]]
+    assert client.patch(f"{API}/code/threads/{c['id']}", json={"pinned": True}).json()["pinned"] is True
+    assert th() == [c["id"], c2["id"]]
+    client.patch(f"{API}/code/threads/{c['id']}", json={"pinned": False})
+    assert th() == [c2["id"], c["id"]]
     # code area off: the thread cannot run
     client.put(f"{API}/code/settings", json={"enabled": False})
     assert client.post(f"{API}/chat", json={"chat_id": c["id"], "text": "x"}).status_code == 400

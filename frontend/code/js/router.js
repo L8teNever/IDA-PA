@@ -28,7 +28,7 @@ export function startRouter(fn) {
   addEventListener("popstate", () => handler(parse()));
   document.addEventListener("click", (e) => {
     const a = e.target.closest("a[href]");
-    if (!a || a.target || a.hasAttribute("download") || e.ctrlKey || e.metaKey || e.shiftKey || e.button !== 0) return;
+    if (e.defaultPrevented || !a || a.target || a.hasAttribute("download") || e.ctrlKey || e.metaKey || e.shiftKey || e.button !== 0) return;
     const u = new URL(a.href, location.href);
     if (u.origin !== location.origin || u.pathname.startsWith("/api/") || u.pathname.startsWith("/s/")) return;
     e.preventDefault();
