@@ -62,7 +62,9 @@ def site_page(s: dict) -> dict:
     return page("website-" + slug(s["hostname"] + (s.get("path") or "")), f"Website {s['hostname']}{s.get('path') or ''}",
                 f"{s['hostname']}{s.get('path') or ''} ist durch die Website „{s['name']}“ im IDA Server belegt" + (f" (erstellt {made})." if made else "."),
                 [("Adresse", url), ("Domain", s["hostname"]), ("Belegt durch", f"Website „{s['name']}“ im IDA Server"), ("Erstellt", made),
-                 ("Quelle", source), ("Zugriff", "nur mit Login (Zero Trust)" if s.get("zero_trust") else "öffentlich")], ["website"])
+                 ("Quelle", source), ("Zugriff", "nur mit Login (Zero Trust)" if s.get("zero_trust") else "öffentlich"),
+                 ("Haupt-Adresse", f"https://{s['main']}" if s.get("main") else ""),
+                 ("Weitere Domains", ", ".join(f"https://{a['hostname']}{a.get('path') or ''}" for a in s.get("aliases") or []))], ["website"])
 
 
 def link_page(link: dict, domains: list[str]) -> dict:
@@ -73,7 +75,10 @@ def link_page(link: dict, domains: list[str]) -> dict:
 
 
 def desired(sites: list[dict], links: list[dict], domains: list[str]) -> dict[str, dict]:
-    pages = [site_page(s) for s in sites] + [link_page(x, domains) for x in links]
+    # weitere Domains einer Website bekommen eine eigene Seite: auch sie sind belegt
+    extra = [{**s, "hostname": d["hostname"], "path": d.get("path") or "", "aliases": [], "main": s["hostname"] + (s.get("path") or "")}
+             for s in sites for d in s.get("aliases") or []]
+    pages = [site_page(s) for s in [*sites, *extra]] + [link_page(x, domains) for x in links]
     pages.append(page("link-domains", "Domains der Kurzlinks", f"Für Kurzlinks belegt: {', '.join(domains)}.",
                       [("Domains", ", ".join(domains)), ("Belegt durch", "Dienst „links“, verwaltet im IDA Server unter Weiterleitungen")], ["kurzlink"]))
     return {p["path"]: p for p in pages}

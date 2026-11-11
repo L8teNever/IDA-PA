@@ -3,6 +3,7 @@ Zero Trust gegen eine nachgebaute Cloudflare-API), Leiste/Titel je Modus, Messwe
 import asyncio
 import json
 import subprocess
+from pathlib import Path
 
 import httpx
 import pytest
@@ -115,6 +116,11 @@ async def test_modes_have_their_own_tools(client, server):
     assert (await client.get("/api/v1/sites")).status_code == 404  # Websites gibt es nur im Server
     assert (await server.get("/api/v1/publish")).status_code == 404  # Veröffentlichen gibt es nur im Dashboard
     assert (await server.get("/api/v1/stacks")).status_code == 200 and (await server.get("/api/v1/fs/list", params={"path": "/"})).status_code != 404
+    # Monaco für den Website-Editor kommt vom Server selbst (nicht aus dem Offline-Cache der App)
+    if (Path(get_settings().frontend_dir) / "html" / "lib" / "monaco").is_dir():
+        r = await server.get("/vendor/monaco/vs/loader.js")
+        assert r.status_code == 200 and "max-age" in r.headers["cache-control"]
+        assert "/vendor/monaco" not in (await server.get("/sw.js")).text
     # Messwerte hat nur das Dashboard; ohne DASHBOARD_URL sagt der Server das
     r = await server.get("/api/v1/monitor/now")
     assert r.status_code == 503 and "Dashboard" in r.json()["detail"]
@@ -297,3 +303,49 @@ async def test_site_published_through_tunnel(server, fake_cf, monkeypatch):
     assert (await wait_job(server, r.json()["job"]["id"]))["ok"]
     assert any(x.get("hostname") == "a.example.com" for x in fake_cf.ingress)  # b nutzt den Host noch
     assert fake_cf.apps == []  # die Access-App von a ist weg
+
+
+async def test_site_with_more_domains(server, fake_cf, monkeypatch):
+    """Weitere Domains zeigen auf dieselbe Seite: nginx, Tunnel, DNS und Access je Domain – Entfernen räumt nur die eigene Domain ab."""
+    from app.tools import stacks
+    settings = get_settings()
+    settings.cloudflare_api_token = "tok"
+    settings.cloudflare_api_url = "https://cf.test/client/v4"
+    nginx = ctr("n", "ida-sites-1", "ida", service="sites", labels={"ida.sites": "nginx"}, image="nginx:alpine")
+    nginx["Ports"] = [{"PrivatePort": 80, "PublicPort": 8087, "IP": "0.0.0.0", "Type": "tcp"}]
+    server.docker.containers = [nginx]
+
+    async def fake_exec(args, timeout):
+        return 0, "", False
+
+    monkeypatch.setattr(stacks, "run_exec", fake_exec)
+    r = await server.post("/api/v1/sites", json={"name": "a", "hostname": "a.example.com", "tunnel_id": "t1", "zero_trust": True, "emails": ["s@example.com"]})
+    assert (await wait_job(server, r.json()["job"]["id"]))["ok"]
+    r = await server.post("/api/v1/sites/a/domains", json={"hostname": "Zwei.Example.com"})
+    j = await wait_job(server, r.json()["job"]["id"])
+    assert j["ok"], j["output"]
+    s = (await server.get("/api/v1/sites")).json()["sites"][0]
+    assert [d["url"] for d in s["domains"]] == ["https://a.example.com", "https://zwei.example.com"] and s["domains"][0]["main"]
+    conf = (Path(settings.sites_dir) / "conf" / "default.conf").read_text()
+    assert "server_name zwei.example.com;" in conf and conf.count("root /srv/www/a;") == 2
+    assert {"hostname": "zwei.example.com", "service": "http://10.7.0.1:8087"} in fake_cf.ingress
+    assert {d["name"] for d in fake_cf.dns} == {"a.example.com", "zwei.example.com"}
+    assert {a["domain"] for a in fake_cf.apps} == {"a.example.com", "zwei.example.com"}  # Zero Trust gilt auch für die neue Domain
+    # dieselbe Adresse noch einmal / bei einer anderen Seite → abgelehnt
+    assert (await server.post("/api/v1/sites/a/domains", json={"hostname": "zwei.example.com"})).status_code == 409
+    assert (await server.post("/api/v1/sites", json={"name": "b", "hostname": "zwei.example.com", "tunnel_id": "t1"})).status_code == 409
+    # Haupt-Adresse lässt sich nicht einzeln entfernen
+    assert (await server.post("/api/v1/sites/a/domains/remove", json={"hostname": "a.example.com"})).status_code == 400
+    # Zero Trust aus gilt für alle Domains
+    r = (await server.put("/api/v1/sites/a", json={"zero_trust": False})).json()
+    assert fake_cf.apps == [] and "Zero Trust aus" in r["detail"]
+    r = await server.post("/api/v1/sites/a/domains/remove", json={"hostname": "zwei.example.com"})
+    assert (await wait_job(server, r.json()["job"]["id"]))["ok"]
+    assert not any(x.get("hostname") == "zwei.example.com" for x in fake_cf.ingress) and {d["name"] for d in fake_cf.dns} == {"a.example.com"}
+    assert "zwei.example.com" not in (Path(settings.sites_dir) / "conf" / "default.conf").read_text()
+    # Website mit weiterer Domain entfernen räumt beide ab
+    r = await server.post("/api/v1/sites/a/domains", json={"hostname": "drei.example.com"})
+    assert (await wait_job(server, r.json()["job"]["id"]))["ok"]
+    r = await server.post("/api/v1/sites/a/remove", json={})
+    assert (await wait_job(server, r.json()["job"]["id"]))["ok"]
+    assert fake_cf.dns == [] and not any(x.get("hostname") in ("a.example.com", "drei.example.com") for x in fake_cf.ingress)

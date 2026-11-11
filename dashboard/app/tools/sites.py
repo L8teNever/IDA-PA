@@ -89,11 +89,24 @@ def normalize(name: str) -> str:
     return re.sub(r"-+", "-", n).strip("-_")
 
 
+def domains(s: dict) -> list[dict]:
+    """Haupt-Adresse und weitere Domains, die auf dieselbe Seite zeigen."""
+    return [{"hostname": s["hostname"], "path": s.get("path") or "", "main": True},
+            *({**a, "path": a.get("path") or "", "main": False} for a in s.get("aliases") or [])]
+
+
+def taken(sites: list[dict], host: str, path: str) -> dict | None:
+    """Welche Website hat host+path schon (als Haupt-Adresse oder weitere Domain)?"""
+    return next((s for s in sites for d in domains(s) if d["hostname"] == host and d["path"] == path), None)
+
+
 def public(s: dict) -> dict:
     """Ohne Token für die Oberfläche."""
     out = {k: v for k, v in s.items() if k != "token"}
     out["has_token"] = bool(s.get("token"))
     out["url"] = f"https://{s['hostname']}{s.get('path') or ''}"
+    out["domains"] = [{"hostname": d["hostname"], "path": d["path"], "main": d["main"], "url": f"https://{d['hostname']}{d['path']}"}
+                      for d in domains(s)]
     out["folder"] = str(www_dir() / s["name"])
     return out
 
@@ -102,16 +115,16 @@ def public(s: dict) -> dict:
 def nginx_conf(sites: list[dict]) -> str:
     lines = ["# vom IDA Server erzeugt – nicht von Hand ändern (Tool Websites)",
              "server {", "    listen 80 default_server;", "    server_name _;", "    return 404;", "}", ""]
-    hosts: dict[str, list[dict]] = {}
+    hosts: dict[str, list[tuple[dict, str]]] = {}
     for s in sites:
-        hosts.setdefault(s["hostname"], []).append(s)
+        for d in domains(s):
+            hosts.setdefault(d["hostname"], []).append((s, d["path"]))
     for host, group in sorted(hosts.items()):
         lines += ["server {", "    listen 80;", f"    server_name {host};", "    charset utf-8;", "    server_tokens off;",
                   "    port_in_redirect off;", "    absolute_redirect off;",
                   "    location ~ /\\.(?!well-known) { return 404; }  # .git, .env … nie ausliefern", ""]
         root_site = None
-        for s in sorted(group, key=lambda x: len(x.get("path") or ""), reverse=True):
-            p = s.get("path") or ""
+        for s, p in sorted(group, key=lambda x: len(x[1]), reverse=True):
             base = f"{WWW_IN_NGINX}/{s['name']}" + (f"/{s['root']}" if s.get("root") else "")
             if not p:
                 root_site = (s, base)
@@ -339,15 +352,15 @@ async def create_site(body: SiteIn, req: Request):
     sites = load()
     if any(s["name"] == name for s in sites):
         raise HTTPException(409, f"Es gibt schon eine Website „{name}“")
-    if any(s["hostname"] == host and (s.get("path") or "") == path for s in sites):
-        raise HTTPException(409, f"{host}{path} hat schon eine Website")
+    if other := taken(sites, host, path):
+        raise HTTPException(409, f"{host}{path} gehört schon zur Website „{other['name']}“")
     if cf.enabled() and not body.tunnel_id:
         raise HTTPException(400, "Tunnel wählen")
     site = {"name": name, "hostname": host, "path": path, "spa": body.spa, "source": source, "repo": repo if source == "github" else "",
             "branch": branch if source == "github" else "", "root": root, "token": body.token.strip() if source == "github" else "",
             "auto_minutes": body.auto_minutes if source == "github" else 0, "tunnel_id": body.tunnel_id, "zero_trust": body.zero_trust,
             "emails": [e.strip() for e in body.emails if e.strip()], "created": int(time.time()), "status": "setting_up",
-            "owns_route": False, "owns_dns": False, "owns_access": False, "last_commit": "", "last_deploy": 0, "last_error": ""}
+            "owns_route": False, "owns_dns": False, "owns_access": False, "last_commit": "", "last_deploy": 0, "last_error": "", "aliases": []}
     async with _lock:
         sites = load()
         sites.append(site)
@@ -399,38 +412,154 @@ async def _setup(app, site: dict, job: Job) -> bool:
         return False
 
 
-async def _publish(app, site: dict, job: Job) -> None:
-    host, path, tid = site["hostname"], site["path"], site["tunnel_id"]
+async def _publish_domain(app, tid: str, host: str, path: str, site: dict, job: Job) -> dict:
+    """Eine Adresse über den Tunnel veröffentlichen (Tunnel-Regel, DNS, ggf. Access). Gibt zurück, was dabei neu angelegt wurde."""
     rules = [r for r in (await cf.tunnel_config(tid)).get("ingress") or [] if r.get("hostname")]
     up = await upstream(app, rules)
     same_host = [r for r in rules if r["hostname"] == host]
-    changes = {}
+    owns = {}
     if any(r.get("service", "").rstrip("/") == up and not r.get("path") for r in same_host):
         job.write(f"Tunnel: {host} zeigt schon auf die Websites ✓")
     elif not same_host:
         await cf.add_route(tid, host, up)
-        changes["owns_route"] = True
-        changes["route_path"] = ""
+        owns["owns_route"] = True
+        owns["route_path"] = ""
         job.write(f"Tunnel-Regel {host} → {up} ✓")
     elif path:
         rpath = f"^{re.escape(path)}(/.*)?$"
         await cf.add_route(tid, host, up, rpath)
-        changes["owns_route"] = True
-        changes["route_path"] = rpath
+        owns["owns_route"] = True
+        owns["route_path"] = rpath
         job.write(f"Tunnel-Regel {host}{path} → {up} ✓ (der Rest von {host} bleibt beim bisherigen Ziel)")
     else:
         raise RuntimeError(f"{host} zeigt im Tunnel schon auf {same_host[0].get('service')} – anderen Hostnamen oder einen Pfad nehmen")
     dns = await cf.point_to_tunnel(host, tid)
     if dns == "created":
-        changes["owns_dns"] = True
-    job.write({"created": "DNS: CNAME angelegt ✓", "updated": "DNS: CNAME auf den Tunnel umgestellt ✓", "unchanged": "DNS passt schon ✓"}[dns])
+        owns["owns_dns"] = True
+    job.write({"created": f"DNS {host}: CNAME angelegt ✓", "updated": f"DNS {host}: CNAME auf den Tunnel umgestellt ✓",
+               "unchanged": f"DNS {host} passt schon ✓"}[dns])
     if site["zero_trust"]:
         res = await cf.protect(host + path, site["emails"], name=f"Website {site['name']}")
-        changes["owns_access"] = res["neu"]
-        job.write(f"Zero Trust: nur {', '.join(site['emails'])} ✓")
+        owns["owns_access"] = res["neu"]
+        job.write(f"Zero Trust {host}{path}: nur {', '.join(site['emails'])} ✓")
     else:
-        job.write("Öffentlich: ohne Login erreichbar")
-    await _update(site["name"], **changes)
+        job.write(f"Öffentlich: {host}{path} ohne Login erreichbar")
+    return owns
+
+
+async def _unpublish_domain(tid: str, host: str, path: str, owns: dict, rest: list[dict], job: Job) -> None:
+    """Nur entfernen, was diese Adresse selbst angelegt hat. rest = alle Websites ohne die entfernte Adresse."""
+    others = [d for s in rest for d in domains(s) if d["hostname"] == host]
+    if owns.get("owns_route") and (owns.get("route_path") or not others):
+        await cf.remove_route(tid, host, owns.get("route_path") or "")
+        job.write(f"Tunnel-Regel {host}{path} entfernt ✓")
+    left = [r for r in (await cf.tunnel_config(tid)).get("ingress") or [] if r.get("hostname") == host]
+    if owns.get("owns_dns") and not left and not others:
+        job.write(f"DNS-Eintrag {host} gelöscht ✓" if await cf.remove_dns(host, tid) else f"DNS {host}: nichts zu löschen")
+    if owns.get("owns_access"):
+        job.write(f"Access-App {host}{path} gelöscht ✓" if await cf.unprotect(host + path) else f"Access-App {host}{path} gab es nicht mehr")
+
+
+async def _publish(app, site: dict, job: Job) -> None:
+    owns = await _publish_domain(app, site["tunnel_id"], site["hostname"], site["path"], site, job)
+    await _update(site["name"], **owns)
+
+
+# ---------------- weitere Domains ----------------
+class DomainIn(BaseModel):
+    hostname: str
+    path: str = ""
+
+
+def clean_domain(body: DomainIn) -> tuple[str, str]:
+    host, path = clean_host(body.hostname), clean_path(body.path).rstrip("/")
+    if not host or "." not in host:
+        raise HTTPException(400, "Adresse fehlt, z. B. seite.kulbarts.com")
+    if path and not re.match(r"^/[A-Za-z0-9._~/-]+$", path):
+        raise HTTPException(400, "Pfad nur mit Buchstaben, Zahlen und . _ ~ - /")
+    return host, path
+
+
+@router.post("/api/v1/sites/{name}/domains")
+async def add_domain(name: str, body: DomainIn, req: Request):
+    s = find(load(), name)
+    host, path = clean_domain(body)
+    if other := taken(load(), host, path):
+        raise HTTPException(409, f"{host}{path} gehört schon zur Website „{other['name']}“")
+    if cf.enabled() and not s.get("tunnel_id"):
+        raise HTTPException(400, "Die Website hat keinen Tunnel – sie lässt sich nur über Cloudflare veröffentlichen")
+    if jobs(req).busy("site:" + name):
+        raise HTTPException(409, "Für diese Website läuft schon ein Vorgang")
+
+    async def work(job: Job) -> bool:
+        async with _lock:
+            sites = load()
+            cur = find(sites, name)
+            cur.setdefault("aliases", []).append({"hostname": host, "path": path})
+            save(sites)
+        try:
+            await apply_conf(req.app, load(), job)
+            owns = await _publish_domain(req.app, cur["tunnel_id"], host, path, cur, job) if cf.enabled() else {}
+        except (RuntimeError, HTTPException, cf.CloudflareError, OSError) as e:
+            job.write(f"Fehler: {getattr(e, 'detail', None) or e}")
+            async with _lock:  # halb angelegte Domain wieder raus, damit nichts ins Leere zeigt
+                sites = load()
+                cur = find(sites, name)
+                cur["aliases"] = [a for a in cur.get("aliases") or [] if not (a["hostname"] == host and (a.get("path") or "") == path)]
+                save(sites)
+            try:
+                await apply_conf(req.app, load())
+            except HTTPException:
+                pass
+            return False
+        async with _lock:
+            sites = load()
+            for a in find(sites, name).get("aliases") or []:
+                if a["hostname"] == host and (a.get("path") or "") == path:
+                    a.update(owns)
+            save(sites)
+        job.write(f"Fertig: https://{host}{path} zeigt jetzt auch auf {name}")
+        wiki_memory.kick(req.app)
+        return True
+
+    return {"job": jobs(req).start(f"Domain hinzufügen: {host}{path}", "site:" + name, work).view()}
+
+
+@router.post("/api/v1/sites/{name}/domains/remove")
+async def remove_domain(name: str, body: DomainIn, req: Request):
+    s = find(load(), name)
+    host, path = clean_host(body.hostname), clean_path(body.path).rstrip("/")
+    alias = next((a for a in s.get("aliases") or [] if a["hostname"] == host and (a.get("path") or "") == path), None)
+    if not alias:
+        raise HTTPException(404 if (host, path) != (s["hostname"], s.get("path") or "") else 400,
+                            "Die Haupt-Adresse lässt sich nicht einzeln entfernen" if (host, path) == (s["hostname"], s.get("path") or "")
+                            else "Diese Domain gehört nicht zur Website")
+    if jobs(req).busy("site:" + name):
+        raise HTTPException(409, "Für diese Website läuft schon ein Vorgang")
+
+    async def work(job: Job) -> bool:
+        async with _lock:
+            sites = load()
+            cur = find(sites, name)
+            cur["aliases"] = [a for a in cur.get("aliases") or [] if not (a["hostname"] == host and (a.get("path") or "") == path)]
+            save(sites)
+        ok = True
+        try:
+            await apply_conf(req.app, load(), job)
+        except HTTPException as e:
+            job.write(f"nginx: {e.detail}")
+            ok = False
+        if cf.enabled() and s.get("tunnel_id"):
+            try:
+                await _unpublish_domain(s["tunnel_id"], host, path, alias, load(), job)
+            except cf.CloudflareError as e:
+                job.write(f"Cloudflare: {e}")
+                ok = False
+        job.write(f"{host}{path} zeigt nicht mehr auf {name}")
+        wiki_memory.kick(req.app)
+        return ok
+
+    return {"job": jobs(req).start(f"Domain entfernen: {host}{path}", "site:" + name, work).view()}
 
 
 @router.post("/api/v1/sites/{name}/deploy")
@@ -472,21 +601,32 @@ async def update_site(name: str, body: SiteUpdate, req: Request):
         raise HTTPException(400, "Für Zero Trust mindestens eine E-Mail (oder @domain.de) angeben")
     detail = []
     if cf.enabled() and ("zero_trust" in ch or ("emails" in ch and zt_on)):
-        domain = s["hostname"] + (s.get("path") or "")
+        aliases = [dict(a) for a in s.get("aliases") or []]
         try:
-            if zt_on:
-                if s["zero_trust"] and s.get("owns_access"):
-                    await cf.unprotect(domain)  # alte Policy weg, neue mit den aktuellen E-Mails
-                res = await cf.protect(domain, emails, name=f"Website {name}")
-                ch["owns_access"] = res["neu"] or s.get("owns_access", False)
-                detail.append("Zero Trust an")
-            elif s["zero_trust"]:
-                if s.get("owns_access"):
-                    await cf.unprotect(domain)
-                    detail.append("Zero Trust aus")
+            # gleich für die Haupt-Adresse (Felder direkt an der Website) und jede weitere Domain
+            for d, owner in [(s["hostname"] + (s.get("path") or ""), s), *((a["hostname"] + (a.get("path") or ""), a) for a in aliases)]:
+                owned = owner.get("owns_access", False)
+                if zt_on:
+                    if s["zero_trust"] and owned:
+                        await cf.unprotect(d)  # alte Policy weg, neue mit den aktuellen E-Mails
+                    res = await cf.protect(d, emails, name=f"Website {name}")
+                    new_owned = res["neu"] or owned
+                elif s["zero_trust"]:
+                    if owned:
+                        await cf.unprotect(d)
+                    else:
+                        detail.append(f"Die Access-App für {d} gehört nicht zu dieser Website – in Cloudflare entfernen")
+                    new_owned = False
                 else:
-                    detail.append("Die Access-App gehört nicht zu dieser Website – in Cloudflare entfernen")
-                ch["owns_access"] = False
+                    new_owned = owned
+                if owner is s:
+                    ch["owns_access"] = new_owned
+                else:
+                    owner["owns_access"] = new_owned
+            if aliases:
+                ch["aliases"] = aliases
+            detail.insert(0, "Zero Trust an" if zt_on else "Zero Trust aus" if s["zero_trust"] else "")
+            detail = [x for x in detail if x]
         except cf.CloudflareError as e:
             raise HTTPException(502, str(e))
     s = await _update(name, **ch)
@@ -515,20 +655,16 @@ async def remove_site(name: str, body: RemoveIn, req: Request):
             job.write(f"nginx: {e.detail}")
             ok = False
         if cf.enabled() and s.get("tunnel_id"):
-            host, tid = s["hostname"], s["tunnel_id"]
-            others = [x for x in rest if x["hostname"] == host]
-            try:
-                if s.get("owns_route") and (s.get("route_path") or not others):
-                    await cf.remove_route(tid, host, s.get("route_path") or "")
-                    job.write("Tunnel-Regel entfernt ✓")
-                left = [r for r in (await cf.tunnel_config(tid)).get("ingress") or [] if r.get("hostname") == host]
-                if s.get("owns_dns") and not left and not others:
-                    job.write("DNS-Eintrag gelöscht ✓" if await cf.remove_dns(host, tid) else "DNS: nichts zu löschen")
-                if s.get("owns_access"):
-                    job.write("Access-App gelöscht ✓" if await cf.unprotect(host + (s.get("path") or "")) else "Access-App gab es nicht mehr")
-            except cf.CloudflareError as e:
-                job.write(f"Cloudflare: {e}")
-                ok = False
+            todo = [(s["hostname"], s.get("path") or "", s), *((a["hostname"], a.get("path") or "", a) for a in s.get("aliases") or [])]
+            for i, (host, path, owns) in enumerate(todo):
+                # „Rest“ = andere Websites plus die noch nicht entfernten Domains dieser Seite
+                still = [{"hostname": h, "path": p} for h, p, _ in todo[i + 1:]]
+                rest_now = rest + ([{"hostname": still[0]["hostname"], "path": still[0]["path"], "aliases": still[1:]}] if still else [])
+                try:
+                    await _unpublish_domain(s["tunnel_id"], host, path, owns, rest_now, job)
+                except cf.CloudflareError as e:
+                    job.write(f"Cloudflare {host}: {e}")
+                    ok = False
         if body.delete_files:
             d = www_dir() / name
             if d.is_dir() and d.resolve().parent == www_dir().resolve():

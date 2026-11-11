@@ -134,6 +134,10 @@ def create_app(*, docker: Docker | None = None, store: Store | None = None, back
         app.mount(f"/s/{version}", Static(directory=own, cache=imm), name="assets")
         # Icons unter fester Adresse: das Manifest ändert sich so nicht bei jedem Update (sonst baut Android die installierte App über den Play Store neu)
         app.mount("/icons", Static(directory=own / "icons", cache="public, max-age=86400"), name="icons")
+        # Monaco (Website-Editor): eigener Ordner, nicht im Offline-Cache der App (13 MB) – im Repo liegt er bei IDA HTML
+        monaco = next((d for d in (front / "monaco", front / "html" / "lib" / "monaco") if d.is_dir()), None)
+        if monaco:
+            app.mount("/vendor/monaco", Static(directory=monaco, cache="public, max-age=604800"), name="monaco")
         shell_json = json.dumps(shell_files(own, css, fonts, version))
         index_html = (own / "index.html").read_text(encoding="utf-8").replace('"/static/', f'"/s/{version}/')
         if s.is_server:

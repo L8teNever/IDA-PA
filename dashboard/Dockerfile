@@ -27,6 +27,8 @@ COPY dashboard/app /app/dashboard/app
 COPY frontend/dashboard/ /app/frontend/dashboard/
 COPY frontend/css/tokens.css frontend/css/components.css /app/frontend/css/
 COPY frontend/fonts/ /app/frontend/fonts/
+# Monaco – derselbe Code-Editor wie in IDA HTML (für den Website-Editor, lädt erst beim Öffnen)
+COPY frontend/html/lib/monaco/ /app/frontend/monaco/
 
 # läuft als root: braucht den Docker-Socket und schreibt Compose-/.env-Dateien in den Stack-Ordnern (wie Dockge)
 VOLUME /data
