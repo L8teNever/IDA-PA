@@ -2,6 +2,7 @@
 Compose- und .env-Dateien bearbeiten, Logs ansehen."""
 import asyncio
 import os
+import re
 import shutil
 import tempfile
 import time
@@ -277,6 +278,71 @@ async def run_exec(args: list[str], timeout: int) -> tuple[int | None, str, bool
     return proc.returncode, (out or b"").decode("utf-8", "replace"), False
 
 
+# ---------- Neuer Stack ----------
+STACK_NAME = re.compile(r"^[a-z0-9][a-z0-9_-]{0,62}$")
+
+
+class NewStackIn(BaseModel):
+    name: str = Field(min_length=1, max_length=63)
+    compose: str = Field(min_length=1, max_length=2_000_000)
+    env: str = Field("", max_length=500_000)
+    start: bool = True
+
+
+def check_compose(text: str) -> dict:
+    try:
+        data = yaml.safe_load(text)
+    except yaml.YAMLError as e:
+        raise HTTPException(400, f"YAML-Fehler: {e}")
+    if not isinstance(data, dict) or not isinstance(data.get("services"), dict) or not data["services"]:
+        raise HTTPException(400, "Eine Compose-Datei braucht einen Abschnitt „services:“ mit mindestens einem Dienst")
+    return data
+
+
+@router.post("/api/v1/stacks")
+async def create_stack(body: NewStackIn, req: Request):
+    """Neuen Stack anlegen: Ordner <erster Stack-Ordner>/<name> mit compose.yaml (und .env), auf Wunsch gleich starten (up -d)."""
+    name = body.name.strip().lower()
+    if not STACK_NAME.match(name):
+        raise HTTPException(400, "Name: nur Kleinbuchstaben, Ziffern, - und _ (am Anfang ein Buchstabe oder eine Ziffer)")
+    data = check_compose(body.compose)
+    declared = data.get("name")
+    if declared is not None and str(declared).strip().lower() != name:
+        raise HTTPException(400, f"In der Compose-Datei steht „name: {declared}“ – nimm denselben Namen oder lösch die Zeile")
+    roots = get_settings().stack_dirs
+    if not roots:
+        raise HTTPException(400, "Kein Stack-Ordner eingestellt (STACKS_DIRS)")
+    if any(s["name"] == name for s in await all_stacks(req)):
+        raise HTTPException(409, f"Einen Stack „{name}“ gibt es schon")
+    d = roots[0] / name
+    if d.exists():
+        raise HTTPException(409, f"Den Ordner {d} gibt es schon")
+    try:
+        d.mkdir(parents=True)
+        (d / "compose.yaml").write_text(body.compose if body.compose.endswith("\n") else body.compose + "\n", encoding="utf-8")
+        if body.env.strip():
+            (d / ".env").write_text(body.env if body.env.endswith("\n") else body.env + "\n", encoding="utf-8")
+    except OSError as e:
+        shutil.rmtree(d, ignore_errors=True)
+        raise HTTPException(500, f"Ordner nicht anlegbar: {e}")
+    s = next((x for x in await all_stacks(req) if x["name"] == name), None)
+    if not s:  # sollte nicht passieren – der Ordner liegt im Stack-Ordner
+        return {"name": name, "dir": str(d), "job": None}
+    if not body.start:
+        return {"name": name, "dir": str(d), "job": None}
+    base, env = compose_base(s), docker_env()
+
+    async def work(job: Job) -> bool:
+        job.write(f"Stack {name} angelegt in {d}")
+        if not await run_cmd(job, base + ["config", "--quiet"], cwd=s["dir"], env=env):
+            job.write("Die Compose-Datei hat einen Fehler (siehe oben). Die Dateien bleiben liegen – bearbeiten und dann „Übernehmen“.")
+            return False
+        return await run_cmd(job, base + ["up", "-d"], cwd=s["dir"], env=env)
+
+    job = jobs(req).start(f"Einrichten: {name}", "stack:" + name, work)
+    return {"name": name, "dir": str(d), "job": job.view()}
+
+
 # ---------- Dateien (Compose, .env) ----------
 class FileIn(BaseModel):
     path: str
@@ -308,12 +374,7 @@ async def read_file(name: str, path: str, req: Request):
 async def write_file(name: str, body: FileIn, req: Request):
     f = allowed_file(await find(req, name), body.path)
     if f["kind"] == "compose":
-        try:
-            data = yaml.safe_load(body.content)
-        except yaml.YAMLError as e:
-            raise HTTPException(400, f"YAML-Fehler: {e}")
-        if not isinstance(data, dict) or not isinstance(data.get("services"), dict):
-            raise HTTPException(400, "Eine Compose-Datei braucht einen Abschnitt „services:“")
+        check_compose(body.content)
     p = Path(f["path"])
     # alten Stand sichern (data/backups/<stack>/<datei>.<zeit>)
     if p.exists():

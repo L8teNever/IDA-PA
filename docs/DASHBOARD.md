@@ -8,6 +8,12 @@ Es zeigt alles, was auf dem Server läuft, und lässt es bedienen:
   Stack-Ordner, die gerade ganz aus sind (Suche in `/opt/stacks`). Mögliche Aktionen:
   * Starten, Stoppen, Neu starten, **Aktualisieren** (`docker compose pull` + `up -d`), Übernehmen (`up -d`), Herunterfahren (`down`).
     Die Ausgabe läuft live mit. Schließt du die Seite, läuft der Vorgang trotzdem zu Ende.
+    Beim eigenen Stack kommt das Dashboard zum Schluss dran: neues Image holen und, nur wenn es sich geändert hat, über einen
+    Hilfscontainer neu erstellen (wie unter „Updates“). Bei den anderen Aktionen wird es ausgelassen.
+  * **Neuer Stack** (Knopf oben in der Übersicht, `POST /api/v1/stacks`): Name, Compose-Datei einfügen, hochladen oder per Ziehen &
+    Ablegen, optional `.env`. Legt `<erster STACKS_DIRS-Ordner>/<name>/compose.yaml` (und `.env`) an; mit „Gleich starten“ folgt
+    `docker compose config --quiet` und `up -d` mit Live-Ausgabe. Kaputtes YAML, vorhandene Namen/Ordner und ein abweichendes
+    `name:` in der Compose-Datei werden abgelehnt.
   * **Compose-Datei und `.env` bearbeiten** (Editor mit Zeilennummern, Strg+S). Kaputtes YAML wird abgelehnt. Der alte Stand
     landet vor jedem Speichern unter `data/backups/<stack>/` (die letzten 20). Mit „Speichern & übernehmen“ wird direkt `up -d` ausgeführt.
   * Je Container: Logs (filtern, mitlaufen lassen), Starten, Stoppen, Neu starten, CPU/RAM/Netz jetzt.

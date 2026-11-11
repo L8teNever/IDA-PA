@@ -2,6 +2,7 @@
 // Detail mit Aktionen (Start/Stopp/Neustart/Aktualisieren …), Containern, Logs und Editor für Compose und .env.
 import { api, followJob } from "../api.js";
 import { COLORS, lineChart } from "../chart.js";
+import { navigate } from "../app.js";
 import { liveIndex, live, stacks } from "../store.js";
 import { attempt, confirmDialog, ctrState, esc, fmtBytes, fmtPct, fmtRate, openModal, popMenu, sheetHead, STATES, toast } from "../ui.js";
 
@@ -75,8 +76,10 @@ export default {
 function grid(el, ctx) {
   ctx.top(`<div class="topbar-left"><button type="button" class="icon-btn mobile-only" data-drawer aria-label="Liste"><span class="ms">menu</span></button>
     <h2><span class="ms">deployed_code</span><span class="tb-title">Stacks</span></h2></div>
-    <div class="topbar-actions"><button type="button" class="icon-btn" id="stRefresh" title="Neu laden"><span class="ms">refresh</span></button></div>`);
+    <div class="topbar-actions"><button type="button" class="icon-btn" id="stRefresh" title="Neu laden"><span class="ms">refresh</span></button>
+      <button type="button" class="btn-primary act-btn" id="stNew" title="Neuen Stack mit eigener Compose-Datei einrichten"><span class="ms">add</span><span class="lbl">Neuer Stack</span></button></div>`);
   document.getElementById("stRefresh").onclick = () => stacks.refresh();
+  document.getElementById("stNew").onclick = () => newStack();
   el.innerHTML = `<div class="page"><div class="filter-row mobile-only-flex" id="gFilter"></div><div class="stack-grid" id="stGrid"><div class="empty-stage">Lade …</div></div></div>`;
   let list = null;
   const draw = () => {
@@ -105,6 +108,114 @@ function grid(el, ctx) {
   const u1 = stacks.sub((d) => { list = d; draw(); });
   const u2 = live.sub(() => draw());
   return () => { u1(); u2(); document.removeEventListener("stacks:filter", onFilter); };
+}
+
+// ---------- Neuer Stack: Compose einfügen oder hochladen ----------
+const SAMPLE = `services:
+  app:
+    image: nginx:alpine
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+`;
+
+// Name aus dem Dateinamen bzw. „name:“ der Compose-Datei vorschlagen
+const slug = (t) => String(t || "").toLowerCase().replace(/\.(ya?ml|env)$/, "").replace(/[^a-z0-9_-]+/g, "-").replace(/^[-_]+|-+$/g, "").slice(0, 63);
+const DEFAULT_FILES = /^(docker-)?compose(\.[a-z0-9_-]+)?\.ya?ml$/i;
+
+function newStack() {
+  const m = openModal(`${sheetHead("Neuer Stack", "add_box")}<form class="ff-form" novalidate><div class="ff-scroll">
+      <label class="ff"><span>Name</span><input class="cd-input" id="nsName" placeholder="z. B. uptime-kuma" autocomplete="off" spellcheck="false" autocapitalize="off">
+        <small class="ff-hint" id="nsWhere">Kleinbuchstaben, Ziffern, - und _. Daraus wird der Ordner im Stack-Verzeichnis.</small></label>
+      <div class="ff"><span>Compose-Datei</span>
+        <div class="ns-tools"><button type="button" class="btn-tonal" data-up="compose"><span class="ms">upload_file</span><span class="lbl">Hochladen</span></button>
+          <button type="button" class="btn-tonal" data-a="paste"><span class="ms">content_paste</span><span class="lbl">Einfügen</span></button>
+          <button type="button" class="btn-tonal" data-a="sample"><span class="ms">draft</span><span class="lbl">Beispiel</span></button></div>
+        <textarea class="cd-input ns-drop" id="nsCompose" rows="14" spellcheck="false" wrap="off" placeholder="Compose hier einfügen oder eine Datei hierher ziehen"></textarea>
+        <small class="ff-hint" id="nsInfo">Gespeichert als compose.yaml. Ziehen &amp; Ablegen geht auch.</small></div>
+      <details class="ns-env"><summary><span class="ms">key</span>.env-Datei (optional)</summary>
+        <div class="ff"><div class="ns-tools"><button type="button" class="btn-tonal" data-up="env"><span class="ms">upload_file</span><span class="lbl">.env hochladen</span></button></div>
+          <textarea class="cd-input ns-drop" id="nsEnv" rows="6" spellcheck="false" wrap="off" placeholder="SCHLUESSEL=wert"></textarea>
+          <small class="ff-hint">Für Passwörter und Einstellungen, auf die die Compose-Datei mit \${NAME} zeigt.</small></div></details>
+      <div class="ff ff-switch"><div><span>Gleich starten</span><small class="ff-hint">Prüft die Datei, lädt die Images und startet (docker compose up -d)</small></div>
+        <button type="button" class="sw on" id="nsStart" aria-label="Gleich starten"></button></div>
+      <div class="ff-error" id="ffErr" hidden></div></div>
+      <input type="file" id="nsFile" hidden accept=".yml,.yaml,.env,.txt,text/yaml,text/plain">
+      <div class="sheet-actions"><button type="button" class="btn-tonal" data-close>Abbrechen</button>
+        <button class="btn-primary" type="submit" id="nsOk"><span class="ms">rocket_launch</span><span class="lbl">Einrichten</span></button></div></form>`, { wide: true });
+  const box = m.el, $ = (s) => box.querySelector(s);
+  const name = $("#nsName"), compose = $("#nsCompose"), env = $("#nsEnv"), file = $("#nsFile"), err = $("#ffErr");
+  let nameTouched = false, target = "compose", start = true;
+
+  const info = () => {
+    const t = compose.value;
+    const svc = /^services:\s*$/m.test(t) ? [...t.split(/^services:\s*$/m)[1].matchAll(/^ {2}([A-Za-z0-9_.-]+):/gm)].map((x) => x[1]) : [];
+    $("#nsInfo").textContent = !t.trim() ? "Gespeichert als compose.yaml. Ziehen & Ablegen geht auch."
+      : svc.length ? `Dienste: ${svc.join(", ")}` : "Kein Abschnitt „services:“ gefunden";
+    const declared = /^name:\s*["']?([A-Za-z0-9_-]+)/m.exec(t)?.[1];
+    if (declared && !nameTouched) name.value = slug(declared);
+  };
+  const fill = (which, text, fname = "") => {
+    if (which === "env") { env.value = text; box.querySelector(".ns-env").open = true; return; }
+    compose.value = text;
+    if (!nameTouched && fname && !DEFAULT_FILES.test(fname)) name.value = slug(fname);
+    info();
+  };
+  const readFile = async (f, which) => {
+    if (f.size > 2_000_000) return toast("Die Datei ist zu groß");
+    const text = await f.text();
+    fill(which === "auto" ? (/\.env$|^\.env/i.test(f.name) ? "env" : "compose") : which, text, f.name);
+  };
+
+  name.oninput = () => { nameTouched = !!name.value; };
+  compose.oninput = info;
+  compose.onkeydown = env.onkeydown = (e) => {
+    if (e.key === "Tab" && !e.shiftKey) { e.preventDefault(); e.target.setRangeText("  ", e.target.selectionStart, e.target.selectionEnd, "end"); }
+  };
+  for (const ta of [compose, env]) {
+    ta.ondragover = (e) => { e.preventDefault(); ta.classList.add("over"); };
+    ta.ondragleave = () => ta.classList.remove("over");
+    ta.ondrop = (e) => {
+      ta.classList.remove("over");
+      const f = e.dataTransfer?.files?.[0];
+      if (!f) return;
+      e.preventDefault();
+      readFile(f, ta === env ? "env" : "auto");
+    };
+  }
+  file.onchange = () => { if (file.files[0]) readFile(file.files[0], target); file.value = ""; };
+  box.addEventListener("click", async (e) => {
+    const up = e.target.closest("[data-up]");
+    if (up) { target = up.dataset.up; file.click(); return; }
+    const a = e.target.closest("[data-a]")?.dataset.a;
+    if (a === "sample") compose.value.trim() ? toast("Erst das Feld leeren – das Beispiel ersetzt sonst deinen Text") : fill("compose", SAMPLE);
+    if (a === "paste") {
+      try { fill("compose", await navigator.clipboard.readText()); } catch { compose.focus(); toast("Kein Zugriff auf die Zwischenablage – mit Strg+V einfügen"); }
+    }
+    if (e.target.closest("#nsStart")) { start = !start; $("#nsStart").classList.toggle("on", start); }
+  });
+
+  $("form").onsubmit = async (e) => {
+    e.preventDefault();
+    err.hidden = true;
+    const n = slug(name.value);
+    if (!n) { err.textContent = "Gib dem Stack einen Namen."; err.hidden = false; return name.focus(); }
+    if (!compose.value.trim()) { err.textContent = "Füg eine Compose-Datei ein oder lad eine hoch."; err.hidden = false; return compose.focus(); }
+    const btn = $("#nsOk");
+    btn.disabled = true;
+    try {
+      const r = await api.post("/stacks", { name: n, compose: compose.value, env: env.value, start });
+      m.close();
+      toast(r.job ? `${n} wird eingerichtet …` : `${n} angelegt`);
+      await stacks.refresh();
+      navigate(`/stacks/${encodeURIComponent(r.name)}`);
+    } catch (x) {
+      err.textContent = x.message || "Fehler";
+      err.hidden = false;
+      btn.disabled = false;
+    }
+  };
+  if (!matchMedia("(pointer: coarse)").matches) name.focus();
 }
 
 // ---------- Detail eines Stacks ----------

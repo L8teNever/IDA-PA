@@ -249,3 +249,35 @@ async def test_job_output(client):
     r = (await client.get(f"/api/v1/jobs/{j.id}?tail=1")).json()
     assert r["done"] and r["ok"] and r["output"] == ["zwei"]
     assert (await client.get("/api/v1/jobs/nix")).status_code == 404
+
+
+async def test_create_stack(client, tmp_path, settings, monkeypatch):
+    setup_stacks(client, tmp_path, settings)
+    root = settings.stack_dirs[0]
+    calls = []
+
+    async def fake_run(job, args, cwd=None, env=None):
+        calls.append(args)
+        return True
+    monkeypatch.setattr(stacks_mod, "run_cmd", fake_run)
+    compose = "services:\n  app:\n    image: nginx:alpine\n"
+    # nur anlegen
+    r = await client.post("/api/v1/stacks", json={"name": "Neu-App", "compose": compose, "env": "PORT=8080", "start": False})
+    assert r.status_code == 200 and r.json()["job"] is None
+    assert (root / "neu-app" / "compose.yaml").read_text() == compose
+    assert (root / "neu-app" / ".env").read_text() == "PORT=8080\n"
+    s = {x["name"]: x for x in (await client.get("/api/v1/stacks")).json()}
+    assert s["neu-app"]["state"] == "stopped" and s["neu-app"]["files_ok"] is True
+    # anlegen und starten: erst prüfen, dann up -d
+    r = await client.post("/api/v1/stacks", json={"name": "gleich", "compose": compose})
+    ev = lines((await client.get(f"/api/v1/jobs/{r.json()['job']['id']}/live")).text)
+    assert ev[-1]["done"]["ok"] is True
+    assert calls[0][-2:] == ["config", "--quiet"] and calls[1][-2:] == ["up", "-d"] and "gleich" in calls[1]
+    assert not (root / "gleich" / ".env").exists()
+    # Fehler
+    bad = [({"name": "shop", "compose": compose}, 409), ({"name": "neu-app", "compose": compose}, 409),
+           ({"name": "../x", "compose": compose}, 400), ({"name": "x", "compose": "services: ["}, 400),
+           ({"name": "x", "compose": "foo: 1\n"}, 400), ({"name": "x", "compose": "name: anders\n" + compose}, 400)]
+    for body, code in bad:
+        assert (await client.post("/api/v1/stacks", json=body)).status_code == code, body
+    assert not (root / "x").exists()
