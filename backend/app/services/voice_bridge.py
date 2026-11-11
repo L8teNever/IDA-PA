@@ -698,12 +698,17 @@ async def _evaluate(agent_id: str, chat_id: str, direction: str, purpose: str, l
               + (f"Anlass: {purpose}\n" if purpose else "")
               + (f"Im Gespräch schon ausgeführte Tools: {', '.join(used)} – NICHT nochmal ausführen.\n" if used else "")
               + f"\nMitschrift:\n{talk}\n\n"
-              "Aufgaben:\n1. Speichere mit memory_save nur dauerhaft Wichtiges, das neu ist (Fakten, Vorlieben, Pläne, Entscheidungen) – "
-              "nichts Flüchtiges, nichts doppelt.\n2. Hat der Nutzer etwas verlangt, das im Gespräch NICHT wirklich erledigt wurde "
+              "Aufgaben:\n1. Lerne aus dem ganzen Gespräch, nicht nur aus einzelnen Sätzen. Frag dich: Was hat der Nutzer richtiggestellt oder "
+              "anders gemeint, als du es verstanden hast? Welche Begriffe, Apps, Kanäle oder Namen meint er mit welchen Wörtern (z. B. „WhatsApp“ = über "
+              "Beeper schreiben)? Wie will er Dinge erledigt haben, was mochte er, was nervte ihn, was hast du falsch oder umständlich gemacht? "
+              "Welche Fakten, Vorlieben, Pläne und Entscheidungen sind neu? Prüf vorher mit memory_search, ob es dazu schon einen Eintrag gibt: "
+              "dann ergänze oder korrigiere ihn mit memory_update, sonst speichere ihn mit memory_save (Regeln und Gelerntes als type rule, "
+              "kurz, ein Punkt pro Eintrag, mit dem Grund, wenn er ihn genannt hat). Nichts Flüchtiges, nichts doppelt, keine Geheimnisse.\n2. Hat der Nutzer etwas verlangt, das im Gespräch NICHT wirklich erledigt wurde "
               "(auch wenn du „ich gebe das an Ida weiter“ oder „wird erledigt“ gesagt hast, aber kein passendes Tool oben steht), "
               "schreib es NICHT per agent_delegate, sondern ans Ende deiner Ausgabe, je Auftrag eine Zeile „OFFEN: <Auftrag mit allem, "
               "was man dafür aus dem Gespräch wissen muss>“. Nur, was er klar wollte; Ida erledigt das dann sofort.\n"
-              "3. Davor steht die Zusammenfassung in 2–4 Sätzen (was besprochen wurde, was erledigt ist, was offen ist) – sie steht danach im Chat.")
+              "3. Davor steht die Zusammenfassung in 2–4 Sätzen (was besprochen wurde, was erledigt ist, was offen ist) – sie steht danach im Chat. "
+              "Hast du etwas gelernt, schreib darunter eine Zeile „Gelernt: <kurz, was du dir gemerkt hast>“, damit er es sieht und korrigieren kann.")
     try:
         out = await run_agent(agent_id, prompt)
     except Exception as e:  # noqa: BLE001
