@@ -653,6 +653,18 @@ def test_trackers(client):
     assert client.get(f"{API}/trackers").json() == []
 
 
+def test_tracker_daypart_slot_sorts_into_the_day_plan(client):
+    """A slot without time but named „Abends“ is not on top like all-day items – it goes to the evening (by tonight)."""
+    t = client.post(f"{API}/trackers", json={"name": "Zähneputzen", "show_on_home": True,
+                                              "slots": [{"label": "Morgens"}, {"label": "Abends"}]}).json()
+    c = client.post(f"{API}/trackers", json={"name": "Cholesterin", "show_on_home": True, "slots": [{"time": "18:30"}]}).json()
+    plan = [x for x in client.get(f"{API}/home").json()["timeline"] if x["kind"] == "tracker"]
+    assert [x["title"] for x in plan] == ["Zähneputzen · Morgens", "Cholesterin", "Zähneputzen · Abends"]
+    assert not any(x["all_day"] for x in plan) and plan[2]["daypart"] == "Abends"
+    for x in (t, c):
+        client.delete(f"{API}/trackers/{x['id']}")
+
+
 def test_tracker_with_duration(client):
     """Brush teeth 3 min: a tracker with a duration (timer before ticking); 'next' tells what would be ticked now."""
     for bad in (5, 7201):

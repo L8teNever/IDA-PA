@@ -111,7 +111,7 @@ function renderTimeline(all) {
     if (x.kind === "tracker") {
       const by = x.by === "link" ? " · per NFC" : x.by && x.by !== "user" ? ` · von ${agentOf(x.by).name}` : "";
       return `<div class="ev trk-ev ${x.done ? "done" : ""} ${i < nowIdx ? "past" : i === nowIdx ? "now" : ""}" data-href="/tracker/${esc(x.tracker_id)}">
-        <span class="time">${x.all_day ? `<span class="ms">${esc(x.icon || "task_alt")}</span>` : fmtTime(x.at)}</span>
+        <span class="time">${x.all_day || x.daypart ? `<span class="ms">${esc(x.icon || "task_alt")}</span>` : fmtTime(x.at)}</span>
         <span class="evtxt"><b>${esc(x.title)}</b><small>${x.done ? "abgehakt" + esc(by) : "offen"}</small></span>
         <button type="button" class="trk-tick" data-tick="${esc(x.tracker_id)}" data-slot="${esc(x.slot)}" data-done="${x.done ? 1 : ""}" data-dur="${x.duration_s || ""}" data-flow="${x.next_id ? 1 : ""}"
           aria-label="${x.done ? "Zurücknehmen" : "Abhaken"}"><span class="ms">${x.done ? "check" : ""}</span></button></div>`;

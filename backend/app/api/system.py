@@ -80,9 +80,12 @@ async def home(db: DB):
         today = status[t.id]["today"]
         if not today["due"]:
             continue
-        for x in today["slots"]:  # without a time: on top like all-day events
-            at = day.replace(hour=int(x["time"][:2]), minute=int(x["time"][3:])) if x["time"] else day
-            timeline.append({"kind": "tracker", "at": ser.iso(at.astimezone(timezone.utc)), "all_day": not x["time"], "icon": t.icon,
+        for x in today["slots"]:  # without a time: on top like all-day events – unless named after a time of day („Abends“)
+            part = None if x["time"] else trackers.daypart(x["label"])
+            hm = lambda v: day.replace(hour=int(v[:2]), minute=int(v[3:]))  # noqa: E731
+            at = hm(x["time"]) if x["time"] else hm(part[1]) if part else day  # at the end of the window: „abends“ = by tonight
+            extra = {"daypart": x["label"]} if part else {}
+            timeline.append({"kind": "tracker", "at": ser.iso(at.astimezone(timezone.utc)), "all_day": not x["time"] and not part, **extra, "icon": t.icon,
                              "title": t.name + (f" · {x['label']}" if len(today["slots"]) > 1 else ""),
                              "tracker_id": t.id, "slot": x["key"], "done": x["done"], "by": x["by"], "duration_s": t.duration_s, "next_id": t.next_id})
     cal, cal_error = await home_calendar.config(db), None

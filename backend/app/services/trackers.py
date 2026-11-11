@@ -49,6 +49,18 @@ def default_label(time: str | None) -> str:
     return "Morgens" if h < 11 else "Mittags" if h < 14 else "Nachmittags" if h < 18 else "Abends"
 
 
+# slots without time but named after a time of day („Abends“): where they go in the day plan (start, end of the window)
+DAYPARTS = {"früh": ("06:00", "09:00"), "morgens": ("06:00", "11:00"), "morgen": ("06:00", "11:00"), "vormittags": ("09:00", "12:00"),
+            "mittags": ("11:00", "14:00"), "mittag": ("11:00", "14:00"), "nachmittags": ("14:00", "18:00"), "nachmittag": ("14:00", "18:00"),
+            "abends": ("18:00", "23:59"), "abend": ("18:00", "23:59"), "nachts": ("22:00", "23:59"), "nacht": ("22:00", "23:59")}
+
+
+def daypart(label: str | None) -> tuple[str, str] | None:
+    """(start, end) "HH:MM" for a slot label like „Abends“ / „abends“ / „Zähne abends“ – None if it names no time of day."""
+    words = [w.strip(".,:;!?()") for w in str(label or "").lower().split()]
+    return next((DAYPARTS[w] for w in words if w in DAYPARTS), None)
+
+
 def slot_text(s: dict) -> str:
     return f"{s['label']} ({s['time']})" if s.get("time") else s["label"]
 
