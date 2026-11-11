@@ -97,6 +97,6 @@ def routine_run(r: RoutineRun) -> dict:
 
 
 def memory_entry(e: MemoryEntry, labels: dict) -> dict:
-    return {"id": e.id, "scope": e.scope, "text": e.text, "type": e.type, "pinned": e.pinned, "importance": e.importance,
+    return {"id": e.id, "scope": e.scope, "text": e.text, "type": e.type, "pinned": e.pinned, "voice": e.voice, "importance": e.importance,
             "by": e.by, "by_label": labels.get(e.by, e.by), "at": iso(e.at), "updated_at": iso(e.updated_at),
             "expires": iso(e.expires), "uses": e.uses, "embedded": bool(e.embedding)}

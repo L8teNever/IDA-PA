@@ -296,7 +296,7 @@ async def start(call_id: str, direction: str, number: str, owner: bool, purpose:
             labels = await prompts.labels(db)
             main = await db.scalar(select(Agent).where(Agent.is_main.is_(True)))
             if agent.memory_enabled:
-                context += "\n" + await memory.block(db, agent.id, agent.is_main, purpose or "heute", labels, CALL_MEMORY_TOP, CALL_MEMORY_CHARS)
+                context += "\n" + await memory.block(db, agent.id, agent.is_main, purpose or "heute", labels, CALL_MEMORY_TOP, CALL_MEMORY_CHARS, voice=True)
                 try:
                     from . import wiki_client
                     wiki_ctx = await asyncio.wait_for(wiki_client.memory_context(agent.id, purpose or "", max_chars=CALL_WIKI_CHARS), 6)
@@ -703,7 +703,10 @@ async def _evaluate(agent_id: str, chat_id: str, direction: str, purpose: str, l
               "Beeper schreiben)? Wie will er Dinge erledigt haben, was mochte er, was nervte ihn, was hast du falsch oder umständlich gemacht? "
               "Welche Fakten, Vorlieben, Pläne und Entscheidungen sind neu? Prüf vorher mit memory_search, ob es dazu schon einen Eintrag gibt: "
               "dann ergänze oder korrigiere ihn mit memory_update, sonst speichere ihn mit memory_save (Regeln und Gelerntes als type rule, "
-              "kurz, ein Punkt pro Eintrag, mit dem Grund, wenn er ihn genannt hat). Nichts Flüchtiges, nichts doppelt, keine Geheimnisse.\n2. Hat der Nutzer etwas verlangt, das im Gespräch NICHT wirklich erledigt wurde "
+              "kurz, ein Punkt pro Eintrag, mit dem Grund, wenn er ihn genannt hat). Speichere alles mit scope=shared, damit auch Ida es kennt. "
+              "Was dir in Gesprächen hilft (wie er redet und was er mit Wörtern meint, wie du antworten und Dinge erledigen sollst, "
+              "Korrekturen an dir), bekommt zusätzlich voice=true: das hast du dann bei jedem Gespräch sofort im Kopf. Reine Sachinfos ohne "
+              "Bezug zum Gespräch ohne voice. Nichts Flüchtiges, nichts doppelt, keine Geheimnisse.\n2. Hat der Nutzer etwas verlangt, das im Gespräch NICHT wirklich erledigt wurde "
               "(auch wenn du „ich gebe das an Ida weiter“ oder „wird erledigt“ gesagt hast, aber kein passendes Tool oben steht), "
               "schreib es NICHT per agent_delegate, sondern ans Ende deiner Ausgabe, je Auftrag eine Zeile „OFFEN: <Auftrag mit allem, "
               "was man dafür aus dem Gespräch wissen muss>“. Nur, was er klar wollte; Ida erledigt das dann sofort.\n"

@@ -116,6 +116,8 @@ def clean(f: dict, partial: bool) -> dict:
         v["type"] = f["type"]
     if f.get("pinned") is not None:
         v["pinned"] = bool(f["pinned"])
+    if f.get("voice") is not None:
+        v["voice"] = bool(f["voice"])
     if f.get("importance") is not None:
         n = f["importance"]
         if not isinstance(n, int) or not 1 <= n <= 5:
@@ -148,6 +150,8 @@ async def add(db: AsyncSession, scope: str, f: dict, by: str) -> dict:
             dup.type = v["type"]
         if "pinned" in v:
             dup.pinned = v["pinned"]
+        if v.get("voice"):
+            dup.voice = True
         if "expires" in v:
             dup.expires = v["expires"]
         if "importance" in v:
@@ -159,7 +163,7 @@ async def add(db: AsyncSession, scope: str, f: dict, by: str) -> dict:
     if v.get("pinned") and await _pinned(db, scope) >= MAX_PINNED:
         raise Invalid(f"Höchstens {MAX_PINNED} fest gemerkte Einträge pro Bereich")
     e = MemoryEntry(id=new_id(), scope=scope, text=v["text"], type=v.get("type", "fact"), pinned=v.get("pinned", False),
-                    importance=v.get("importance", 3), by=by, at=now, updated_at=now, expires=v.get("expires"))
+                    voice=v.get("voice", False), importance=v.get("importance", 3), by=by, at=now, updated_at=now, expires=v.get("expires"))
     db.add(e)
     embeddings.schedule_backfill()
     return {"ok": True, "id": e.id}
@@ -196,7 +200,7 @@ async def drop_scope(db: AsyncSession, scope: str) -> None:
 
 # ---------------- consolidation ----------------
 def _dump(e: MemoryEntry) -> dict:
-    return {"id": e.id, "text": e.text, "type": e.type, "pinned": e.pinned, "importance": e.importance, "by": e.by,
+    return {"id": e.id, "text": e.text, "type": e.type, "pinned": e.pinned, "voice": e.voice, "importance": e.importance, "by": e.by,
             "at": _aware(e.at).isoformat(), "updated_at": _aware(e.updated_at).isoformat(),
             "expires": _aware(e.expires).isoformat() if e.expires else None, "uses": e.uses}
 
@@ -229,7 +233,8 @@ async def apply_plan(db: AsyncSession, scope: str, plan: dict) -> dict:
             gone.add(e.id)
         imp = m.get("importance") if isinstance(m.get("importance"), int) else max(e.importance for e in srcs)
         db.add(MemoryEntry(id=new_id(), scope=scope, text=text, type=m.get("type") if m.get("type") in TYPES else srcs[0].type,
-                           pinned=bool(m.get("pinned", any(e.pinned for e in srcs))), importance=min(5, max(1, imp)),
+                           pinned=bool(m.get("pinned", any(e.pinned for e in srcs))),
+                           voice=any(e.voice for e in srcs), importance=min(5, max(1, imp)),
                            by="consolidate", at=now, updated_at=now, uses=sum(e.uses for e in srcs)))
         merged += 1
     for u in plan.get("update") or []:
@@ -256,7 +261,7 @@ async def undo(db: AsyncSession, scope: str) -> dict:
     for d in b.data:
         exp = datetime.fromisoformat(d["expires"]) if d.get("expires") else None
         db.add(MemoryEntry(id=new_id() if await db.get(MemoryEntry, d["id"]) else d["id"], scope=scope, text=d["text"], type=d["type"],
-                           pinned=d["pinned"], importance=d["importance"], by=d["by"], at=datetime.fromisoformat(d["at"]),
+                           pinned=d["pinned"], voice=d.get("voice", False), importance=d["importance"], by=d["by"], at=datetime.fromisoformat(d["at"]),
                            updated_at=datetime.fromisoformat(d["updated_at"]), expires=exp, uses=d.get("uses", 0)))
     await db.delete(b)
     embeddings.schedule_backfill()
@@ -275,14 +280,18 @@ KNOWLEDGE_RULE = (
     "kuendige es nicht nur an und schick den Nutzer nicht selbst suchen. Sag erst dann, dass du etwas nicht weisst, wenn du wirklich gesucht hast.")
 
 
-async def _scope_block(db: AsyncSession, scope: str, title: str, query: str, labels: dict, top: int = PROMPT_TOP, limit: int = PROMPT_CHARS) -> str:
+async def _scope_block(db: AsyncSession, scope: str, title: str, query: str, labels: dict, top: int = PROMPT_TOP, limit: int = PROMPT_CHARS,
+                       voice: bool = False) -> str:
+    """voice=True (Gespräch): alle Voice-Einträge kommen direkt nach den festen, vor den passenden."""
     items = await entries(db, scope)
     if not items:
         return f"{title}\n(noch leer)\n"
     pinned = [e for e in items if e.pinned]
-    rel = await relevances([e for e in items if not e.pinned], query)
-    rest = [x[0] for x in sorted(rank([e for e in items if not e.pinned], rel), key=lambda x: -x[2])[:top]]
-    touch(pinned + rest)
+    vo = sorted([e for e in items if voice and e.voice and not e.pinned], key=lambda e: (-e.importance, -_aware(e.updated_at).timestamp()))
+    left = [e for e in items if not e.pinned and e not in vo]
+    rel = await relevances(left, query)
+    rest = [x[0] for x in sorted(rank(left, rel), key=lambda x: -x[2])[:top]]
+    touch(pinned + vo + rest)
 
     def fmt(e: MemoryEntry) -> str:
         who = f", von {labels.get(e.by, e.by)}" if e.by and e.by != scope else ""
@@ -292,9 +301,11 @@ async def _scope_block(db: AsyncSession, scope: str, title: str, query: str, lab
     out = title + "\n"
     if pinned:
         out += "Fest gemerkt:\n" + "\n".join(map(fmt, pinned)) + "\n"
+    if vo:
+        out += "Für Gespräche (Voice) – gilt immer:\n" + "\n".join(map(fmt, vo)) + "\n"
     if rest:
         out += "Dazu passend / zuletzt:\n" + "\n".join(map(fmt, rest)) + "\n"
-    more = len(items) - len(pinned) - len(rest)
+    more = len(items) - len(pinned) - len(vo) - len(rest)
     if more > 0:
         out += f"(+ {more} weitere Eintraege – mit memory_search findest du sie)\n"
     if len(items) >= MAX_ENTRIES * 0.8:
@@ -302,13 +313,14 @@ async def _scope_block(db: AsyncSession, scope: str, title: str, query: str, lab
     return out[:limit]
 
 
-async def block(db: AsyncSession, owner: str, is_main: bool, query: str, labels: dict, top: int = PROMPT_TOP, limit: int = PROMPT_CHARS) -> str:
+async def block(db: AsyncSession, owner: str, is_main: bool, query: str, labels: dict, top: int = PROMPT_TOP, limit: int = PROMPT_CHARS,
+                voice: bool = False) -> str:
     """Memory section of a system prompt. labels: id -> display name (agents, "user", "consolidate").
     top/limit per scope: a phone call has no user question yet, so it asks for more than the top matches."""
     parts = [
         "GEDAECHTNIS (bleibt ueber Laeufe und Chats hinweg erhalten)",
-        await _scope_block(db, owner, "== DEIN eigenes Gedaechtnis (nur du schreibst und liest hier; es gehoert dir) ==", query, labels, top, limit),
-        await _scope_block(db, SHARED, "== GEMEINSAMES Gedaechtnis (alle Agenten lesen und schreiben hier) ==", query, labels, top, limit),
+        await _scope_block(db, owner, "== DEIN eigenes Gedaechtnis (nur du schreibst und liest hier; es gehoert dir) ==", query, labels, top, limit, voice),
+        await _scope_block(db, SHARED, "== GEMEINSAMES Gedaechtnis (alle Agenten lesen und schreiben hier) ==", query, labels, top, limit, voice),
         KNOWLEDGE_RULE,
     ]
     if is_main:
@@ -332,7 +344,7 @@ async def block(db: AsyncSession, owner: str, is_main: bool, query: str, labels:
 # ---------------- tools for the agents ----------------
 def view(e: MemoryEntry, scope: str, labels: dict, foreign: bool) -> dict:
     out = {"id": e.id, "text": e.text, "art": TYPES.get(e.type, "Fakt"), "fest": e.pinned, "wichtigkeit": e.importance,
-           "von": labels.get(e.by, e.by), "geaendert": ago(e.updated_at), "bereich": scope_label(scope, labels)}
+           "voice": e.voice, "von": labels.get(e.by, e.by), "geaendert": ago(e.updated_at), "bereich": scope_label(scope, labels)}
     if e.expires:
         out["gueltigBis"] = _aware(e.expires).date().isoformat()
     if foreign:

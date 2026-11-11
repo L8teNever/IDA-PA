@@ -18,6 +18,7 @@ class MemoryEntry(Base):
     text: Mapped[str] = mapped_column(Text)
     type: Mapped[str] = mapped_column(String(12), default="fact")  # fact | preference | rule | event
     pinned: Mapped[bool] = mapped_column(default=False)
+    voice: Mapped[bool] = mapped_column(default=False)  # gehört zu Voice: kommt bei jedem Gespräch (Stella/Live) zuerst in den Kontext
     importance: Mapped[int] = mapped_column(default=3)
     by: Mapped[str] = mapped_column(String(32), default="user")
     at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
