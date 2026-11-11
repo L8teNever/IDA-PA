@@ -25,6 +25,16 @@ export function setView(mode, { agentStage } = {}) {
   if (mode === "chat") b.classList.add("chatting");
   else $("messages").innerHTML = "";
   if (mode === "page") $("page").scrollTop = 0;
+  markNav();
+}
+
+// the current page in the side list (fixed on big screens, so it has to follow every route change)
+export function markNav() {
+  const p = location.pathname;
+  document.querySelectorAll("#sideNav [data-nav]").forEach((x) => {
+    const n = x.dataset.nav;
+    x.classList.toggle("on", n === "home" ? p === "/" : p.startsWith("/" + n));
+  });
 }
 
 export function setAgent(a) {
@@ -53,11 +63,7 @@ export const agentHome = (a) => (a.is_main ? "/" : `/a/${a.id}`);
 
 export function openDrawer() {
   closeDrawers();
-  const p = location.pathname;
-  document.querySelectorAll("#sideNav [data-nav]").forEach((x) => {
-    const n = x.dataset.nav;
-    x.classList.toggle("on", n === "home" ? p === "/" : p.startsWith("/" + n));
-  });
+  markNav();
   document.body.classList.add("drawer-menu");
 }
 export function closeDrawers() { document.body.classList.remove("drawer-chats", "drawer-routinen", "drawer-menu"); }
