@@ -122,22 +122,34 @@ export function popMenu(anchor, items, onPick, { align = "left" } = {}) {
       ${it.icon ? `<span class="ms">${it.icon}</span>` : ""}<span class="pop-txt"><b>${esc(it.label)}</b>${it.sub ? `<small>${esc(it.sub)}</small>` : ""}</span>
       ${it.on ? `<span class="ms pop-check">check</span>` : ""}</button>`).join("");
   document.body.appendChild(m);
-  const r = anchor.getBoundingClientRect();
-  const w = m.offsetWidth, h = m.offsetHeight;
-  let left = align === "right" ? r.right - w : r.left;
-  left = Math.max(8, Math.min(left, innerWidth - w - 8));
-  const below = innerHeight - r.bottom - 8;
-  const up = below < h && r.top > below;
-  m.style.left = `${left}px`;
-  if (up) { m.style.bottom = `${innerHeight - r.top + 6}px`; m.classList.add("up"); m.style.maxHeight = `${r.top - 14}px`; }
-  else { m.style.top = `${r.bottom + 6}px`; m.style.maxHeight = `${below - 6}px`; }
+  let rect = anchor.getBoundingClientRect();
+  const place = () => {
+    // Knopf neu gezeichnet (Live-Aktualisierung)? Dann an der alten Stelle bleiben.
+    if (anchor.isConnected) rect = anchor.getBoundingClientRect();
+    const r = rect;
+    m.style.top = m.style.bottom = m.style.maxHeight = "";
+    m.classList.remove("up");
+    const w = m.offsetWidth, h = m.scrollHeight;
+    let left = align === "right" ? r.right - w : r.left;
+    left = Math.max(8, Math.min(left, innerWidth - w - 8));
+    const below = innerHeight - r.bottom - 8;
+    const up = below < h && r.top > below;
+    m.style.left = `${left}px`;
+    if (up) { m.style.bottom = `${innerHeight - r.top + 6}px`; m.classList.add("up"); m.style.maxHeight = `${r.top - 14}px`; }
+    else { m.style.top = `${r.bottom + 6}px`; m.style.maxHeight = `${below - 6}px`; }
+  };
+  place();
   requestAnimationFrame(() => m.classList.add("show"));
+  // Am Handy feuert "resize" ständig (Adressleiste ein/aus, Tastatur) – dann nur neu ausrichten.
+  // Schließen nur, wenn sich die Breite wirklich ändert (Drehen, Fenster am PC).
+  let lastW = innerWidth;
+  const resize = () => { if (Math.abs(innerWidth - lastW) > 40) close(); else place(); };
   const close = () => {
     m.classList.remove("show");
     setTimeout(() => m.remove(), 160);
     document.removeEventListener("mousedown", outside, true);
     removeEventListener("keydown", key, true);
-    removeEventListener("resize", close);
+    removeEventListener("resize", resize);
     if (popClose === close) popClose = null;
   };
   close.anchor = anchor;
@@ -145,7 +157,7 @@ export function popMenu(anchor, items, onPick, { align = "left" } = {}) {
   const key = (e) => { if (e.key === "Escape") { e.stopPropagation(); close(); anchor.focus(); } };
   setTimeout(() => document.addEventListener("mousedown", outside, true));
   addEventListener("keydown", key, true);
-  addEventListener("resize", close);
+  addEventListener("resize", resize);
   m.onclick = (e) => {
     const b = e.target.closest("[data-i]");
     if (!b) return;
