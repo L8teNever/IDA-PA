@@ -195,6 +195,7 @@ class LiveSession:
                 await self.ws.send(json.dumps(self.setup_payload(model)))
                 await asyncio.wait_for(self._await_setup(), SETUP_TIMEOUT_S)
                 self.model = model
+                log.info("Gemini Live: Modell %s, Stimme %s", model, self.voice)
                 if model != models(self.s)[0]:
                     log.warning("Gemini Live: Ausweichmodell %s", model)
                 return
