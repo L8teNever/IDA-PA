@@ -39,8 +39,11 @@ PROMISE_WAIT_S = 2.5  # so lange darf der Tool-Aufruf nach dem Satz noch kommen
 MAX_NUDGES = 4
 HISTORY_LINES = 24  # so viele Zeilen der Mitschrift bekommt Ida bei ida_fragen mit
 HISTORY_CHARS = 5000
-QUIET_S = 0.7  # Idas Antwort kommt in die nächste Sprechpause (Stellas Satz ist zu Ende, der Nutzer still) …
-QUIET_MAX_S = 8.0  # … aber nie später als das
+QUIET_S = 0.7  # Idas Antwort kommt erst, wenn Stellas Stimme so lange zu Ende gespielt ist …
+USER_QUIET_S = 1.2  # … der Nutzer so lange still ist …
+USER_WAIT_S = 5.0  # … und Stella auf seinen letzten Satz geantwortet hat (höchstens so lange danach gewartet)
+QUIET_MAX_S = 20.0  # redet der Nutzer ununterbrochen: dann trotzdem, aber nie in Stellas Satz
+QUIET_HARD_S = 45.0  # spätestens dann, egal was
 SILENT_AFTER_IDA_S = 3.5  # so lange darf es nach ida_fragen still bleiben, dann wird Stella angestoßen
 
 
@@ -168,6 +171,10 @@ class LiveSession:
         self._turn_said = ""  # was Stella in diesem Zug gesagt hat (für die Ankündigungs-Prüfung)
         self._tool_seq = 0  # zählt Tool-Aufrufe
         self._user_seq = 0  # zählt, wann der Nutzer zuletzt etwas gesagt hat
+        self._answered_user = 0  # _user_seq, auf den Stella zuletzt mit einem fertigen Zug geantwortet hat
+        self._last_user = 0.0  # wann der Nutzer zuletzt zu hören war
+        self._user_open = False  # der Nutzer spricht gerade (Sprecherkennung im Client)
+        self._stella_seq = 0  # zählt Stellas Sprachstücke
         self._turn_tools = 0  # Tool-Zähler zu Beginn des Zugs
         self.nudges = 0
 
@@ -237,15 +244,18 @@ class LiveSession:
         await self._send({"realtimeInput": {"audio": {"data": base64.b64encode(pcm16k).decode("ascii"), "mimeType": "audio/pcm;rate=16000"}}})
 
     async def activity_start(self) -> None:
-        self._last_voice = time.monotonic()
+        self._last_voice = self._last_user = time.monotonic()
+        self._user_open = True
         self._cancel_farewell()
         await self._send({"realtimeInput": {"activityStart": {}}})
 
     async def activity_end(self) -> None:
+        self._user_open = False
+        self._last_user = time.monotonic()
         await self._send({"realtimeInput": {"activityEnd": {}}})
 
     def user_spoke(self) -> None:
-        self._last_voice = time.monotonic()
+        self._last_voice = self._last_user = time.monotonic()
         self._cancel_farewell()
 
     async def say(self, text: str) -> None:
@@ -289,7 +299,7 @@ class LiveSession:
             # part.text is often the model's scratch work, not what it said – the spoken text is outputTranscription
         heard = (sc.get("inputTranscription") or {}).get("text") or ""
         if heard:
-            self._last_voice = time.monotonic()
+            self._last_voice = self._last_user = time.monotonic()
             self._user_seq += 1
             self._note("user", heard)
             await self.sink.text("user", heard)
@@ -300,6 +310,7 @@ class LiveSession:
             if not self._turn_said:
                 self._turn_tools = self._tool_seq
             self._turn_said += said
+            self._stella_seq += 1
             self._note("stella", said)
             await self.sink.text("stella", said)
             if self.farewell_hangup and FAREWELL.search(said):
@@ -309,6 +320,8 @@ class LiveSession:
         if sc.get("turnComplete"):
             self._in_turn = False
             said_turn, self._turn_said = self._turn_said, ""
+            if said_turn:
+                self._answered_user = self._user_seq
             if said_turn and self.has_tools and self._tool_seq == self._turn_tools and self.nudges < MAX_NUDGES and unkept_promise(said_turn):
                 self._spawn(self._check_promise(said_turn, self._tool_seq, self._user_seq))
         for fc in (ev.get("toolCall") or {}).get("functionCalls") or []:
@@ -387,7 +400,7 @@ class LiveSession:
         await self._respond(fc, name, out)
         self._tools_open -= 1
         if pending:
-            self._spawn(self._keep_talking(self._last_voice))
+            self._spawn(self._keep_talking(self._last_voice, self._stella_seq))
             self._ida_again = True
             if not (self._ida_waiting and not self._ida_waiting.done()):
                 self._ida_waiting = self._spawn(self._await_ida())
@@ -409,12 +422,7 @@ class LiveSession:
                 self._note("ida", answer)
                 await self.sink.text("ida", answer)
                 await self._quiet()
-                head = "[Ida hat jetzt geantwortet]" if r.get("ok") else "[Ida konnte die Frage nicht beantworten]"
-                await self._send({"clientContent": {"turns": [{"role": "user", "parts": [{"text": f"{head} {answer}\n\nDamit ist sie mit diesem Auftrag "
-                                  "fertig, was du vorher über ihren Stand gesagt hast, ist überholt. Unterbrich kurz („Ida ist fertig: …“). Lies Idas Text "
-                                  "nicht vor: Überleg, was davon für den Nutzer jetzt wirklich zählt (Ergebnis zuerst, nur Wichtiges wie Fristen, Konflikte "
-                                  "oder eine offene Frage an ihn), und sag das nach deinen üblichen Regeln in ein, zwei kurzen Sätzen. Dann mach genau da "
-                                  "weiter, wo ihr gerade wart."}]}],
+                await self._send({"clientContent": {"turns": [{"role": "user", "parts": [{"text": self._ida_turn(answer, bool(r.get("ok")))}]}],
                                   "turnComplete": True}})
             elif r.get("gone"):
                 if not self._ida_again:
@@ -425,21 +433,49 @@ class LiveSession:
                     return
                 await asyncio.sleep(3)
 
-    async def _keep_talking(self, since: float) -> None:
-        """Nach ida_fragen soll Stella weiterreden, nicht still auf Ida warten: bleibt es stumm, kurz anstoßen."""
+    def _ida_turn(self, answer: str, ok: bool) -> str:
+        """Idas Antwort für Gemini: in einem ruhigen Übergang sagen und danach das Gespräch weiterführen, statt abrupt das Thema zu wechseln."""
+        head = "[Ida hat jetzt geantwortet]" if ok else "[Ida konnte die Frage nicht beantworten]"
+        last = next((x["text"] for x in reversed(self.transcript) if x["who"] == "user"), "")
+        last = " ".join(str(last).split())[-160:]
+        topic = (f" Zuletzt hat der Nutzer gesagt: „{last}“. Ging es da um etwas anderes als Idas Auftrag, knüpf danach mit einem kurzen "
+                 "Satz wieder daran an (z. B. „Und zu deiner Frage eben: …“ oder „Wo waren wir – …“), statt einfach beim neuen Thema zu bleiben."
+                 if last else "")
+        return (f"{head} {answer}\n\n[System, nicht vorlesen] Damit ist Ida mit diesem Auftrag fertig, was du vorher über ihren Stand gesagt "
+                "hast, ist überholt. Leite ruhig über, z. B. „Übrigens, Ida ist fertig: …“, nicht hektisch und ohne dich zu entschuldigen. Lies "
+                "Idas Text nicht vor: Überleg, was davon für den Nutzer jetzt wirklich zählt (Ergebnis zuerst, nur Wichtiges wie Fristen, "
+                "Konflikte oder eine offene Frage an ihn), und sag das nach deinen üblichen Regeln in ein, zwei kurzen Sätzen." + topic)
+
+    async def _keep_talking(self, since: float, stella: int) -> None:
+        """Nach ida_fragen soll Stella nicht stumm auf Ida warten: hat sie gar nichts gesagt und ist es still, kurz anstoßen.
+        Hat sie schon „Ida ist dran“ gesagt, ist Stille in Ordnung – sonst plappert sie nur, um die Pause zu füllen."""
         await asyncio.sleep(SILENT_AFTER_IDA_S)
-        if self.closed or self._hung or self._in_turn or self._tools_open or self._last_voice != since:
+        if (self.closed or self._hung or self._in_turn or self._tools_open or self._last_voice != since or self._stella_seq != stella
+                or self._user_open or time.monotonic() < self._play_end() + QUIET_S):
             return
         log.info("voice: nach ida_fragen still – Stella wird angestoßen")
         await self._send({"clientContent": {"turns": [{"role": "user", "parts": [{"text": (
             "[System, nicht vorlesen] Ida arbeitet im Hintergrund, ihre Antwort kommt von selbst. Warte nicht still: sag kurz, "
-            "dass Ida dran ist, und mach mit dem Nutzer normal weiter.")}]}], "turnComplete": True}})
+            "dass Ida dran ist, und frag den Nutzer, ob ihr solange weitermacht, wo ihr wart.")}]}], "turnComplete": True}})
+
+    def _play_end(self) -> float:
+        """Wann Stellas Stimme beim Nutzer fertig gespielt ist. Gemini liefert schneller als Echtzeit: ihr Zug ist längst
+        fertig, während das Telefon noch Sekunden davon abspielt."""
+        try:
+            return float(getattr(self.sink, "play_end", 0.0) or 0.0)
+        except (TypeError, ValueError):
+            return 0.0
 
     async def _quiet(self) -> None:
-        """Wartet auf eine Sprechpause, damit die Antwort niemandem ins Wort fällt."""
-        end = time.monotonic() + QUIET_MAX_S
-        while not self.closed and time.monotonic() < end:
-            if not self._in_turn and not self._tools_open and time.monotonic() - self._last_voice >= QUIET_S:
+        """Wartet auf eine echte Gesprächspause, damit Idas Antwort niemandem ins Wort fällt: Stella ist fertig und ausgesprochen,
+        der Nutzer still und hat seine Antwort von Stella schon bekommen (sonst springt sie mitten aus seinem Thema raus)."""
+        start = time.monotonic()
+        while not self.closed:
+            now = time.monotonic()
+            stella_quiet = not self._in_turn and not self._tools_open and now >= self._play_end() + QUIET_S and now - self._last_voice >= QUIET_S
+            waits_for_stella = self._user_seq != self._answered_user and now - self._last_user < USER_WAIT_S
+            user_quiet = not self._user_open and now - self._last_user >= USER_QUIET_S and not waits_for_stella
+            if (stella_quiet and (user_quiet or now - start >= QUIET_MAX_S)) or now - start >= QUIET_HARD_S:
                 return
             await asyncio.sleep(0.1)
 

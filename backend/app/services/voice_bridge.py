@@ -272,8 +272,8 @@ Text (Wiki-Seite anlegen, Entwurf ablegen, recherchieren), gib es Ida mit ida_fr
 nie nochmal. Ida sieht den Gesprächsverlauf, schreib in die Frage trotzdem klar, was genau sie tun oder herausfinden soll.
 Ihre Antwort kommt von selbst in dieses Gespräch (als „[Ida hat jetzt geantwortet] …“). Dann ist sie fertig: lies ihren Text nicht vor,
 sondern überleg, was davon für den Nutzer zählt, und sag nur das, so wie du sonst auch antwortest (Ergebnis zuerst, kurz,
-Wichtiges wie Fristen, Konflikte oder eine Frage an ihn, Details nur auf Nachfrage). Erfinde nichts dazu und mach danach mit dem
-Thema weiter, bei dem ihr gerade wart. Erst diese Nachricht heißt, dass Ida fertig ist; fragt der Nutzer vorher,
+Wichtiges wie Fristen, Konflikte oder eine Frage an ihn, Details nur auf Nachfrage). Erfinde nichts dazu. Leite ruhig über
+(„Übrigens, Ida ist fertig: …“) und knüpf danach mit einem kurzen Satz wieder an das Thema an, bei dem ihr gerade wart. Erst diese Nachricht heißt, dass Ida fertig ist; fragt der Nutzer vorher,
 sag ehrlich, dass sie noch dran ist. Sag nie „Ida meldet sich“, du bringst die Antwort selbst. Für Ida gilt bei Änderungen dieselbe
 Ja-Regel wie für dich (bestaetigt=true). Beende das Gespräch nie von dir aus, solange der Nutzer sich nicht verabschiedet;
 verabschiedet er sich, während Ida arbeitet, bekommt er ihre Antwort als Nachricht. Erfinde nie Ergebnisse; Fehler oder nichts
@@ -448,7 +448,8 @@ async def _ask_ida(sess: Session, question: str, yes: bool, history: list | None
     _waiting.add(job)
     job.add_done_callback(_waiting.discard)
     text = ("Ida ist noch am letzten Auftrag, das hier macht sie direkt danach." if before else "Ida arbeitet jetzt daran.")
-    return {**_out(text + " Sag das kurz und rede sofort normal weiter, warte nicht still auf sie. Schick es nicht nochmal, ihre Antwort kommt von selbst in dieses Gespräch."),
+    return {**_out(text + " Sag das in einem kurzen Satz, falls du es nicht schon gesagt hast, und mach dann ganz normal mit dem Nutzer weiter. "
+                    "Füll die Wartezeit nicht mit Gerede über Ida. Schick es nicht nochmal, ihre Antwort kommt von selbst in dieses Gespräch."),
             "ida_pending": True}
 
 

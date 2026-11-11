@@ -640,6 +640,29 @@ def test_user_talks_on_while_ida_works():
     asyncio.run(go())
 
 
+def test_answer_of_ida_waits_for_a_real_pause():
+    """Idas Antwort kommt nicht, solange Stellas Stimme noch abgespielt wird oder der Nutzer gerade etwas gefragt hat,
+    das Stella noch nicht beantwortet hat. Danach soll Stella an sein Thema wieder anknüpfen."""
+    async def go():
+        import time
+        from app.voice import live
+        old = (live.QUIET_S, live.USER_QUIET_S)
+        live.QUIET_S, live.USER_QUIET_S = 0.1, 0.1
+        s, sent, said = live_session(None)
+        s.sink.play_end = time.monotonic() + 0.6  # Stella ist noch zu hören
+        await s._event({"serverContent": {"inputTranscription": {"text": "Wie wird das Wetter morgen?"}}})
+        waiter = asyncio.create_task(s._quiet())
+        await asyncio.sleep(0.9)
+        assert not waiter.done()  # Stimme fertig, aber Stella hat seine Frage noch nicht beantwortet
+        await s._event({"serverContent": {"outputTranscription": {"text": "Morgen wird es sonnig."}}})
+        await s._event({"serverContent": {"turnComplete": True}})
+        await asyncio.wait_for(waiter, 2)
+        text = s._ida_turn("Termin ist eingetragen.", True)
+        assert "Wie wird das Wetter morgen?" in text and "knüpf" in text and "Unterbrich" not in text
+        live.QUIET_S, live.USER_QUIET_S = old
+    asyncio.run(go())
+
+
 def test_ida_gets_the_conversation_and_may_do_what_the_user_asked(client, voice):
     """ida_fragen mit Verlauf: Ida sieht, was der Nutzer vorher gesagt hat; was er selbst verlangt hat, zählt als Ja."""
     call = "wverlauf1"
