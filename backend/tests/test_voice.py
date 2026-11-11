@@ -780,3 +780,18 @@ def test_resume_earlier_conversation(client):
     assert r["resumed"] is True and "Urlaub am Gardasee planen" in r["context"] and "wann soll es losgehen" in r["context"]
     client.post(f"{API}/voice/internal/finish", headers=SECRET, json={"call_id": "wresume2", "transcript": []})
     assert client.post(f"{API}/voice/internal/recent").status_code == 403
+
+
+def test_thinking_rejected_retries_same_model_without_thinking():
+    from app.voice import live
+    live._NO_THINKING.discard("gemini-3.8-live")
+    class S:
+        gemini_thinking_budget = 0
+    assert "thinkingConfig" in live.generation_config(S(), "gemini-3.8-live", "Aoede")
+    live._NO_THINKING.add("gemini-3.8-live")
+    try:
+        cfg = live.generation_config(S(), "gemini-3.8-live", "Aoede")
+        assert "thinkingConfig" not in cfg
+        assert cfg["speechConfig"]["voiceConfig"]["prebuiltVoiceConfig"]["voiceName"] == "Aoede"
+    finally:
+        live._NO_THINKING.discard("gemini-3.8-live")

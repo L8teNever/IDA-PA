@@ -109,11 +109,16 @@ def models(settings) -> list[str]:
     return out
 
 
+# Modelle, die eine Denk-Einstellung abgelehnt haben (z. B. 1007 „Thinking budget is not supported“): ohne neu versuchen,
+# statt auf ein Ausweichmodell mit anderer Stimme zu fallen. Gilt bis zum Neustart des Containers.
+_NO_THINKING: set[str] = set()
+
+
 def generation_config(settings, model: str, voice: str | None = None) -> dict:
     cfg: dict = {"responseModalities": ["AUDIO"],
                  "speechConfig": {"voiceConfig": {"prebuiltVoiceConfig": {"voiceName": voice or "Aoede"}}}}
     budget = int(settings.gemini_thinking_budget)
-    if budget >= 0:
+    if budget >= 0 and model not in _NO_THINKING:
         # 3.1 Live takes thinkingLevel; 3.8 and 2.5 take thinkingBudget – both at once is rejected (close 1007)
         if model.startswith("gemini-3") and not model.startswith("gemini-3.8"):
             cfg["thinkingConfig"] = {"thinkingLevel": "minimal" if budget == 0 else "low"}
@@ -196,7 +201,11 @@ class LiveSession:
             raise RuntimeError("GEMINI_API_KEY fehlt")
         url = self.s.gemini_live_url.rstrip("?") + "?" + urlencode({"key": self.s.gemini_api_key})
         last: Exception | None = None
-        for model in models(self.s):  # fallbacks only for the setup handshake, never mid-call
+        tries = models(self.s)
+        i = 0
+        while i < len(tries):  # fallbacks only for the setup handshake, never mid-call
+            model = tries[i]
+            i += 1
             try:
                 self.ws = await self._connect(url)
                 await self.ws.send(json.dumps(self.setup_payload(model)))
@@ -215,6 +224,9 @@ class LiveSession:
                     except Exception:  # noqa: BLE001
                         pass
                     self.ws = None
+                if "thinking" in str(e).lower() and model not in _NO_THINKING:
+                    _NO_THINKING.add(model)  # gleiches Modell (gleiche Stimme) ohne Denk-Einstellung noch einmal
+                    i -= 1
         raise RuntimeError(f"Gemini Live nicht erreichbar: {last}")
 
     async def _await_setup(self) -> None:
