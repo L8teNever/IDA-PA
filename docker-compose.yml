@@ -290,6 +290,8 @@ services:
       CLOUDFLARE_ACCOUNT_ID: ${CLOUDFLARE_ACCOUNT_ID:-}
       SITES_DIR: ${SITES_DIR:-/opt/ida-sites}
       SITES_UPSTREAM: ${SITES_UPSTREAM:-}              # leer = aus SITES_PORT und den Tunnel-Regeln
+      SITES_TOKEN_DOMAIN: ${SITES_TOKEN_DOMAIN:-website.kulbarts.com}  # „feste Adresse“: <Domain>/<zufälliger Token>
+      SITES_TOKEN_LENGTH: ${SITES_TOKEN_LENGTH:-24}    # Standardlänge des Tokens (8–64), pro Seite änderbar
       TUNNEL_HOST_IP: ${TUNNEL_HOST_IP:-}              # leer = aus den vorhandenen Tunnel-Regeln (z. B. 10.7.0.1)
       LINKS_DOMAINS: ${LINKS_DOMAINS:-l.kulbarts.com,link.kulbarts.com,l.l8tenever.com,link.l8tenever.com}
       LINKS_UPSTREAM: ${LINKS_UPSTREAM:-}              # leer = aus dem Port des Dienstes „links“

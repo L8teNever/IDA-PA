@@ -2,6 +2,7 @@
 Zero Trust gegen eine nachgebaute Cloudflare-API), Leiste/Titel je Modus, Messwerte vom Dashboard."""
 import asyncio
 import json
+import re
 import subprocess
 from pathlib import Path
 
@@ -349,3 +350,49 @@ async def test_site_with_more_domains(server, fake_cf, monkeypatch):
     r = await server.post("/api/v1/sites/a/remove", json={})
     assert (await wait_job(server, r.json()["job"]["id"]))["ok"]
     assert fake_cf.dns == [] and not any(x.get("hostname") in ("a.example.com", "drei.example.com") for x in fake_cf.ingress)
+
+
+async def test_site_with_token_address(server, fake_cf, monkeypatch):
+    """Feste Adresse: <SITES_TOKEN_DOMAIN>/<zufälliger Token>, Länge je Seite einstellbar; alle teilen sich Tunnel-Regel und DNS der Domain."""
+    from app.tools import stacks
+    settings = get_settings()
+    settings.cloudflare_api_token = "tok"
+    settings.cloudflare_api_url = "https://cf.test/client/v4"
+    settings.sites_token_domain = "website.example.com"
+    nginx = ctr("n", "ida-sites-1", "ida", service="sites", labels={"ida.sites": "nginx"}, image="nginx:alpine")
+    nginx["Ports"] = [{"PrivatePort": 80, "PublicPort": 8087, "IP": "0.0.0.0", "Type": "tcp"}]
+    server.docker.containers = [nginx]
+
+    async def fake_exec(args, timeout):
+        return 0, "", False
+
+    monkeypatch.setattr(stacks, "run_exec", fake_exec)
+    d = (await server.get("/api/v1/sites")).json()
+    assert d["token_domain"] == "website.example.com" and d["token_length"] == settings.sites_token_length
+    # Standardlänge
+    r = await server.post("/api/v1/sites", json={"name": "a", "address": "token", "tunnel_id": "t1"})
+    assert (await wait_job(server, r.json()["job"]["id"]))["ok"]
+    a = r.json()["site"]
+    assert a["hostname"] == "website.example.com" and re.fullmatch(rf"/[a-z0-9]{{{settings.sites_token_length}}}", a["path"])
+    assert a["domains"][0]["token"] is True
+    # eigene Länge, zweite Seite: dieselbe Tunnel-Regel, kein zweiter DNS-Eintrag
+    r = await server.post("/api/v1/sites", json={"name": "b", "address": "token", "token_length": 10, "tunnel_id": "t1"})
+    j = await wait_job(server, r.json()["job"]["id"])
+    b = r.json()["site"]
+    assert j["ok"] and len(b["path"]) == 11 and b["path"] != a["path"] and any("zeigt schon auf die Websites" in x for x in j["output"])
+    assert [x.get("hostname") for x in fake_cf.ingress].count("website.example.com") == 1 and [x["name"] for x in fake_cf.dns].count("website.example.com") == 1
+    conf = (Path(settings.sites_dir) / "conf" / "default.conf").read_text()
+    assert f"location ^~ {a['path']}/" in conf and f"location ^~ {b['path']}/" in conf and "location / { return 404; }" in conf  # ohne Token: nichts
+    # Länge außerhalb der Grenzen
+    assert (await server.post("/api/v1/sites", json={"name": "c", "address": "token", "token_length": 3, "tunnel_id": "t1"})).status_code == 422
+    # zusätzlich eine Token-Adresse an einer Seite mit eigener Domain
+    r = await server.post("/api/v1/sites", json={"name": "d", "hostname": "d.example.com", "tunnel_id": "t1"})
+    assert (await wait_job(server, r.json()["job"]["id"]))["ok"]
+    r = await server.post("/api/v1/sites/d/domains", json={"token": True, "token_length": 16})
+    assert (await wait_job(server, r.json()["job"]["id"]))["ok"]
+    s = next(x for x in (await server.get("/api/v1/sites")).json()["sites"] if x["name"] == "d")
+    assert s["domains"][1]["hostname"] == "website.example.com" and len(s["domains"][1]["path"]) == 17 and s["domains"][1]["token"]
+    # die erste Seite weg: die Domain bleibt, solange andere sie nutzen
+    r = await server.post("/api/v1/sites/a/remove", json={})
+    assert (await wait_job(server, r.json()["job"]["id"]))["ok"]
+    assert any(x.get("hostname") == "website.example.com" for x in fake_cf.ingress)

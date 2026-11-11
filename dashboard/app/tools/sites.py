@@ -16,7 +16,9 @@ import json
 import logging
 import os
 import re
+import secrets
 import shutil
+import string
 import time
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -90,8 +92,8 @@ def normalize(name: str) -> str:
 
 
 def domains(s: dict) -> list[dict]:
-    """Haupt-Adresse und weitere Domains, die auf dieselbe Seite zeigen."""
-    return [{"hostname": s["hostname"], "path": s.get("path") or "", "main": True},
+    """Haupt-Adresse und weitere Domains, die auf dieselbe Seite zeigen (token = feste Adresse mit zufälligem Pfad)."""
+    return [{"hostname": s["hostname"], "path": s.get("path") or "", "main": True, "token": bool(s.get("token_address"))},
             *({**a, "path": a.get("path") or "", "main": False} for a in s.get("aliases") or [])]
 
 
@@ -100,13 +102,40 @@ def taken(sites: list[dict], host: str, path: str) -> dict | None:
     return next((s for s in sites for d in domains(s) if d["hostname"] == host and d["path"] == path), None)
 
 
+TOKEN_CHARS = string.ascii_lowercase + string.digits  # nur Kleinbuchstaben und Ziffern: gut abzutippen, keine Verwechslung bei Groß/klein
+TOKEN_MIN, TOKEN_MAX = 8, 64
+
+
+def token_domain() -> str:
+    d = get_settings().sites_token_domain.strip()
+    return clean_host(d) if d else ""
+
+
+def token_length(n: int | None) -> int:
+    n = n or get_settings().sites_token_length
+    if not TOKEN_MIN <= n <= TOKEN_MAX:
+        raise HTTPException(400, f"Token-Länge zwischen {TOKEN_MIN} und {TOKEN_MAX} Zeichen")
+    return n
+
+
+def token_address(sites: list[dict], host: str, n: int) -> tuple[str, str]:
+    """Feste Adresse: <host>/<Token> – der Token ist zufällig und noch frei."""
+    host = clean_host(host) if (host or "").strip() else token_domain()
+    if not host or "." not in host:
+        raise HTTPException(400, "Für feste Adressen fehlt die Domain (SITES_TOKEN_DOMAIN)")
+    while True:
+        path = "/" + "".join(secrets.choice(TOKEN_CHARS) for _ in range(n))
+        if not taken(sites, host, path):
+            return host, path
+
+
 def public(s: dict) -> dict:
     """Ohne Token für die Oberfläche."""
     out = {k: v for k, v in s.items() if k != "token"}
     out["has_token"] = bool(s.get("token"))
     out["url"] = f"https://{s['hostname']}{s.get('path') or ''}"
-    out["domains"] = [{"hostname": d["hostname"], "path": d["path"], "main": d["main"], "url": f"https://{d['hostname']}{d['path']}"}
-                      for d in domains(s)]
+    out["domains"] = [{"hostname": d["hostname"], "path": d["path"], "main": d["main"], "url": f"https://{d['hostname']}{d['path']}",
+                       "token": bool(d.get("token"))} for d in domains(s)]
     out["folder"] = str(www_dir() / s["name"])
     return out
 
@@ -267,8 +296,10 @@ font:16px/1.5 system-ui,sans-serif}}main{{text-align:center;padding:32px}}h1{{fo
 # ---------------- API ----------------
 class SiteIn(BaseModel):
     name: str = Field(max_length=60)
-    hostname: str
+    address: str = "domain"                # domain = eigene Domain (+ Pfad) | token = <SITES_TOKEN_DOMAIN>/<zufälliger Token>
+    hostname: str = ""                     # bei token: leer = SITES_TOKEN_DOMAIN
     path: str = ""
+    token_length: int | None = Field(None, ge=TOKEN_MIN, le=TOKEN_MAX)  # leer = SITES_TOKEN_LENGTH
     spa: bool = False
     source: str = "files"                  # files | github
     repo: str = ""
@@ -309,7 +340,8 @@ async def list_sites(req: Request):
         up_err = ""
     except HTTPException as e:
         up, up_err = "", e.detail
-    return {"sites": [public(s) for s in load()], "nginx": {"found": bool(c), "state": c.get("State") if c else None, "name": c and c["Names"][0].lstrip("/")},
+    return {"sites": [public(s) for s in load()], "token_domain": token_domain(), "token_length": get_settings().sites_token_length,
+            "token_min": TOKEN_MIN, "token_max": TOKEN_MAX, "nginx": {"found": bool(c), "state": c.get("State") if c else None, "name": c and c["Names"][0].lstrip("/")},
             "upstream": up, "upstream_error": up_err, "cloudflare": cf.enabled(), "dir": str(www_dir())}
 
 
@@ -341,9 +373,15 @@ async def create_site(body: SiteIn, req: Request):
     name = normalize(body.name)
     if not NAME_RE.match(name):
         raise HTTPException(400, "Name fehlt (Buchstaben, Zahlen, - und _)")
-    host, path = clean_host(body.hostname), clean_path(body.path).rstrip("/")
-    if path and not re.match(r"^/[A-Za-z0-9._~/-]+$", path):
-        raise HTTPException(400, "Pfad nur mit Buchstaben, Zahlen und . _ ~ - /")
+    by_token = body.address == "token"
+    if by_token:
+        host, path = token_address(load(), body.hostname, token_length(body.token_length))
+    else:
+        host, path = clean_host(body.hostname), clean_path(body.path).rstrip("/")
+        if not host or "." not in host:
+            raise HTTPException(400, "Adresse fehlt, z. B. seite.kulbarts.com")
+        if path and not re.match(r"^/[A-Za-z0-9._~/-]+$", path):
+            raise HTTPException(400, "Pfad nur mit Buchstaben, Zahlen und . _ ~ - /")
     source = "github" if body.source == "github" else "files"
     root, branch, repo = body.root.strip().strip("/"), (body.branch or "main").strip(), body.repo.strip()
     check_fields(root, branch, repo, source)
@@ -360,7 +398,8 @@ async def create_site(body: SiteIn, req: Request):
             "branch": branch if source == "github" else "", "root": root, "token": body.token.strip() if source == "github" else "",
             "auto_minutes": body.auto_minutes if source == "github" else 0, "tunnel_id": body.tunnel_id, "zero_trust": body.zero_trust,
             "emails": [e.strip() for e in body.emails if e.strip()], "created": int(time.time()), "status": "setting_up",
-            "owns_route": False, "owns_dns": False, "owns_access": False, "last_commit": "", "last_deploy": 0, "last_error": "", "aliases": []}
+            "owns_route": False, "owns_dns": False, "owns_access": False, "last_commit": "", "last_deploy": 0, "last_error": "", "aliases": [],
+            "token_address": by_token}
     async with _lock:
         sites = load()
         sites.append(site)
@@ -467,8 +506,13 @@ async def _publish(app, site: dict, job: Job) -> None:
 
 # ---------------- weitere Domains ----------------
 class DomainIn(BaseModel):
-    hostname: str
+    hostname: str = ""
     path: str = ""
+
+
+class NewDomainIn(DomainIn):
+    token: bool = False                    # feste Adresse <SITES_TOKEN_DOMAIN>/<Token> statt eigener Domain
+    token_length: int | None = Field(None, ge=TOKEN_MIN, le=TOKEN_MAX)
 
 
 def clean_domain(body: DomainIn) -> tuple[str, str]:
@@ -481,9 +525,9 @@ def clean_domain(body: DomainIn) -> tuple[str, str]:
 
 
 @router.post("/api/v1/sites/{name}/domains")
-async def add_domain(name: str, body: DomainIn, req: Request):
+async def add_domain(name: str, body: NewDomainIn, req: Request):
     s = find(load(), name)
-    host, path = clean_domain(body)
+    host, path = token_address(load(), body.hostname, token_length(body.token_length)) if body.token else clean_domain(body)
     if other := taken(load(), host, path):
         raise HTTPException(409, f"{host}{path} gehört schon zur Website „{other['name']}“")
     if cf.enabled() and not s.get("tunnel_id"):
@@ -495,7 +539,7 @@ async def add_domain(name: str, body: DomainIn, req: Request):
         async with _lock:
             sites = load()
             cur = find(sites, name)
-            cur.setdefault("aliases", []).append({"hostname": host, "path": path})
+            cur.setdefault("aliases", []).append({"hostname": host, "path": path, **({"token": True} if body.token else {})})
             save(sites)
         try:
             await apply_conf(req.app, load(), job)

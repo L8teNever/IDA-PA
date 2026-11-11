@@ -36,6 +36,9 @@ class Settings(BaseSettings):
     server_public_url: str = ""
     dashboard_url: str = ""           # nur Server: intern zum Dashboard (Messwerte für die Stacks), z. B. http://dashboard:8000
     sites_dir: str = "/opt/ida-sites"  # nur Server: Websites (www/<name>, conf/sites.conf); muss auch im nginx-Dienst „sites“ hängen
+    # nur Server: Websites mit „fester Adresse“ liegen unter <sites_token_domain>/<zufälliger Token> (Länge je Seite einstellbar)
+    sites_token_domain: str = "website.kulbarts.com"
+    sites_token_length: int = 24
     sites_upstream: str = ""          # nur Server: so erreicht der Tunnel den nginx der Websites, z. B. http://10.7.0.1:8087; leer = automatisch
     tunnel_host_ip: str = ""          # nur Server: IP des Servers für Tunnel-Ziele (Ports); leer = aus den vorhandenen Tunnel-Regeln
     # Weiterleitungen (Kurzlinks): Server verwaltet, der öffentliche Dienst „links“ (APP_MODE=links) leitet weiter. Beide teilen LINKS_DB.

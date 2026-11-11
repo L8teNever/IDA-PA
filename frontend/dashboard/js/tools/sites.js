@@ -84,7 +84,7 @@ export default {
       const state = s.status === "error" ? `<span class="pill err" title="${esc(s.last_error)}"><span class="ms sm">error</span>Fehler</span>`
         : s.status === "setting_up" ? `<span class="pill"><span class="ms sm spin">progress_activity</span>Wird eingerichtet</span>` : "";
       const doms = s.domains.map((d) => `<span class="st-dom ${d.main ? "main" : ""}">
-          <a href="${esc(d.url)}" target="_blank" rel="noopener" title="${esc(d.url)} öffnen"><span class="ms">${d.main ? "public" : "link"}</span><span class="ellip">${esc(bare(d.url))}</span><span class="ms st-go">open_in_new</span></a>
+          <a href="${esc(d.url)}" target="_blank" rel="noopener" title="${esc(d.url)} öffnen"><span class="ms">${d.token ? "key" : d.main ? "public" : "link"}</span><span class="ellip">${esc(bare(d.url))}</span><span class="ms st-go">open_in_new</span></a>
           ${d.main ? "" : `<button type="button" class="st-dom-x" data-undom="${esc(s.name)}" data-host="${esc(d.hostname)}" data-path="${esc(d.path)}" title="Domain entfernen" aria-label="Domain entfernen"><span class="ms">close</span></button>`}</span>`).join("");
       return `<div class="site-card" data-card="${esc(s.name)}">
         <div class="site-top"><span class="site-ic"><img src="${esc(s.url)}/favicon.ico" alt="" loading="lazy" onerror="this.remove()"><span class="ms">${s.spa ? "web" : "description"}</span></span>
@@ -121,13 +121,38 @@ export default {
       try { await openSiteEditor(s); } catch (e) { toast(e.message || "Der Editor lässt sich nicht öffnen"); }
     }
 
+    // Adresse: eigene Domain (+ Pfad) oder feste Adresse <Sammel-Domain>/<zufälliger Token> mit einstellbarer Länge
+    function addressFields(ph = "seite.kulbarts.com") {
+      const tok = (v) => v.address === "token", dom = (v) => v.address !== "token";
+      const hasTok = !!data?.token_domain;
+      return [
+        ...(hasTok ? [{ name: "address", label: "Adresse", type: "seg", value: "domain", options: [{ value: "domain", label: "Eigene Domain", icon: "public" }, { value: "token", label: "Feste Adresse mit Token", icon: "key" }] }] : []),
+        { name: "hostname", label: hasTok ? "Domain" : "Adresse", placeholder: ph, hint: "Hostname im Internet", show: dom },
+        { name: "path", label: "Pfad (optional)", placeholder: "/blog", hint: "nur unter diesem Pfad, z. B. kulbarts.com/blog", show: dom },
+        ...(hasTok ? [
+          { name: "token_host", label: "Feste Domain", value: data.token_domain, placeholder: data.token_domain, hint: "Standard aus SITES_TOKEN_DOMAIN – hier pro Seite änderbar", show: tok },
+          { name: "token_length", label: "Länge des Tokens", type: "number", value: data.token_length, min: data.token_min, show: tok,
+            hint: `${data.token_min}–${data.token_max} Zeichen (a–z, 0–9). Standard ${data.token_length}. Länger = schwerer zu erraten.` },
+          { type: "live", key: "tokprev", show: tok, render: (v) => `<div class="hint"><span class="ms">link</span><div>Die Seite liegt dann unter
+            <code>${esc((v.token_host || data.token_domain).trim())}/${"x".repeat(Math.max(1, Math.min(Number(v.token_length) || data.token_length, 64)))}</code> –
+            der Token wird zufällig erzeugt. Wer den Link nicht kennt, findet die Seite nicht.</div></div>` },
+        ] : []),
+      ];
+    }
+    const addressBody = (v) => v.address === "token"
+      ? { address: "token", token: true, hostname: (v.token_host || "").trim(), token_length: Number(v.token_length) || null }
+      : { address: "domain", hostname: (v.hostname || "").trim(), path: v.path || "" };
+
     async function addDomain(s) {
       const r = await formDialog(`Domain hinzufügen: ${s.name}`, [
         { type: "head", key: "info", label: `Die Seite ist danach zusätzlich unter dieser Adresse erreichbar – mit denselben Dateien${s.zero_trust ? " und demselben Zero-Trust-Schutz" : ""}.` },
-        { name: "hostname", label: "Adresse", placeholder: "www.kulbarts.com", hint: "Hostname im Internet" },
-        { name: "path", label: "Pfad (optional)", placeholder: "/blog", hint: "nur unter diesem Pfad" },
+        ...addressFields("www.kulbarts.com"),
       ], { ok: "Hinzufügen", icon: "add_link" });
-      if (r?.hostname) jobDialog(`Domain hinzufügen: ${r.hostname}${r.path || ""}`, () => api.post(`/sites/${encodeURIComponent(s.name)}/domains`, { hostname: r.hostname, path: r.path || "" }), { onDone: load });
+      if (!r) return;
+      const b = addressBody(r);
+      if (!b.token && !b.hostname) return toast("Adresse fehlt");
+      const label = b.token ? `${b.hostname || data.token_domain}/…` : `${b.hostname}${b.path}`;
+      jobDialog(`Domain hinzufügen: ${label}`, () => api.post(`/sites/${encodeURIComponent(s.name)}/domains`, b.token ? { hostname: b.hostname, token: true, token_length: b.token_length } : { hostname: b.hostname, path: b.path }), { onDone: load });
     }
 
     async function removeDomain(s, host, path) {
@@ -168,8 +193,7 @@ export default {
       const gh = (v) => v.source === "github";
       const fields = [
         { name: "name", label: "Name", placeholder: "z. B. portfolio", hint: "Ordnername – Buchstaben, Zahlen, - und _" },
-        { name: "hostname", label: "Adresse", placeholder: "seite.kulbarts.com", hint: "Hostname im Internet" },
-        { name: "path", label: "Pfad (optional)", placeholder: "/blog", hint: "nur unter diesem Pfad, z. B. kulbarts.com/blog" },
+        ...addressFields(),
         { name: "source", label: "Inhalt", type: "seg", value: "github", options: [{ value: "github", label: "GitHub-Repo", icon: "code" }, { value: "files", label: "Eigene Dateien", icon: "folder" }] },
         { name: "repo", label: "Repo", placeholder: "https://github.com/L8teNever/seite", show: gh },
         { name: "branch", label: "Branch", value: "main", show: gh },
@@ -186,7 +210,7 @@ export default {
         ok: "Anlegen & veröffentlichen", icon: "language",
         submit: async (v) => {
           try {
-            job = await api.post("/sites", { name: v.name, hostname: v.hostname, path: v.path, source: v.source, repo: v.repo, branch: v.branch || "main",
+            job = await api.post("/sites", { name: v.name, ...addressBody(v), source: v.source, repo: v.repo, branch: v.branch || "main",
               token: v.token, auto_minutes: Number(v.auto || 0), root: v.root, spa: v.spa, tunnel_id: v.tunnel_id || "", zero_trust: v.zero_trust, emails: lines(v.emails) });
           } catch (e) { return e.message; }
           return "";

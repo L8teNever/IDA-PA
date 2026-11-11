@@ -16,6 +16,7 @@ Ein nginx-Dienst `sites` im IDA-Stack liefert alle Seiten aus. Die Dateien liege
 | Was | Wie |
 |---|---|
 | Adresse | Hostname, optional mit Pfad (`kulbarts.com/blog`). Mehrere Seiten können sich einen Host teilen (Pfade). |
+| Feste Adresse mit Token | Statt eigener Domain: `SITES_TOKEN_DOMAIN/<zufälliger Token>` (Standard `website.kulbarts.com`, a–z und 0–9). Länge Standard `SITES_TOKEN_LENGTH` (24), pro Seite 8–64; Domain pro Seite änderbar. Alle teilen sich Tunnel-Regel und DNS der Domain, ohne Token liefert sie 404. Auch als weitere Adresse über „+ Domain“. |
 | Inhalt | **GitHub-Repo** (Branch, optional Token für private Repos) oder **eigene Dateien** (Willkommensseite, dann im Tool Dateien bearbeiten) |
 | Ordner | Welcher Ordner ausgeliefert wird, z. B. `dist`, `build` oder `public` (leer = alles) |
 | SPA-Modus | Unbekannte Routen liefern `index.html` (React, Vue …) |
