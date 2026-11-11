@@ -84,7 +84,7 @@ async def home(db: DB):
             at = day.replace(hour=int(x["time"][:2]), minute=int(x["time"][3:])) if x["time"] else day
             timeline.append({"kind": "tracker", "at": ser.iso(at.astimezone(timezone.utc)), "all_day": not x["time"], "icon": t.icon,
                              "title": t.name + (f" · {x['label']}" if len(today["slots"]) > 1 else ""),
-                             "tracker_id": t.id, "slot": x["key"], "done": x["done"], "by": x["by"], "duration_s": t.duration_s})
+                             "tracker_id": t.id, "slot": x["key"], "done": x["done"], "by": x["by"], "duration_s": t.duration_s, "next_id": t.next_id})
     cal, cal_error = await home_calendar.config(db), None
     if cal:
         got = await home_calendar.fetch(db, cal)

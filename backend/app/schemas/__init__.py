@@ -145,6 +145,7 @@ class TrackerCreate(BaseModel):
     routine_id: str | None = None
     show_on_home: bool = True
     duration_s: int = 0  # > 0: a timer runs before the tick (link / timer page)
+    next_id: str | None = None  # after the tick the page goes straight on with this tracker
 
 
 class TrackerUpdate(BaseModel):
@@ -158,6 +159,7 @@ class TrackerUpdate(BaseModel):
     show_on_home: bool | None = None
     enabled: bool | None = None
     duration_s: int | None = None
+    next_id: str | None = None
 
 
 class TrackerTick(BaseModel):

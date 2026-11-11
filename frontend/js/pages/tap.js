@@ -41,6 +41,7 @@ export async function tapPage({ token }, query) {
   }
   await setUrl(`/t/${token}?ok=1`);
   render(res);
+  if (res.status === "checked") flow(res.tracker);
 }
 
 export async function timerPage({ id }) {
@@ -52,10 +53,76 @@ export async function timerPage({ id }) {
     if (t.duration_s && !(await countdown(t, `timer:id:${id}`))) return;
     const r = await api.post(`/trackers/${id}/check`, {});
     render({ ...r.ticked, tracker: r });
+    if (r.ticked.status === "checked") flow(r);
   } catch (e) {
     fail(e.message);
   }
 }
+
+// ---- Ablauf: after a tick straight on with the next tracker (brush teeth → wash face → …) ----
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+
+async function nextStep(fromId, list) {
+  const seen = new Set([fromId]);
+  let cur = list.find((x) => x.id === fromId);
+  while (cur?.next_id && !seen.has(cur.next_id)) {
+    seen.add(cur.next_id);
+    cur = list.find((x) => x.id === cur.next_id);
+    if (cur && cur.enabled && cur.today.due && open(cur)) return cur; // done today, paused or not due: skip it
+  }
+  return null;
+}
+
+async function flow(t) {
+  if (!t?.next_id) return;
+  await wait(1600); // the tick animation first
+  if (!$("tapUndo")) return; // left the page or undone meanwhile
+  let n = await nextStep(t.id, await api.get("/trackers").catch(() => []));
+  while (n) {
+    const choice = await ask(n);
+    if (choice === "left") return;
+    if (choice === "stop") return navigate("/tracker");
+    if (choice === "go") {
+      if (n.duration_s && !(await countdown(n, `timer:id:${n.id}`))) return;
+      const r = await api.post(`/trackers/${n.id}/check`, {});
+      render({ ...r.ticked, tracker: r });
+      await wait(1600);
+      if (!$("tapUndo")) return;
+    }
+    n = await nextStep(n.id, await api.get("/trackers").catch(() => []));
+  }
+  const b = $("page").querySelector(".tap-text b");
+  if (b && $("tapUndo")) b.insertAdjacentHTML("afterend", "<small>Ablauf fertig 🎉</small>");
+}
+
+// the next step: with a timer it starts by itself after a few seconds, without one it asks „Erledigt?“
+function ask(n) {
+  const timed = !!n.duration_s;
+  $("page").querySelector(".tap").innerHTML = `
+    <div class="tap-stage calm">${BUDDY}</div>
+    <div class="tap-text"><small>Als Nächstes</small><b><span class="ms">${esc(n.icon || "task_alt")}</span> ${esc(n.name)}</b>
+      ${timed ? `<small id="flowIn">Timer (${clockText(n.duration_s)}) startet gleich …</small>` : "<small>Hast du das erledigt?</small>"}</div>
+    <div class="tap-btns">
+      <button class="es-btn primary" id="flowGo"><span class="ms">${timed ? "timer" : "check"}</span>${timed ? "Jetzt starten" : "Ja, erledigt"}</button>
+      <button class="es-btn" id="flowSkip"><span class="ms">skip_next</span>Überspringen</button>
+      <button class="es-btn" id="flowStop"><span class="ms">close</span>Beenden</button></div>`;
+  flashMood("idle", 4000);
+  if (navigator.vibrate) navigator.vibrate(40);
+  return new Promise((resolve) => {
+    let left = 4, tick = null;
+    const end = (v) => { clearInterval(tick); resolve(v); };
+    $("flowGo").onclick = () => end("go");
+    $("flowSkip").onclick = () => end("skip");
+    $("flowStop").onclick = () => end("stop");
+    if (timed) tick = setInterval(() => {
+      if (!$("flowIn")) return end("left"); // page left meanwhile
+      if (--left <= 0) return end("go");
+      $("flowIn").textContent = `Timer (${clockText(n.duration_s)}) startet in ${left} s …`;
+    }, 1000);
+  });
+}
+
+const clockText = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 
 // ---- countdown: resolves true when it ran out, false when cancelled or left ----
 function countdown(t, key) {

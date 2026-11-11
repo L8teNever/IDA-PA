@@ -59,7 +59,9 @@ export async function trackerPage({ id } = {}) {
           <span class="trk-lbl"><b>${esc(s.label)}</b><small>${esc([s.time, byText(s.by)].filter(Boolean).join(" · ") || (s.done ? "erledigt" : "offen"))}</small></span></button>`).join("")}</div>`
         : `<div class="trk-free"><span class="ms">event_available</span>Heute nicht dran</div>`}
       ${t.duration_s && today.done < today.total ? `<a class="trk-timer" href="/tracker/${t.id}/timer"><span class="ms">timer</span>${clockText(t.duration_s)} starten
-        <small>danach wird ${t.next && t.slots.length > 1 ? `„${esc(t.slots.find((s) => s.key === t.next)?.label || "")}“ ` : ""}abgehakt</small></a>` : ""}
+        <small>danach wird ${t.next && t.slots.length > 1 ? `„${esc(t.slots.find((s) => s.key === t.next)?.label || "")}“ ` : ""}abgehakt${t.next_id ? `, dann weiter mit ${esc(list.find((x) => x.id === t.next_id)?.name || "…")}` : ""}</small></a>`
+        : t.next_id && today.done < today.total ? `<a class="trk-timer" href="/tracker/${t.id}/timer"><span class="ms">playlist_play</span>Ablauf starten
+        <small>${esc(t.name)}, dann ${esc(list.find((x) => x.id === t.next_id)?.name || "…")}</small></a>` : ""}
       <div class="trk-dots" aria-label="Letzte 14 Tage">${t.recent.map((d, i) => {
         const cls = !d.due || (d.day < created && !d.done) ? "free" : d.done === d.total ? "full" : d.done ? "part" : "open";
         const today_ = i === t.recent.length - 1;
@@ -98,13 +100,13 @@ export async function trackerPage({ id } = {}) {
   if (id) {
     const t = id === "neu" ? null : list.find((x) => x.id === id);
     if (id !== "neu" && !t) { toast("Tracker nicht gefunden"); return navigate("/tracker", { replace: true }); }
-    form(t, routines);
+    form(t, routines, list);
   }
 }
 
-function form(t, routines) {
+function form(t, routines, list = []) {
   const f = t ? { ...t, slots: t.slots.map((s) => ({ ...s })), days: t.days?.length ? [...t.days] : [0, 1, 2, 3, 4, 5, 6] }
-    : { name: "", icon: "medication", note: "", slots: PRESETS.twice.map((s) => ({ ...s })), days: [0, 1, 2, 3, 4, 5, 6], on_missed: "notify", routine_id: null, show_on_home: true, enabled: true, duration_s: 0 };
+    : { name: "", icon: "medication", note: "", slots: PRESETS.twice.map((s) => ({ ...s })), days: [0, 1, 2, 3, 4, 5, 6], on_missed: "notify", routine_id: null, show_on_home: true, enabled: true, duration_s: 0, next_id: null };
   const box = $("trkForm");
   $("trkNew").hidden = true;
   const keep = () => {
@@ -112,6 +114,7 @@ function form(t, routines) {
     f.note = $("tNote").value;
     box.querySelectorAll("[data-lbl]").forEach((i) => { f.slots[+i.dataset.lbl].label = i.value; });
     if ($("tRoutine")) f.routine_id = $("tRoutine").value || null;
+    if ($("tNext")) f.next_id = $("tNext").value || null;
     if ($("tDurMin")?.value) f.duration_s = Math.round(parseFloat($("tDurMin").value.replace(",", ".")) * 60) || 0;
   };
   const timed = () => f.slots.filter((s) => s.time);
@@ -147,6 +150,8 @@ function form(t, routines) {
       <div class="chipset" id="tDur">${DURATIONS.map((d) => `<button type="button" data-dur="${d}" class="${f.duration_s === d ? "on" : ""}">${d ? durText(d) : "Ohne"}</button>`).join("")}
         <label class="trk-dur-own">eigene: <input class="mini-in" id="tDurMin" inputmode="decimal" placeholder="Min" value="${f.duration_s && !DURATIONS.includes(f.duration_s) ? String(+(f.duration_s / 60).toFixed(2)).replace(".", ",") : ""}"> Min</label></div>
       <div class="rf-sum"><span class="ms">timer</span><span>${durSummary()}</span></div>
+      <label class="fld"><span>Danach direkt weiter mit (Ablauf)</span><select id="tNext"><option value="">– nichts –</option>${list.filter((x) => !t || x.id !== t.id).map((x) => `<option value="${x.id}" ${x.id === f.next_id ? "selected" : ""}>${esc(x.name)}</option>`).join("")}</select></label>
+      <p class="rf-note" style="margin-top:6px">Nach dem Abhaken zeigt die Seite gleich den nächsten Schritt: mit Dauer startet dessen Timer, sonst kommt „Erledigt?“. So entsteht z. B. Zähne putzen → Gesicht waschen → Eincremen.</p>
       <div class="flabel">An welchen Tagen?</div>
       <div class="chipset" id="tDays">${DAYS.map((d, i) => `<button type="button" data-d="${i}" class="${f.days.includes(i) ? "on" : ""}">${d}</button>`).join("")}
         <button type="button" class="day-preset" data-preset="all">täglich</button><button type="button" class="day-preset" data-preset="week">Mo–Fr</button></div>
@@ -217,7 +222,7 @@ function form(t, routines) {
       if (!f.name.trim()) { $("tErr").textContent = "Bitte eintragen, was abgehakt werden soll."; return; }
       if (!f.days.length) { $("tErr").textContent = "Mindestens einen Tag wählen."; return; }
       const body = { name: f.name, note: f.note, icon: f.icon, slots: f.slots.map((s) => ({ key: s.key || null, label: s.label, time: s.time || null })),
-        days: f.days, on_missed: f.on_missed, routine_id: f.on_missed === "routine" ? f.routine_id : null, show_on_home: f.show_on_home, duration_s: f.duration_s || 0 };
+        days: f.days, on_missed: f.on_missed, routine_id: f.on_missed === "routine" ? f.routine_id : null, show_on_home: f.show_on_home, duration_s: f.duration_s || 0, next_id: f.next_id || null };
       if (t) body.enabled = f.enabled;
       try {
         await (t ? api.patch(`/trackers/${t.id}`, body) : api.post("/trackers", body));

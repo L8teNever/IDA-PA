@@ -122,6 +122,22 @@ async def _clean(db: AsyncSession, f: dict, partial: bool, old: Tracker | None, 
         v["routine_id"] = rid
         if rid and "on_missed" not in v:
             v["on_missed"] = "routine"
+    if "next_id" in f:
+        nid = f["next_id"] or None
+        if nid:
+            if old and nid == old.id:
+                raise Invalid("Ein Tracker kann nicht auf sich selbst folgen")
+            seen = {old.id} if old else set()
+            cur: str | None = nid
+            while cur:  # kein Kreis: A → B → A würde nie enden
+                if cur in seen:
+                    raise Invalid("Das ergäbe einen Kreis im Ablauf")
+                seen.add(cur)
+                t = await db.get(Tracker, cur)
+                if not t:
+                    raise Invalid("Nächster Tracker nicht gefunden")
+                cur = t.next_id
+        v["next_id"] = nid
     for b in ("show_on_home", "enabled"):
         if f.get(b) is not None:
             v[b] = bool(f[b])
@@ -165,7 +181,10 @@ async def update(db: AsyncSession, tracker_id: str, f: dict, owner: str | None =
 
 
 async def remove(db: AsyncSession, tracker_id: str) -> None:
-    await db.delete(await get(db, tracker_id))
+    t = await get(db, tracker_id)
+    for prev in (await db.scalars(select(Tracker).where(Tracker.next_id == tracker_id))).all():
+        prev.next_id = t.next_id if t.next_id != prev.id else None  # Ablauf bleibt zusammen: A → (B) → C wird A → C
+    await db.delete(t)
 
 
 async def listing(db: AsyncSession) -> list[Tracker]:

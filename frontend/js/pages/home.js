@@ -113,7 +113,7 @@ function renderTimeline(all) {
       return `<div class="ev trk-ev ${x.done ? "done" : ""} ${i < nowIdx ? "past" : i === nowIdx ? "now" : ""}" data-href="/tracker/${esc(x.tracker_id)}">
         <span class="time">${x.all_day ? `<span class="ms">${esc(x.icon || "task_alt")}</span>` : fmtTime(x.at)}</span>
         <span class="evtxt"><b>${esc(x.title)}</b><small>${x.done ? "abgehakt" + esc(by) : "offen"}</small></span>
-        <button type="button" class="trk-tick" data-tick="${esc(x.tracker_id)}" data-slot="${esc(x.slot)}" data-done="${x.done ? 1 : ""}" data-dur="${x.duration_s || ""}"
+        <button type="button" class="trk-tick" data-tick="${esc(x.tracker_id)}" data-slot="${esc(x.slot)}" data-done="${x.done ? 1 : ""}" data-dur="${x.duration_s || ""}" data-flow="${x.next_id ? 1 : ""}"
           aria-label="${x.done ? "Zurücknehmen" : "Abhaken"}"><span class="ms">${x.done ? "check" : ""}</span></button></div>`;
     }
     const a = agentOf(x.agent_id);
@@ -139,7 +139,7 @@ function renderTimeline(all) {
     if (!b) return;
     e.preventDefault(); // not the row's link to /tracker
     const undo = !!b.dataset.done;
-    if (!undo && b.dataset.dur) return navigate(`/tracker/${b.dataset.tick}/timer`); // with a duration: the timer first
+    if (!undo && (b.dataset.dur || b.dataset.flow)) return navigate(`/tracker/${b.dataset.tick}/timer`); // with a duration the timer first, with a next step the flow
     b.disabled = true;
     if (await attempt(() => api.post(`/trackers/${b.dataset.tick}/check`, { slot: b.dataset.slot, undo }), undo ? "Zurückgenommen" : "✓ Abgehakt")) refresh();
     else b.disabled = false;
