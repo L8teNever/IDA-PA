@@ -143,8 +143,11 @@ export function mountGraph(canvas, data, { onSelectNode, highlightQuery = "", in
 
   function resize() {
     const rect = canvas.getBoundingClientRect();
-    width = Math.max(200, rect.width || 600);
-    height = Math.max(180, rect.height || 360);
+    const w = Math.max(200, rect.width || 600);
+    const h = Math.max(180, rect.height || 360);
+    if (w === width && h === height && canvas.width === Math.round(w * dpr) && canvas.height === Math.round(h * dpr)) return; // nichts geändert: kein neues Einpassen, keine Schleife
+    width = w;
+    height = h;
     canvas.width = Math.round(width * dpr);
     canvas.height = Math.round(height * dpr);
     if (!touched) fit(false);
