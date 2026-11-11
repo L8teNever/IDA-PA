@@ -43,8 +43,8 @@ Die KI nutzt sie mit `sandbox_ausfuehren`, der Nutzer im Tab „Sandbox“ der C
 
 ## Server-Stack (Docker auf dem Server)
 
-Pro Projekt lässt sich im Projekt-Menü unter **Server-Stack wählen** ein Docker-Stack des Servers einstellen (Liste aus dem
-Dashboard). Die KI im Thread bekommt dann diese Tools. Sie gehen über die interne API des Dashboards (`DASHBOARD_URL`,
+Pro Projekt lassen sich im Projekt-Menü unter **Server-Stacks wählen** ein oder mehrere Docker-Stacks des Servers einstellen (Liste aus dem
+Dashboard). Bei mehreren gibt die KI bei jedem Tool `stack` an. Die KI im Thread bekommt dann diese Tools. Sie gehen über die interne API des Dashboards (`DASHBOARD_URL`,
 Standard `http://dashboard:8000`), SSH braucht es dafür nicht:
 
 | Tool | Was es macht | Freigabe |
@@ -53,6 +53,18 @@ Standard `http://dashboard:8000`), SSH braucht es dafür nicht:
 | `server_logs` | letzte Zeilen eines Dienstes, optional gefiltert | nie |
 | `server_befehl` | Shell-Befehl im laufenden Container (`docker exec … sh -c`), wie ein Terminal | bei „Nachfragen“ und „Bearbeiten“ |
 | `server_aktion` | `update` (pull + up -d), `restart`, `start`, `stop`, `up`; wartet, bis der Vorgang fertig ist | bei „Nachfragen“ und „Bearbeiten“ |
+| `server_dateien` | Compose-Dateien und `.env` des Stacks mit Pfad | nie |
+| `server_datei_lesen` | eine dieser Dateien lesen | nie |
+| `server_datei_schreiben` | eine dieser Dateien schreiben (YAML wird geprüft, alter Stand im Dashboard gesichert); wirkt nach `server_aktion up` | bei „Nachfragen“ und „Bearbeiten“ |
 
 „Immer erlauben“ gilt bei Befehlen für alle Befehle in diesem Stack und bei Aktionen je Aktion, jeweils nur in diesem Thread.
 Ohne gewählten Stack sagen die Tools das. Das Dashboard selbst nimmt keine Befehle an. Im Prompt steht, welcher Stack zum Projekt gehört.
+
+**Projekt aus Server-Stacks:** Beim Hinzufügen gibt es den Reiter „Server-Stacks“ für Docker-Sachen, die in keinem Repo liegen
+(z. B. ein Minecraft-Server). Das Projekt ist ein lokaler Ordner (Notizen, Skripte) mit einer kurzen `CLAUDE.md`, die echten Dateien
+bleiben auf dem Server und laufen über die Tools oben.
+
+## Projekt-Kontext
+
+Im Projekt-Menü (und auf der Projektseite) unter **Kontext für alle Threads** steht freier Text, der in jedem Thread des Projekts im
+Prompt landet (`<projekt_kontext>`), ab der nächsten Nachricht auch in bestehenden Threads.

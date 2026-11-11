@@ -38,7 +38,7 @@ async def client():
 
 
 def test_allowed_paths():
-    for p in ("bootstrap", "usage", "chat", "chats/abc", "chats/abc/live", "chats/abc/stop", "code/projects", "code/projects/x/raw/a/b.html",
+    for p in ("bootstrap", "usage", "chat", "chats/abc", "chats/abc/live", "chats/abc/stop", "chats/abc/fork", "autoroute/rate", "code/projects", "code/projects/x/raw/a/b.html",
               "github/status", "github", "uploads", "uploads/f1", "files/f1", "files/f1/preview"):
         assert allowed(p), p
     for p in ("agents", "accounts/a1/terminal", "chats", "settings", "routines", "chats/a/b/c", "memory", "../agents",

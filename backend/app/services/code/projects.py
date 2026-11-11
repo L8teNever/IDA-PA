@@ -39,6 +39,33 @@ def path_of(p: CodeProject) -> Path:
     return d
 
 
+async def write_stack_readme(p: CodeProject) -> None:
+    """Projekt aus Server-Stacks: kurze CLAUDE.md, damit jeder Thread weiß, wo die echten Dateien liegen."""
+    d = path_of(p)
+    names = stacks_of(p)
+    text = (f"# {p.name}\n\nDieses Projekt gehört zu Docker-Stacks auf dem Server: {', '.join(names)}.\n\n"
+            "Die echten Dateien (Compose, .env) liegen auf dem Server, nicht in diesem Ordner. Lesen und ändern mit den Tools "
+            "server_dateien / server_datei_lesen / server_datei_schreiben, übernehmen mit server_aktion (up), Zustand mit "
+            "server_status, Logs mit server_logs, Befehle im Container mit server_befehl. Bei mehreren Stacks immer `stack` angeben.\n\n"
+            "Dieser Ordner ist für Notizen, Skripte und Entwürfe.\n")
+    (d / "CLAUDE.md").write_text(text, encoding="utf-8")
+    try:
+        await git.run(d, "add", "CLAUDE.md")
+    except Invalid:
+        pass
+
+
+def stacks_of(p: CodeProject) -> list[str]:
+    """Server-Stacks des Projekts (ältere Projekte haben nur server_stack)."""
+    return list(p.server_stacks or ([p.server_stack] if p.server_stack else []))
+
+
+def set_stacks(p: CodeProject, names: list[str]) -> None:
+    names = list(dict.fromkeys(n.strip()[:120] for n in names if n and n.strip()))
+    p.server_stacks = names
+    p.server_stack = names[0] if names else None
+
+
 async def get(db: AsyncSession, pid: str) -> CodeProject:
     p = await db.get(CodeProject, pid)
     if not p:

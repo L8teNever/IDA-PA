@@ -485,6 +485,13 @@ body.pane-resizing iframe { pointer-events: none; }
 .sw-txt small { color: var(--muted); font-size: 12px; }
 .seg-group { display: grid; grid-template-columns: repeat(2, 1fr); gap: 4px; background: var(--surface-high); border-radius: 22px; padding: 4px; }
 .seg-group.three { grid-template-columns: repeat(3, 1fr); }
+.seg-group.four { grid-template-columns: repeat(4, 1fr); }
+@media (max-width: 560px) { .seg-group.four { grid-template-columns: repeat(2, 1fr); } }
+.set-li.on { background: var(--container); color: var(--on-container); }
+.set-li.on > .ms:first-child { color: var(--accent); }
+.c-ok { color: var(--ok, #81c995); }
+.link-btn { background: none; border: 0; padding: 0; font: inherit; color: var(--accent); cursor: pointer; text-align: left; overflow-wrap: anywhere; }
+.link-btn:hover { text-decoration: underline; }
 .seg { border: 0; background: transparent; color: var(--muted); border-radius: 18px; height: 40px; font: inherit; font-size: 13.5px; cursor: pointer; transition: background 0.2s, color 0.2s; }
 .seg.active { background: var(--container); color: var(--on-container); }
 .repo-list { display: flex; flex-direction: column; gap: 2px; margin-top: 8px; }

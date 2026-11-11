@@ -25,7 +25,7 @@ log = logging.getLogger("code")
 # Nur diese IDA-Endpunkte sind über die Code-App erreichbar (Pfad nach /api/v1/)
 ALLOWED = [re.compile(p) for p in (
     r"bootstrap", r"usage",
-    r"chat", r"chats/[^/]+", r"chats/[^/]+/(live|stop)",
+    r"chat", r"chats/[^/]+", r"chats/[^/]+/(live|stop|fork)", r"autoroute/rate",
     r"code(/.*)?", r"github(/.*)?",
     r"uploads(/[^/]+)?", r"files/[^/]+(/preview)?",
 )]

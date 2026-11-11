@@ -362,7 +362,7 @@ async def _code_run(db, project: CodeProject, chat: Chat, permission_mode: str |
         branch = project.default_branch
     project.updated_at = utcnow()
     return {"path": path, "mode": chat.permission_mode, "name": project.name, "repo_url": project.repo_url, "branch": branch,
-            "server_stack": project.server_stack,
+            "server_stacks": projects.stacks_of(project), "context": project.context or "",
             "env": git.auth_env(await github.account(db))}
 
 

@@ -594,7 +594,7 @@ def test_server_stack_per_project_tools_via_dashboard(client, code_on, dashboard
     """Per project a Docker stack of the server: the thread sees status/logs, runs commands and updates via the Dashboard (no SSH)."""
     p = client.post(f"{API}/code/projects", json={"name": "ServerStack"}).json()
     d = client.get(f"{API}/code/server-stacks").json()
-    assert d["enabled"] and [s["name"] for s in d["stacks"]] == ["shop", "ida"] and d["stacks"][0]["services"] == ["app", "db"]
+    assert d["enabled"] and [s["name"] for s in d["stacks"]] == ["shop", "ida", "minecraft"] and d["stacks"][0]["services"] == ["app", "db"]
     # without a stack the tools say so
     ev = chat(client, project_id=p["id"], text="TOOL server_status {}", permission_mode="full")
     assert "kein Server-Stack" in text(ev)
@@ -627,3 +627,34 @@ def test_server_stack_per_project_tools_via_dashboard(client, code_on, dashboard
     assert not any(x["path"].endswith("/exec") for x in dashboard.requests[n:])
     # remove the stack again
     assert client.patch(f"{API}/code/projects/{p['id']}", json={"server_stack": ""}).json()["server_stack"] is None
+
+
+def test_project_from_server_stacks_with_context_and_files(client, code_on, dashboard):
+    """Projekt aus Docker-Stacks (ohne Repo): mehrere Stacks, Kontext für jeden Thread, Compose/.env lesen und schreiben."""
+    assert client.post(f"{API}/code/projects", json={"server_stacks": ["gibtsnicht"]}).status_code == 400
+    p = client.post(f"{API}/code/projects", json={"server_stacks": ["minecraft", "shop"], "name": "Spiele",
+                                                  "context": "Minecraft-Server für Freunde, Version 1.21."}).json()
+    assert p["status"] == "ready" and p["repo_url"] is None and p["server_stacks"] == ["minecraft", "shop"] and p["server_stack"] == "minecraft"
+    assert p["context"].startswith("Minecraft-Server")
+    from app.services.code import projects
+    assert "minecraft, shop" in (projects.root() / p["id"] / "CLAUDE.md").read_text()
+    # der Kontext und beide Stacks stehen im Prompt jedes neuen Threads
+    out = text(chat(client, project_id=p["id"], text="SHOWSYS hallo", permission_mode="full"))
+    assert "<projekt_kontext>\nMinecraft-Server für Freunde, Version 1.21.\n</projekt_kontext>" in out
+    assert '"minecraft", "shop"' in out and "server_datei_schreiben" in out
+    # mehrere Stacks: ohne stack eine klare Ansage, mit stack geht es
+    assert "mehrere Server-Stacks" in text(chat(client, project_id=p["id"], text="TOOL server_status {}", permission_mode="full"))
+    assert "gehört nicht zum Projekt" in text(chat(client, project_id=p["id"], text='TOOL server_status {"stack": "ida"}', permission_mode="full"))
+    out = text(chat(client, project_id=p["id"], text='TOOL server_dateien {"stack": "shop"}', permission_mode="full"))
+    assert "/opt/stacks/shop/compose.yaml" in out and ".env" in out
+    out = text(chat(client, project_id=p["id"], text='TOOL server_datei_lesen {"stack": "shop", "datei": ".env"}', permission_mode="full"))
+    assert "PORT=80" in out
+    out = text(chat(client, project_id=p["id"], text='TOOL server_datei_schreiben {"stack": "shop", "datei": ".env", "inhalt": "PORT=81\\n"}',
+                    permission_mode="full"))
+    assert '"gespeichert": true' in out and dashboard.files["/opt/stacks/shop/.env"] == "PORT=81\n"
+    # Kontext und Stacks lassen sich später ändern
+    r = client.patch(f"{API}/code/projects/{p['id']}", json={"context": "  neu  ", "server_stacks": ["shop"]}).json()
+    assert r["context"] == "neu" and r["server_stacks"] == ["shop"] and r["server_stack"] == "shop"
+    assert client.patch(f"{API}/code/projects/{p['id']}", json={"server_stacks": []}).json()["server_stacks"] == []
+    # Repo + Stacks gleichzeitig beim Anlegen: nein
+    assert client.post(f"{API}/code/projects", json={"server_stacks": ["shop"], "repo_url": "https://github.com/a/b"}).status_code == 400

@@ -47,10 +47,17 @@ async def list_projects(db: DB):
 async def create_project(body: ProjectCreate, db: DB):
     await code_area.require(db)
     url, name = body.repo_url, body.name
+    stacks = await _check_stacks(body.server_stacks) if body.server_stacks else []
+    if stacks and (url or body.new_repo):
+        raise Invalid("Ein Projekt aus Server-Stacks hat kein Repo – Stacks kannst du später auch einem Repo-Projekt zuordnen")
     if body.new_repo:
         repo = await github.create_repo(db, body.new_repo.name, private=body.new_repo.private, description=body.new_repo.description)
         url, name = repo["clone_url"], name or repo["name"]
-    p = await projects.create(db, name, url)
+    p = await projects.create(db, name or (stacks[0] if len(stacks) == 1 else ""), url)
+    p.context = body.context.strip()
+    if stacks:
+        projects.set_stacks(p, stacks)
+        await projects.write_stack_readme(p)
     try:
         from ..services import wiki_sync
         wiki_sync.enqueue_project(p.id)
@@ -79,14 +86,16 @@ async def get_project(pid: str, db: DB):
 
 @router.patch("/projects/{pid}")
 async def rename_project(pid: str, body: ProjectUpdate, db: DB):
-    """Umbenennen und/oder Server-Stack wählen (leer = keiner)."""
+    """Umbenennen, Server-Stacks wählen (leer = keine) und/oder den Kontext für alle Threads setzen."""
     await code_area.require(db)
     p = await projects.get(db, pid)
-    if body.server_stack is not None:
+    if body.server_stacks is not None:
+        projects.set_stacks(p, await _check_stacks(body.server_stacks) if body.server_stacks else [])
+    elif body.server_stack is not None:
         name = body.server_stack.strip()
-        if name and name not in {s["name"] for s in await server_stack.stacks()}:
-            raise Invalid(f"Stack „{name}“ gibt es auf dem Server nicht")
-        p.server_stack = name[:120] or None
+        projects.set_stacks(p, await _check_stacks([name]) if name else [])
+    if body.context is not None:
+        p.context = body.context.strip()
     if body.name is None:
         return ser.code_project(p)
     if not body.name.strip():
@@ -98,6 +107,19 @@ async def rename_project(pid: str, body: ProjectUpdate, db: DB):
     except Exception:
         pass
     return ser.code_project(p)
+
+
+async def _check_stacks(names: list[str]) -> list[str]:
+    names = list(dict.fromkeys(n.strip() for n in names if n and n.strip()))
+    if not names:
+        return []
+    if not server_stack.enabled():
+        raise Invalid("Das Dashboard ist nicht eingerichtet (DASHBOARD_URL fehlt)")
+    known = {s["name"] for s in await server_stack.stacks()}
+    missing = [n for n in names if n not in known]
+    if missing:
+        raise Invalid(f"Stack „{', '.join(missing)}“ gibt es auf dem Server nicht")
+    return names
 
 
 @router.get("/server-stacks")

@@ -2,7 +2,7 @@ from sqlalchemy import String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ..db import Base, Timestamps
-from ._types import new_id
+from ._types import Json, new_id
 
 
 class CodeProject(Timestamps, Base):
@@ -17,4 +17,7 @@ class CodeProject(Timestamps, Base):
     default_branch: Mapped[str] = mapped_column(String(100), default="main")
     status: Mapped[str] = mapped_column(String(10), default="ready")  # cloning | ready | error
     status_text: Mapped[str] = mapped_column(Text, default="")
-    server_stack: Mapped[str | None] = mapped_column(String(120), default=None)  # Docker-Stack auf dem Server (Dashboard), None = keiner
+    server_stack: Mapped[str | None] = mapped_column(String(120), default=None)  # erster der server_stacks (ältere Stände kannten nur einen)
+    server_stacks: Mapped[list] = mapped_column(Json, default=list)  # Docker-Stacks auf dem Server (Dashboard), die zum Projekt gehören
+    # Kontext vom Nutzer: steht in jedem Thread des Projekts im Prompt (z. B. worum es geht, Zugänge, Regeln)
+    context: Mapped[str] = mapped_column(Text, default="", server_default="")

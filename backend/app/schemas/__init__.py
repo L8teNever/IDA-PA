@@ -283,11 +283,15 @@ class ProjectCreate(BaseModel):
     name: str = ""
     repo_url: str | None = None  # clone this (https://…); with neither repo_url nor new_repo: empty local repo
     new_repo: NewRepo | None = None  # create a new GitHub repo and clone it
+    server_stacks: list[str] = Field(default_factory=list, max_length=20)  # Projekt aus Docker-Stacks des Servers (ohne Repo)
+    context: str = Field("", max_length=20_000)
 
 
 class ProjectUpdate(BaseModel):
     name: str | None = None
-    server_stack: str | None = None  # "" = keinen Stack mehr
+    server_stack: str | None = None  # "" = keinen Stack mehr (alt: nur einer)
+    server_stacks: list[str] | None = Field(None, max_length=20)  # [] = keine
+    context: str | None = Field(None, max_length=20_000)
 
 
 class Draft(BaseModel):

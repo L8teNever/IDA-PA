@@ -115,3 +115,35 @@ async def action(name: str, act: str) -> dict:
     return {"stack": name, "aktion": ACTIONS[act], "fertig": bool(j.get("done")), "ok": bool(j.get("ok")),
             "ausgabe": "\n".join(j.get("output") or [])[-LOG_MAX:],
             **({} if j.get("done") else {"hinweis": "Läuft noch im Dashboard weiter – Stand später mit server_status prüfen."})}
+
+
+# ---- Dateien des Stacks (Compose, .env) – liest und schreibt das Dashboard (mit Sicherung des alten Stands) ----
+
+async def files(name: str) -> dict:
+    s = await stack(name)
+    if not s.get("files_ok"):
+        raise Invalid(f"Die Dateien von {name} sind im Dashboard nicht erreichbar (Ordner nicht eingebunden)")
+    return {"stack": name, "ordner": s.get("dir"),
+            "dateien": [{"name": f["name"], "pfad": f["path"], "art": f["kind"], "vorhanden": f["exists"], "bytes": f.get("size", 0)} for f in s.get("files") or []]}
+
+
+async def _file(name: str, datei: str) -> dict:
+    fs = (await files(name))["dateien"]
+    want = (datei or "").strip()
+    f = next((f for f in fs if want in (f["pfad"], f["name"])), None) if want else (fs[0] if fs else None)
+    if not f:
+        raise NotFound(f"Datei {want or '?'} gehört nicht zum Stack {name} – vorhanden: " + ", ".join(x["name"] for x in fs))
+    return f
+
+
+async def read_file(name: str, datei: str) -> dict:
+    f = await _file(name, datei)
+    out = await _req("GET", f"/api/v1/stacks/{name}/file", params={"path": f["pfad"]})
+    return {"stack": name, "datei": f["name"], "pfad": f["pfad"], "vorhanden": f["vorhanden"], "inhalt": out.get("content", "")}
+
+
+async def write_file(name: str, datei: str, content: str) -> dict:
+    f = await _file(name, datei)
+    await _req("PUT", f"/api/v1/stacks/{name}/file", json={"path": f["pfad"], "content": content})
+    return {"stack": name, "datei": f["name"], "pfad": f["pfad"], "gespeichert": True,
+            "hinweis": "Gespeichert (alter Stand im Dashboard gesichert). Übernehmen mit server_aktion up."}

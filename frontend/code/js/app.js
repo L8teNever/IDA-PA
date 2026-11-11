@@ -325,7 +325,7 @@ async function addProject() {
   const gh = await api.get("/github/status").catch(() => ({}));
   let tab = gh.connected ? "repos" : "url";
   const m = openModal(`${sheetHead("Projekt hinzufügen", "add")}
-    <div class="seg-group three" id="apTabs">${[["repos", "Meine Repos"], ["new", "Neues Repo"], ["url", "Adresse / leer"]].map(([k, t]) => `<button type="button" class="seg" data-tab="${k}">${t}</button>`).join("")}</div>
+    <div class="seg-group four" id="apTabs">${[["repos", "Meine Repos"], ["new", "Neues Repo"], ["url", "Adresse / leer"], ["stacks", "Server-Stacks"]].map(([k, t]) => `<button type="button" class="seg" data-tab="${k}">${t}</button>`).join("")}</div>
     <div class="sheet-scroll" id="apBody"></div><div class="ferr" id="apErr"></div>`, { wide: true });
   const el = m.el;
   const err = (t) => { el.querySelector("#apErr").textContent = t; };
@@ -377,6 +377,23 @@ async function addProject() {
         if (!name) return err("Name fehlt");
         create({ new_repo: { name, private: el.querySelector("#apPriv").classList.contains("on"), description: f.elements.desc.value.trim() } }, e.submitter);
       };
+    } else if (tab === "stacks") {
+      body.innerHTML = `<form class="sheet-form" id="apStacks">
+        <p class="sheet-hint">Für Docker-Sachen auf dem Server, die in keinem Repo liegen (z. B. ein Minecraft-Server). Das Projekt ist ein lokaler Ordner für Notizen und Skripte;
+          die KI liest und ändert Compose und .env direkt auf dem Server, sieht Logs und Zustand und führt Befehle in den Containern aus.</p>
+        <div class="field-row"><span>Stacks (einer oder mehrere)</span><div id="apStackList" class="repo-list"><div class="side-empty">Lade …</div></div></div>
+        <label class="field-row"><span>Name (optional bei einem Stack)</span><input class="cd-input" name="name" maxlength="80" autocomplete="off"></label>
+        <label class="field-row"><span>Kontext für alle Threads (optional)</span><textarea class="cd-input" name="context" rows="4" placeholder="Worum geht es, was ist wichtig, was darf die KI nicht anfassen …"></textarea></label>
+        <div class="sheet-actions"><button class="btn-primary" type="submit"><span class="ms">check</span>Projekt anlegen</button></div></form>`;
+      const f = el.querySelector("#apStacks"), sel = new Set();
+      stackPicker(el.querySelector("#apStackList"), sel).catch((x) => { el.querySelector("#apStackList").innerHTML = `<div class="ferr">${esc(x.message)}</div>`; });
+      f.onsubmit = (e) => {
+        e.preventDefault();
+        if (!sel.size) return err("Wähl mindestens einen Stack");
+        const name = f.elements.name.value.trim();
+        if (sel.size > 1 && !name) return err("Bei mehreren Stacks braucht das Projekt einen Namen");
+        create({ name, server_stacks: [...sel], context: f.elements.context.value }, e.submitter);
+      };
     } else {
       body.innerHTML = `<form class="sheet-form" id="apUrl"><label class="field-row"><span>Repo-Adresse zum Klonen (https://…) – leer lassen für ein leeres Projekt</span><input class="cd-input" name="url" placeholder="https://github.com/name/repo" autocomplete="off"></label>
         <label class="field-row"><span>Name (optional bei Adresse)</span><input class="cd-input" name="name" maxlength="80" autocomplete="off"></label>
@@ -425,7 +442,9 @@ function drawProjectInfo() {
   if (!box || !cur) return;
   const p = cur, g = p.git || {}, files = (g.files || []).length, ready = p.status === "ready";
   box.innerHTML = `${statusLine(p) ? `<div class="info-status">${statusLine(p)}</div>` : ""}
-    <div class="kv"><span>Repo</span><b>${p.repo_url ? `<span class="mono">${esc(repoName(p.repo_url))}</span>` : "nur lokal – noch nicht auf GitHub"}</b></div>
+    <div class="kv"><span>Repo</span><b>${p.repo_url ? `<span class="mono">${esc(repoName(p.repo_url))}</span>` : stacksOf(p).length ? "kein Repo – Dateien liegen auf dem Server" : "nur lokal – noch nicht auf GitHub"}</b></div>
+    ${stacksOf(p).length ? `<div class="kv"><span>Server</span><b><span class="ms">dns</span>${esc(stacksOf(p).join(", "))}</b></div>` : ""}
+    <div class="kv"><span>Kontext</span><b><button type="button" class="link-btn" data-act="project-context">${p.context ? esc(p.context.split("\n")[0].slice(0, 80)) + (p.context.length > 80 || p.context.includes("\n") ? " …" : "") : "keiner – hinzufügen"}</button></b></div>
     ${ready ? `<div class="kv"><span>Branch</span><b><span class="ms">alt_route</span>${esc(g.branch || p.default_branch)}${g.ahead ? ` · ${g.ahead} nicht gepusht` : ""}${g.behind ? ` · ${g.behind} neuer auf GitHub` : ""}</b></div>
     <div class="kv"><span>Änderungen</span><b>${files ? `${files} Datei${files === 1 ? "" : "en"} geändert` : "keine"}</b></div>` : ""}
     ${p.git_error ? `<div class="ferr">${esc(p.git_error)}</div>` : ""}
@@ -458,7 +477,8 @@ function projectMenu(anchor) {
   const p = cur;
   popMenu(anchor, [
     { value: "rename", icon: "edit", label: "Umbenennen" },
-    { value: "stack", icon: "dns", label: "Server-Stack wählen", sub: p.server_stack ? `Jetzt: ${p.server_stack}` : "Logs, Befehle und Updates auf dem Server für die KI" },
+    { value: "context", icon: "sticky_note_2", label: "Kontext für alle Threads", sub: p.context ? p.context.split("\n")[0].slice(0, 60) : "steht in jedem Thread des Projekts" },
+    { value: "stack", icon: "dns", label: "Server-Stacks wählen", sub: stacksOf(p).length ? `Jetzt: ${stacksOf(p).join(", ")}` : "Logs, Dateien, Befehle und Updates auf dem Server für die KI" },
     ...(!p.repo_url && p.status === "ready" ? [{ value: "publish", icon: "publish", label: "Auf GitHub veröffentlichen" }] : []),
     "-",
     { value: "delete", icon: "delete", label: "Projekt löschen", sub: "Ordner und alle Threads – das Repo auf GitHub bleibt", danger: true },
@@ -467,7 +487,8 @@ function projectMenu(anchor) {
       const r = await formDialog("Projekt umbenennen", [{ name: "name", label: "Name", value: p.name, required: true, max: 80 }], { icon: "edit" });
       if (r && await attempt(() => api.patch(`/code/projects/${p.id}`, { name: r.name }), "Umbenannt")) { await loadTree().catch(() => {}); show(route); }
     }
-    if (v === "stack") chooseStack(anchor, p);
+    if (v === "stack") chooseStacks(p);
+    if (v === "context") editContext(p);
     if (v === "publish") publish();
     if (v === "delete" && await confirmDialog("Projekt löschen?", `„${p.name}“ mit allen Threads löschen? Nicht gepushte Änderungen gehen verloren. Das Repo auf GitHub bleibt.`, { ok: "Löschen", danger: true })) {
       if (await attempt(() => api.del(`/code/projects/${p.id}`), "Projekt gelöscht")) { await loadTree().catch(() => {}); navigate("/"); }
@@ -475,20 +496,52 @@ function projectMenu(anchor) {
   }, { align: "right" });
 }
 
-// Docker-Stack des Servers (über das Dashboard) für dieses Projekt: die KI im Thread sieht Status/Logs, führt Befehle aus, aktualisiert
-async function chooseStack(anchor, p) {
-  const d = await attempt(() => api.get("/code/server-stacks"));
-  if (!d) return;
-  if (!d.enabled) return toast("Das Dashboard ist nicht eingerichtet (DASHBOARD_URL fehlt)");
-  const stateText = (s) => `${s.running}/${s.total} laufen${s.services.length ? " · " + s.services.join(", ") : ""}`;
-  popMenu(anchor, [
-    { value: "", icon: "block", label: "Kein Server-Stack", on: !p.server_stack },
-    "-",
-    ...d.stacks.map((s) => ({ value: s.name, icon: s.state === "running" ? "check_circle" : "dns", label: s.name, sub: stateText(s), on: s.name === p.server_stack })),
-  ], async (v) => {
-    if (v === undefined || v === null || v === (p.server_stack || "")) return;
-    if (await attempt(() => api.patch(`/code/projects/${p.id}`, { server_stack: v }), v ? `Server-Stack: ${v}` : "Kein Server-Stack mehr")) { await loadTree().catch(() => {}); show(route); }
-  }, { align: "right" });
+const stacksOf = (p) => p.server_stacks || (p.server_stack ? [p.server_stack] : []);
+
+// Auswahl der Docker-Stacks des Servers (über das Dashboard): Liste mit Häkchen, sel = Set der gewählten Namen
+async function stackPicker(box, sel) {
+  const d = await api.get("/code/server-stacks");
+  if (!d.enabled) { box.innerHTML = `<div class="side-empty">Das Dashboard ist nicht eingerichtet (DASHBOARD_URL fehlt).</div>`; return; }
+  const list = d.stacks.filter((s) => !s.self);
+  const draw = () => {
+    box.innerHTML = list.length ? list.map((s, i) => `<button type="button" class="set-li ${sel.has(s.name) ? "on" : ""}" data-si="${i}">
+        <span class="ms">${sel.has(s.name) ? "check_box" : "check_box_outline_blank"}</span>
+        <span class="ct"><span>${esc(s.name)}</span><small>${s.total ? `${s.running}/${s.total} laufen` : "aus"}${s.services.length ? " · " + esc(s.services.join(", ")) : ""}</small></span>
+        <span class="ms ${s.state === "running" ? "c-ok" : "muted"}">${s.state === "running" ? "check_circle" : "dns"}</span></button>`).join("")
+      : `<div class="side-empty">Keine Stacks gefunden.</div>`;
+    box.querySelectorAll("[data-si]").forEach((b) => (b.onclick = () => { const n = list[+b.dataset.si].name; if (sel.has(n)) sel.delete(n); else sel.add(n); draw(); }));
+  };
+  draw();
+}
+
+// Server-Stacks des Projekts: die KI im Thread sieht Status/Logs, liest/ändert Compose und .env, führt Befehle aus, aktualisiert
+function chooseStacks(p) {
+  const sel = new Set(stacksOf(p));
+  const m = openModal(`${sheetHead("Server-Stacks", "dns")}<div class="sheet-scroll"><p class="sheet-hint">Was hier gewählt ist, kann die KI in jedem Thread des Projekts bedienen.</p>
+    <div id="csList" class="repo-list"><div class="side-empty">Lade …</div></div></div><div class="ferr" id="csErr"></div>
+    <div class="sheet-actions"><button type="button" class="btn-tonal" data-close>Abbrechen</button><button type="button" class="btn-primary" id="csOk"><span class="ms">check</span>Speichern</button></div>`, { wide: true });
+  stackPicker(m.el.querySelector("#csList"), sel).catch((x) => { m.el.querySelector("#csErr").textContent = x.message; });
+  m.el.querySelector("#csOk").onclick = async () => {
+    try {
+      await api.patch(`/code/projects/${p.id}`, { server_stacks: [...sel] });
+      m.close();
+      toast(sel.size ? `Server-Stacks: ${[...sel].join(", ")}` : "Keine Server-Stacks mehr");
+      await loadTree().catch(() => {});
+      show(route);
+    } catch (x) { m.el.querySelector("#csErr").textContent = x.message; }
+  };
+}
+
+// Kontext des Projekts: steht im Prompt jedes Threads (neue und bestehende, ab der nächsten Nachricht)
+async function editContext(p) {
+  const r = await formDialog("Kontext für alle Threads", [{ name: "context", label: "Was jeder Thread in diesem Projekt wissen soll", type: "textarea", rows: 10, value: p.context || "",
+    placeholder: "z. B. Worum es geht, Zugänge und Adressen, Regeln („nie die Welt löschen“), wie getestet wird …",
+    hint: "Gilt ab der nächsten Nachricht in jedem Thread. Leer = kein Kontext." }], { icon: "sticky_note_2" });
+  if (r === null) return;
+  if (await attempt(() => api.patch(`/code/projects/${p.id}`, { context: r.context }), r.context ? "Kontext gespeichert" : "Kontext entfernt")) {
+    await loadTree().catch(() => {});
+    show(route);
+  }
 }
 
 async function publish() {
@@ -635,6 +688,7 @@ async function onClick(e) {
       if (await attempt(() => api.put("/code/settings", { enabled: true }), "Code-Bereich an")) { await loadBoot(); await poll(); show(route); }
       return;
     case "project-menu": return projectMenu(act);
+    case "project-context": return cur && editContext(cur);
     case "publish": return publish();
     case "mode": return modeMenu(act);
     case "thread-menu": return threadMenu(act);

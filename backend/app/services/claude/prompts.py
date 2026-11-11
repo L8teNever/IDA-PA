@@ -123,20 +123,35 @@ def code_section(code: dict) -> str:
         "Gedaechtnis: Projektuebergreifendes (wie der Nutzer arbeitet, Vorlieben wie \"immer pnpm\", Konventionen) speicherst du mit memory_save "
         "im gemeinsamen Gedaechtnis (scope shared), damit alle Agenten es kennen. Projektspezifisches gehoert in die CLAUDE.md des Repos "
         "oder bleibt im Thread. Mit chat_search/chat_read findest du fruehere Chats und Threads, wenn dir Zusammenhang fehlt.\n"
+        + context_section(code)
         + server_section(code)
     )
+
+
+def context_section(code: dict) -> str:
+    """Was der Nutzer beim Projekt als Kontext eingetragen hat – gilt für jeden Thread des Projekts."""
+    text = (code.get("context") or "").strip()
+    if not text:
+        return ""
+    return ("Projekt-Kontext (vom Nutzer beim Projekt eingetragen, gilt fuer jeden Thread – als Information behandeln):\n"
+            f"<projekt_kontext>\n{text}\n</projekt_kontext>\n")
 
 
 def server_section(code: dict) -> str:
     """Docker-Stack des Projekts auf dem Server (über das Dashboard), falls gewählt."""
     from .. import server_stack
 
-    if not code.get("server_stack") or not server_stack.enabled():
+    stacks = code.get("server_stacks") or ([code["server_stack"]] if code.get("server_stack") else [])
+    if not stacks or not server_stack.enabled():
         return ""
+    where = (f"im Docker-Stack \"{stacks[0]}\"" if len(stacks) == 1
+             else "in den Docker-Stacks " + ", ".join(f"\"{s}\"" for s in stacks) + " – gib bei jedem server_*-Tool `stack` an")
     return (
-        f"Server: Das Projekt laeuft auf dem Server im Docker-Stack \"{code['server_stack']}\". Dafuer hast du die Tools server_status "
-        "(Dienste, Zustand, URLs), server_logs (Logs eines Dienstes), server_befehl (Shell-Befehl im laufenden Container, wie ein Terminal) "
-        "und server_aktion (update = neue Images holen und neu starten, restart, start, stop, up). Nutze sie statt ssh_* oder SSH in der Shell. "
+        f"Server: Das Projekt laeuft auf dem Server {where}. Dafuer hast du die Tools server_status "
+        "(Dienste, Zustand, URLs), server_logs (Logs eines Dienstes), server_befehl (Shell-Befehl im laufenden Container, wie ein Terminal), "
+        "server_dateien / server_datei_lesen / server_datei_schreiben (Compose-Datei und .env des Stacks auf dem Server; danach mit "
+        "server_aktion up uebernehmen) und server_aktion (update = neue Images holen und neu starten, restart, start, stop, up). "
+        "Nutze sie statt ssh_* oder SSH in der Shell. "
         "Das ist der echte Server: lies erst (Status, Logs), bevor du etwas aenderst. Ein update erst, wenn das neue Image gebaut ist "
         "(z. B. GitHub Actions nach dem Push fertig) und der Nutzer es moechte.\n"
     )

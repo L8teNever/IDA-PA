@@ -154,7 +154,7 @@ export function formDialog(title, fields, { ok = "Speichern", icon = "" } = {}) 
       ? `<div class="sw-row"><span class="sw-txt"><b>${esc(f.label)}</b>${f.hint ? `<small>${esc(f.hint)}</small>` : ""}</span>
           <button type="button" class="sw ${f.value ? "on" : ""}" data-sw="${f.name}" aria-label="${esc(f.label)}"></button></div>`
       : `<label class="field-row"><span>${esc(f.label)}</span>${f.type === "textarea"
-        ? `<textarea class="cd-input" name="${f.name}" rows="4" placeholder="${esc(f.placeholder || "")}">${esc(f.value || "")}</textarea>`
+        ? `<textarea class="cd-input" name="${f.name}" rows="${f.rows || 4}" placeholder="${esc(f.placeholder || "")}">${esc(f.value || "")}</textarea>`
         : `<input class="cd-input" name="${f.name}" value="${esc(f.value || "")}" placeholder="${esc(f.placeholder || "")}" autocomplete="off" maxlength="${f.max || 300}">`}
         ${f.hint ? `<small>${esc(f.hint)}</small>` : ""}</label>`).join("");
     const m = openModal(`${sheetHead(title, icon)}<form class="sheet-form" id="cdForm">${html}<div class="ferr" id="cdErr"></div>

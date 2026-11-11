@@ -8,9 +8,14 @@ CONTAINERS = [{"id": "c-app", "name": "shop-app-1", "service": "app", "image": "
               {"id": "c-db", "name": "shop-db-1", "service": "db", "image": "postgres:17", "state": "running", "status": "Up", "health": "healthy"}]
 
 
+FILES = [{"path": "/opt/stacks/shop/compose.yaml", "name": "compose.yaml", "kind": "compose", "exists": True, "size": 40},
+         {"path": "/opt/stacks/shop/.env", "name": ".env", "kind": "env", "exists": True, "size": 8}]
+
+
 class FakeDashboard:
     def __init__(self):
         self.requests: list[dict] = []
+        self.files = {"/opt/stacks/shop/compose.yaml": "services:\n  app:\n    image: ghcr.io/x/shop\n", "/opt/stacks/shop/.env": "PORT=80\n"}
         outer = self
 
         class H(BaseHTTPRequestHandler):
@@ -26,9 +31,20 @@ class FakeDashboard:
                 p = u.path
                 if p == "/api/v1/stacks":
                     return self._json([{"name": "shop", "state": "running", "running": 2, "total": 2, "containers": CONTAINERS, "self": False},
-                                       {"name": "ida", "state": "running", "running": 1, "total": 1, "containers": [], "self": True}])
+                                       {"name": "ida", "state": "running", "running": 1, "total": 1, "containers": [], "self": True},
+                                       {"name": "minecraft", "state": "stopped", "running": 0, "total": 0, "containers": [], "self": False}])
+                if p == "/api/v1/stacks/minecraft":
+                    return self._json({"name": "minecraft", "state": "stopped", "running": 0, "total": 0, "files_ok": True, "containers": [],
+                                       "dir": "/opt/stacks/minecraft", "urls": {}, "files": []})
+                if p == "/api/v1/stacks/shop/file":
+                    path = q.get("path") or (body or {}).get("path")
+                    if self.command == "PUT":
+                        outer.files[path] = body["content"]
+                        return self._json({"ok": True})
+                    return self._json({"path": path, "content": outer.files.get(path, "")})
                 if p == "/api/v1/stacks/shop":
                     return self._json({"name": "shop", "state": "running", "running": 2, "total": 2, "files_ok": True, "containers": CONTAINERS,
+                                       "dir": "/opt/stacks/shop", "files": FILES,
                                        "urls": {"c-app": [{"url": "https://shop.example.com", "access": "access"}]}})
                 if p.startswith("/api/v1/stacks/") and p.endswith("/action"):
                     return self._json({"job": {"id": "j1"}})
@@ -48,7 +64,7 @@ class FakeDashboard:
                 self.end_headers()
                 self.wfile.write(b)
 
-            do_GET = do_POST = _handle
+            do_GET = do_POST = do_PUT = _handle
 
             def log_message(self, *a):
                 pass
