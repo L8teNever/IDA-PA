@@ -307,7 +307,8 @@ async def _prepare(*, chat_id, agent_id, text, model, account_id, skill_id, file
         route = None
         if autoroute.is_auto(chat.model):  # "Auto": pick model + strength for this message
             last = next(((m.meta or {})["route"]["model"] for m in reversed(history) if m.role == "assistant" and (m.meta or {}).get("route")), None)
-            route = await autoroute.route(db, text, code_thread=bool(code), files=len(file_ids), last_model=last)
+            # mit shown: nur das bewerten, was im Chat steht (z. B. Stellas Frage) – nicht die Anleitung drumherum
+            route = await autoroute.route(db, shown or text, code_thread=bool(code), files=len(file_ids), last_model=last)
             account_id = None  # the account must fit the chosen model, not what the menu showed
         run_model = route["model"] if route else chat.model
         acc = await runs.account_or_first(db, account_id or chat.account_id or agent.account_id, run_model)

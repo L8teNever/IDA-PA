@@ -283,6 +283,9 @@ def test_stella_asks_ida_live(client, voice):
     assert asked == ["Wann ist Ostern?", "Und Pfingsten?"]  # der Chat zeigt nur die Fragen, nicht die Anweisungen an Ida
     assert all(m["meta"].get("from_agent") == "stella" for m in ida["messages"] if m["role"] == "user")  # von Stella, nicht vom Nutzer
     assert "Pfingsten" in ida["messages"][-1]["text"]  # Ida bekam die ganze Frage samt Anweisungen
+    # Auto bewertet nur Stellas Frage, nicht die Anleitung drumherum ("Nachrichten", "Mail" …): kurze Frage -> Haiku
+    routes = [m["meta"]["route"] for m in ida["messages"] if m["role"] == "assistant" and m["meta"].get("route")]
+    assert routes and all(r["model"] == "claude-haiku-5-5" and r["kind"] == "chat" for r in routes)
     empty = client.post(f"{API}/voice/internal/tool", headers=SECRET, json={"call_id": call, "name": "ida_fragen", "args": {}}).json()
     assert "error" in empty
     transcript = [{"who": "user", "text": "Frag Ida"}, {"who": "ida_frage", "text": "Wann ist Ostern?"}, {"who": "ida", "text": "Im April."},
