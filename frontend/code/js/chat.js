@@ -21,9 +21,24 @@ export function detach() {
 }
 
 const box = () => $("msgs");
+// Unten kleben: Ob mitgescrollt wird, entscheidet die Lage VOR dem Neuzeichnen (merkt sich das Scrollen des Nutzers).
+// Nachträglich gemessen wäre man nach einem großen Schub – z. B. der laufenden Antwort, die beim Öffnen von vorn
+// nachkommt – schon „weit weg vom Ende“ und bliebe mitten im Verlauf stehen.
+let stuck = true;
+const nearEnd = (b) => b.scrollHeight - b.scrollTop - b.clientHeight < 180;
+let lastTop = 0;
+document.addEventListener("scroll", (e) => {
+  const b = e.target;
+  if (b !== box()) return;
+  if (nearEnd(b)) stuck = true;
+  else if (b.scrollTop < lastTop - 4) stuck = false;  // nur echtes Hochscrollen löst – wachsender Inhalt nicht
+  lastTop = b.scrollTop;
+}, true);
 function scroll(force = false) {
   const b = box();
-  if (b && (force || b.scrollHeight - b.scrollTop - b.clientHeight < 180)) b.scrollTop = b.scrollHeight;
+  if (!b) return;
+  if (force) stuck = true;
+  if (stuck) { b.scrollTop = b.scrollHeight; lastTop = b.scrollTop; }
 }
 
 // neuer Thread in einem Projekt

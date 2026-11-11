@@ -91,7 +91,7 @@ export async function openChat(id) {
     else if (m.role === "assistant") renderBot(addBot(), m.parts, m.text, { ...m.meta, id: m.id });
     else addSys(m.text);
   }
-  box.scrollTop = box.scrollHeight;
+  scroll(true);
   // the answer is still being written (page was switched or the app closed meanwhile): follow it again
   if (c.running) follow((onEvent, signal) => followChat(c.id, onEvent, signal), c.running_since);
   else idle();
@@ -122,8 +122,8 @@ function addUser(text, skill, files, fromAgent) {
   const style = c ? ` style="--accent:${c["--accent"]};--on-accent:${c["--on-accent"]}"` : "";
   const who = by ? `<div class="msg-by"${style}><span class="msg-by-dot">${face(by)}</span>${esc(by.name)}</div>` : "";
   r.innerHTML = who + filesHtml(files) + (text || skill ? `<div class="msg me"${style}>${skill ? `<span class="skill-tag"><span class="ms">auto_fix_high</span>/${esc(skill)}</span> ` : ""}${userHtml(text)}</div>` : "");
-  r.querySelectorAll("img").forEach((i) => i.addEventListener("load", scroll, { once: true }));
-  scroll();
+  r.querySelectorAll("img").forEach((i) => i.addEventListener("load", () => scroll(), { once: true }));
+  scroll(true); // eigene Nachricht: immer ans Ende
 }
 
 function addBot() {
@@ -215,9 +215,22 @@ function renderBot(el, parts, text, meta) {
     el.insertAdjacentHTML("beforeend", `<div class="msg-meta">${routed}${meta?.ms != null ? `<span title="So lange hat die Antwort gedauert"><span class="ms">timer</span>${fmtDur(meta.ms)}</span>` : ""}</div>`);
 }
 
-function scroll() {
+// Unten kleben: entschieden wird nach dem Scrollen des Nutzers, nicht nach der Lage nach dem Neuzeichnen – sonst bleibt
+// ein geöffneter Chat, dessen laufende Antwort auf einen Schlag nachkommt, mitten im Verlauf stehen.
+let stuck = true, lastTop = 0;
+const nearEnd = (b) => b.scrollHeight - b.scrollTop - b.clientHeight < 160;
+document.addEventListener("scroll", (e) => {
+  const b = e.target;
+  if (b?.id !== "messages") return;
+  if (nearEnd(b)) stuck = true;
+  else if (b.scrollTop < lastTop - 4) stuck = false;  // nur echtes Hochscrollen löst – wachsender Inhalt nicht
+  lastTop = b.scrollTop;
+}, true);
+function scroll(force = false) {
   const b = $("messages");
-  if (b.scrollHeight - b.scrollTop - b.clientHeight < 160) b.scrollTop = b.scrollHeight;
+  if (!b) return;
+  if (force) stuck = true;
+  if (stuck) { b.scrollTop = b.scrollHeight; lastTop = b.scrollTop; }
 }
 
 // stop button: ends the answer that is running (the text so far stays)
