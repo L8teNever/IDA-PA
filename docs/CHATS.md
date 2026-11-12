@@ -29,7 +29,7 @@ Browser (chats.kulbarts.com, Cloudflare Access) ──> chats :8000 ──MCP─
   `BEEPER_API_URL`): `GET /v1/chats/{id}` liefert `imgURL` von Chat und Teilnehmern (als `file:///…` oder Windows-Pfad), die Bilder holt
   `GET /v1/assets/serve?url=…`. Der Dienst gibt sie unter `/api/v1/avatar/{chat}` (Gruppenbild bzw. andere Person) und
   `/api/v1/avatar/{chat}?user={id}` (Gruppenmitglied) aus, zwischengespeichert; ohne Bild (404) bleibt der farbige Anfangsbuchstabe.
-  In Gruppen steht das Bild an der letzten Nachricht einer Folge vom selben Absender.
+  In Gruppen steht das Bild an der letzten Nachricht einer Folge vom selben Absender. Der Name steht frei über der ersten Blase der Folge (nicht in der Blase), jede Person in eigener Farbe.
 * **Lesebestätigung:** Beeper liefert pro Nachricht `seen` ({Nutzer: Zeitpunkt}); die App zeigt bei eigenen Nachrichten ein Häkchen
   (gesendet) oder zwei mintfarbene (gelesen). Wer wann gelesen hat, zeigt langes Drücken → „Info“ (nicht mehr im Verlauf). Der offene Chat wird alle 4 s neu geholt.
 * **Senden von Dateien und Sprachnachrichten:** „+“ öffnet Fotos & Videos, Kamera, Datei (auch Einfügen und Ziehen am PC); vor dem Senden

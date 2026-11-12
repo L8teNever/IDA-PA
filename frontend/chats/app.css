@@ -642,3 +642,6 @@ body.kb .dock .recbar { margin-bottom: 8px; }
 /* Nichts darf die Seite breiter als das Display machen (sonst zeigt das Handy beim Scrollen unten einen waagerechten Balken) */
 html, body, .shell, .conv { overflow-x: clip; }
 html, body { max-width: 100%; }
+/* Gruppen: Name frei über der ersten Blase einer Folge (wie Signal), nicht mehr in der Blase */
+.gname { align-self: flex-start; max-width: min(84%, 600px); margin-top: 10px; padding: 0 0 2px 46px; font-size: 13px; font-weight: 500; line-height: 1.3; overflow-wrap: anywhere; }
+.gname + .rqrow { margin-top: 0; }

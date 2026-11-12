@@ -639,7 +639,10 @@ function stackHtml(fs) {
   return `<div class="stackw"><div class="stack" data-a="zoom" data-src="${esc(top.src)}">${fs.slice(1, 3).reverse().map((f, i) => `<img class="sk sk${i}" loading="lazy" alt="" src="${mediaUrl(f)}">`).join("")}
     <img class="pic sk-top" loading="lazy" alt="Bild"${r} src="${mediaUrl(top)}"><span class="skn">${fs.length}</span></div></div>`;
 }
-function bubble(m, tail = true, stack = null) {
+// Gruppen: Name steht wie bei Signal frei über der ersten Blase einer Folge, jede Person mit eigener Farbe
+const WHO_COLORS = ["#f28b82", "#fbbc04", "#81c995", "#78d9ec", "#8ab4f8", "#c58af9", "#ff8bcb", "#fcad70", "#a8dab5", "#d7aefb"];
+const whoColor = (k) => { let h = 0; for (const ch of String(k || "")) h = (h * 31 + ch.charCodeAt(0)) | 0; return WHO_COLORS[Math.abs(h) % WHO_COLORS.length]; };
+function bubble(m, tail = true, stack = null, head = true) {
   const visual = !m.deleted && m.files.length && m.files.every((f) => (f.kind === "image" || f.kind === "video") && !f.sticker);
   const files = stack ? stackHtml(stack) : visual && !m.pending ? `<div class="mwrap"><div class="mcol">${m.files.map((f) => fileHtml(f, CLIPS.get(m.id) || null)).join("")}</div></div>` : m.files.map((f) => fileHtml(f)).join("");
   const split = visual && !stack && (m.text || (m.links || []).some((l) => l.title || l.img));   // Bild/Video und Text: zwei Blasen
@@ -648,7 +651,8 @@ function bubble(m, tail = true, stack = null) {
   const body = m.deleted ? `<span class="gone"><span class="ms">block</span>${m.mine ? "Du hast diese Nachricht gelöscht" : "Diese Nachricht wurde gelöscht"}</span>${was}` : m.text ? `<span class="tx">${autolink(esc(m.text))}</span>` : "";
   const host = (u) => { try { return new URL(u).hostname.replace(/^www\./, ""); } catch { return ""; } };
   const links = m.deleted ? "" : (m.links || []).filter((l) => l.title || l.img).map((l) => `<a class="lp" href="${esc(l.url)}" target="_blank" rel="noopener noreferrer">${l.img ? `<img loading="lazy" alt=""${l.w && l.h ? ` style="aspect-ratio:${l.w}/${l.h}"` : ""} src="${mediaUrl({ src: l.img })}">` : ""}<span><b>${esc(l.title || host(l.url))}</b>${l.summary ? `<i>${esc(l.summary)}</i>` : ""}<small>${esc(host(l.url))}</small></span></a>`).join("");
-  const group = cur()?.type === "group" && !m.mine ? `<span class="who">${esc(clean(m.sender))}</span>` : "";
+  const group = "";
+  const name = head && cur()?.type === "group" && !m.mine && clean(m.sender) ? `<div class="gname" style="color:${whoColor(m.sender_id || m.sender)}">${esc(clean(m.sender))}</div>` : "";
   const quote = "";
   const more = "";
   const rx = m.reactions?.length ? `<div class="rx">${m.reactions.map((r) => `<span class="${r.mine ? "mine" : ""}" data-a="rx" data-id="${esc(m.id)}" data-k="${esc(r.key)}">${esc(r.key)}${r.n > 1 ? ` ${r.n}` : ""}</span>`).join("")}</div>` : "";
@@ -656,7 +660,7 @@ function bubble(m, tail = true, stack = null) {
   const face = cur()?.type === "group" && !m.mine ? (tail ? avatar(clean(m.sender), cid(m), m.sender_id) : '<span class="av gap"></span>') : "";
   const prog = m.pendingFile ? `<div class="prog"><i style="width:${Math.round((m.progress || 0) * 100)}%"></i></div>` : "";
   const mc = cur()?.merged, net = mc ? netKey((mc.find((x) => x.id === (m.chat || target())) || {}).network) : null;
-  return `${m.reply_to && !m.deleted ? replyHead(m) : ""}<div class="bw ${m.mine ? "me" : ""} ${face ? "grp" : ""} ${m.reply_to && !m.deleted ? "isrep" : ""}"${net !== null ? ` data-net="${net}"` : ""} id="m-${esc(m.id)}" data-id="${esc(m.id)}"><span class="swipe ms">reply</span>${face}${tools}<div class="bcol">${quote}${split ? `<div class="b media ${m.mine ? "me" : ""}">${group}${files}</div>` : ""}<div class="b ${m.mine ? "me" : ""} ${m.pending ? "pending" : ""} ${m.deleted ? "del" : ""} ${!split && visual && !m.text ? "media" : ""}">${split ? "" : group}${split ? "" : files}${prog}${body}${links}${rx}${tmLine(m)}</div>${more}</div><span class="st">${m.at && !m.pending ? fmtTime.format(new Date(m.at)) : ""}</span></div>`;
+  return `${name}${m.reply_to && !m.deleted ? replyHead(m) : ""}<div class="bw ${m.mine ? "me" : ""} ${face ? "grp" : ""} ${m.reply_to && !m.deleted ? "isrep" : ""}"${net !== null ? ` data-net="${net}"` : ""} id="m-${esc(m.id)}" data-id="${esc(m.id)}"><span class="swipe ms">reply</span>${face}${tools}<div class="bcol">${quote}${split ? `<div class="b media ${m.mine ? "me" : ""}">${group}${files}</div>` : ""}<div class="b ${m.mine ? "me" : ""} ${m.pending ? "pending" : ""} ${m.deleted ? "del" : ""} ${!split && visual && !m.text ? "media" : ""}">${split ? "" : group}${split ? "" : files}${prog}${body}${links}${rx}${tmLine(m)}</div>${more}</div><span class="st">${m.at && !m.pending ? fmtTime.format(new Date(m.at)) : ""}</span></div>`;
 }
 const NETS = [["snapchat", "snapchat"], ["instagram", "instagram"], ["whatsapp", "whatsapp"], ["signal", "signal"], ["telegram", "telegram"], ["discord", "discord"],
   ["messenger", "messenger"], ["facebook", "messenger"], ["gmessages", "gmessages"], ["google messages", "gmessages"], ["googlechat", "googlechat"], ["google chat", "googlechat"],
@@ -693,7 +697,8 @@ function drawMsgs({ stick = false, keepTop = false } = {}) {
       if (files.length < 2) files = null;
     }
     const n = S.msgs[j + 1];   // Bild nur an der letzten Nachricht einer Folge vom selben Absender (wie in Beeper)
-    html += bubble(m, !n || n.mine || n.sender_id !== m.sender_id || (n.at && dayKey(n.at) !== k), files);
+    const p = S.msgs[i - 1];   // Name nur an der ersten Nachricht einer Folge vom selben Absender
+    html += bubble(m, !n || n.mine || n.sender_id !== m.sender_id || (n.at && dayKey(n.at) !== k), files, !p || p.mine || p.sender_id !== m.sender_id || (p.at && dayKey(p.at) !== k));
     i = j;
   }
   box.innerHTML = html;
