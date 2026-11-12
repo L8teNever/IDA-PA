@@ -1054,7 +1054,7 @@ async function deleteMsg(m, everyone) {
 }
 const closeMenu = () => { document.getElementById("ctx")?.remove(); document.querySelectorAll(".bw.lifted").forEach((x) => x.classList.remove("lifted")); };
 document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeMenu(); });
-const gest = { w: null, x: 0, y: 0, dx: 0, t: 0, lock: false, armed: false };
+const gest = { w: null, x: 0, y: 0, dx: 0, t: 0, lock: false, armed: false, dir: 1 };
 function gestEnd() {
   clearTimeout(gest.t);
   if (gest.w) { gest.w.style.transform = ""; gest.w.classList.remove("armed", "drag"); }
@@ -1066,7 +1066,8 @@ document.addEventListener("touchstart", (e) => {
   if (!w || e.touches.length !== 1 || e.target.closest(".voice,video,.vid,a")) return;
   if (TS.open) return;
   const t = e.touches[0];
-  Object.assign(gest, { w, x: t.clientX, y: t.clientY, dx: 0, lock: false, armed: false });
+  // Fremde Nachrichten nach rechts ziehen, eigene (rechts stehend) nach links
+  Object.assign(gest, { w, x: t.clientX, y: t.clientY, dx: 0, lock: false, armed: false, dir: w.classList.contains("me") ? -1 : 1 });
   gest.t = setTimeout(() => { const m = bubbleMsg(w); if (m && !gest.lock) { gest.w = null; menu(m); } }, 450);
 }, { passive: true });
 document.addEventListener("touchmove", (e) => {
@@ -1074,13 +1075,13 @@ document.addEventListener("touchmove", (e) => {
   const t = e.touches[0], dx = t.clientX - gest.x, dy = t.clientY - gest.y;
   if (!gest.lock && (Math.abs(dy) > 10 || Math.abs(dx) > 10)) {
     clearTimeout(gest.t);
-    if (Math.abs(dx) > Math.abs(dy) * 1.4 && dx > 0) gest.lock = true; else return gestEnd();
+    if (Math.abs(dx) > Math.abs(dy) * 1.4 && dx * gest.dir > 0) gest.lock = true; else return gestEnd();
   }
   if (!gest.lock) return;
   if (e.cancelable) e.preventDefault();   // nur die eine Nachricht bewegt sich, der Chat bleibt stehen
-  gest.dx = Math.min(dx, 90);
+  gest.dx = Math.max(0, Math.min(dx * gest.dir, 90));
   gest.w.classList.add("drag");
-  gest.w.style.transform = `translateX(${gest.dx * 0.8}px)`;
+  gest.w.style.transform = `translateX(${gest.dx * 0.8 * gest.dir}px)`;
   const armed = gest.dx > 60;
   if (armed && !gest.armed) buzz(15);
   gest.armed = armed; gest.w.classList.toggle("armed", armed);
@@ -1095,7 +1096,8 @@ const TS = { x: 0, y: 0, on: false, dead: false, open: false, sx: 0, snap: false
 const TS_MAX = 64, TS_SNAP = 40;
 function tsSet(b, sx) { TS.sx = sx; b.style.setProperty("--sx", `${sx}px`); }
 document.addEventListener("touchstart", (e) => {
-  const b = e.target.closest?.("#msgs"); TS.dead = !b || e.touches.length !== 1 || !!e.target.closest(".voice,video,.vid,.rq");
+  // Auf eigenen Nachrichten ist Nach-links-Ziehen „Antworten“; Uhrzeiten dort nur schließen, nicht öffnen
+  const b = e.target.closest?.("#msgs"); TS.dead = !b || e.touches.length !== 1 || !!e.target.closest(".voice,video,.vid,.rq") || (!TS.open && !!e.target.closest(".bw.me"));
   if (TS.dead) return;
   TS.x = e.touches[0].clientX; TS.y = e.touches[0].clientY; TS.on = false; TS.snap = TS.open;
 }, { passive: true });

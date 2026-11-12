@@ -16,7 +16,7 @@ Browser (chats.kulbarts.com, Cloudflare Access) ──> chats :8000 ──MCP─
   Nur Bild-, Audio- und Videotypen werden angezeigt, alles andere (HTML, SVG …) nur als Download.
 * **Sprachnachrichten:** eigener Player (Wellenform, Tempo 1×/1,5×/2×, Spulen). Den Text liefert Beeper oft schon mit; sonst wandelt ihn das
   lokale Whisper-Modell in Beeper um (`/api/v1/transcript`).
-* **Bedienung:** Nach rechts wischen (oder Pfeil am PC) antwortet auf die Nachricht; langes Drücken am Handy bzw. Rechtsklick am PC öffnet das
+* **Bedienung:** Fremde Nachrichten nach rechts, eigene nach links wischen (oder Pfeil am PC) antwortet darauf; langes Drücken am Handy bzw. Rechtsklick am PC öffnet das
   Menü (Antworten, Text kopieren, Datei öffnen); Tippen aufs Bild öffnet die Vollansicht.
 * **Adressen für Bild und Video:** Ein geöffnetes Bild bekommt `/chat/<id>/foto/<Nachricht>` (bei mehreren Bildern in einer Nachricht `/<Nr>`),
   ein Video `/chat/<id>/video/<Nachricht>`, ein Profilbild `…/bild`. Beim Durchwischen ändert sich die Adresse mit. Zurück (auch die Taste am Handy)
