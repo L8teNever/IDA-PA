@@ -69,7 +69,42 @@ function back() {
   if (history.state?.fromList) history.back();   // davor liegt die Übersicht
   else go(null, false);
 }
-window.addEventListener("popstate", route);
+window.addEventListener("popstate", () => {
+  if (OV && !readOv()) { const c = OV; OV = null; c(); }   // Zurück-Taste schließt Bild/Video
+  route();
+  if (!OV) openFromUrl();
+});
+// Bild- und Video-Vollbild haben eine eigene Adresse (…/foto/<Nachricht>[/<Nr>], …/video/<Nachricht>, …/bild):
+// Zurück schließt sie, ein Neuladen oder ein geteilter Link öffnet sie wieder.
+let OV = null;   // Schließen-Funktion des offenen Vollbilds (ohne Verlauf anzufassen)
+const ovBase = () => urlFor(readUrl());
+const readOv = () => /^chat\/[^/]+\/(foto|video|bild)(?:\/|$)/.test(location.pathname.slice(BASE.length)) || /^bild$/.test(location.pathname.slice(BASE.length));
+function ovPath(sub) { const b = ovBase(); return `${b}${b.endsWith("/") ? "" : "/"}${sub}`; }
+function ovOpen(sub, close) {
+  const path = ovPath(sub), was = OV;
+  OV = close;
+  if (was) return history.replaceState(history.state, "", path);   // Vollbild ersetzt Vollbild
+  if (location.pathname === path) history.replaceState(history.state, "", ovBase());   // per Link geöffnet: davor liegt der Chat
+  history.pushState({ ...(history.state || {}), ov: true }, "", path);
+}
+function ovSet(sub) { if (OV) history.replaceState(history.state, "", ovPath(sub)); }
+function ovClosed() {   // über den eigenen Knopf, Wischen oder Esc geschlossen
+  if (!OV) return;
+  OV = null;
+  if (history.state?.ov) history.back(); else history.replaceState(history.state, "", ovBase());
+}
+function openFromUrl() {
+  const m = /^chat\/[^/]+\/(foto|video|bild)(?:\/([^/]+))?(?:\/(\d+))?/.exec(location.pathname.slice(BASE.length));
+  if (!m && readOv()) return history.replaceState(history.state, "", ovBase());
+  if (!m || !S.id) return;
+  const msg = m[2] && S.msgs.find((x) => x.id === decodeURIComponent(m[2]));
+  if (m[1] === "foto" && msg) {
+    const f = msg.files.filter((x) => x.kind === "image" && !x.sticker && x.src)[(+m[3] || 1) - 1];
+    if (f) return gallery(f.src);
+  }
+  if (m[1] === "video" && msg) { const el = document.getElementById(`m-${msg.id}`)?.querySelector(".vid"); if (el) return playVideo(el); }
+  history.replaceState(history.state, "", ovBase());   // nicht (mehr) im geladenen Verlauf: einfach den Chat zeigen
+}
 function route() {
   let id = readUrl();
   const g = id && grpOf(id); if (g && g.id !== id) { history.replaceState(history.state, "", urlFor(g.id)); id = g.id; }
@@ -510,6 +545,7 @@ async function openChat() {
   if (S.msgs.length) drawMsgs({ stick: true });   // sofort aus dem Speicher, Frisches kommt gleich
   if (!cur()) loadChats({ quiet: true }).then(() => { if (S.id && $(".chead")) { $(".chead").outerHTML = head(); refreshReadBar(); } });
   await loadMsgs({ first: true });
+  if (!OV) openFromUrl();
   if (matchMedia("(pointer: fine)").matches) ta.focus();
 }
 async function loadMsgs({ first = false, quiet = false, older = false } = {}) {
@@ -809,7 +845,7 @@ function playVideo(el) {
   track.addEventListener("pointerdown", (e) => { track.setPointerCapture(e.pointerId); track.classList.add("drag"); seekTo(e.clientX); });
   track.addEventListener("pointermove", (e) => { if (track.hasPointerCapture(e.pointerId)) seekTo(e.clientX); });
   track.addEventListener("pointerup", () => track.classList.remove("drag"));
-  const close = () => { wantPlay = false; vA.pause(); vB.pause(); cancelAnimationFrame(raf); d.classList.add("out"); setTimeout(() => { vA.removeAttribute("src"); vB.removeAttribute("src"); d.remove(); }, 180); };
+  const close = (fromHistory) => { if (fromHistory !== true) ovClosed(); wantPlay = false; vA.pause(); vB.pause(); cancelAnimationFrame(raf); d.classList.add("out"); setTimeout(() => { vA.removeAttribute("src"); vB.removeAttribute("src"); d.remove(); }, 180); };
   d.addEventListener("click", (e) => {
     const r = e.target.closest("[data-r]"); if (r && m) { toggleReaction(m, r.dataset.r); d.querySelector(".vp-rx").hidden = true; return toast(`${r.dataset.r} gesendet`); }
     const a = e.target.closest("[data-v]")?.dataset.v;
@@ -820,6 +856,7 @@ function playVideo(el) {
   });
   addEventListener("keydown", function k(e) { if (!d.isConnected) return removeEventListener("keydown", k); if (e.key === "Escape") close(); if (e.key === " ") { e.preventDefault(); toggle(); } });
   document.body.append(d);
+  ovOpen(m ? `video/${encodeURIComponent(m.id)}` : "bild", () => close(true));
   go(0);
 }
 // Vollbild wie in Beeper: alle Bilder des Chats, durchwischen nach links/rechts, nach unten wischen schließt
@@ -833,9 +870,9 @@ function lightbox(src, items = null, start = 0) {
     <div class="lb-track">${list.map((x) => `<div class="lb-slide"><img alt="" decoding="async" ${Math.abs(list.indexOf(x) - start) < 2 ? "" : 'loading="lazy" '}src="${x.url}"></div>`).join("")}</div>`;
   const track = d.querySelector(".lb-track"), info = d.querySelector(".lb-info"), dl = d.querySelector("[data-lb=dl]");
   let cur_ = start;
-  const show = () => { const x = list[cur_] || {}; info.innerHTML = `<b>${esc(x.who || "")}</b><small>${x.at ? `${fmtDay.format(new Date(x.at))}, ${fmtTime.format(new Date(x.at))}` : ""}${list.length > 1 ? ` · ${cur_ + 1} von ${list.length}` : ""}</small>`; dl.href = x.url; };
+  const show = () => { const x = list[cur_] || {}; ovSet(x.sub || "bild"); info.innerHTML = `<b>${esc(x.who || "")}</b><small>${x.at ? `${fmtDay.format(new Date(x.at))}, ${fmtTime.format(new Date(x.at))}` : ""}${list.length > 1 ? ` · ${cur_ + 1} von ${list.length}` : ""}</small>`; dl.href = x.url; };
   track.addEventListener("scroll", () => { const i = Math.round(track.scrollLeft / track.clientWidth); if (i !== cur_) { cur_ = i; show(); } }, { passive: true });
-  const close = () => { d.classList.add("out"); setTimeout(() => d.remove(), 180); };
+  const close = (fromHistory) => { if (fromHistory !== true) ovClosed(); d.classList.add("out"); setTimeout(() => d.remove(), 180); };
   d.addEventListener("click", (e) => { if (e.target.closest("[data-lb=close]") || e.target.classList.contains("lb-slide")) close(); });
   let y0 = null, dy = 0;   // nach unten wischen schließt
   d.addEventListener("touchstart", (e) => { y0 = e.touches.length === 1 ? e.touches[0].clientY : null; dy = 0; }, { passive: true });
@@ -844,10 +881,11 @@ function lightbox(src, items = null, start = 0) {
   addEventListener("keydown", function k(e) { if (!d.isConnected) return removeEventListener("keydown", k);
     if (e.key === "Escape") close(); if (e.key === "ArrowRight" || e.key === "ArrowLeft") track.scrollBy({ left: (e.key === "ArrowRight" ? 1 : -1) * track.clientWidth, behavior: "smooth" }); });
   document.body.append(d);
+  ovOpen(list[start]?.sub || "bild", () => close(true));
   track.scrollLeft = start * track.clientWidth; show();
 }
 function gallery(src) {   // alle Bilder des geladenen Chats, beim angetippten anfangen
-  const pics = S.msgs.flatMap((m) => m.deleted ? [] : m.files.filter((f) => f.kind === "image" && !f.sticker && f.src).map((f) => ({ src: f.src, url: mediaUrl(f), at: m.at, who: m.mine ? "Du" : clean(m.sender) || clean(cur()?.title || "") })));
+  const pics = S.msgs.flatMap((m) => m.deleted ? [] : m.files.filter((f) => f.kind === "image" && !f.sticker && f.src).map((f, n) => ({ src: f.src, url: mediaUrl(f), at: m.at, sub: `foto/${encodeURIComponent(m.id)}${n ? `/${n + 1}` : ""}`, who: m.mine ? "Du" : clean(m.sender) || clean(cur()?.title || "") })));
   const i = pics.findIndex((p) => p.src === src);
   if (i < 0) return lightbox(mediaUrl({ src }));
   lightbox(null, pics, i);

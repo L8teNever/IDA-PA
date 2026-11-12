@@ -626,3 +626,7 @@ body.kb .dock .recbar { margin-bottom: 8px; }
 .fixbar .send { flex: none; width: 40px; height: 40px; }
 .fixbar .send .ms { font-size: 20px; }
 [data-net]:not([data-net=""]) .fixbar > .ms, [data-net]:not([data-net=""]) .fixbar mark { color: var(--acc); }
+
+/* Nichts darf die Seite breiter als das Display machen (sonst zeigt das Handy beim Scrollen unten einen waagerechten Balken) */
+html, body, .shell, .conv { overflow-x: clip; }
+html, body { max-width: 100%; }
