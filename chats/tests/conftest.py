@@ -38,6 +38,7 @@ class FakeBeeper:
         self.calls: list[tuple[str, dict]] = []
         self.served: list[str] = []
         self.rest: list[tuple] = []
+        self.pinned: set[str] = {"2"}
         self.chats = CHATS
         outer = self
 
@@ -50,7 +51,13 @@ class FakeBeeper:
                 u = urlparse(self.path)
                 if self.headers.get("authorization") != "Bearer tok":
                     self.send_response(401); self.end_headers(); return
-                if u.path == "/v1/chats/7":
+                if u.path == "/v1/chats/1/messages":
+                    outer.calls.append(("rest_messages", {k: v[0] for k, v in parse_qs(u.query).items()}))
+                    out, ct = json.dumps(MSGS).encode(), "application/json"
+                elif u.path == "/v1/chats":
+                    out, ct = json.dumps({"items": [{"id": i, "title": f"Chat {i}", "accountID": "whatsapp", "type": "single", "lastActivity": "2026-11-12T10:00:00Z",
+                                                     "unreadCount": 2, "isMuted": False, "isPinned": i in outer.pinned} for i in ("1", "2", "3", "4", "5")]}).encode(), "application/json"
+                elif u.path == "/v1/chats/7":
                     out = json.dumps({"id": "7", "type": "group", "imgURL": "C:\\Users\\x\\grp.png", "participants": {"items": [
                         {"id": "@luka:x", "fullName": "Luka", "imgURL": "file:///C:/Users/x/luka.png"}, {"id": "@me:x", "isSelf": True, "imgURL": None}]}}).encode()
                     ct = "application/json"
@@ -65,6 +72,14 @@ class FakeBeeper:
                 else:
                     self.send_response(404); self.end_headers(); return
                 self.send_response(200); self.send_header("content-type", ct); self.send_header("content-length", str(len(out))); self.end_headers(); self.wfile.write(out)
+
+            def do_PATCH(self):
+                body = json.loads(self.rfile.read(int(self.headers["content-length"])))
+                outer.rest.append(("PATCH", self.path, body))
+                cid = self.path.rsplit("/", 1)[1]
+                (outer.pinned.add if body.get("isPinned") else outer.pinned.discard)(cid)
+                out = b'{"id": "x"}'
+                self.send_response(200); self.send_header("content-type", "application/json"); self.send_header("content-length", str(len(out))); self.end_headers(); self.wfile.write(out)
 
             def do_DELETE(self):
                 outer.rest.append(("DELETE", self.path, None))

@@ -25,8 +25,14 @@ def test_nachrichten(client, fake):
     # Lesebestätigung: nur bei meinen Nachrichten, ohne mich selbst, mit Namen wo bekannt
     assert d["items"][0]["read_by"] == [{"id": "@luka:x", "name": "Luka", "at": "2026-11-12T10:39:30Z"}, {"id": "@anna:x", "name": "", "at": "2026-11-12T10:39:45Z"}]
     assert d["items"][1]["read_by"] == []
+    assert fake.last("rest_messages") == {}   # schneller Weg über die REST-API
     client.get(f"{API}/chats/1/messages", params={"cursor": "8"})
-    assert fake.last("list_messages") == {"chatID": "1", "cursor": "8", "direction": "before"}
+    assert fake.last("rest_messages") == {"cursor": "8", "direction": "before"}
+    n = len(fake.calls)
+    client.get(f"{API}/chats/1/messages", params={"cursor": "8"})
+    assert len(fake.calls) == n   # ältere Seite kommt aus dem Zwischenspeicher
+    client.get(f"{API}/chats/2/messages", params={"cursor": "5"})   # REST kennt den Chat nicht → über MCP
+    assert fake.last("list_messages") == {"chatID": "2", "cursor": "5", "direction": "before"}
 
 
 def test_senden_und_antworten(client, fake):
@@ -106,6 +112,12 @@ def test_reagieren(client, fake):
     assert client.delete(f"{API}/chats/1/messages/9/react", params={"key": "❤️"}).status_code == 200
     assert fake.rest[-1][0] == "DELETE" and fake.rest[-1][1] == "/v1/chats/1/messages/9/reactions/%E2%9D%A4%EF%B8%8F"
     assert client.post(f"{API}/chats/1/messages/a%2Fb/react", json={"key": "x"}).status_code in (400, 404, 405)
+    assert client.post(f"{API}/chats/1/read").json() == {"ok": True}
+    assert fake.rest[-1] == ("POST", "/v1/chats/1/read", {})
+    assert client.post(f"{API}/chats/1/unread").json()["ok"] is True
+    assert fake.rest[-1] == ("POST", "/v1/chats/1/unread", {})
+    client.post(f"{API}/chats/1/unread", json={"message_id": "9"})
+    assert fake.rest[-1] == ("POST", "/v1/chats/1/unread", {"messageID": "9"})
 
 
 def test_bild_und_sprachnachricht_senden(client, fake, monkeypatch):
@@ -138,3 +150,14 @@ def test_bild_schon_bei_beeper_heruntergeladen(client, fake):
     for bad in ("file:///C:/Windows/win.ini", "file:///C:/Users/Docker/AppData/Roaming/BeeperTexts/media/../../secret.txt",
                 "file:///C:/Users/Docker/Desktop/x.png", "http://evil/x.png"):
         assert client.get(f"{API}/media", params={"src": bad}).status_code == 400, bad
+
+
+def test_anpinnen(client, fake):
+    d = client.get(f"{API}/pins").json()
+    assert d["max"] == 3 and [(c["id"], c["network"], c["unread"]) for c in d["items"]] == [("2", "whatsapp", 2)]
+    for i in ("1", "3"):
+        assert client.post(f"{API}/chats/{i}/pin", json={"pinned": True}).json() == {"ok": True}
+    assert fake.rest[-1] == ("PATCH", "/v1/chats/3", {"isPinned": True})
+    assert client.post(f"{API}/chats/4/pin", json={"pinned": True}).status_code == 400   # höchstens drei
+    assert client.post(f"{API}/chats/2/pin", json={"pinned": False}).status_code == 200
+    assert [c["id"] for c in client.get(f"{API}/pins").json()["items"]] == ["1", "3"]

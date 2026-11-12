@@ -24,9 +24,13 @@ function color(key) {
 }
 const letter = (t) => (String(t || "?").replace(/[^\p{L}\p{N}]/gu, "")[0] || "?");
 // Profilbild aus Beeper; fehlt es (404), bleibt der farbige Anfangsbuchstabe darunter stehen
-const avatar = (t, id, user = "") => `<span class="av" style="${color(user || id || t)}">${esc(letter(t))}${id ? `<img class="avimg" alt="" loading="lazy" decoding="async" src="${API}/avatar/${encodeURIComponent(id)}${user ? `?user=${encodeURIComponent(user)}` : ""}">` : ""}</span>`;
-document.addEventListener("error", (e) => { if (e.target.classList?.contains("avimg")) e.target.remove(); }, true);
-document.addEventListener("load", (e) => { if (e.target.classList?.contains("avimg")) e.target.classList.add("ok"); }, true);
+// Profilbilder: einmal geladen (oder fehlend) merken, damit sie beim Neuzeichnen sofort da sind statt neu einzublenden
+const AV_OK = new Set(), AV_NO = new Set();
+const avSrc = (id, user) => `${API}/avatar/${encodeURIComponent(id)}${user ? `?user=${encodeURIComponent(user)}` : ""}`;
+const avatar = (t, id, user = "") => { const u = id && avSrc(id, user), ok = AV_OK.has(u);
+  return `<span class="av" style="${color(user || id || t)}">${esc(letter(t))}${u && !AV_NO.has(u) ? `<img class="avimg${ok ? " ok" : ""}" alt="" ${ok ? "" : 'loading="lazy" '}decoding="${ok ? "sync" : "async"}" src="${u}">` : ""}</span>`; };
+document.addEventListener("error", (e) => { if (e.target.classList?.contains("avimg")) { AV_NO.add(e.target.getAttribute("src")); e.target.remove(); } }, true);
+document.addEventListener("load", (e) => { if (e.target.classList?.contains("avimg")) { AV_OK.add(e.target.getAttribute("src")); e.target.classList.add("ok"); } }, true);
 const clean = (t) => String(t || "").replace(/[­​-‏‪-‮⁠]/g, "");   // unsichtbare Zeichen in Namen
 
 async function api(path, opts = {}) {
@@ -70,9 +74,36 @@ function route() {
   const id = readUrl();
   document.body.classList.toggle("reading", !!id);
   if (id === S.id) return drawList();
-  S.id = id; S.msgs = []; S.more = false; S.reply = null;
-  drawList();
+  const c = id && MC.get(id);
+  S.id = id; S.msgs = c ? c.msgs.slice() : []; S.more = c ? c.more : false; S.oldest = c ? c.oldest : null; S.reply = null;
+  document.querySelectorAll("#list .row").forEach((r) => r.classList.toggle("sel", r.dataset.id === id));
+  if (!$("#list .row")) drawList();
   if (id) openChat(); else $("#conv").innerHTML = `<div class="conv-empty"><span class="ms">forum</span><p>Wähle einen Chat aus.</p></div>`;
+}
+
+// ---------------- Nachrichten-Zwischenspeicher ----------------
+// Pro Chat die zuletzt gesehenen Nachrichten (im Speicher und im Browser), damit ein Chat sofort da ist; danach kommt Frisches nach.
+const MC_KEY = "chats-msgs", MC_CHATS = 40, MC_MSGS = 150;
+const MC = (() => { try { return new Map(Object.entries(JSON.parse(localStorage.getItem(MC_KEY) || "{}"))); } catch { return new Map(); } })();
+let mcT;
+function cacheMsgs() {
+  if (!S.id) return;
+  const msgs = S.msgs.filter((m) => !m.pending).slice(-MC_MSGS);
+  MC.delete(S.id); MC.set(S.id, { msgs, more: S.more || msgs.length < S.msgs.length, oldest: msgs.length < S.msgs.length ? null : S.oldest });
+  while (MC.size > MC_CHATS) MC.delete(MC.keys().next().value);
+  clearTimeout(mcT);
+  mcT = setTimeout(() => { try { localStorage.setItem(MC_KEY, JSON.stringify(Object.fromEntries(MC))); } catch { /* voll: dann nur im Speicher */ } }, 800);
+}
+// Die nächste ältere Seite schon im Hintergrund holen, damit "Ältere laden" sofort geht
+const PRE = new Map();
+function prefetchOlder() {
+  if (!S.id || !S.more || !S.oldest) return;
+  const k = `${S.id}|${S.oldest}`;
+  if (PRE.has(k)) return;
+  if (PRE.size > 30) PRE.clear();
+  const p = api(`/chats/${encodeURIComponent(S.id)}/messages?cursor=${encodeURIComponent(S.oldest)}&direction=before`);
+  p.catch(() => PRE.delete(k));
+  PRE.set(k, p);
 }
 
 // ---------------- Liste ----------------
@@ -91,29 +122,111 @@ async function loadChats({ more = false, quiet = false } = {}) {
     if (seq === listSeq && !quiet) $("#list").innerHTML = errBox(e);
   }
 }
-// Gelesen-Markierung: Beeper bekommt vom Öffnen nichts mit (kein Lesebestätigung an den Absender). Der Zustand "hier gelesen" liegt nur auf diesem Gerät.
+// Gelesen-Markierung: Öffnen allein ändert in Beeper nichts. "Als gelesen markieren" markiert den Chat in Beeper als gelesen (und beim Absender, wenn das Netzwerk das kann).
+// Der lokale Merker sorgt nur dafür, dass der Chat sofort gelesen aussieht, bis Beeper die neue Ungelesen-Zahl liefert.
 const SEEN_KEY = "chats-seen";
 const seen = (() => { try { return JSON.parse(localStorage.getItem(SEEN_KEY) || "{}"); } catch { return {}; } })();
-const left = (c) => (c && c.unread && seen[c.id] !== c.unread ? c.unread : 0);   // gilt als ungelesen, bis markiert (oder neue Nachricht kommt)
+const seenKey = (c) => `${c.unread}|${c.at || ""}`;   // gilt nur, solange seitdem nichts Neues kam (sonst blieb ein Chat mit gleicher Zahl fälschlich "gelesen")
+const left = (c) => (c && c.unread && seen[c.id] !== seenKey(c) ? c.unread : 0);   // gilt als ungelesen, bis markiert (oder neue Nachricht kommt)
 function markSeen(c) {
   if (!c) return;
-  if (c.unread) seen[c.id] = c.unread; else delete seen[c.id];
+  if (c.unread) seen[c.id] = seenKey(c); else delete seen[c.id];
   try { localStorage.setItem(SEEN_KEY, JSON.stringify(seen)); } catch {}
 }
+async function markRead(c) {
+  if (!c) return;
+  const id = c.id, before = c.unread;
+  markSeen(c); refreshReadBar(); drawList();
+  try {
+    await api(`/chats/${encodeURIComponent(id)}/read`, { method: "POST", body: "{}" });
+    c.unread = 0; markSeen(c); drawList();
+  } catch (e) {
+    delete seen[id]; try { localStorage.setItem(SEEN_KEY, JSON.stringify(seen)); } catch {}
+    c.unread = before; refreshReadBar(); drawList(); toast(`Als gelesen markieren ging nicht: ${e.message}`);
+  }
+}
+async function markUnread(c, msgId) {   // in Beeper wieder ungelesen – auf Wunsch ab einer bestimmten Nachricht
+  if (!c) return;
+  const before = c.unread;
+  delete seen[c.id]; try { localStorage.setItem(SEEN_KEY, JSON.stringify(seen)); } catch {}
+  c.unread = Math.max(1, c.unread || 0); refreshReadBar(); drawList();
+  try {
+    const r = await api(`/chats/${encodeURIComponent(c.id)}/unread`, { method: "POST", body: JSON.stringify(msgId ? { message_id: msgId } : {}) });
+    if (r.unread) c.unread = r.unread;
+    refreshReadBar(); drawList(); toast("Als ungelesen markiert");
+  } catch (e) {
+    c.unread = before; markSeen(c); refreshReadBar(); drawList(); toast(`Als ungelesen markieren ging nicht: ${e.message}`);
+  }
+}
+// ---------------- Angepinnte Chats (echte Beeper-Pins, höchstens 3 – stehen immer oben) ----------------
+let PINS = (() => { try { return JSON.parse(localStorage.getItem("chats-pins") || "[]"); } catch { return []; } })(), PIN_MAX = 3;
+async function loadPins() {
+  try {
+    const d = await api("/pins");
+    PINS = d.items; PIN_MAX = d.max || 3;
+    try { localStorage.setItem("chats-pins", JSON.stringify(PINS)); } catch {}
+    drawList();
+  } catch { /* dann bleibt der letzte Stand */ }
+}
+async function togglePin(c) {
+  const on = !PINS.some((p) => p.id === c.id), before = PINS;
+  if (on && PINS.length >= PIN_MAX) return toast(`Höchstens ${PIN_MAX} Chats anpinnen – löse erst einen.`);
+  PINS = on ? [...PINS, { ...c, pinned: true }] : PINS.filter((p) => p.id !== c.id);
+  drawList();
+  try { await api(`/chats/${encodeURIComponent(c.id)}/pin`, { method: "POST", body: JSON.stringify({ pinned: on }) }); loadPins(); }
+  catch (e) { PINS = before; drawList(); toast(`${on ? "Anpinnen" : "Lösen"} ging nicht: ${e.message}`); }
+}
+function rowMenu(c) {
+  closeMenu();
+  const on = PINS.some((p) => p.id === c.id), d = document.createElement("div");
+  d.className = "ctx"; d.id = "ctx";
+  d.innerHTML = `<div class="ctx-back"></div><div class="sheet">
+    <button data-p="pin"><span class="ms">push_pin</span>${on ? "Nicht mehr anpinnen" : "Anpinnen"}</button>
+    ${left(c) ? '<button data-p="read"><span class="ms">done_all</span>Als gelesen markieren</button>' : '<button data-p="unread"><span class="ms">mark_chat_unread</span>Als ungelesen markieren</button>'}</div>`;
+  d.addEventListener("click", (e) => {
+    const p = e.target.closest("[data-p]")?.dataset.p;
+    closeMenu();
+    if (p === "pin") togglePin(c);
+    if (p === "read") markRead(c);
+    if (p === "unread") markUnread(c);
+  });
+  document.body.append(d);
+}
+const rowChat = (id) => S.chats.find((x) => x.id === id) || PINS.find((x) => x.id === id);
+let rowT, rowHeld = false;
+$("#list").addEventListener("pointerdown", (e) => {
+  const r = e.target.closest(".row"); rowHeld = false;
+  if (!r || e.pointerType === "mouse") return;
+  const x = e.clientX, y = e.clientY;
+  const stop = () => { clearTimeout(rowT); removeEventListener("pointermove", mv); removeEventListener("pointerup", stop); removeEventListener("pointercancel", stop); };
+  const mv = (m) => { if (Math.abs(m.clientX - x) > 10 || Math.abs(m.clientY - y) > 10) stop(); };
+  addEventListener("pointermove", mv); addEventListener("pointerup", stop); addEventListener("pointercancel", stop);
+  rowT = setTimeout(() => { stop(); const c = rowChat(r.dataset.id); if (c) { rowHeld = true; navigator.vibrate?.(10); rowMenu(c); } }, 480);
+});
+$("#list").addEventListener("contextmenu", (e) => {
+  const r = e.target.closest(".row"); if (!r) return;
+  e.preventDefault();
+  const c = rowChat(r.dataset.id); if (c && !$("#ctx")) rowMenu(c);
+});
 function drawList() {
-  const n = S.chats.reduce((a, c) => a + left(c), 0);
+  const pinIds = new Set(PINS.map((p) => p.id)), showPins = S.f === "all" && !S.q;
+  const pinned = showPins ? PINS.map((p) => { const c = S.chats.find((x) => x.id === p.id); if (c) c.pinned = true; return c || p; }) : [];
+  const rest = showPins ? S.chats.filter((c) => !pinIds.has(c.id)) : S.chats;
+  const n = [...pinned, ...rest].reduce((a, c) => a + left(c), 0);
   $("#sub").textContent = n ? `${n} ungelesen` : "aus Beeper";
   document.title = n ? `(${n}) Chats` : "Chats";
   if (navigator.setAppBadge) (n ? navigator.setAppBadge(n) : navigator.clearAppBadge()).catch(() => {});
-  if (!S.chats.length) { $("#list").innerHTML = `<div class="empty"><span class="ms">${S.q ? "search_off" : "forum"}</span>${S.q ? "Nichts gefunden." : "Keine Chats."}</div>`; return; }
-  $("#list").innerHTML = S.chats.map((c) => `<div class="row ${left(c) ? "unread" : ""} ${c.id === S.id ? "sel" : ""}" data-id="${esc(c.id)}">
+  if (!S.chats.length && !pinned.length) { $("#list").innerHTML = `<div class="empty"><span class="ms">${S.q ? "search_off" : "forum"}</span>${S.q ? "Nichts gefunden." : "Keine Chats."}</div>`; return; }
+  const row = (c, pin) => `<div class="row ${left(c) ? "unread" : ""} ${c.id === S.id ? "sel" : ""}" data-id="${esc(c.id)}">
       ${avatar(clean(c.title), c.id)}<div class="rmain"><div class="rtop"><span class="rtitle">${esc(clean(c.title))}</span><span class="rtime">${when(c.at)}</span></div>
-      <div class="rsub">${c.network ? `<span class="net">${esc(c.network)}</span>` : ""}${c.type === "group" ? '<span class="ms" style="font-size:16px">group</span>' : ""}${left(c) ? `<span class="cnt">${c.unread}</span>` : ""}</div></div></div>`).join("")
+      <div class="rsub">${c.network ? `<span class="net">${esc(c.network)}</span>` : ""}${c.type === "group" ? '<span class="ms" style="font-size:16px">group</span>' : ""}${pin ? '<span class="ms pin">push_pin</span>' : ""}${left(c) ? `<span class="cnt">${c.unread}</span>` : ""}</div></div></div>`;
+  $("#list").innerHTML = pinned.map((c) => row(c, true)).join("") + (pinned.length && rest.length ? '<div class="pinsep"></div>' : "") + rest.map((c) => row(c, false)).join("")
     + (S.next ? '<button class="more" id="more">Mehr laden</button>' : "");
   if (S.id && $(".chead")) refreshReadBar();
 }
 $("#list").addEventListener("click", (e) => {
   if (e.target.closest("#more")) return loadChats({ more: true });
+  if (rowHeld) { rowHeld = false; return; }
   const r = e.target.closest(".row");
   if (!r) return;
   const c = S.chats.find((x) => x.id === r.dataset.id);
@@ -127,19 +240,21 @@ $("#q").addEventListener("input", () => { clearTimeout(qT); qT = setTimeout(() =
 $("#refresh").onclick = () => { loadChats({ quiet: true }); if (S.id) loadMsgs({ quiet: true }); };
 
 // ---------------- Unterhaltung ----------------
-const cur = () => S.chats.find((c) => c.id === S.id);
+const cur = () => S.chats.find((c) => c.id === S.id) || PINS.find((c) => c.id === S.id);
 function head() {
   const c = cur(), title = clean(c?.title || "Chat");
   return `<div class="chead"><button class="icon-btn back" data-a="back" aria-label="Zurück"><span class="ms">arrow_back</span></button>${avatar(title, S.id)}
-    <div class="t"><b>${esc(title)}</b><small>${esc(c?.network || "")}${c?.type === "group" ? " · Gruppe" : ""}</small></div></div>`;
+    <div class="t"><b>${esc(title)}</b><small>${esc(c?.network || "")}${c?.type === "group" ? " · Gruppe" : ""}</small></div>
+    <button class="icon-btn" id="unseenBtn" data-a="unseen" aria-label="Als ungelesen markieren" title="Als ungelesen markieren"${left(c) ? " hidden" : ""}><span class="ms">mark_chat_unread</span></button></div>`;
 }
 function readBar(c) {
-  return left(c) ? `<div class="readbar" id="readbar"><span class="ms">visibility_off</span><div>${c.unread} ungelesen · für den Absender nicht als gelesen markiert</div><button class="chip" data-a="seen">Als gelesen markieren</button></div>` : "";
+  return left(c) ? `<div class="readbar" id="readbar"><span class="ms">visibility_off</span><div>${c.unread} ungelesen</div><button class="chip" data-a="seen">Als gelesen markieren</button></div>` : "";
 }
 function refreshReadBar() {
   const c = cur(), old = $("#readbar");
   if (old) old.remove();
   const h = $(".chead"); if (h && left(c)) h.insertAdjacentHTML("afterend", readBar(c));
+  const ub = $("#unseenBtn"); if (ub) ub.hidden = !!left(c);
 }
 async function openChat() {
   $("#conv").innerHTML = `${head()}${readBar(cur())}<div class="msgs" id="msgs"><div class="skel"></div><div class="skel"></div></div>
@@ -162,6 +277,8 @@ async function openChat() {
   conv.ondrop = (e) => { conv.classList.remove("drop"); const f = [...(e.dataTransfer?.files || [])]; if (f.length) { e.preventDefault(); pickFiles(f); } };
   ta.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey && !matchMedia("(pointer: coarse)").matches) { e.preventDefault(); $("#form").requestSubmit(); } });
   $("#form").addEventListener("submit", (e) => { e.preventDefault(); if (ta.value.trim()) send(); else startRec(); });
+  $("#conv").dataset.net = netKey(cur()?.network);
+  if (S.msgs.length) drawMsgs({ stick: true });   // sofort aus dem Speicher, Frisches kommt gleich
   if (!cur()) loadChats({ quiet: true }).then(() => { if (S.id && $(".chead")) { $(".chead").outerHTML = head(); refreshReadBar(); } });
   await loadMsgs({ first: true });
   if (matchMedia("(pointer: fine)").matches) ta.focus();
@@ -169,8 +286,13 @@ async function openChat() {
 async function loadMsgs({ first = false, quiet = false, older = false } = {}) {
   const id = S.id, seq = ++S.seq;
   try {
-    const d = await api(`/chats/${encodeURIComponent(id)}/messages${older && S.oldest ? `?cursor=${encodeURIComponent(S.oldest)}&direction=before` : ""}`);
+    const pk = older && S.oldest ? `${id}|${S.oldest}` : "";
+    if (older && !S.oldest) return;
+    const d = await (PRE.get(pk) || api(`/chats/${encodeURIComponent(id)}/messages${pk ? `?cursor=${encodeURIComponent(S.oldest)}&direction=before` : ""}`));
+    if (pk) PRE.delete(pk);
     if (id !== S.id || seq !== S.seq) return;
+    // Liegen aus dem Speicher schon ältere Nachrichten vor als die neueste Seite, bleibt deren Stand für "Ältere laden"
+    const keepOld = !older && S.oldest && S.msgs.length && d.items.length && (S.msgs[0].at || "") < (d.items[0].at || "");
     const box = $("#msgs"), atEnd = !box || box.scrollHeight - box.scrollTop - box.clientHeight < 120;
     const keep = new Map(S.msgs.map((m) => [m.id, m]));
     for (const m of d.items) keep.set(m.id, m);
@@ -179,8 +301,11 @@ async function loadMsgs({ first = false, quiet = false, older = false } = {}) {
     const landed = (m) => m.pendingFile ? m.sentAt && d.items.some((x) => x.mine && x.files.length && Date.parse(x.at) >= Date.parse(m.at) - 10000)
       : d.items.some((x) => x.mine && x.text === m.text);
     S.msgs = [...keep.values()].filter((m) => !m.pending || !landed(m)).sort((a, b) => (a.at || "").localeCompare(b.at || ""));
-    if (!older) { S.more = d.more; S.oldest = d.oldest; } else { S.more = d.more; S.oldest = d.oldest; }
+    if (!keepOld) { S.more = d.more; S.oldest = d.oldest; }
+    cacheMsgs();
+    setTimeout(prefetchOlder, 300);
     if (quiet && !first && !older && before === sig(S.msgs) && $("#msgs")?.children.length) return;   // nichts Neues: nicht neu zeichnen (Scrollstand, Player)
+    if (first && !older && before === sig(S.msgs) && $("#msgs .bw")) return;   // aus dem Speicher schon richtig gezeichnet
     drawMsgs({ stick: first || atEnd, keepTop: older });
   } catch (e) {
     if (!quiet && id === S.id) { const b = $("#msgs"); if (b) b.innerHTML = errBox(e); }
@@ -251,7 +376,7 @@ function drawMsgs({ stick = false, keepTop = false } = {}) {
     html += bubble(m, !n || n.mine || n.sender_id !== m.sender_id || (n.at && dayKey(n.at) !== k));
   });
   box.innerHTML = html;
-  box.dataset.net = netKey(cur()?.network);   // eigene Nachrichten in der Farbe des Netzwerks (Snapchat gelb, Instagram lila-rosa …)
+  $("#conv").dataset.net = netKey(cur()?.network);   // eigene Nachrichten in Netzwerkfarbe, eingehende mit Akzenten in Netzwerkfarbe
   paint();
   if (keepTop) box.scrollTop = box.scrollHeight - prevH + prevTop;
   else if (stick) { box.scrollTop = box.scrollHeight; box.querySelectorAll("img").forEach((i) => i.addEventListener("load", () => { box.scrollTop = box.scrollHeight; }, { once: true })); }
@@ -263,7 +388,8 @@ $("#conv").addEventListener("click", (e) => {
   if (a.dataset.a === "back") return back();
   if (a.dataset.a === "older") return loadMsgs({ older: true });
   if (a.dataset.a === "reply") return setReply(S.msgs.find((m) => m.id === a.dataset.id));
-  if (a.dataset.a === "seen") { markSeen(cur()); refreshReadBar(); return drawList(); }
+  if (a.dataset.a === "seen") return markRead(cur());
+  if (a.dataset.a === "unseen") return markUnread(cur());
   if (a.dataset.a === "rx") { const m = S.msgs.find((x) => x.id === a.dataset.id); return m && toggleReaction(m, a.dataset.k); }
   if (a.dataset.a === "cancel") return setReply(null);
   if (a.dataset.a === "jump") { const el = document.getElementById(`m-${a.dataset.id}`); if (el) { el.scrollIntoView({ block: "center", behavior: "smooth" }); el.classList.add("flash"); setTimeout(() => el.classList.remove("flash"), 1200); } return; }
@@ -361,6 +487,7 @@ function menu(m) {
       <button data-c="reply"><span class="ms">reply</span>Antworten</button>
       ${m.text ? '<button data-c="copy"><span class="ms">content_copy</span>Text kopieren</button>' : ""}
       ${m.files[0] ? '<button data-c="open"><span class="ms">open_in_new</span>Datei öffnen</button>' : ""}
+      ${m.mine || m.pending ? "" : '<button data-c="unread"><span class="ms">mark_chat_unread</span>Ab hier ungelesen</button>'}
     </div></div>`;
   const clone = src.cloneNode(true);
   clone.removeAttribute("id"); clone.querySelectorAll("[id]").forEach((x) => x.removeAttribute("id"));
@@ -376,6 +503,7 @@ function menu(m) {
     closeMenu();
     if (c === "reply") setReply(m);
     if (c === "copy") navigator.clipboard?.writeText(m.text).then(() => toast("Kopiert"), () => toast("Kopieren nicht möglich"));
+    if (c === "unread") markUnread(cur(), m.id);
     if (c === "open") window.open(mediaUrl(m.files[0]), "_blank", "noopener");
   });
   document.body.append(d);
@@ -650,7 +778,7 @@ function live(on) {
     try { d = JSON.parse(e.data); } catch { return; }
     if (d.type === "chat" && d.new && d.id !== S.id) toast(`Neue Nachricht von ${clean(d.title)}`, () => go(d.id));
     clearTimeout(rT);
-    rT = setTimeout(() => { loadChats({ quiet: true }); if (S.id && (!d.id || d.id === S.id)) loadMsgs({ quiet: true }); }, 250);
+    rT = setTimeout(() => { loadChats({ quiet: true }); loadPins(); if (S.id && (!d.id || d.id === S.id)) loadMsgs({ quiet: true }); }, 250);
   };
 }
 // Gelesen-Häkchen und Reaktionen im offenen Chat: ändern den Chat in der Liste nicht, darum fragt die Seite den offenen Chat alle paar Sekunden
@@ -665,3 +793,19 @@ if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js", { s
 route();
 loadChats();
 live(!document.hidden);
+
+// ---------------- Tastatur am Handy ----------------
+// Ohne das schiebt die Tastatur (vor allem am iPhone) die ganze Seite samt Kopfzeile nach oben. Die Seite wird stattdessen auf den sichtbaren Bereich gesetzt.
+if (window.visualViewport && matchMedia("(pointer: coarse)").matches) {
+  const vv = visualViewport;
+  const fit = () => {
+    const open = innerHeight - vv.height > 120 || vv.offsetTop > 0;
+    document.body.style.setProperty("--vvh", `${vv.height}px`);
+    document.body.style.setProperty("--vvt", `${vv.offsetTop}px`);
+    const was = document.body.classList.contains("kb");
+    document.body.classList.toggle("kb", open);
+    if (open) { scrollTo(0, 0); if (!was) { const b = $("#msgs"); if (b) requestAnimationFrame(() => { b.scrollTop = b.scrollHeight; }); } }
+  };
+  vv.addEventListener("resize", fit); vv.addEventListener("scroll", fit);
+}
+loadPins();

@@ -135,13 +135,40 @@ async def chats(q: str = "", unread: bool = False, inbox: str = "primary", curso
 
 @router.get("/chats/{chat_id}/messages")
 async def messages(chat_id: str, cursor: str = "", direction: str = "before"):
-    args = {"chatID": chat_id}
-    if cursor:
-        args.update(cursor=cursor[:300], direction="after" if direction == "after" else "before")
+    direction = "after" if direction == "after" else "before"
+    key = (chat_id, cursor[:300]) if cursor and direction == "before" else None
+    if key and (hit := _older.get(key)) and time.monotonic() - hit[0] < OLDER_TTL:
+        return hit[1]   # ältere Seiten ändern sich kaum: "Ältere laden" kommt dann sofort
+    d = await fetch_messages(chat_id, cursor[:300], direction)
+    out = shape_messages(d)
+    if key:
+        if len(_older) > 400:
+            _older.clear()
+        _older[key] = (time.monotonic(), out)
+    return out
+
+
+OLDER_TTL = 600
+_older: dict[tuple[str, str], tuple[float, dict]] = {}
+
+
+async def fetch_messages(chat_id: str, cursor: str, direction: str) -> dict:
+    """Erst die REST-API von Beeper (JSON, ~100 ms), sonst über MCP (gleiche Daten, langsamer)."""
+    params = {"cursor": cursor, "direction": direction} if cursor else {}
     try:
-        d = json.loads(await call(beeper().text, "list_messages", args))
+        r = await rest_get(f"/v1/chats/{quote(chat_id, safe='')}/messages", **params)
+        if r.status_code == 200 and isinstance((d := r.json()), dict) and "items" in d:
+            return d
+    except (HTTPException, ValueError):
+        pass
+    args = {"chatID": chat_id, **params}
+    try:
+        return json.loads(await call(beeper().text, "list_messages", args))
     except ValueError as e:
         raise HTTPException(502, "Beeper: unerwartete Antwort") from e
+
+
+def shape_messages(d: dict) -> dict:
     raw = d.get("items", [])
     me = {m["senderID"] for m in raw if m.get("isSender") and m.get("senderID")}
     names = {m["senderID"]: m["senderName"] for m in raw if m.get("senderID") and m.get("senderName") and not m.get("isSender")}
@@ -386,6 +413,74 @@ async def unreact(chat_id: str, msg_id: str, key: str):
         raise HTTPException(400, "Ungültige Reaktion")
     await rest_call("DELETE", f"/v1/chats/{quote(chat_id, safe='')}/messages/{quote(msg_id, safe='')}/reactions/{quote(key, safe='')}")
     return {"ok": True}
+
+
+@router.post("/chats/{chat_id}/read")
+async def mark_read(chat_id: str):
+    """Chat in Beeper als gelesen markieren – damit auch in Beeper und (je nach Netzwerk) beim Absender."""
+    check_ids(chat_id)
+    await rest_call("POST", f"/v1/chats/{quote(chat_id, safe='')}/read", {})
+    return {"ok": True}
+
+
+# ---------------- Angepinnte Chats (echte Beeper-Pins, also auch in Beeper selbst oben) ----------------
+PIN_MAX = 3
+PINS_TTL = 60
+_pins: tuple[float, list[dict]] | None = None
+
+
+async def pinned() -> list[dict]:
+    """Angepinnte Chats aus der REST-Liste von Beeper (die Textliste über MCP kennt Pins nicht)."""
+    global _pins
+    if _pins and time.monotonic() - _pins[0] < PINS_TTL:
+        return _pins[1]
+    r = await rest_get("/v1/chats", limit=200)
+    if r.status_code != 200:
+        raise HTTPException(502, "Beeper: Chats nicht lesbar")
+    out = [{"id": c["id"], "title": (c.get("title") or "").strip(), "network": (c.get("accountID") or c.get("network") or "").lower(),
+            "type": c.get("type") or "", "at": c.get("lastActivity") or "", "unread": int(c.get("unreadCount") or 0),
+            "muted": bool(c.get("isMuted")), "pinned": True}
+           for c in r.json().get("items", []) if c.get("isPinned") and c.get("id")]
+    _pins = (time.monotonic(), out)
+    return out
+
+
+@router.get("/pins")
+async def pins():
+    return {"items": await pinned(), "max": PIN_MAX}
+
+
+class Pin(BaseModel):
+    pinned: bool
+
+
+@router.post("/chats/{chat_id}/pin")
+async def pin(chat_id: str, body: Pin):
+    global _pins
+    check_ids(chat_id)
+    if body.pinned:
+        now = await pinned()
+        if chat_id not in {c["id"] for c in now} and len(now) >= PIN_MAX:
+            raise HTTPException(400, f"Höchstens {PIN_MAX} Chats anpinnen")
+    await rest_call("PATCH", f"/v1/chats/{quote(chat_id, safe='')}", {"isPinned": body.pinned})
+    _pins = None
+    return {"ok": True}
+
+
+class Unread(BaseModel):
+    message_id: str | None = None   # ab dieser Nachricht ungelesen; leer = nur den Chat als ungelesen markieren
+
+
+@router.post("/chats/{chat_id}/unread")
+async def mark_unread(chat_id: str, body: Unread | None = None):
+    """Chat in Beeper wieder als ungelesen markieren (optional ab einer bestimmten Nachricht)."""
+    check_ids(chat_id)
+    mid = body.message_id if body else None
+    if mid:
+        check_ids(mid)
+    chat = await rest_call("POST", f"/v1/chats/{quote(chat_id, safe='')}/unread", {"messageID": mid} if mid else {})
+    n = chat.get("unreadCount") if isinstance(chat, dict) else None
+    return {"ok": True, "unread": n if isinstance(n, int) else None}
 
 
 # ---------------- Dateien und Sprachnachrichten senden (REST-API von Beeper Desktop) ----------------

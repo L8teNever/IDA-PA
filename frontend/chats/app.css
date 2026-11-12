@@ -11,6 +11,7 @@ button { cursor: pointer; font: inherit; }
 .top-sub { font-size: 13px; color: var(--muted); }
 .icon-btn { width: 44px; height: 44px; border: 0; background: none; color: var(--on-surface); border-radius: 50%; display: grid; place-items: center; flex: none; }
 .icon-btn:hover { background: var(--surface-high); }
+.icon-btn[hidden] { display: none; }
 .tools { padding: 4px 12px 8px; }
 .search { height: 48px; display: flex; align-items: center; gap: 10px; padding: 0 16px; border-radius: 24px; background: var(--surface-high); color: var(--muted); }
 .search input { flex: 1; min-width: 0; border: 0; outline: 0; background: none; color: var(--on-surface); font: inherit; font-size: 16px; }
@@ -208,7 +209,7 @@ a.file small { color: var(--muted); }
 /* ---------- Eigene Nachrichten in den Farben des Netzwerks (die der anderen bleiben grau) ----------
    --nb Hintergrund, --nf Schrift, --nc Farbe fürs Play-Symbol, --no Fläche für Zitate/Chips (dunkel auf hell, hell auf dunkel) */
 [data-net=snapchat]   { --nb: #fffc00; --nf: #111; --nc: #fffc00; --no: rgba(0,0,0,.12); }
-[data-net=instagram]  { --nb: linear-gradient(135deg, #833ab4 0%, #c13584 55%, #e1306c 100%); --nf: #fff; --nc: #c13584; --no: rgba(255,255,255,.18); }
+[data-net=instagram]  { --na: #e1306c; --nb: linear-gradient(135deg, #833ab4 0%, #c13584 55%, #e1306c 100%); --nf: #fff; --nc: #c13584; --no: rgba(255,255,255,.18); }
 [data-net=whatsapp]   { --nb: #1daa61; --nf: #fff; --nc: #1daa61; --no: rgba(255,255,255,.18); }
 [data-net=signal]     { --nb: #3a76f0; --nf: #fff; --nc: #3a76f0; --no: rgba(255,255,255,.18); }
 [data-net=telegram]   { --nb: #2aabee; --nf: #fff; --nc: #2aabee; --no: rgba(255,255,255,.2); }
@@ -216,10 +217,10 @@ a.file small { color: var(--muted); }
 [data-net=messenger]  { --nb: linear-gradient(135deg, #0099ff 0%, #a033ff 60%, #ff5280 100%); --nf: #fff; --nc: #a033ff; --no: rgba(255,255,255,.18); }
 [data-net=gmessages]  { --nb: #0b57d0; --nf: #fff; --nc: #0b57d0; --no: rgba(255,255,255,.18); }
 [data-net=googlechat] { --nb: #1e8e3e; --nf: #fff; --nc: #1e8e3e; --no: rgba(255,255,255,.18); }
-[data-net=slack]      { --nb: #4a154b; --nf: #fff; --nc: #4a154b; --no: rgba(255,255,255,.16); }
+[data-net=slack]      { --na: #e01e5a; --nb: #4a154b; --nf: #fff; --nc: #4a154b; --no: rgba(255,255,255,.16); }
 [data-net=linkedin]   { --nb: #0a66c2; --nf: #fff; --nc: #0a66c2; --no: rgba(255,255,255,.18); }
 [data-net=x]          { --nb: #e7e9ea; --nf: #0f1419; --nc: #e7e9ea; --no: rgba(0,0,0,.1); }
-[data-net=imessage]   { --nb: #3b3b3d; --nf: #fff; --nc: #3b3b3d; --no: rgba(255,255,255,.14); }
+[data-net=imessage]   { --na: #0a84ff; --nb: #3b3b3d; --nf: #fff; --nc: #3b3b3d; --no: rgba(255,255,255,.14); }
 [data-net]:not([data-net=""]) .b.me { background: var(--nb); color: var(--nf); }
 [data-net]:not([data-net=""]) .b.me .who, [data-net]:not([data-net=""]) .b.me .quote b { color: inherit; font-weight: 600; }
 [data-net]:not([data-net=""]) .b.me .tm, [data-net]:not([data-net=""]) .b.me .file { color: inherit; opacity: .7; }
@@ -234,3 +235,31 @@ a.file small { color: var(--muted); }
 [data-net]:not([data-net=""]) .b.me .vtext { border-top-color: color-mix(in srgb, currentColor 25%, transparent); }
 [data-net]:not([data-net=""]) .b.me .tm { opacity: .75; }
 [data-net]:not([data-net=""]) .b.me .tm .tick.read { color: inherit; opacity: 1; }
+/* Eingehende Nachrichten: Blase bleibt, nur die Akzente (Name, Zitat, Links, Sprachnachricht, Antworten) in Netzwerkfarbe */
+[data-net]:not([data-net=""]) { --acc: var(--na, var(--nc)); }
+[data-net]:not([data-net=""]) .b:not(.me) .who, [data-net]:not([data-net=""]) .b:not(.me) a,
+[data-net]:not([data-net=""]) .b:not(.me) .quote b, [data-net]:not([data-net=""]) .replybar b,
+[data-net]:not([data-net=""]) .replybar > .ms { color: var(--acc); }
+[data-net]:not([data-net=""]) .b:not(.me) .quote { border-left-color: var(--acc); }
+[data-net]:not([data-net=""]) .b:not(.me) .play { background: var(--nb); color: var(--nf); }
+[data-net]:not([data-net=""]) .b:not(.me) .wave i.on { background: var(--acc); }
+[data-net]:not([data-net=""]) .b:not(.me) .rx span.mine { outline-color: var(--acc); }
+[data-net]:not([data-net=""]) .b:not(.me) .vtbtn.has { background: color-mix(in srgb, var(--acc) 25%, transparent); }
+[data-net]:not([data-net=""]) .bw.flash .b { outline-color: var(--acc); }
+[data-net]:not([data-net=""]) .bw.armed .swipe { background: var(--nb); color: var(--nf); }
+/* Tastatur am Handy: die Seite bleibt fest und wird nur so hoch wie der sichtbare Bereich – Kopfzeile bleibt oben, Eingabe sitzt über der Tastatur */
+html, body { overscroll-behavior: none; }
+body.kb { position: fixed; left: 0; right: 0; top: var(--vvt, 0px); height: var(--vvh, 100dvh); min-height: 0; overflow: hidden; }
+body.kb .composer, body.kb .recbar { padding-bottom: 8px; }
+/* Angepinnte Chats: immer oben, mit Pin-Zeichen und einer feinen Linie darunter */
+.rsub .pin { font-size: 15px; color: var(--accent); }
+.rsub .pin + .cnt { margin-left: 0; }
+.rsub .pin { margin-left: auto; }
+.pinsep { height: 1px; margin: 6px 16px; background: var(--line); }
+.row { -webkit-touch-callout: none; user-select: none; }
+/* Lange Chatnamen dürfen die Liste nicht breiter als das Display machen */
+.side { min-width: 0; overflow: hidden; }
+.list { overflow-x: hidden; }
+.rtitle { min-width: 0; flex: 1; }
+.rtime { flex: none; }
+@media (max-width: 860px) { .shell { grid-template-columns: minmax(0, 1fr); } }
