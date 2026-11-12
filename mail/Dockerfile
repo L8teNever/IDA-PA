@@ -21,8 +21,8 @@ COPY frontend/css/tokens.css frontend/css/components.css /app/frontend/css/
 COPY frontend/fonts/ /app/frontend/fonts/
 COPY frontend/js/ui/dom.js /app/frontend/js/ui/dom.js
 
-RUN useradd --create-home --uid 1000 mail && chown -R mail:mail /app
-USER mail
+RUN useradd --create-home --uid 1000 ida && chown -R ida:ida /app
+USER ida
 EXPOSE 8000
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
