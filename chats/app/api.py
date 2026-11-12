@@ -857,8 +857,28 @@ async def mark_read(chat_id: str):
     """Chat in Beeper als gelesen markieren – damit auch in Beeper und (je nach Netzwerk) beim Absender."""
     check_ids(chat_id)
     for c in group_members(chat_id) or [chat_id]:   # zusammengeführt: alle Chats der Gruppe
-        await rest_call("POST", f"/v1/chats/{quote(c, safe='')}/read", {})
+        await beeper_read(c)
     return {"ok": True}
+
+
+async def newest_incoming(chat_id: str) -> str | None:
+    """ID der neuesten Nachricht vom Gegenüber (nicht von mir) – darauf zeigt die Lesebestätigung."""
+    try:
+        r = await rest_get(f"/v1/chats/{quote(chat_id, safe='')}/messages")
+        items = r.json().get("items") or [] if r.status_code < 400 else []
+    except (HTTPException, ValueError):
+        return None
+    for m in items:
+        if not m.get("isSender") and m.get("id") and re.match(r"^[\w!:.@=+$-]{1,300}$", str(m["id"])):
+            return str(m["id"])
+    return None
+
+
+async def beeper_read(chat_id: str) -> None:
+    """In Beeper gelesen markieren – ausdrücklich bis zur neuesten Nachricht. Ohne Nachrichten-ID setzt Beeper bei manchen
+    Netzwerken nur den Chat zurück; mit ID geht eine echte Lesebestätigung raus, und bei Snapchat gilt der Snap damit als geöffnet."""
+    mid = await newest_incoming(chat_id)
+    await rest_call("POST", f"/v1/chats/{quote(chat_id, safe='')}/read", {"messageID": mid} if mid else {})
 
 
 # ---------------- Angepinnte Chats (echte Beeper-Pins, also auch in Beeper selbst oben) ----------------

@@ -5,7 +5,6 @@ alle PUSH_POLL_S Sekunden und schickt bei neuen ungelesenen Nachrichten eine Mel
 import asyncio
 import logging
 import re
-from urllib.parse import quote
 
 from . import api, bus, push, store
 from .api import archive, beeper, parse_chats
@@ -42,7 +41,7 @@ async def check(state: dict) -> None:
             more_unread = c["unread"] > (before[1] if before else 0)
             if more_unread and push.autoread_of(c["id"], ar) == "always":   # sofort gelesen: keine Meldung, in Beeper gelesen
                 try:
-                    await api.rest_call("POST", f"/v1/chats/{quote(c['id'], safe='')}/read", {})
+                    await api.beeper_read(c['id'])
                     c["unread"] = 0
                     sig[c["id"]] = (c["at"], 0)
                     bus.publish({"type": "chat", "id": c["id"], "title": c["title"], "new": False, "unread": 0, "at": c["at"]})

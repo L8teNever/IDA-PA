@@ -113,7 +113,7 @@ def test_reagieren(client, fake):
     assert fake.rest[-1][0] == "DELETE" and fake.rest[-1][1] == "/v1/chats/1/messages/9/reactions/%E2%9D%A4%EF%B8%8F"
     assert client.post(f"{API}/chats/1/messages/a%2Fb/react", json={"key": "x"}).status_code in (400, 404, 405)
     assert client.post(f"{API}/chats/1/read").json() == {"ok": True}
-    assert fake.rest[-1] == ("POST", "/v1/chats/1/read", {})
+    assert fake.rest[-1] == ("POST", "/v1/chats/1/read", {"messageID": "9"})   # bis zur neuesten fremden Nachricht (Snap = geöffnet)
     assert client.post(f"{API}/chats/1/unread").json()["ok"] is True
     assert fake.rest[-1] == ("POST", "/v1/chats/1/unread", {})
     client.post(f"{API}/chats/1/unread", json={"message_id": "9"})

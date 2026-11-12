@@ -45,7 +45,7 @@ Browser (chats.kulbarts.com, Cloudflare Access) ──> chats :8000 ──MCP─
   Die Beeper-API hat kein echtes Weiterleiten: Der Dienst holt die Anhänge bei Beeper und sendet alles im Zielchat neu –
   beim Empfänger steht deshalb kein „Weitergeleitet“.
 * **Grenzen von Beeper-MCP** (nicht der App): Kein Werkzeug für Reaktionen, Dateien und Gelesen-Markieren –
-  dafür nutzt die App die REST-API. „Als gelesen markieren“ geht über `/v1/chats/{id}/read` (auch in Beeper gelesen), „Als ungelesen markieren“
+  dafür nutzt die App die REST-API. „Als gelesen markieren“ geht über `/v1/chats/{id}/read` mit der ID der neuesten fremden Nachricht (echte Lesebestätigung, auch in Beeper gelesen; bei Snapchat gilt der Snap damit als geöffnet – einen eigenen „Snap öffnen“-Befehl hat die API nicht), „Als ungelesen markieren“
   (Knopf oben im Chat, „Ab hier ungelesen“ im Menü einer Nachricht) über `/v1/chats/{id}/unread`. Öffnen und Lesen allein markiert nichts. Der Knopf „Als gelesen markieren“ sitzt wie in Beeper als Pille unten über dem Eingabefeld, über der ersten ungelesenen Nachricht steht eine Trennlinie „N ungelesen“. Umfragen sind noch nicht eingebaut.
 * **Schnell laden:** Nachrichten kommen über die REST-API (`GET /v1/chats/{id}/messages`, ~100 ms), nur wenn die nicht geht über MCP.
   Ältere Seiten hält der Dienst 10 Minuten im Speicher; die Seite holt die nächste ältere Seite schon im Hintergrund („Ältere laden“ ist sofort da)
