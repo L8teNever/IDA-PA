@@ -345,5 +345,6 @@ def test_snap_oeffnen(monkeypatch):
         await asyncio.gather(*api._open_tasks)
 
     asyncio.run(run())
-    assert calls == [("/v1/chats/7/read", {"messageID": "2"}), ("/v1/chats/8/read", {"messageID": "2"}),
-                     ("/v1/focus", {"chatID": "7", "messageID": "2"}), ("/v1/focus", {"chatID": "5"})]   # WhatsApp: nur gelesen
+    # WhatsApp: nur gelesen. Snapchat: erst öffnen (noch ungelesen), dann gelesen, dann Park-Chat
+    assert calls == [("/v1/chats/8/read", {"messageID": "2"}), ("/v1/focus", {"chatID": "7", "messageID": "2"}),
+                     ("/v1/chats/7/read", {"messageID": "2"}), ("/v1/focus", {"chatID": "5"})]

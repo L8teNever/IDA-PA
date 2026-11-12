@@ -880,18 +880,24 @@ async def newest_incoming(chat_id: str) -> tuple[str | None, str]:
 
 async def beeper_read(chat_id: str) -> None:
     """In Beeper gelesen markieren – ausdrücklich bis zur neuesten Nachricht. Snapchat reicht das nicht: dort gilt ein Snap
-    erst als geöffnet, wenn der Chat in Beeper Desktop wirklich aufgeht – das stößt open_in_beeper zusätzlich an."""
+    erst als geöffnet, wenn der Chat in Beeper Desktop wirklich aufgeht, und zwar solange er noch ungelesen ist. Deshalb
+    öffnet open_in_beeper den Chat ZUERST und markiert erst danach als gelesen."""
     mid, net = await newest_incoming(chat_id)
-    await rest_call("POST", f"/v1/chats/{quote(chat_id, safe='')}/read", {"messageID": mid} if mid else {})
     if mid and any(n in net for n in OPEN_NETS):
         t = asyncio.create_task(open_in_beeper(chat_id, mid))
         _open_tasks.add(t)
         t.add_done_callback(_open_tasks.discard)
+        return
+    await send_read(chat_id, mid)
+
+
+async def send_read(chat_id: str, mid: str | None) -> None:
+    await rest_call("POST", f"/v1/chats/{quote(chat_id, safe='')}/read", {"messageID": mid} if mid else {})
 
 
 # ---------------- Chat in Beeper Desktop öffnen (Snapchat: erst dadurch gilt der Snap beim Absender als geöffnet) ----------------
 OPEN_NETS = ("snapchat",)      # Netzwerke, bei denen "gelesen" allein nicht beim Absender ankommt
-OPEN_HOLD_S = 2.5              # so lange bleibt der Chat in Beeper Desktop offen, bevor der Park-Chat drankommt
+OPEN_HOLD_S = 4.0              # so lange bleibt der Chat in Beeper Desktop offen, bevor der Park-Chat drankommt
 _open_lock = asyncio.Lock()    # Beeper Desktop zeigt nur einen Chat – nacheinander öffnen
 _open_tasks: set = set()
 _park: dict = {}
@@ -915,16 +921,25 @@ async def park_chat() -> str:
 
 
 async def open_in_beeper(chat_id: str, msg_id: str) -> None:
-    """Chat in Beeper Desktop öffnen (wie von Hand), kurz offen lassen, dann auf den Park-Chat wechseln."""
+    """Chat in Beeper Desktop öffnen (wie von Hand), solange er noch ungelesen ist – nur dann meldet Beeper den Snap als
+    geöffnet. Kurz offen lassen, dann gelesen markieren und auf den Park-Chat wechseln."""
     async with _open_lock:
         try:
             await rest_call("POST", "/v1/focus", {"chatID": chat_id, "messageID": msg_id})
             await asyncio.sleep(OPEN_HOLD_S)
+            # Kontrolle fürs Log: Steht der Chat jetzt schon auf 0 ungelesen, hat Beeper Desktop ihn wirklich geöffnet
+            r = await rest_get(f"/v1/chats/{quote(chat_id, safe='')}")
+            n = r.json().get("unreadCount") if r.status_code < 400 else None
+            log.info("Chat %s in Beeper geöffnet – danach ungelesen: %s (0 = Beeper hat ihn selbst als geöffnet gemeldet)", chat_id, n)
+        except (HTTPException, ValueError) as e:
+            log.warning("Chat %s in Beeper öffnen fehlgeschlagen: %s", chat_id, getattr(e, "detail", e))
+        try:
+            await send_read(chat_id, msg_id)     # auch wenn das Öffnen scheitert: gelesen wird immer markiert
             park = await park_chat()
             if park and park != chat_id:
                 await rest_call("POST", "/v1/focus", {"chatID": park})
         except HTTPException as e:
-            log.warning("Chat %s in Beeper öffnen fehlgeschlagen: %s", chat_id, e.detail)
+            log.warning("Chat %s gelesen markieren/parken fehlgeschlagen: %s", chat_id, e.detail)
 
 
 # ---------------- Angepinnte Chats (echte Beeper-Pins, also auch in Beeper selbst oben) ----------------
