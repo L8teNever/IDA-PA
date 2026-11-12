@@ -642,17 +642,18 @@ function head() {
     <div class="t"><b>${esc(title)}</b><small>${esc(c?.network || "")}${c?.type === "group" ? " · Gruppe" : ""}</small></div></div></div>`;
 }
 function readBar(c) {
-  return left(c) ? `<div class="readbar" id="readbar"><span class="ms">visibility_off</span><div>${c.unread} ungelesen</div><button class="chip" data-a="seen">Als gelesen markieren</button></div>` : "";
+  return left(c) ? `<div class="readbar" id="readbar"><button class="chip" data-a="seen">Als gelesen markieren</button></div>` : "";
 }
 function refreshReadBar() {
   const c = cur(), old = $("#readbar");
   if (old) old.remove();
-  const h = $(".chead"); if (h && left(c)) h.insertAdjacentHTML("afterend", readBar(c));
+  if (!left(c)) $("#unsep")?.remove();
+  const d = $("#dock"); if (d && left(c)) d.insertAdjacentHTML("afterbegin", readBar(c));
   const ub = $("#unseenBtn"); if (ub) ub.hidden = !!left(c);
 }
 async function openChat() {
-  $("#conv").innerHTML = `${head()}${readBar(cur())}<div class="msgs" id="msgs"><div class="skel"></div><div class="skel"></div></div>
-    <div class="dock" id="dock"><div class="fixbar float" id="fixbar" hidden></div><div class="replybar float" id="replybar" hidden></div><form class="composer" id="form">
+  $("#conv").innerHTML = `${head()}<div class="msgs" id="msgs"><div class="skel"></div><div class="skel"></div></div>
+    <div class="dock" id="dock">${readBar(cur())}<div class="fixbar float" id="fixbar" hidden></div><div class="replybar float" id="replybar" hidden></div><form class="composer" id="form">
     <button class="icon-btn attach" id="attachBtn" type="button" aria-label="Anhängen" title="Foto, Video oder Datei"><span class="ms">add</span></button>
     <div class="inwrap"><button class="tochip" id="toBtn" type="button" aria-label="Senden an …" hidden></button>
     <textarea id="txt" rows="1" placeholder="Nachricht" enterkeyhint="send"></textarea></div>
@@ -837,8 +838,12 @@ function drawMsgs({ stick = false, keepTop = false } = {}) {
   let last = "", html = S.more ? '<button class="older" data-a="older">Ältere laden</button>' : "";
   if (!S.msgs.length) html += '<div class="empty">Noch keine Nachrichten.</div>';
   const lastMine = [...S.msgs].reverse().find((m) => m.mine && !m.deleted && !m.pending)?.id;
+  // Trennlinie über der ersten ungelesenen Nachricht (wie in Beeper), solange der Chat nicht als gelesen markiert ist
+  let unFrom = -1;
+  { const cc = cur(), nu = left(cc); if (nu) { let k = 0; for (let x = S.msgs.length - 1; x >= 0; x--) { if (S.msgs[x].mine) { unFrom = x + 1; break; } unFrom = x; if (++k === nu) break; } if (unFrom >= S.msgs.length) unFrom = -1; } }
   for (let i = 0; i < S.msgs.length; i++) {
     const m = S.msgs[i];
+    if (unFrom >= 0 && i >= unFrom) { html += `<div class="unsep" id="unsep"><span>${left(cur())} ungelesen</span></div>`; unFrom = -1; }
     const k = m.at ? dayKey(m.at) : last;
     if (k !== last) { last = k; html += `<div class="day">${esc(fmtDay.format(new Date(m.at)))}</div>`; }
     let j = i, files = null;   // Bilder-Folge vom selben Absender innerhalb von 3 Minuten → ein Stapel

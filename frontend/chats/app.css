@@ -416,9 +416,11 @@ body.kb .composer, body.kb .recbar { padding-bottom: 8px; }
 .chead .cinfo .t { flex: 0 1 auto; min-width: 0; }
 .chead .cinfo .t b { line-height: 1.2; }
 .chead .cinfo .t small { display: block; line-height: 1.2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.readbar { position: absolute; z-index: 4; top: calc(env(safe-area-inset-top) + 66px); left: 50%; transform: translateX(-50%); width: max-content; max-width: calc(100% - 24px);
-  border: 0; border-radius: 999px; padding: 6px 6px 6px 14px; background: color-mix(in srgb, var(--surface-high) 82%, transparent); -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px);
-  box-shadow: 0 4px 18px rgba(0,0,0,.35); animation: slideup .22s var(--ease-out, ease); }
+.readbar { display: flex; justify-content: center; padding: 2px 10px 0; background: none; border: 0; animation: slideup .22s var(--ease-out, ease); }
+.readbar .chip { border: 1px solid var(--line); background: color-mix(in srgb, var(--surface) 70%, transparent); -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px);
+  color: var(--accent); border-radius: 999px; padding: 10px 26px; font-size: 14px; font-weight: 500; box-shadow: none; }
+.unsep { display: flex; align-items: center; gap: 10px; margin: 12px -4px 6px; font-size: 12px; color: var(--muted); }
+.unsep::before, .unsep::after { content: ""; flex: 1; height: 1px; background: var(--line); }
 .msgs { padding-top: calc(env(safe-area-inset-top) + 72px); padding-bottom: calc(var(--dockh, 76px) + 8px); }
 .dock { position: absolute; left: 0; right: 0; bottom: 0; z-index: 5; pointer-events: none; display: flex; flex-direction: column; gap: 6px;
   background: linear-gradient(to top, color-mix(in srgb, var(--surface) 60%, transparent), transparent); }
