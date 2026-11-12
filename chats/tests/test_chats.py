@@ -126,3 +126,15 @@ def test_bild_und_sprachnachricht_senden(client, fake, monkeypatch):
     assert att == {"uploadID": "up1", "type": "voice-note", "mimeType": "audio/ogg", "fileName": "Sprachnachricht.ogg", "duration": 4.2}
     assert b"OggSwebmdata" in fake.rest[-2][2]["raw"]
     assert client.post(f"{API}/chats/1/upload", files={"file": ("x", b"", "text/plain")}).status_code == 400
+
+
+def test_bild_schon_bei_beeper_heruntergeladen(client, fake):
+    """Lädt Beeper ein Bild herunter, wird aus mxc:// ein lokaler Pfad – der muss weiter gehen, aber nur in Beepers Medienordner."""
+    src = "file:///C:/Users/Docker/AppData/Roaming/BeeperTexts/media/local.beeper.com/l8tenever_QHHGiiEo9DGNXtDVOy7lcji6LxVad5CDG54ElzPeczWkmOcVPHk9IdIn8g3xjIoa"
+    r = client.get(f"{API}/media", params={"src": src, "mime": "image/jpeg"})
+    assert r.status_code == 200 and r.headers["content-type"] == "image/jpeg" and fake.served[-1] == src
+    r = client.get(f"{API}/media", params={"src": src.replace("l8tenever_Q", "l8tenever_Z")})   # ohne Typ: aus den ersten Bytes
+    assert r.status_code == 200 and r.headers["content-type"] == "image/png"
+    for bad in ("file:///C:/Windows/win.ini", "file:///C:/Users/Docker/AppData/Roaming/BeeperTexts/media/../../secret.txt",
+                "file:///C:/Users/Docker/Desktop/x.png", "http://evil/x.png"):
+        assert client.get(f"{API}/media", params={"src": bad}).status_code == 400, bad

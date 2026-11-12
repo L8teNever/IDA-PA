@@ -23,6 +23,9 @@ NEXT = re.compile(r"Next page \(older\): cursor='([^']+)'")
 NET = re.compile(r"^Chat on (?P<net>.+?) \((?P<acc>[^()]+)\) (?:with|in|called)\b|^Chat on (?P<net2>[\w.-]+) (?:with|in|called)\b")
 UNREAD = re.compile(r"It has (\d+) unread")
 SRC = re.compile(r"^(mxc|localmxc|beeper-mcp)://[\w./:%@!~+=?&-]{1,4000}$")
+# Hat Beeper eine Datei schon heruntergeladen, steht statt mxc:// der lokale Pfad auf dem Beeper-Rechner da. Erlaubt ist nur
+# Beepers eigener Medienordner – sonst könnte man über den Dienst beliebige Dateien vom Beeper-Rechner holen.
+LOCAL = re.compile(r"^file:///[A-Za-z]:/Users/[^/\\]{1,100}/AppData/Roaming/BeeperTexts/media/[\w.@!~+=-]{1,200}(/[\w.@!~+=-]{1,200}){0,4}$")
 
 _beeper: Beeper | None = None
 _voice: dict[str, str] = {}
@@ -161,8 +164,12 @@ async def send(chat_id: str, body: Send):
     return {"ok": True, "info": out[:300]}
 
 
+def is_local(src: str) -> bool:
+    return bool(LOCAL.match(src)) and ".." not in src
+
+
 def check_src(src: str) -> None:
-    if not SRC.match(src):
+    if not (SRC.match(src) or is_local(src)):
         raise HTTPException(400, "Ungültige Adresse")
 
 
@@ -170,32 +177,58 @@ MEDIA_MAX = 60 * 1024 * 1024     # größer wird nichts geholt
 MEDIA_CACHE = 120 * 1024 * 1024  # so viel hält der Dienst im Speicher (zuletzt benutzte zuerst raus)
 _media: "dict[str, tuple[bytes, str]]" = {}
 _media_size = 0
-_media_lock = asyncio.Lock()
+_media_locks: "dict[str, asyncio.Lock]" = {}
+_media_gate = asyncio.Semaphore(6)   # mehrere Bilder gleichzeitig, aber Beeper nicht überrennen
+
+
+async def fetch_media(src: str, mime: str) -> tuple[bytes, str]:
+    if is_local(src):   # lokal bei Beeper: über die REST-API (assets/serve) holen
+        global _rest
+        if not rest_base():
+            raise HTTPException(409, "Beeper ist nicht eingerichtet")
+        if _rest is None:
+            _rest = httpx.AsyncClient(timeout=20)
+        tok = get_settings().beeper_mcp_token
+        try:
+            r = await _rest.get(rest_base() + "/v1/assets/serve", params={"url": src}, timeout=120,
+                                headers={"authorization": f"Bearer {tok}"} if tok else {})
+        except httpx.HTTPError as e:
+            raise HTTPException(502, "Beeper nicht erreichbar") from e
+        if r.status_code != 200 or not r.content:
+            raise HTTPException(404, "Keine Datei")
+        ct = (r.headers.get("content-type") or "").split(";")[0].strip().lower()
+        if not SAFE_MIME.match(ct):   # Beeper sagt meist nur octet-stream: Typ aus der Nachricht oder aus den ersten Bytes
+            ct = mime.split(";")[0].strip().lower() if SAFE_MIME.match(mime or "") else (sniff(r.content) or "application/octet-stream")
+        return r.content, ct
+    args = {"srcURL": src, "mimeType": mime if re.match(r"^[\w.+-]+/[\w.+;= -]{1,80}$", mime or "") else None}
+    parts = await call(beeper().content, "get_attachment_image", args)
+    part = next((p for p in parts if p.get("data") and p.get("mimeType")), None)
+    if not part:
+        raise HTTPException(404, "Keine Datei")
+    return base64.b64decode(part["data"]), part["mimeType"]
 
 
 async def media_bytes(src: str, mime: str) -> tuple[bytes, str]:
-    """Holt eine Datei (Bild, Audio, Video) von Beeper; get_attachment_image liefert sie als Binärteil."""
+    """Holt eine Datei (Bild, Audio, Video) von Beeper – per MCP (mxc://) oder REST (lokale Datei bei Beeper)."""
     global _media_size
     if src in _media:
         _media[src] = _media.pop(src)   # als zuletzt benutzt merken
         return _media[src]
-    async with _media_lock:
+    lock = _media_locks.setdefault(src, asyncio.Lock())   # dieselbe Datei nur einmal holen, verschiedene parallel
+    async with lock:
         if src in _media:
             return _media[src]
-        args = {"srcURL": src, "mimeType": mime if re.match(r"^[\w.+-]+/[\w.+;= -]{1,80}$", mime or "") else None}
-        parts = await call(beeper().content, "get_attachment_image", args)
-        part = next((p for p in parts if p.get("data") and p.get("mimeType")), None)
-        if not part:
-            raise HTTPException(404, "Keine Datei")
-        data = base64.b64decode(part["data"])
+        async with _media_gate:
+            data, ct = await fetch_media(src, mime)
         if len(data) > MEDIA_MAX:
             raise HTTPException(413, "Datei zu groß")
-        _media[src] = (data, part["mimeType"])
+        _media[src] = (data, ct)
         _media_size += len(data)
         while _media_size > MEDIA_CACHE and len(_media) > 1:
             _, (old, _) = next(iter(_media.items()))
             _media_size -= len(old)
             _media.pop(next(iter(_media)))
+        _media_locks.pop(src, None)
         return _media[src]
 
 

@@ -58,7 +58,8 @@ class FakeBeeper:
                     out = json.dumps({"id": "1", "type": "single", "imgURL": None, "participants": {"items": [
                         {"id": "@me:x", "isSelf": True, "imgURL": "file:///C:/Users/x/me.png"}, {"id": "@luka:x", "imgURL": "file:///C:/Users/x/luka.png"}]}}).encode()
                     ct = "application/json"
-                elif u.path == "/v1/assets/serve" and parse_qs(u.query)["url"][0] in ("file:///C:/Users/x/grp.png", "file:///C:/Users/x/luka.png"):
+                elif u.path == "/v1/assets/serve" and (parse_qs(u.query)["url"][0] in ("file:///C:/Users/x/grp.png", "file:///C:/Users/x/luka.png")
+                                                       or "/BeeperTexts/media/" in parse_qs(u.query)["url"][0]):
                     outer.served.append(parse_qs(u.query)["url"][0])
                     out, ct = base64.b64decode(PNG), "application/octet-stream"
                 else:
