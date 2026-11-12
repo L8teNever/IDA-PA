@@ -277,7 +277,8 @@ a.file small { color: var(--muted); }
 [data-net]:not([data-net=""]) { --acc: var(--na, var(--nc)); }
 [data-net]:not([data-net=""]) .b:not(.me) .who, [data-net]:not([data-net=""]) .b:not(.me) a,
 [data-net]:not([data-net=""]) .b:not(.me) .quote b, [data-net]:not([data-net=""]) .replybar b,
-[data-net]:not([data-net=""]) .replybar > .ms { color: var(--acc); }
+[data-net]:not([data-net=""]) .replybar > .ms,
+.replybar[data-net]:not([data-net=""]) b, .replybar[data-net]:not([data-net=""]) > .ms { color: var(--acc); }
 [data-net]:not([data-net=""]) .b:not(.me) .quote { border-left-color: var(--acc); }
 [data-net]:not([data-net=""]) .b:not(.me) .play { background: var(--nb); color: var(--nf); }
 [data-net]:not([data-net=""]) .b:not(.me) .wave i.on { background: var(--acc); }
@@ -567,7 +568,8 @@ body.kb .dock .recbar { margin-bottom: 8px; }
 .rqrow.me .rqline { right: 8px; border-left: 0; border-bottom: 0; border-top-right-radius: 14px; }
 .rqrow.me.l .rqline { width: 30px; }
 .bw.isrep { margin-top: 0; }
-[data-net]:not([data-net=""]) .rqrow .rq-b { border-color: var(--acc); color: var(--acc); }
+[data-net]:not([data-net=""]) .rqrow .rq-b, .rqrow[data-net]:not([data-net=""]) .rq-b { border-color: var(--acc); color: var(--acc); }
+.rqrow[data-net]:not([data-net=""]):active .rq-b, .rqrow[data-net]:not([data-net=""]):hover .rq-b { background: color-mix(in srgb, var(--acc) 12%, transparent); }
 /* zitiertes Bild/Video: kleines Vorschaubild statt "📷 Foto" / "🎬 Video" */
 .rqrow .rq-b.th { position: relative; padding: 3px; border-radius: 16px; line-height: 0; }
 .rq-th { display: block; width: 64px; height: 64px; object-fit: cover; border-radius: 12px; background: #111; opacity: .75; }

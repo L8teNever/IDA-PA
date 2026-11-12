@@ -640,18 +640,19 @@ const ticks = (m) => !m.mine || m.deleted ? "" : m.pending ? '<span class="ms ti
   : m.read_by?.length ? '<span class="ms tick read" title="Gelesen">done_all</span>' : '<span class="ms tick" title="Gesendet">check</span>';
 // Antworten wie in Beeper: über der Blase wer wem geantwortet hat, darunter die zitierte Nachricht gedimmt als kleine Blase,
 // an der Seite eine dünne Linie, die beides verbindet. Antippen springt zur Nachricht.
-function replyHead(m) {
+function replyHead(m, net = null) {   // net: im gemeinsamen Verlauf die Farbe des Netzwerks dieser Nachricht
+  const dn = net !== null ? ` data-net="${net}"` : "";
   const q = S.msgs.find((x) => x.id === m.reply_to);
   const f = q && !q.deleted && q.files[0];
   const th = !q?.text && f && !f.sticker && f.src && (f.kind === "image" || f.kind === "video")
     ? (f.kind === "image" || f.poster ? `<img class="rq-th" loading="lazy" alt="" src="${mediaUrl(f.kind === "image" ? f : { src: f.poster })}">`
       : `<video class="rq-th" preload="metadata" muted playsinline src="${mediaUrl(f)}#t=0.1"></video>`) + (f.kind === "video" ? '<span class="ms">play_arrow</span>' : "") : "";
-  if (th) return `<div class="rqrow ${q.mine ? "r" : "l"} ${m.mine ? "me" : "them"} ${cur()?.type === "group" && !m.mine ? "grp" : ""}" data-a="jump" data-id="${esc(m.reply_to)}"><span class="rqline"></span><span class="rq-b th">${th}</span></div>`;
+  if (th) return `<div class="rqrow ${q.mine ? "r" : "l"} ${m.mine ? "me" : "them"} ${cur()?.type === "group" && !m.mine ? "grp" : ""}"${dn} data-a="jump" data-id="${esc(m.reply_to)}"><span class="rqline"></span><span class="rq-b th">${th}</span></div>`;
   const what = !q ? "Nachricht" : q.deleted ? "Gelöschte Nachricht" : q.text ? esc(q.text.replace(/\s+/g, " ").slice(0, 200))
     : f ? ({ audio: "🎤 Sprachnachricht", video: "🎬 Video", image: f.sticker ? "Sticker" : "📷 Foto" }[f.kind] || `📎 ${esc(f.name || "Datei")}`) : "Nachricht";
   const side = q ? (q.mine ? "r" : "l") : (m.mine ? "r" : "l");   // die Pille steht dort, wo die zitierte Nachricht steht
   const grp = cur()?.type === "group" && !m.mine;
-  return `<div class="rqrow ${side} ${m.mine ? "me" : "them"} ${grp ? "grp" : ""}" data-a="jump" data-id="${esc(m.reply_to)}"><span class="rqline"></span><span class="rq-b">${what}</span></div>`;
+  return `<div class="rqrow ${side} ${m.mine ? "me" : "them"} ${grp ? "grp" : ""}"${dn} data-a="jump" data-id="${esc(m.reply_to)}"><span class="rqline"></span><span class="rq-b">${what}</span></div>`;
 }
 function tmLine(m) {   // klein in der Blase: "bearbeitet", Häkchen – das Netzwerk zeigt die Farbe, die Uhrzeit kommt beim Wischen nach links
   const bits = m.edited && !m.deleted ? "bearbeitet" : "";
@@ -689,7 +690,7 @@ function bubble(m, tail = true, stack = null, head = true) {
   const face = cur()?.type === "group" && !m.mine ? (tail ? avatar(clean(m.sender), cid(m), m.sender_id) : '<span class="av gap"></span>') : "";
   const prog = m.pendingFile ? `<div class="prog"><i style="width:${Math.round((m.progress || 0) * 100)}%"></i></div>` : "";
   const mc = cur()?.merged, net = mc ? netKey((mc.find((x) => x.id === (m.chat || target())) || {}).network) : null;
-  return `${name}${m.reply_to && !m.deleted ? replyHead(m) : ""}<div class="bw ${m.mine ? "me" : ""} ${face ? "grp" : ""} ${m.reply_to && !m.deleted ? "isrep" : ""}"${net !== null ? ` data-net="${net}"` : ""} id="m-${esc(m.id)}" data-id="${esc(m.id)}"><span class="swipe ms">reply</span>${face}${tools}<div class="bcol">${quote}${split ? `<div class="b media ${m.mine ? "me" : ""}">${group}${files}</div>` : ""}<div class="b ${m.mine ? "me" : ""} ${m.pending ? "pending" : ""} ${m.deleted ? "del" : ""} ${!split && visual && !m.text ? "media" : ""}">${split ? "" : group}${split ? "" : files}${prog}${body}${links}${rx}${tmLine(m)}</div>${more}</div><span class="st">${m.at && !m.pending ? fmtTime.format(new Date(m.at)) : ""}</span></div>`;
+  return `${name}${m.reply_to && !m.deleted ? replyHead(m, net) : ""}<div class="bw ${m.mine ? "me" : ""} ${face ? "grp" : ""} ${m.reply_to && !m.deleted ? "isrep" : ""}"${net !== null ? ` data-net="${net}"` : ""} id="m-${esc(m.id)}" data-id="${esc(m.id)}"><span class="swipe ms">reply</span>${face}${tools}<div class="bcol">${quote}${split ? `<div class="b media ${m.mine ? "me" : ""}">${group}${files}</div>` : ""}<div class="b ${m.mine ? "me" : ""} ${m.pending ? "pending" : ""} ${m.deleted ? "del" : ""} ${!split && visual && !m.text ? "media" : ""}">${split ? "" : group}${split ? "" : files}${prog}${body}${links}${rx}${tmLine(m)}</div>${more}</div><span class="st">${m.at && !m.pending ? fmtTime.format(new Date(m.at)) : ""}</span></div>`;
 }
 const NETS = [["snapchat", "snapchat"], ["instagram", "instagram"], ["whatsapp", "whatsapp"], ["signal", "signal"], ["telegram", "telegram"], ["discord", "discord"],
   ["messenger", "messenger"], ["facebook", "messenger"], ["gmessages", "gmessages"], ["google messages", "gmessages"], ["googlechat", "googlechat"], ["google chat", "googlechat"],
@@ -1141,6 +1142,8 @@ function setEdit(m) {
   if (m) S.reply = null;
   S.edit = m || null;
   bar.hidden = !m;
+  const mc = cur()?.merged;   // gemeinsamer Verlauf: Leiste in der Farbe des Netzwerks, auf das geantwortet wird
+  if (m && mc) bar.dataset.net = netKey((mc.find((x) => x.id === (m.chat || target())) || {}).network); else delete bar.dataset.net;
   ta.value = m ? m.text : ""; ta.dispatchEvent(new Event("input"));
   if (m) { bar.innerHTML = `<span class="ms">edit</span><div><b>Bearbeiten</b>${esc(m.text.slice(0, 100))}</div><button class="icon-btn" data-a="cancel" aria-label="Abbrechen"><span class="ms">close</span></button>`; ta.focus(); }
 }
