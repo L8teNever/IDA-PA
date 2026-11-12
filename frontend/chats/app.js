@@ -653,8 +653,8 @@ function replyHead(m) {
   const grp = cur()?.type === "group" && !m.mine;
   return `<div class="rqrow ${side} ${m.mine ? "me" : "them"} ${grp ? "grp" : ""}" data-a="jump" data-id="${esc(m.reply_to)}"><span class="rqline"></span><span class="rq-b">${what}</span></div>`;
 }
-function tmLine(m) {   // klein in der Blase: Netzwerk (zusammengeführt), "bearbeitet", Häkchen – die Uhrzeit kommt beim Wischen nach links
-  const bits = [m.chat && cur()?.merged ? esc(netName((cur().merged.find((x) => x.id === m.chat) || {}).network)) : "", m.edited && !m.deleted ? "bearbeitet" : ""].filter(Boolean).join(" · ");
+function tmLine(m) {   // klein in der Blase: "bearbeitet", Häkchen – das Netzwerk zeigt die Farbe, die Uhrzeit kommt beim Wischen nach links
+  const bits = m.edited && !m.deleted ? "bearbeitet" : "";
   const t = ticks(m);
   return bits || t ? `<span class="tm">${bits}${t}</span>` : "";
 }

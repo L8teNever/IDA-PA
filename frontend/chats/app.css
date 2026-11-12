@@ -257,6 +257,8 @@ a.file small { color: var(--muted); }
 [data-net=x]          { --nb: #e7e9ea; --nf: #0f1419; --nc: #e7e9ea; --no: rgba(0,0,0,.1); }
 [data-net=imessage]   { --na: #0a84ff; --nb: #3b3b3d; --nf: #fff; --nc: #3b3b3d; --no: rgba(255,255,255,.14); }
 [data-net]:not([data-net=""]) .b.me { background: var(--nb); color: var(--nf); }
+/* Eingehende bleiben dunkel, nur ein Hauch Netzwerkfarbe – so unterscheiden sich z. B. WhatsApp und Snapchat im zusammengeführten Chat */
+[data-net]:not([data-net=""]) .b:not(.me):not(.media) { background: color-mix(in srgb, var(--na, var(--nc)) 7%, var(--surface-high)); }
 [data-net]:not([data-net=""]) .b.me .who, [data-net]:not([data-net=""]) .b.me .quote b { color: inherit; font-weight: 600; }
 [data-net]:not([data-net=""]) .b.me .tm { color: inherit; opacity: .7; }
 [data-net]:not([data-net=""]) .b a.file { color: inherit; text-decoration: none; }

@@ -58,8 +58,8 @@ Browser (chats.kulbarts.com, Cloudflare Access) ──> chats :8000 ──MCP─
   alle Chats als einen Verlauf; jede Nachricht hat `chat` und `mid` (echte ID), `id` ist `chat~mid`, der Cursor merkt sich pro Chat den Stand.
   Gesendet wird über den Chip im Eingabefeld (Standard: Chat der letzten eingehenden Nachricht), Antworten gehen in den Chat der zitierten Nachricht – der Chip springt dabei auf dessen Netzwerk.
   `POST /api/v1/merges`, `DELETE /api/v1/merges/{gruppe}[?chat=…]` (ganze Gruppe bzw. einen Chat herausnehmen).
-* **Farben:** Eigene Nachrichten in der Farbe des Netzwerks; eingehende behalten die Blase, nur Akzente (Name, Zitat, Links, Sprachnachricht,
-  Antwortleiste) bekommen die Netzwerkfarbe. Mehrere Konten pro Netzwerk (z. B. ein zweites, lokal verbundenes Signal) erkennt die App am Kontonamen.
+* **Farben:** Eigene Nachrichten in der Farbe des Netzwerks; eingehende bleiben dunkel mit einem Hauch Netzwerkfarbe (7 %), Akzente (Name, Zitat, Links, Sprachnachricht,
+  Antwortleiste) bekommen die Netzwerkfarbe. Der Netzwerkname steht nicht mehr in der Blase, die Farbe zeigt es. Mehrere Konten pro Netzwerk (z. B. ein zweites, lokal verbundenes Signal) erkennt die App am Kontonamen.
 * **Tippfehler-Vorschlag:** 1 s nach dem letzten Tippen fragt die App den Dienst `korrektur` (docs/KORREKTUR.md). Hat er etwas korrigiert, steht der
   Vorschlag über dem Eingabefeld, geänderte Wörter markiert, mit eigenem Senden-Knopf. Der normale Knopf schickt dein Original, Antippen des
   Vorschlags übernimmt ihn ins Feld. `POST /api/v1/korrektur` `{text}` → `{changed, text, parts}`; `KORREKTUR_URL` leer = aus.
