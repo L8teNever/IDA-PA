@@ -430,6 +430,11 @@ body.kb .composer, body.kb .recbar { padding-bottom: 8px; }
 .dock .composer { border-top: 0; padding: 4px 10px calc(env(safe-area-inset-bottom) + 10px); align-items: flex-end; }
 .conv .composer .attach { width: 48px; height: 48px; border-radius: 50%; }
 .conv .composer .inwrap { border-radius: 24px; min-height: 48px; }
+/* Eingabezeile wie Kopf (Zurück + Namens-Pille): volle Breite, 48er Kreise, Pille im gleichen Glas; Netzfarbe nur als leiser Stich */
+.dock .composer { align-self: stretch; gap: 8px; padding-left: 10px; padding-right: 10px; }
+.conv .composer .attach, .conv .composer .send { width: 48px; height: 48px; border-radius: 50%; margin: 0; }
+.conv .composer .inwrap textarea { padding: 13px 18px; line-height: 22px; border-radius: 24px; }
+.conv .composer[data-net]:not([data-net=""]) .inwrap { background: color-mix(in srgb, var(--na, var(--nc)) 8%, color-mix(in srgb, var(--surface-high) 82%, transparent)); }
 .dock .replybar { margin: 0 10px; border: 0; border-radius: 20px; padding: 8px 8px 8px 14px; }
 .dock .recbar { margin: 0 10px calc(env(safe-area-inset-bottom) + 10px); border: 0; border-radius: 26px; padding: 6px 6px 6px 10px; }
 body.kb .dock .composer { padding-bottom: 8px; }
@@ -706,7 +711,7 @@ html, body { max-width: 100%; }
 .smore { align-self: center; margin-top: 6px; }
 
 /* Eingabe in der Farbe des Netzwerks, über das gesendet wird (grün bei WhatsApp, gelb bei Snapchat …) */
-.composer[data-net]:not([data-net=""]) textarea { background: color-mix(in srgb, var(--na, var(--nc)) 12%, var(--surface-high)); caret-color: var(--nc); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--na, var(--nc)) 28%, transparent); }
+.composer[data-net]:not([data-net=""]) textarea { caret-color: var(--nc); }
 .composer[data-net]:not([data-net=""]) .send:not(.mic) { background: var(--nb); color: var(--nf); }
 .composer[data-net]:not([data-net=""]) .send.mic, .composer[data-net]:not([data-net=""]) .attach { color: var(--na, var(--nc)); }
 .composer[data-net]:not([data-net=""]) .send.think::after { border-top-color: var(--na, var(--nc)); border-right-color: color-mix(in srgb, var(--na, var(--nc)) 40%, transparent); }
