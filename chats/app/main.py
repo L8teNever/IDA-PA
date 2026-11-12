@@ -1,6 +1,7 @@
 """IDA Chats: deine Beeper-Chats im IDA-Stil – eigene App mit eigener PWA (docs/CHATS.md). Chats liegen in Beeper; chats.db merkt sich nur gesehene Nachrichten (store.py)."""
 import asyncio
 import hashlib
+import html
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -65,6 +66,9 @@ def create_app() -> FastAPI:
     app.mount(f"/s/{version}", Static(directory=own, cache=imm), name="assets")
     app.mount("/icons", Static(directory=own / "icons", cache="public, max-age=86400"), name="icons")
     index_html = (own / "index.html").read_text(encoding="utf8").replace('"/static/', f'"/s/{version}/')
+    voice = s.voice_public_url.strip().rstrip("/")
+    if voice.startswith("https://"):   # Mikrofon-Knopf: öffnet die Live-App und startet das Gespräch
+        index_html = index_html.replace('id="voicebtn" hidden', f'id="voicebtn" href="{html.escape(voice, quote=True)}/?start=1"')
 
     @app.get("/version", include_in_schema=False)
     async def frontend_ver():   # offene Tabs fragen das beim Zurückholen ab und laden sich nach einem Update neu

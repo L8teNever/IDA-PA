@@ -146,6 +146,7 @@ services:
       BEEPER_MCP_URL: ${BEEPER_MCP_URL:-}
       BEEPER_MCP_TOKEN: ${BEEPER_MCP_TOKEN:-}
       CHATS_PUBLIC_URL: ${CHATS_PUBLIC_URL:-}
+      VOICE_PUBLIC_URL: ${VOICE_PUBLIC_URL:-}   # Mikrofon-Knopf in der Leiste unten: öffnet die Live-App (Stella) und startet das Gespräch
       KORREKTUR_URL: ${KORREKTUR_URL:-http://korrektur:8000}   # leer = keine Korrekturvorschläge
       IDA_URL: ${CHATS_IDA_URL:-http://app:8000}   # Tippfehler per Claude Haiku (Einstellungen → Tippfehler in IDA); leer = nur das lokale T5-Modell
     volumes:

@@ -327,7 +327,10 @@ async function stop(c, problem, note) {
 // Opened as the installed app: the talk starts by itself (Chrome lets installed apps play sound without a tap;
 // if the browser still blocks the sound, the start button stays).
 async function boot() {
-  const installed = matchMedia("(display-mode: standalone)").matches || matchMedia("(display-mode: fullscreen)").matches || navigator.standalone;
+  // …/?start=1 (Mikrofon-Knopf in IDA Chats): auch im Browser-Tab gleich loslegen, wenn der Browser den Ton ohne Tippen erlaubt
+  const asked = new URLSearchParams(location.search).get("start") === "1";
+  if (asked) history.replaceState(null, "", location.pathname);
+  const installed = asked || matchMedia("(display-mode: standalone)").matches || matchMedia("(display-mode: fullscreen)").matches || navigator.standalone;
   if (!installed || !localStorage.getItem("liveKey") || document.hidden) return home();   // nie unsichtbar das Mikro öffnen
   prime();
   if (gestureCtx) await Promise.race([gestureCtx.resume().catch(() => {}), new Promise((r) => setTimeout(r, 600))]);

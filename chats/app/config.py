@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     beeper_api_url: str = ""        # REST-API von Beeper Desktop; leer = aus der MCP-Adresse abgeleitet (…/v0/mcp → …)
     beeper_park_chat: str = ""      # Chat, den Beeper Desktop nach dem Öffnen eines Snapchat-Chats zeigt; leer = „Note to self“
     chats_public_url: str = ""
+    voice_public_url: str = ""      # Adresse der Live-App (Stella); gesetzt = Mikrofon-Knopf in der Leiste unten, der das Gespräch direkt startet
     live_poll_s: float = 5.0        # so oft fragt der Dienst Beeper nach Änderungen – nur solange die App irgendwo offen ist
     page_size: int = 40
     data_dir: Path = Path("/data")  # chats.db: gemerkte Nachrichten (damit Gelöschtes lesbar bleibt)

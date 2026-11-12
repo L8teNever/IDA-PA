@@ -741,10 +741,12 @@ body.lsrch .ldock { display: none; }
 .dfab:active { border-radius: 16px; transform: scale(.96); }
 .dfab.on { background: var(--container); color: var(--on-container); }
 .dbar { height: 48px; border-radius: 24px; display: flex; align-items: center; gap: 2px; padding: 0 6px; }
-.dbar button { width: 52px; height: 36px; border: 0; border-radius: 18px; background: none; color: var(--on-surface); display: grid; place-items: center; transition: background-color .15s, border-radius .2s var(--ease-out, ease); }
-.dbar button .ms { font-size: 22px; }
+.dbar a[hidden] { display: none; }
+.dbar a { text-decoration: none; -webkit-tap-highlight-color: transparent; }
+.dbar button, .dbar a { width: 52px; height: 36px; border: 0; border-radius: 18px; background: none; color: var(--on-surface); display: grid; place-items: center; transition: background-color .15s, border-radius .2s var(--ease-out, ease); }
+.dbar button .ms, .dbar a .ms { font-size: 22px; }
 .dbar button.on { background: rgba(255,255,255,.1); }
-.dbar button:active { border-radius: 12px; }
+.dbar button:active, .dbar a:active { border-radius: 12px; background: rgba(255,255,255,.1); }
 /* Ohne Kopfzeile: die Liste beginnt unter der Statusleiste */
 .list { padding-top: calc(env(safe-area-inset-top) + 8px); }
 body.lsrch .list { padding-top: 4px; }

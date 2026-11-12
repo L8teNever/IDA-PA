@@ -1,6 +1,6 @@
 # IDA Chats
 
-Deine Beeper-Chats im IDA-Stil als eigene App (Dienst `chats`, Image `ida-chats`, PWA): Chats suchen (schwebende Leiste unten im Material-3-Expressive-Stil, 48 px hoch: links Filter Alle / Ungelesen / Archiv, Mitte Einstellungen (eigene Adresse `/einstellungen`: Benachrichtigungen an/aus mit Probemeldung, stumme und automatisch gelesene Chats) und Neu laden, rechts Suche mit eigener Adresse `/suche`; keine Kopfzeile mehr),
+Deine Beeper-Chats im IDA-Stil als eigene App (Dienst `chats`, Image `ida-chats`, PWA): Chats suchen (schwebende Leiste unten im Material-3-Expressive-Stil, 48 px hoch: links Filter Alle / Ungelesen / Archiv, Mitte Einstellungen (eigene Adresse `/einstellungen`: Benachrichtigungen an/aus mit Probemeldung, stumme und automatisch gelesene Chats) Neu laden und – wenn `VOICE_PUBLIC_URL` gesetzt ist – ein Mikrofon, das die Live-App mit `…/?start=1` öffnet und das Gespräch mit Stella direkt startet, rechts Suche mit eigener Adresse `/suche`; keine Kopfzeile mehr),
 Unterhaltungen lesen, Nachrichten schreiben, auf Nachrichten antworten, Bilder sehen, Sprachnachrichten als Text anzeigen – und **live**.
 
 ```
