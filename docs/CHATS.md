@@ -84,3 +84,21 @@ Browser (chats.kulbarts.com, Cloudflare Access) ──> chats :8000 ──MCP─
   der frühere Inhalt. Anhänge sind nur noch da, solange Beeper die Datei noch liefert.
 - **Merken im Hintergrund:** Auch bei geschlossener App fragt der Dienst alle `ARCHIVE_POLL_S` Sekunden (Standard 60, 0 = aus) die
   30 zuletzt aktiven Chats ab und lädt geänderte einmal. Was innerhalb dieser Zeit geschickt und wieder gelöscht wird, fehlt.
+
+## Benachrichtigungen und Stummschalten
+
+- **Einschalten:** Glocke oben in der Liste antippen und erlauben. Das meldet dieses Gerät per Web Push an (`chats/app/push.py`,
+  Bibliothek `pywebpush`). Die Schlüssel (VAPID) erzeugt der Dienst beim ersten Gebrauch selbst, Schlüssel und Abos liegen in `chats.db`.
+- **Akku:** Die App läuft dafür nicht, es gibt keinen Timer und keine offene Verbindung. Der Dienst fragt Beeper alle `PUSH_POLL_S`
+  Sekunden (Standard 10, 0 = keine Benachrichtigungen), solange mindestens ein Gerät angemeldet ist. Steigt bei einem Chat die
+  Ungelesen-Zahl, geht eine Meldung über den Push-Dienst des Browsers raus (Android/Chrome: Googles FCM, Inhalt Ende-zu-Ende
+  verschlüsselt, `Urgency: high`). Das Handy wird nur dann geweckt.
+- **Meldung:** Titel ist der Chat bzw. der eigene Name einer Zusammenführung, darunter der Text (in Gruppen „Name: Text“, ohne Text
+  „📷 Foto“, „🎤 Sprachnachricht“ …). Als Bild dient das Profilbild der Person bzw. des Chats, im Service Worker rund zugeschnitten.
+  Eine Meldung pro Chat (`tag`), neue ersetzen die alte. Tippen öffnet den Chat. Ist die App gerade offen und im Vordergrund,
+  kommt keine Meldung, weil dort schon der Hinweis oben erscheint. Öffnest du einen Chat, verschwinden seine Meldungen.
+- **Stummschalten:** Chat-Kopf antippen → Info → „Stummschalten“ (oder in der Liste lange drücken): 1 Stunde, 8 Stunden oder bis du
+  es aufhebst. Das gilt nur für Benachrichtigungen dieser App, Beeper bleibt unberührt. In Beeper stummgeschaltete Chats bleiben
+  ebenfalls still. In der Liste zeigt ein durchgestrichenes Glocken-Symbol stumme Chats.
+- API: `GET /push` (öffentlicher Schlüssel), `POST /push/subscribe`, `POST /push/unsubscribe`, `GET /mutes`,
+  `PUT /chats/{id}/mute` (`{"hours": 1 | 8 | 0}`, 0 = für immer), `DELETE /chats/{id}/mute`.

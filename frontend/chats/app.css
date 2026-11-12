@@ -504,8 +504,10 @@ body.kb .dock .recbar { margin-bottom: 8px; }
 
 /* ---------------- Uhrzeit: nach links wischen zeigt sie rechts neben allen Nachrichten (wie in Beeper/iMessage) ---------------- */
 .msgs { container-type: inline-size; }
-.bw { translate: calc(var(--sx, 0px) * -1) 0; transition: transform .18s ease, translate .28s var(--ease-spring, ease); }
-.msgs.ts .bw { transition: transform .18s ease; }
+/* Nur die eigenen Blasen (samt Antwort-Pille darüber) rutschen nach links; die der anderen bleiben stehen, nur ihre Uhrzeit kommt rein */
+.bw, .rqrow.me { transition: transform .18s ease, translate .28s var(--ease-spring, ease); }
+.bw.me, .rqrow.me { translate: calc(var(--sx, 0px) * -1) 0; }
+.msgs.ts .bw, .msgs.ts .rqrow.me, .msgs.ts .bw:not(.me) .st { transition: transform .18s ease, opacity .15s; }
 .bw .st { position: absolute; top: 50%; left: calc(100cqw + 8px); translate: 0 -50%; font-size: 12px; color: var(--muted); white-space: nowrap; pointer-events: none; }
 .bw.me .st { left: calc(100% + 8px); }
 .b .tm:empty { display: none; }
@@ -537,7 +539,8 @@ body.kb .dock .recbar { margin-bottom: 8px; }
 .row.sel .avw .nbadge, .row:hover .avw .nbadge { box-shadow: 0 0 0 2px var(--surface-high); }
 
 /* Uhrzeit nur beim Wischen (bzw. am PC beim Drüberfahren), sonst unsichtbar und außerhalb */
-.bw .st { opacity: 0; left: calc(100cqw + 22px); transition: opacity .15s; }
+.bw .st { opacity: 0; left: calc(100cqw + 22px); transition: opacity .15s, translate .28s var(--ease-spring, ease); }
+.bw:not(.me) .st { translate: calc(var(--sx, 0px) * -1) -50%; }
 .bw.me .st { left: calc(100% + 22px); }
 .msgs.ts .bw .st, .msgs.tsopen .bw .st { opacity: 1; }
 @media (hover: hover) and (pointer: fine) { .bw:hover .st { opacity: 1; left: calc(100% + 8px); } .bw.me:hover .st { left: auto; right: calc(100% + 8px); } }
@@ -650,3 +653,9 @@ html, body { max-width: 100%; }
 /* Gruppen: Name frei über der ersten Blase einer Folge (wie Signal), nicht mehr in der Blase */
 .gname { align-self: flex-start; max-width: min(84%, 600px); margin-top: 10px; padding: 0 0 2px 46px; font-size: 13px; font-weight: 500; line-height: 1.3; overflow-wrap: anywhere; }
 .gname + .rqrow { margin-top: 0; }
+
+/* ---------------- Benachrichtigungen und Stummschalten ---------------- */
+#bell.on { color: var(--accent); }
+.rsub .mute { flex: none; font-size: 15px; color: var(--muted); margin-left: auto; }
+.rsub .mute + .pin, .rsub .mute + .cnt { margin-left: 0; }
+.sheet button small { margin-left: auto; padding-left: 12px; font-size: 13px; color: var(--muted); text-align: right; }

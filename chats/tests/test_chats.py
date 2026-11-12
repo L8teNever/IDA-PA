@@ -248,3 +248,50 @@ def test_korrektur(client, monkeypatch):
     monkeypatch.setattr(get_settings(), "korrektur_url", "http://127.0.0.1:9")                  # nicht erreichbar
     assert client.post(f"{API}/korrektur", json={"text": "eknn"}).json() == {"changed": False}
     api._fix = None
+
+
+def test_push_und_stumm(client, monkeypatch):
+    import asyncio
+
+    from app import api, live, push
+    key = client.get(f"{API}/push").json()["key"]
+    assert len(key) > 80 and key == client.get(f"{API}/push").json()["key"]          # Schlüssel einmal erzeugt, bleibt gleich
+    assert client.post(f"{API}/push/subscribe", json={"endpoint": "http://x", "keys": {"p256dh": "a", "auth": "b"}}).status_code == 400
+    assert client.post(f"{API}/push/subscribe", json={"endpoint": "https://push.example/1", "keys": {"p256dh": "a", "auth": "b"}}).json()["ok"]
+    assert push.has_subs()
+
+    sent: list[dict] = []
+
+    async def fake_send(p):
+        sent.append(p)
+        return 1
+    monkeypatch.setattr(push, "send", fake_send)
+
+    async def fake_rest():
+        return [{"id": "1", "preview": {"text": "Na du?", "senderName": "Luka", "isSender": False, "timestamp": "2026-11-12T11:00:00Z"}},
+                {"id": "2", "preview": {"text": "", "senderName": "Anna Maier", "attachments": [{"mimeType": "image/jpeg"}]}}]
+    monkeypatch.setattr(api, "rest_chats", fake_rest)
+
+    one = {"id": "1", "title": "Luka", "type": "single", "unread": 1, "at": "x", "muted": False}
+    grp = {"id": "2", "title": "Maurice", "type": "group", "unread": 3, "at": "x", "muted": False}
+    asyncio.run(live.notify([one, grp]))
+    assert [(p["chat"], p["title"], p["body"], p["av"]) for p in sent] == [("1", "Luka", "Na du?", "1"), ("2", "Maurice", "Anna Maier: 📷 Foto", "2")]
+
+    # Stumm für 8 Stunden: keine Meldung mehr; in Beeper stumm: auch keine
+    sent.clear()
+    r = client.put(f"{API}/chats/1/mute", json={"hours": 8}).json()
+    assert r["until"] > time.time() + 7.9 * 3600
+    asyncio.run(live.notify([one, {**grp, "muted": True}]))
+    assert sent == []
+    assert {m["id"] for m in client.get(f"{API}/mutes").json()["items"]} == {"1"}
+    # für immer, dann aufheben
+    assert client.put(f"{API}/chats/1/mute", json={"hours": 0}).json()["until"] == 0
+    client.delete(f"{API}/chats/1/mute")
+    assert client.get(f"{API}/mutes").json()["items"] == []
+    asyncio.run(live.notify([one]))
+    assert len(sent) == 1
+    # abgelaufene Stummschaltung zählt nicht mehr
+    push.mute("1", 0.0001); time.sleep(0.5)
+    assert not push.muted("1")
+    client.post(f"{API}/push/unsubscribe", json={"endpoint": "https://push.example/1"})
+    assert not push.has_subs()

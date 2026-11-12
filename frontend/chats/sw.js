@@ -28,3 +28,44 @@ self.addEventListener("fetch", (e) => {
   if (e.request.mode !== "navigate") return;
   e.respondWith(fetch(e.request).catch(() => new Response(OFFLINE, { headers: { "content-type": "text/html; charset=utf-8" } })));
 });
+
+// ---------------- Benachrichtigungen (Web Push) ----------------
+// Der Server schickt nur, wenn wirklich eine neue Nachricht da ist – das Handy schläft sonst (kein Timer, keine Verbindung).
+// Als Bild dient das Profilbild der Person bzw. des Chats, rund zugeschnitten; fehlt es, das App-Symbol.
+async function roundIcon(id) {
+  try {
+    const r = await fetch(`/api/v1/avatar/${encodeURIComponent(id)}`, { credentials: "same-origin" });
+    if (!r.ok || typeof OffscreenCanvas === "undefined") return null;
+    const img = await createImageBitmap(await r.blob()), n = 192, c = new OffscreenCanvas(n, n), g = c.getContext("2d");
+    const s = Math.min(img.width, img.height);
+    g.beginPath(); g.arc(n / 2, n / 2, n / 2, 0, Math.PI * 2); g.clip();
+    g.drawImage(img, (img.width - s) / 2, (img.height - s) / 2, s, s, 0, 0, n, n);
+    const b = new Uint8Array(await (await c.convertToBlob({ type: "image/png" })).arrayBuffer());
+    let bin = ""; for (let i = 0; i < b.length; i += 0x8000) bin += String.fromCharCode(...b.subarray(i, i + 0x8000));
+    return `data:image/png;base64,${btoa(bin)}`;
+  } catch { return null; }
+}
+self.addEventListener("push", (e) => {
+  let p = {};
+  try { p = e.data ? e.data.json() : {}; } catch { /* leer */ }
+  e.waitUntil((async () => {
+    const wins = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+    // App ist gerade offen und sichtbar: dort erscheint schon der Hinweis oben – keine zusätzliche Meldung
+    if (wins.some((w) => w.visibilityState === "visible" && w.focused)) return;
+    const icon = (p.av && await roundIcon(p.av)) || "/icons/icon-192.png";
+    await self.registration.showNotification(p.title || "Chats", {
+      body: p.body || "Neue Nachricht", icon, badge: "/icons/badge-96.png", tag: `chat-${p.chat || ""}`, renotify: true,
+      timestamp: p.at ? Date.parse(p.at) || Date.now() : Date.now(), data: { chat: p.chat || "" },
+    });
+  })());
+});
+self.addEventListener("notificationclick", (e) => {
+  e.notification.close();
+  const url = e.notification.data?.chat ? `/chat/${encodeURIComponent(e.notification.data.chat)}` : "/";
+  e.waitUntil((async () => {
+    const wins = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+    const w = wins.find((x) => new URL(x.url).origin === location.origin);
+    if (w) { await w.focus(); w.postMessage({ type: "open", url }); return; }
+    await self.clients.openWindow(url);
+  })());
+});

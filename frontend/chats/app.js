@@ -5,6 +5,7 @@ const API = "/api/v1";
 const $ = (s) => document.querySelector(s);
 const BASE = "/";
 const COLORS = ["rot", "orange", "gelb", "salbei", "gruen", "tuerkis", "blau", "lavendel", "lila", "koralle"];
+let MUTES = new Map();   // stummgeschaltete Chats: ID → bis (ms, 0 = bis du es aufhebst)
 const S = { chats: [], next: null, q: "", f: "all", id: null, msgs: [], more: false, oldest: null, seq: 0, sending: false, reply: null, edit: null, voice: {}, vopen: {} };
 
 const fmtDay = new Intl.DateTimeFormat("de-DE", { weekday: "long", day: "2-digit", month: "long" });
@@ -117,7 +118,7 @@ function route() {
   S.id = id; S.msgs = c ? c.msgs.slice() : []; S.more = c ? c.more : false; S.oldest = c ? c.oldest : null; S.reply = null; S.edit = null; S.to = null;
   document.querySelectorAll("#list .row").forEach((r) => r.classList.toggle("sel", r.dataset.id === id));
   if (!$("#list .row")) drawList();
-  if (id) openChat(); else $("#conv").innerHTML = `<div class="conv-empty"><span class="ms">forum</span><p>Wähle einen Chat aus.</p></div>`;
+  if (id) { openChat(); clearNotes(id); } else $("#conv").innerHTML = `<div class="conv-empty"><span class="ms">forum</span><p>Wähle einen Chat aus.</p></div>`;
 }
 
 // ---------------- Nachrichten-Zwischenspeicher ----------------
@@ -358,7 +359,8 @@ function infoHtml(c, d) {
     ${!isGroup && !c.merged && other(one) && (other(one).username || other(one).email) ? `<div class="icard">${other(one).username ? row("alternate_email", esc(other(one).username), "Benutzername") : ""}${other(one).email ? row("mail", esc(other(one).email), "E-Mail") : ""}</div>` : ""}
     <div class="icard">
       ${expiry ? row("timer", "Selbstlöschende Nachrichten", `Nach ${per(expiry)}`) : ""}
-      ${chats.some((x) => x.muted) ? row("notifications_off", "Stummgeschaltet", "In Beeper") : ""}
+      ${row(isMuted(c.id) ? "notifications_off" : "notifications", isMuted(c.id) ? "Stummgeschaltet" : "Stummschalten", isMuted(c.id) ? muteText(c.id) : "Keine Benachrichtigungen aufs Handy", 'data-i="mute"')}
+      ${chats.some((x) => x.muted) ? row("notifications_off", "In Beeper stummgeschaltet", "Auch hier keine Benachrichtigungen") : ""}
       ${left(c) ? row("done_all", "Als gelesen markieren", "", 'data-i="read"') : row("mark_chat_unread", "Als ungelesen markieren", "", 'data-i="unread"')}
       ${row("call_merge", "Mit anderem Chat zusammenführen", "", 'data-i="merge"')}
       ${c.merged ? `<button class="irow danger" data-i="split"><span class="ms">call_split</span><span class="it"><b>Zusammenführung aufheben</b></span></button>` : ""}
@@ -374,6 +376,7 @@ document.addEventListener("click", (e) => {
   if (a === "search") { closeInfo(); return toast("Suche im Chat gibt es noch nicht"); }
   if (a === "media") { const t = e.target.closest("[data-src]"); if (t.dataset.kind === "image") return gallery(t.dataset.src); closeInfo(); const el = [...document.querySelectorAll("#msgs .vid")].find((v) => v.dataset.src === t.dataset.src); el?.scrollIntoView({ block: "center" }); return; }
   if (a === "gset") return groupSettings(c);
+  if (a === "mute") return muteMenu(c);
   if (a === "read") { markRead(c); return closeInfo(); }
   if (a === "unread") { markUnread(c); return closeInfo(); }
   if (a === "merge") return chatPick({ title: "Zusammenführen mit …", verb: "Zusammenführen", multi: true, from: c, skip: new Set((c.merged || [c]).map((x) => x.id)) }, (to) => { closeInfo(); doMerge(c, to); });
@@ -386,6 +389,7 @@ function rowMenu(c) {
   d.className = "ctx"; d.id = "ctx";
   d.innerHTML = `<div class="ctx-back"></div><div class="sheet">
     <button data-p="pin"><span class="ms">push_pin</span>${on ? "Nicht mehr anpinnen" : "Anpinnen"}</button>
+    <button data-p="mute"><span class="ms">${isMuted(c.id) ? "notifications" : "notifications_off"}</span>${isMuted(c.id) ? "Stummschaltung ändern" : "Stummschalten"}</button>
     <button data-p="merge"><span class="ms">call_merge</span>Mit anderem Chat zusammenführen</button>
     ${c.merged ? '<button data-p="gset"><span class="ms">tune</span>Name, Profilbild, Standard</button>' : ""}
     ${c.merged ? '<button data-p="split"><span class="ms">call_split</span>Zusammenführung aufheben</button>' : ""}
@@ -399,6 +403,7 @@ function rowMenu(c) {
     if (p === "merge") chatPick({ title: "Zusammenführen mit …", verb: "Zusammenführen", multi: true, from: c, skip: new Set((c.merged || [c]).map((x) => x.id)) }, (to) => doMerge(c, to));
     if (p === "split") unMerge(grpOf(c.id));
     if (p === "gset") groupSettings(c);
+    if (p === "mute") muteMenu(c);
   });
   document.body.append(d);
 }
@@ -436,7 +441,7 @@ function drawList() {
   if (!S.chats.length && !pinned.length) { $("#list").innerHTML = `<div class="empty"><span class="ms">${S.q ? "search_off" : "forum"}</span>${S.q ? "Nichts gefunden." : "Keine Chats."}</div>`; return; }
   const row = (c, pin) => `<div class="row ${left(c) ? "unread" : ""} ${c.id === S.id ? "sel" : ""}" data-id="${esc(c.id)}">
       ${pickAv(c)}<div class="rmain"><div class="rtop"><span class="rtitle">${esc(clean(c.title))}</span><span class="rtime">${when(c.at)}</span></div>
-      <div class="rsub"><span class="last">${lastLine(c)}</span>${pin ? '<span class="ms pin">push_pin</span>' : ""}${left(c) ? `<span class="cnt">${c.unread}</span>` : ""}</div></div></div>`;
+      <div class="rsub"><span class="last">${lastLine(c)}</span>${isMuted(c.id) ? '<span class="ms mute">notifications_off</span>' : ""}${pin ? '<span class="ms pin">push_pin</span>' : ""}${left(c) ? `<span class="cnt">${c.unread}</span>` : ""}</div></div></div>`;
   $("#list").innerHTML = pinned.map((c) => row(c, true)).join("") + (pinned.length && rest.length ? '<div class="pinsep"></div>' : "") + rest.map((c) => row(c, false)).join("")
     + (S.next ? '<button class="more" id="more">Mehr laden</button>' : "");
   if (S.id && $(".chead")) refreshReadBar();
@@ -1466,11 +1471,100 @@ poll(!document.hidden);
 document.addEventListener("visibilitychange", () => {
   poll(!document.hidden);
   if (document.hidden) return live(false);
-  loadChats({ quiet: true }); if (S.id) loadMsgs({ quiet: true });
-  live(true);
+  loadChats({ quiet: true }); if (S.id) { loadMsgs({ quiet: true }); clearNotes(S.id); }
+  loadMutes(); live(true);
 });
 
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js", { scope: "/" }).catch(() => {});
+
+// ---------------- Benachrichtigungen aufs Handy (Web Push) ----------------
+// Die Glocke oben meldet dieses Gerät an. Danach weckt der Server das Handy nur, wenn eine Nachricht kommt – die App selbst
+// läuft dafür nicht (kein Timer, keine offene Verbindung), das kostet praktisch keinen Akku.
+const canPush = "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
+const b64key = (k) => { const s = atob((k + "=".repeat((4 - k.length % 4) % 4)).replace(/-/g, "+").replace(/_/g, "/")); return Uint8Array.from(s, (c) => c.charCodeAt(0)); };
+async function pushSub() { try { return await (await navigator.serviceWorker.ready).pushManager.getSubscription(); } catch { return null; } }
+async function drawBell() {
+  const b = $("#bell"); if (!b || !canPush) return;
+  const on = Notification.permission === "granted" && !!(await pushSub());
+  b.hidden = false; b.classList.toggle("on", on);
+  b.firstElementChild.textContent = on ? "notifications_active" : "notifications_off";
+  b.title = on ? "Benachrichtigungen an" : "Benachrichtigungen einschalten";
+  if (on) { const s = await pushSub(); api("/push/subscribe", { method: "POST", body: JSON.stringify(s.toJSON()) }).catch(() => {}); }   // Abo frisch halten
+}
+async function pushOn() {
+  if (Notification.permission === "denied") return toast("Benachrichtigungen sind blockiert – in den Browser-Einstellungen für diese Seite erlauben");
+  if (await Notification.requestPermission() !== "granted") return toast("Ohne Erlaubnis keine Benachrichtigungen");
+  try {
+    const { key } = await api("/push");
+    const reg = await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.getSubscription() || await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64key(key) });
+    await api("/push/subscribe", { method: "POST", body: JSON.stringify(sub.toJSON()) });
+    toast("Benachrichtigungen an");
+  } catch (e) { toast(`Anmelden ging nicht: ${e.message}`); }
+  drawBell();
+}
+async function pushOff() {
+  const sub = await pushSub();
+  if (sub) { await api("/push/unsubscribe", { method: "POST", body: JSON.stringify({ endpoint: sub.endpoint }) }).catch(() => {}); await sub.unsubscribe().catch(() => {}); }
+  toast("Benachrichtigungen aus"); drawBell();
+}
+$("#bell")?.addEventListener("click", async () => {
+  if (!$("#bell").classList.contains("on")) return pushOn();
+  closeMenu();
+  const d = document.createElement("div"); d.className = "ctx"; d.id = "ctx";
+  d.innerHTML = `<div class="ctx-back"></div><div class="sheet"><button data-b="info"><span class="ms">notifications_active</span>Benachrichtigungen sind an<small>Stumm pro Chat: Chat-Kopf antippen</small></button>
+    <button data-b="off"><span class="ms">notifications_off</span>Auf diesem Gerät ausschalten</button></div>`;
+  d.addEventListener("click", (e) => { const b = e.target.closest("[data-b]")?.dataset.b; closeMenu(); if (b === "off") pushOff(); });
+  document.body.append(d);
+});
+drawBell();
+// Tipp auf eine Meldung bei offener App: den Chat öffnen
+navigator.serviceWorker?.addEventListener("message", (e) => {
+  if (e.data?.type !== "open") return;
+  const m = /^\/chat\/([^/]+)/.exec(e.data.url || ""); go(m ? decodeURIComponent(m[1]) : null);
+});
+// Chat geöffnet: seine Meldungen in der Leiste wegräumen
+async function clearNotes(id) {
+  try { for (const n of await (await navigator.serviceWorker.ready).getNotifications({ tag: `chat-${id}` })) n.close(); } catch { /* egal */ }
+}
+
+// ---------------- Stummschalten (nur Benachrichtigungen; Beeper bleibt unberührt) ----------------
+function isMuted(id) { const u = MUTES.get(id); return u !== undefined && (u === 0 || u > Date.now()); }
+function muteText(id) {
+  const u = MUTES.get(id); if (!u) return "Bis du es aufhebst";
+  const d = new Date(u); return `Bis ${d.toDateString() === new Date().toDateString() ? "" : `${fmtShort.format(d)}, `}${fmtTime.format(d)} Uhr`;
+}
+async function loadMutes() {
+  try { const r = await api("/mutes"); MUTES = new Map(r.items.map((x) => [x.id, x.until * 1000])); drawList(); } catch { /* bleibt */ }
+}
+function redrawInfo() { const el = $("#info"), c = cur(); if (el && c) el.innerHTML = infoHtml(c, ABOUT.get(c.id)?.d); }
+async function setMute(c, hours) {
+  const was = MUTES.get(c.id);
+  if (hours === null) MUTES.delete(c.id); else MUTES.set(c.id, hours ? Date.now() + hours * 36e5 : 0);
+  drawList(); redrawInfo();
+  try {
+    if (hours === null) await api(`/chats/${encodeURIComponent(c.id)}/mute`, { method: "DELETE" });
+    else { const r = await api(`/chats/${encodeURIComponent(c.id)}/mute`, { method: "PUT", body: JSON.stringify({ hours }) }); MUTES.set(c.id, r.until * 1000); }
+    toast(hours === null ? "Stummschaltung aufgehoben" : `Stumm ${hours === 1 ? "für 1 Stunde" : hours ? `für ${hours} Stunden` : "bis du es aufhebst"}`);
+  } catch (e) { if (was === undefined) MUTES.delete(c.id); else MUTES.set(c.id, was); toast(`Ging nicht: ${e.message}`); }
+  drawList(); redrawInfo();
+}
+function muteMenu(c) {
+  closeMenu();
+  const on = isMuted(c.id), d = document.createElement("div");
+  d.className = "ctx"; d.id = "ctx";
+  d.innerHTML = `<div class="ctx-back"></div><div class="sheet">
+    ${on ? `<button data-m="off"><span class="ms">notifications</span>Stummschaltung aufheben<small>${esc(muteText(c.id))}</small></button>` : ""}
+    <button data-m="1"><span class="ms">schedule</span>1 Stunde</button>
+    <button data-m="8"><span class="ms">bedtime</span>8 Stunden</button>
+    <button data-m="0"><span class="ms">notifications_off</span>Bis ich es aufhebe</button></div>`;
+  d.addEventListener("click", (e) => {
+    const m = e.target.closest("[data-m]")?.dataset.m; closeMenu();
+    if (m === "off") setMute(c, null); else if (m !== undefined) setMute(c, +m);
+  });
+  document.body.append(d);
+}
+loadMutes();
 route();
 loadChats();
 live(!document.hidden);

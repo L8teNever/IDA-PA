@@ -153,7 +153,7 @@ def fake():
 
 @pytest.fixture(scope="session")
 def client(fake):
-    os.environ.update({"BEEPER_MCP_URL": fake.url, "BEEPER_MCP_TOKEN": "tok", "LIVE_POLL_S": "0.2", "ARCHIVE_POLL_S": "0", "DATA_DIR": __import__("tempfile").mkdtemp(),
+    os.environ.update({"BEEPER_MCP_URL": fake.url, "BEEPER_MCP_TOKEN": "tok", "LIVE_POLL_S": "0.2", "ARCHIVE_POLL_S": "0", "IDA_URL": "", "DATA_DIR": __import__("tempfile").mkdtemp(),
                        "FRONTEND_DIR": os.path.join(os.path.dirname(__file__), "..", "..", "frontend")})
     from fastapi.testclient import TestClient
 
