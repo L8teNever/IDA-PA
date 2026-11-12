@@ -722,7 +722,8 @@ async def pinned() -> list[dict]:
     global _pins
     if _pins and time.monotonic() - _pins[0] < PINS_TTL:
         return _pins[1]
-    out = [{"id": c["id"], "title": (c.get("title") or "").strip(), "network": (c.get("accountID") or c.get("network") or "").lower(),
+    # Die Chatliste (MCP) nutzt die lokale ID ("66736"), REST die Matrix-ID – lokal nehmen, sonst steht der Chat doppelt da
+    out = [{"id": str(c.get("localChatID") or c["id"]), "title": (c.get("title") or "").strip(), "network": (c.get("accountID") or c.get("network") or "").lower(),
             "type": c.get("type") or "", "at": c.get("lastActivity") or "", "unread": int(c.get("unreadCount") or 0),
             "muted": bool(c.get("isMuted")), "pinned": True, "last": preview(c.get("preview"), c.get("type") == "group")}
            for c in await rest_chats() if c.get("isPinned") and c.get("id")]

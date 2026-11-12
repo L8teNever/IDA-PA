@@ -295,3 +295,14 @@ def test_push_und_stumm(client, monkeypatch):
     assert not push.muted("1")
     client.post(f"{API}/push/unsubscribe", json={"endpoint": "https://push.example/1"})
     assert not push.has_subs()
+
+
+def test_pins_mit_lokaler_id(client, monkeypatch):
+    """REST liefert Matrix-IDs, die Chatliste lokale – Pins müssen die lokale tragen, sonst steht der Chat doppelt da."""
+    from app import api
+
+    async def rest():
+        return [{"id": "!abc:beeper.local", "localChatID": "66736", "title": "Ida", "isPinned": True}]
+    monkeypatch.setattr(api, "rest_chats", rest)
+    monkeypatch.setattr(api, "_pins", None)
+    assert [c["id"] for c in client.get(f"{API}/pins").json()["items"]] == ["66736"]
