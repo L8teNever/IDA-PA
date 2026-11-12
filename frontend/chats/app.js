@@ -602,9 +602,9 @@ $("#sbtn").onclick = () => { if (!readLsrch()) pushView({ lsrch: true }, "", `${
 $("#qback").onclick = () => { if (history.state?.lsrch) history.back(); else { history.replaceState(null, "", BASE); showLsrch(false); } };
 $("#q").addEventListener("keydown", (e) => { if (e.key === "Escape") $("#qback").click(); });
 // Mitte der Leiste: vorerst Platzhalter
-$("#dock .dbar").onclick = (e) => { const b = e.target.closest("[data-ph]"); if (b) toast(`${b.dataset.ph}: kommt noch`); };
+$("#ldock .dbar").onclick = (e) => { const b = e.target.closest("[data-ph]"); if (b) toast(`${b.dataset.ph}: kommt noch`); };
 // Leiste beim Runterscrollen ausblenden, beim Hochscrollen wieder zeigen
-{ let y = 0; $("#list").addEventListener("scroll", (e) => { const t = e.target.scrollTop; if (Math.abs(t - y) < 8) return; $("#dock").classList.toggle("away", t > y && t > 80); y = t; }, { passive: true }); }
+{ let y = 0; $("#list").addEventListener("scroll", (e) => { const t = e.target.scrollTop; if (Math.abs(t - y) < 8) return; $("#ldock").classList.toggle("away", t > y && t > 80); y = t; }, { passive: true }); }
 $("#refresh").onclick = () => { loadChats({ quiet: true }); if (S.id) loadMsgs({ quiet: true }); };
 
 // ---------------- Unterhaltung ----------------
