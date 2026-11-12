@@ -3,8 +3,12 @@ import asyncio
 import base64
 import json
 import re
+import shutil
+import time
+from urllib.parse import quote
 
-from fastapi import APIRouter, HTTPException, Request, Response
+import httpx
+from fastapi import APIRouter, File, Form, HTTPException, Request, Response, UploadFile
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -75,7 +79,7 @@ def kind(a: dict) -> str:
     return "file"
 
 
-def reactions(m: dict) -> list[dict]:
+def reactions(m: dict, me: set[str] | None = None) -> list[dict]:
     out: dict[str, dict] = {}
     for r in m.get("reactions") or []:
         if not isinstance(r, dict):
@@ -84,7 +88,7 @@ def reactions(m: dict) -> list[dict]:
         if k:
             e = out.setdefault(k, {"key": k, "n": 0, "mine": False})
             e["n"] += 1
-            e["mine"] = e["mine"] or bool(r.get("isSender") or r.get("mine"))
+            e["mine"] = e["mine"] or bool(r.get("isSender") or r.get("mine") or (me and r.get("participantID") in me))
     return list(out.values())
 
 
@@ -99,10 +103,10 @@ def seen_by(m: dict, me: set[str], names: dict[str, str]) -> list[dict]:
 
 def message(m: dict, me: set[str] | None = None, names: dict[str, str] | None = None) -> dict:
     return {
-        "read_by": seen_by(m, me or set(), names or {}),
+        "read_by": seen_by(m, me or set(), names or {}), "sender_id": m.get("senderID") or "",
         "id": m.get("id"), "at": m.get("timestamp"), "mine": bool(m.get("isSender")), "sender": m.get("senderName") or "",
         "type": (m.get("type") or "TEXT").upper(), "text": m.get("text") or "", "deleted": bool(m.get("isDeleted")),
-        "reply_to": m.get("linkedMessageID") or None, "reactions": reactions(m),
+        "reply_to": m.get("linkedMessageID") or None, "reactions": reactions(m, me),
         "files": [{"src": a.get("srcURL") or a.get("id"), "kind": kind(a), "mime": a.get("mimeType") or "", "name": a.get("fileName") or "",
                    "size": a.get("fileSize") or 0, "duration": a.get("duration") or 0, "w": (a.get("size") or {}).get("width"), "h": (a.get("size") or {}).get("height"),
                    "transcript": ((a.get("transcription") or {}).get("transcription") or "").strip(), "sticker": bool(a.get("isSticker")), "gif": bool(a.get("isGif"))}
@@ -223,6 +227,216 @@ async def media(request: Request, src: str, mime: str = ""):
 @router.get("/image", include_in_schema=False)
 async def image(request: Request, src: str):
     return await media(request, src, "")
+
+
+# ---------------- Profilbilder (REST-API von Beeper Desktop; das MCP liefert keine Bilder) ----------------
+_info: dict[str, tuple[float, dict]] = {}
+_avatars: dict[str, tuple[bytes, str] | None] = {}
+INFO_TTL = 3600
+_rest: httpx.AsyncClient | None = None
+
+
+def rest_base() -> str:
+    s = get_settings()
+    return (s.beeper_api_url or re.sub(r"/v\d+/mcp/?$|/mcp/?$", "", s.beeper_mcp_url)).rstrip("/")
+
+
+async def rest_get(path: str, **params) -> httpx.Response:
+    global _rest
+    if not rest_base():
+        raise HTTPException(409, "Beeper ist nicht eingerichtet")
+    if _rest is None:
+        _rest = httpx.AsyncClient(timeout=20)
+    tok = get_settings().beeper_mcp_token
+    try:
+        return await _rest.get(rest_base() + path, params=params, headers={"authorization": f"Bearer {tok}"} if tok else {})
+    except httpx.HTTPError as e:
+        raise HTTPException(502, "Beeper nicht erreichbar") from e
+
+
+def file_url(u: str | None) -> str:
+    """Beeper gibt Bilder als file:///C:/…, als Windows-Pfad (C:\\…) oder mxc:// an – assets/serve will eine URL."""
+    u = (u or "").strip()
+    if re.match(r"^[A-Za-z]:\\", u):
+        u = "file:///" + u.replace("\\", "/")
+    return u if re.match(r"^(file|mxc|localmxc)://", u) else ""
+
+
+async def chat_info(chat_id: str) -> dict:
+    hit = _info.get(chat_id)
+    if hit and time.time() - hit[0] < INFO_TTL:
+        return hit[1]
+    r = await rest_get(f"/v1/chats/{quote(chat_id, safe='')}")
+    if r.status_code != 200:
+        info = {"img": "", "people": {}}
+    else:
+        d = r.json()
+        people = {p["id"]: {"name": p.get("fullName") or "", "img": file_url(p.get("imgURL")), "self": bool(p.get("isSelf"))}
+                  for p in (d.get("participants") or {}).get("items", []) if p.get("id")}
+        img = file_url(d.get("imgURL"))
+        if not img and d.get("type") == "single":   # Einzelchat: Bild der anderen Person
+            img = next((p["img"] for p in people.values() if not p["self"] and p["img"]), "")
+        info = {"img": img, "people": people}
+    if len(_info) > 1000:
+        _info.pop(next(iter(_info)))
+    _info[chat_id] = (time.time(), info)
+    return info
+
+
+def sniff(b: bytes) -> str:
+    if b[:8] == b"\x89PNG\r\n\x1a\n":
+        return "image/png"
+    if b[:3] == b"\xff\xd8\xff":
+        return "image/jpeg"
+    if b[:4] == b"RIFF" and b[8:12] == b"WEBP":
+        return "image/webp"
+    if b[:6] in (b"GIF87a", b"GIF89a"):
+        return "image/gif"
+    return ""
+
+
+async def avatar_bytes(url: str) -> tuple[bytes, str] | None:
+    if url in _avatars:
+        return _avatars[url]
+    r = await rest_get("/v1/assets/serve", url=url)
+    out = None
+    if r.status_code == 200 and len(r.content) < 5 * 1024 * 1024 and (ct := sniff(r.content)):
+        out = (r.content, ct)
+    if len(_avatars) > 800:
+        _avatars.pop(next(iter(_avatars)))
+    _avatars[url] = out
+    return out
+
+
+async def rest_call(method: str, path: str, json_body: dict | None = None) -> dict:
+    global _rest
+    if not rest_base():
+        raise HTTPException(409, "Beeper ist nicht eingerichtet")
+    if _rest is None:
+        _rest = httpx.AsyncClient(timeout=20)
+    tok = get_settings().beeper_mcp_token
+    try:
+        r = await _rest.request(method, rest_base() + path, json=json_body, headers={"authorization": f"Bearer {tok}"} if tok else {})
+    except httpx.HTTPError as e:
+        raise HTTPException(502, "Beeper nicht erreichbar") from e
+    if r.status_code >= 400:
+        try:
+            msg = r.json().get("message") or r.text
+        except ValueError:
+            msg = r.text
+        raise HTTPException(502 if r.status_code >= 500 or r.status_code in (401, 403) else 400, f"Beeper: {str(msg)[:200]}")
+    return r.json() if r.content else {}
+
+
+class React(BaseModel):
+    key: str = Field(min_length=1, max_length=64)
+
+
+def check_ids(*ids: str) -> None:
+    for i in ids:
+        if not re.match(r"^[\w!:.@=+$-]{1,300}$", i or ""):
+            raise HTTPException(400, "Ungültige ID")
+
+
+@router.post("/chats/{chat_id}/messages/{msg_id}/react")
+async def react(chat_id: str, msg_id: str, body: React):
+    """Reaktion setzen (Emoji) – über die REST-API von Beeper Desktop."""
+    check_ids(chat_id, msg_id)
+    await rest_call("POST", f"/v1/chats/{quote(chat_id, safe='')}/messages/{quote(msg_id, safe='')}/reactions", {"reactionKey": body.key})
+    return {"ok": True}
+
+
+@router.delete("/chats/{chat_id}/messages/{msg_id}/react")
+async def unreact(chat_id: str, msg_id: str, key: str):
+    check_ids(chat_id, msg_id)
+    if not 0 < len(key) <= 64:
+        raise HTTPException(400, "Ungültige Reaktion")
+    await rest_call("DELETE", f"/v1/chats/{quote(chat_id, safe='')}/messages/{quote(msg_id, safe='')}/reactions/{quote(key, safe='')}")
+    return {"ok": True}
+
+
+# ---------------- Dateien und Sprachnachrichten senden (REST-API von Beeper Desktop) ----------------
+UPLOAD_MAX = 95 * 1024 * 1024   # Cloudflare lässt pro Anfrage höchstens 100 MB durch
+
+
+async def to_ogg(data: bytes) -> bytes | None:
+    """Sprachaufnahme aus dem Browser (WebM/MP4) → Ogg/Opus, das Format, das WhatsApp, Signal & Co. als Sprachnachricht erwarten."""
+    if not shutil.which("ffmpeg"):
+        return None
+    p = await asyncio.create_subprocess_exec("ffmpeg", "-hide_banner", "-loglevel", "error", "-i", "pipe:0", "-vn", "-ac", "1", "-ar", "48000",
+                                             "-c:a", "libopus", "-b:a", "32k", "-application", "voip", "-f", "ogg", "pipe:1",
+                                             stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+    try:
+        out, _ = await asyncio.wait_for(p.communicate(data), 60)
+    except asyncio.TimeoutError:
+        p.kill()
+        return None
+    return out if p.returncode == 0 and out else None
+
+
+def att_type(mime: str, voice: bool) -> str:
+    if voice:
+        return "voice-note"
+    if mime == "image/gif":
+        return "gif"
+    return next((t for t in ("image", "video", "audio") if mime.startswith(t + "/")), "file")
+
+
+@router.post("/chats/{chat_id}/upload")
+async def upload(chat_id: str, file: UploadFile = File(...), text: str = Form(""), reply_to: str = Form(""),
+                 voice: bool = Form(False), duration: float = Form(0)):
+    """Bild, Video, Datei oder Sprachnachricht senden: erst zu Beeper hochladen, dann als Anhang verschicken."""
+    check_ids(chat_id)
+    if reply_to:
+        check_ids(reply_to)
+    data = await file.read(UPLOAD_MAX + 1)
+    if not data:
+        raise HTTPException(400, "Leere Datei")
+    if len(data) > UPLOAD_MAX:
+        raise HTTPException(413, "Datei zu groß (höchstens 95 MB)")
+    name = re.sub(r"[\\/\x00-\x1f]", "_", file.filename or "datei")[:200] or "datei"
+    mime = (file.content_type or "application/octet-stream").split(";")[0].strip().lower()
+    if voice:
+        ogg = await to_ogg(data)
+        if ogg:
+            data, mime, name = ogg, "audio/ogg", "Sprachnachricht.ogg"
+    global _rest
+    if not rest_base():
+        raise HTTPException(409, "Beeper ist nicht eingerichtet")
+    if _rest is None:
+        _rest = httpx.AsyncClient(timeout=20)
+    tok = get_settings().beeper_mcp_token
+    try:
+        r = await _rest.post(rest_base() + "/v1/assets/upload", files={"file": (name, data, mime)}, data={"fileName": name, "mimeType": mime},
+                             headers={"authorization": f"Bearer {tok}"} if tok else {}, timeout=300)
+    except httpx.HTTPError as e:
+        raise HTTPException(502, "Beeper nicht erreichbar") from e
+    up = r.json() if r.status_code == 200 else {}
+    if not up.get("uploadID"):
+        raise HTTPException(502, f"Beeper: Hochladen ging nicht ({(up.get('error') or r.text)[:150]})")
+    att: dict = {"uploadID": up["uploadID"], "type": att_type(mime, voice), "mimeType": mime, "fileName": name}
+    if duration and 0 < duration < 36000:
+        att["duration"] = round(duration, 2)
+    body: dict = {"attachment": att}
+    if text.strip():
+        body["text"] = text.strip()[:8000]
+    if reply_to:
+        body["replyToMessageID"] = reply_to
+    out = await rest_call("POST", f"/v1/chats/{quote(chat_id, safe='')}/messages", body)
+    return {"ok": True, "id": out.get("pendingMessageID"), "type": att["type"]}
+
+
+@router.get("/avatar/{chat_id}")
+async def avatar(chat_id: str, user: str = ""):
+    """Profilbild eines Chats (Gruppenbild bzw. Bild der anderen Person) oder – mit user – eines Gruppenmitglieds."""
+    if not re.match(r"^[\w!:.@=+-]{1,300}$", chat_id) or len(user) > 300:
+        raise HTTPException(400, "Ungültige ID")
+    info = await chat_info(chat_id)
+    url = (info["people"].get(user) or {}).get("img", "") if user else info["img"]
+    got = await avatar_bytes(url) if url else None
+    if not got:
+        return Response(status_code=404, headers={"cache-control": "private, max-age=3600"})
+    return Response(got[0], media_type=got[1], headers={"cache-control": "private, max-age=86400", "x-content-type-options": "nosniff"})
 
 
 @router.get("/transcript")

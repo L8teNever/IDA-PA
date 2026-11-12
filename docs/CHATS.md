@@ -18,9 +18,21 @@ Browser (chats.kulbarts.com, Cloudflare Access) ──> chats :8000 ──MCP─
   lokale Whisper-Modell in Beeper um (`/api/v1/transcript`).
 * **Bedienung:** Nach rechts wischen (oder Pfeil am PC) antwortet auf die Nachricht; langes Drücken am Handy bzw. Rechtsklick am PC öffnet das
   Menü (Antworten, Text kopieren, Datei öffnen); Tippen aufs Bild öffnet die Vollansicht.
-* **Grenzen von Beeper-MCP** (nicht der App): Es gibt kein Werkzeug zum Reagieren (Emoji-Reaktionen), für Umfragen, zum Senden von Dateien oder
-  Sprachnachrichten und keine Profilbilder (weder für Chats noch für Gruppenmitglieder; die App zeigt farbige Anfangsbuchstaben).
-  Vorhandene Reaktionen werden angezeigt, soweit Beeper sie mitliefert. Das alles bräuchte Zugang zur Beeper-Desktop-API selbst.
+* **Profilbilder:** kommen aus der REST-API von Beeper Desktop (gleiche Adresse ohne `/v0/mcp`, gleicher Token; abweichend über
+  `BEEPER_API_URL`): `GET /v1/chats/{id}` liefert `imgURL` von Chat und Teilnehmern (als `file:///…` oder Windows-Pfad), die Bilder holt
+  `GET /v1/assets/serve?url=…`. Der Dienst gibt sie unter `/api/v1/avatar/{chat}` (Gruppenbild bzw. andere Person) und
+  `/api/v1/avatar/{chat}?user={id}` (Gruppenmitglied) aus, zwischengespeichert; ohne Bild (404) bleibt der farbige Anfangsbuchstabe.
+  In Gruppen steht das Bild an der letzten Nachricht einer Folge vom selben Absender.
+* **Lesebestätigung:** Beeper liefert pro Nachricht `seen` ({Nutzer: Zeitpunkt}); die App zeigt bei eigenen Nachrichten ein Häkchen
+  (gesendet) oder zwei mintfarbene (gelesen), in Gruppen „Gelesen von …“ unter der letzten gelesenen Nachricht. Der offene Chat wird alle 4 s neu geholt.
+* **Senden von Dateien und Sprachnachrichten:** „+“ öffnet Fotos & Videos, Kamera, Datei (auch Einfügen und Ziehen am PC); vor dem Senden
+  eine Vorschau mit Bildunterschrift, bis 10 Dateien, je höchstens 95 MB (Cloudflare-Grenze). Bei leerem Feld wird aus Senden ein Mikrofon:
+  Antippen nimmt auf (Wellenform, Zeit, Pause, Verwerfen, höchstens 15 Minuten). `POST /api/v1/chats/{id}/upload` lädt die Datei per
+  `POST /v1/assets/upload` zu Beeper und schickt sie mit `POST /v1/chats/{id}/messages` (`attachment.uploadID`, Typ `voice-note` für
+  Sprachnachrichten). Aufnahmen wandelt ffmpeg im Image vorher in Ogg/Opus (mono, 32 kbit/s) – das Format, das WhatsApp & Co. als Sprachnachricht erwarten.
+* **Reaktionen:** langes Drücken → Reaktionsleiste; `POST`/`DELETE /api/v1/chats/{id}/messages/{msg}/react` → Beeper `…/reactions`.
+* **Grenzen von Beeper-MCP** (nicht der App): Kein Werkzeug für Reaktionen, Dateien und Gelesen-Markieren –
+  dafür nutzt die App die REST-API. Echtes Gelesen-Markieren (`/v1/chats/{id}/read`) und Umfragen sind noch nicht eingebaut.
 
 ## Einrichten
 

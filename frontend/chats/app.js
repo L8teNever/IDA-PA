@@ -23,7 +23,10 @@ function color(key) {
   return `background:var(--evc-${c});color:var(--ev-${c})`;
 }
 const letter = (t) => (String(t || "?").replace(/[^\p{L}\p{N}]/gu, "")[0] || "?");
-const avatar = (t, id) => `<span class="av" style="${color(id || t)}">${esc(letter(t))}</span>`;
+// Profilbild aus Beeper; fehlt es (404), bleibt der farbige Anfangsbuchstabe darunter stehen
+const avatar = (t, id, user = "") => `<span class="av" style="${color(user || id || t)}">${esc(letter(t))}${id ? `<img class="avimg" alt="" loading="lazy" decoding="async" src="${API}/avatar/${encodeURIComponent(id)}${user ? `?user=${encodeURIComponent(user)}` : ""}">` : ""}</span>`;
+document.addEventListener("error", (e) => { if (e.target.classList?.contains("avimg")) e.target.remove(); }, true);
+document.addEventListener("load", (e) => { if (e.target.classList?.contains("avimg")) e.target.classList.add("ok"); }, true);
 const clean = (t) => String(t || "").replace(/[­​-‏‪-‮⁠]/g, "");   // unsichtbare Zeichen in Namen
 
 async function api(path, opts = {}) {
@@ -130,12 +133,25 @@ function refreshReadBar() {
 }
 async function openChat() {
   $("#conv").innerHTML = `${head()}${readBar(cur())}<div class="msgs" id="msgs"><div class="skel"></div><div class="skel"></div></div>
-    <div class="replybar" id="replybar" hidden></div><form class="composer" id="form"><textarea id="txt" rows="1" placeholder="Nachricht" enterkeyhint="send"></textarea>
-    <button class="send" id="sendBtn" type="submit" aria-label="Senden"><span class="ms">send</span></button></form>`;
+    <div class="replybar" id="replybar" hidden></div><form class="composer" id="form">
+    <button class="icon-btn attach" id="attachBtn" type="button" aria-label="Anhängen" title="Foto, Video oder Datei"><span class="ms">add</span></button>
+    <textarea id="txt" rows="1" placeholder="Nachricht" enterkeyhint="send"></textarea>
+    <button class="send mic" id="sendBtn" type="submit" aria-label="Sprachnachricht aufnehmen"><span class="ms">mic</span></button></form>
+    <div class="recbar" id="recbar" hidden><button class="icon-btn" type="button" data-rec="cancel" aria-label="Verwerfen"><span class="ms">delete</span></button>
+      <span class="recdot"></span><span class="rectime" id="rectime">0:00</span><div class="recwave" id="recwave"></div>
+      <button class="icon-btn" type="button" data-rec="pause" aria-label="Pause"><span class="ms">pause</span></button>
+      <button class="send" type="button" data-rec="send" aria-label="Sprachnachricht senden"><span class="ms">send</span></button></div>`;
   const ta = $("#txt");
-  ta.addEventListener("input", () => { ta.style.height = "auto"; ta.style.height = `${Math.min(ta.scrollHeight, 140)}px`; });
+  ta.addEventListener("input", () => { ta.style.height = "auto"; ta.style.height = `${Math.min(ta.scrollHeight, 140)}px`; sendMode(); });
+  ta.addEventListener("paste", (e) => { const f = [...(e.clipboardData?.files || [])]; if (f.length) { e.preventDefault(); pickFiles(f); } });
+  $("#attachBtn").onclick = attachMenu;
+  $("#recbar").addEventListener("click", (e) => { const a = e.target.closest("[data-rec]")?.dataset.rec; if (a) recAction(a); });
+  const conv = $("#conv");
+  conv.ondragover = (e) => { if (e.dataTransfer?.types?.includes("Files")) { e.preventDefault(); conv.classList.add("drop"); } };
+  conv.ondragleave = (e) => { if (e.target === conv || !conv.contains(e.relatedTarget)) conv.classList.remove("drop"); };
+  conv.ondrop = (e) => { conv.classList.remove("drop"); const f = [...(e.dataTransfer?.files || [])]; if (f.length) { e.preventDefault(); pickFiles(f); } };
   ta.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey && !matchMedia("(pointer: coarse)").matches) { e.preventDefault(); $("#form").requestSubmit(); } });
-  $("#form").addEventListener("submit", (e) => { e.preventDefault(); send(); });
+  $("#form").addEventListener("submit", (e) => { e.preventDefault(); if (ta.value.trim()) send(); else startRec(); });
   if (!cur()) loadChats({ quiet: true }).then(() => { if (S.id && $(".chead")) { $(".chead").outerHTML = head(); refreshReadBar(); } });
   await loadMsgs({ first: true });
   if (matchMedia("(pointer: fine)").matches) ta.focus();
@@ -150,7 +166,9 @@ async function loadMsgs({ first = false, quiet = false, older = false } = {}) {
     for (const m of d.items) keep.set(m.id, m);
     const sig = (l) => l.map((m) => `${m.id}|${(m.read_by || []).length}|${(m.reactions || []).map((r) => r.key + r.n).join()}|${m.deleted}|${m.pending ? 1 : 0}`).join(";");
     const before = sig(S.msgs);
-    S.msgs = [...keep.values()].filter((m) => !m.pending || !d.items.some((x) => x.mine && x.text === m.text)).sort((a, b) => (a.at || "").localeCompare(b.at || ""));
+    const landed = (m) => m.pendingFile ? m.sentAt && d.items.some((x) => x.mine && x.files.length && Date.parse(x.at) >= Date.parse(m.at) - 10000)
+      : d.items.some((x) => x.mine && x.text === m.text);
+    S.msgs = [...keep.values()].filter((m) => !m.pending || !landed(m)).sort((a, b) => (a.at || "").localeCompare(b.at || ""));
     if (!older) { S.more = d.more; S.oldest = d.oldest; } else { S.more = d.more; S.oldest = d.oldest; }
     if (quiet && !first && !older && before === sig(S.msgs) && $("#msgs")?.children.length) return;   // nichts Neues: nicht neu zeichnen (Scrollstand, Player)
     drawMsgs({ stick: first || atEnd, keepTop: older });
@@ -159,7 +177,7 @@ async function loadMsgs({ first = false, quiet = false, older = false } = {}) {
   }
 }
 const mmss = (s) => `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, "0")}`;
-const mediaUrl = (f) => `${API}/media?src=${encodeURIComponent(f.src || "")}${f.mime ? `&mime=${encodeURIComponent(f.mime)}` : ""}`;
+const mediaUrl = (f) => f.local ? f.local : `${API}/media?src=${encodeURIComponent(f.src || "")}${f.mime ? `&mime=${encodeURIComponent(f.mime)}` : ""}`;
 function bars(key) {   // Wellenform: aus der Adresse abgeleitet, damit sie pro Nachricht gleich bleibt
   let h = 7;
   for (const c of String(key)) h = (h * 31 + c.charCodeAt(0)) >>> 0;
@@ -195,26 +213,29 @@ function readLine(m) {
   const names = m.read_by.map(t), shown = names.slice(0, 3).join(", ") + (names.length > 3 ? ` und ${names.length - 3} weitere` : "");
   return `<div class="readline" title="${esc(m.read_by.map((r) => `${t(r)} ${r.at ? fmtTime.format(new Date(r.at)) : ""}`).join("\n"))}"><span class="ms">done_all</span>Gelesen von ${esc(shown)}</div>`;
 }
-function bubble(m) {
+function bubble(m, tail = true) {
   const files = m.files.map((f) => fileHtml(f)).join("");
   const body = m.deleted ? "Nachricht gelöscht" : m.text ? `<span class="tx">${autolink(esc(m.text))}</span>` : "";
   const group = cur()?.type === "group" && !m.mine ? `<span class="who">${esc(clean(m.sender))}</span>` : "";
   const q = m.reply_to && S.msgs.find((x) => x.id === m.reply_to);
   const quote = m.reply_to ? `<div class="quote" data-a="jump" data-id="${esc(m.reply_to)}"><b>${esc(q ? (q.mine ? "Du" : clean(q.sender)) : "Antwort")}</b>${esc(q ? (q.text || (q.files[0] ? "Anhang" : "")).slice(0, 120) : "Nachricht")}</div>` : "";
-  const rx = m.reactions?.length ? `<div class="rx">${m.reactions.map((r) => `<span class="${r.mine ? "mine" : ""}">${esc(r.key)}${r.n > 1 ? ` ${r.n}` : ""}</span>`).join("")}</div>` : "";
+  const rx = m.reactions?.length ? `<div class="rx">${m.reactions.map((r) => `<span class="${r.mine ? "mine" : ""}" data-a="rx" data-id="${esc(m.id)}" data-k="${esc(r.key)}">${esc(r.key)}${r.n > 1 ? ` ${r.n}` : ""}</span>`).join("")}</div>` : "";
   const tools = m.pending || m.deleted ? "" : `<button class="rep" data-a="reply" data-id="${esc(m.id)}" aria-label="Antworten" title="Antworten"><span class="ms">reply</span></button>`;
-  return `<div class="bw ${m.mine ? "me" : ""}" id="m-${esc(m.id)}" data-id="${esc(m.id)}"><span class="swipe ms">reply</span>${tools}<div class="b ${m.mine ? "me" : ""} ${m.pending ? "pending" : ""} ${m.deleted ? "del" : ""}">${group}${quote}${files}${body}${rx}<span class="tm">${m.at ? fmtTime.format(new Date(m.at)) : "…"}${ticks(m)}</span></div>${readLine(m)}</div>`;
+  const face = cur()?.type === "group" && !m.mine ? (tail ? avatar(clean(m.sender), S.id, m.sender_id) : '<span class="av gap"></span>') : "";
+  const prog = m.pendingFile ? `<div class="prog"><i style="width:${Math.round((m.progress || 0) * 100)}%"></i></div>` : "";
+  return `<div class="bw ${m.mine ? "me" : ""} ${face ? "grp" : ""}" id="m-${esc(m.id)}" data-id="${esc(m.id)}"><span class="swipe ms">reply</span>${face}${tools}<div class="b ${m.mine ? "me" : ""} ${m.pending ? "pending" : ""} ${m.deleted ? "del" : ""}">${group}${quote}${files}${prog}${body}${rx}<span class="tm">${m.at ? fmtTime.format(new Date(m.at)) : "…"}${ticks(m)}</span></div>${readLine(m)}</div>`;
 }
 function drawMsgs({ stick = false, keepTop = false } = {}) {
   const box = $("#msgs"); if (!box) return;
   const prevH = box.scrollHeight, prevTop = box.scrollTop;
   let last = "", html = S.more ? '<button class="older" data-a="older">Ältere laden</button>' : "";
   if (!S.msgs.length) html += '<div class="empty">Noch keine Nachrichten.</div>';
-  for (const m of S.msgs) {
+  S.msgs.forEach((m, i) => {
     const k = m.at ? dayKey(m.at) : last;
     if (k !== last) { last = k; html += `<div class="day">${esc(fmtDay.format(new Date(m.at)))}</div>`; }
-    html += bubble(m);
-  }
+    const n = S.msgs[i + 1];   // Bild nur an der letzten Nachricht einer Folge vom selben Absender (wie in Beeper)
+    html += bubble(m, !n || n.mine || n.sender_id !== m.sender_id || (n.at && dayKey(n.at) !== k));
+  });
   box.innerHTML = html;
   paint();
   if (keepTop) box.scrollTop = box.scrollHeight - prevH + prevTop;
@@ -228,6 +249,7 @@ $("#conv").addEventListener("click", (e) => {
   if (a.dataset.a === "older") return loadMsgs({ older: true });
   if (a.dataset.a === "reply") return setReply(S.msgs.find((m) => m.id === a.dataset.id));
   if (a.dataset.a === "seen") { markSeen(cur()); refreshReadBar(); return drawList(); }
+  if (a.dataset.a === "rx") { const m = S.msgs.find((x) => x.id === a.dataset.id); return m && toggleReaction(m, a.dataset.k); }
   if (a.dataset.a === "cancel") return setReply(null);
   if (a.dataset.a === "jump") { const el = document.getElementById(`m-${a.dataset.id}`); if (el) { el.scrollIntoView({ block: "center", behavior: "smooth" }); el.classList.add("flash"); setTimeout(() => el.classList.remove("flash"), 1200); } return; }
   if (a.dataset.a === "play") return togglePlay(a.closest(".voice"));
@@ -304,28 +326,71 @@ function lightbox(src) {
 // ---------------- Wischen, langes Drücken, Menü ----------------
 const buzz = (ms = 12) => navigator.vibrate?.(ms);
 function bubbleMsg(el) { const w = el.closest(".bw"); return w ? S.msgs.find((m) => m.id === w.dataset.id) : null; }
-function menu(m, x, y) {
+// Langes Drücken (oder Rechtsklick): die Nachricht kommt nach vorne, der Chat dahinter wird unscharf;
+// darüber die Reaktionen, darunter die Aktionen – wie in Beeper am Handy.
+const QUICK = ["❤️", "👍", "😂", "😮", "😢", "🙏"];
+const MORE = ["🔥", "👏", "🥰", "😍", "🤣", "😅", "😭", "😡", "🤔", "👀", "🎉", "💯", "✅", "❌", "🙈", "😎", "🤝", "💀"];
+function menu(m) {
   closeMenu();
+  const src = document.getElementById(`m-${m.id}`)?.querySelector(".b");
+  if (!src) return;
+  const r = src.getBoundingClientRect(), mine = new Set((m.reactions || []).filter((x) => x.mine).map((x) => x.key));
   const d = document.createElement("div");
   d.className = "ctx"; d.id = "ctx";
-  d.innerHTML = `<div class="ctx-back"></div><div class="ctx-box" style="--x:${x}px;--y:${y}px">
-    <button data-c="reply"><span class="ms">reply</span>Antworten</button>
-    ${m.text ? '<button data-c="copy"><span class="ms">content_copy</span>Text kopieren</button>' : ""}
-    ${m.files[0] ? `<button data-c="open"><span class="ms">download</span>Datei öffnen</button>` : ""}</div>`;
+  const emo = (k) => `<button class="emo ${mine.has(k) ? "on" : ""}" data-r="${esc(k)}" aria-label="${esc(k)}">${esc(k)}</button>`;
+  d.innerHTML = `<div class="ctx-back"></div><div class="ctx-stack ${m.mine ? "me" : ""}">
+    ${m.pending || m.deleted ? "" : `<div class="ctx-rx">${QUICK.map(emo).join("")}<button class="emo plus" data-c="more" aria-label="Mehr"><span class="ms">add</span></button></div>
+    <div class="ctx-more" hidden>${MORE.map(emo).join("")}</div>`}
+    <div class="ctx-msg"></div>
+    <div class="ctx-box">
+      <button data-c="reply"><span class="ms">reply</span>Antworten</button>
+      ${m.text ? '<button data-c="copy"><span class="ms">content_copy</span>Text kopieren</button>' : ""}
+      ${m.files[0] ? '<button data-c="open"><span class="ms">open_in_new</span>Datei öffnen</button>' : ""}
+    </div></div>`;
+  const clone = src.cloneNode(true);
+  clone.removeAttribute("id"); clone.querySelectorAll("[id]").forEach((x) => x.removeAttribute("id"));
+  clone.style.width = `${r.width}px`;
+  d.querySelector(".ctx-msg").append(clone);
   d.addEventListener("click", (e) => {
+    const rb = e.target.closest("[data-r]");
+    if (rb) { closeMenu(); return toggleReaction(m, rb.dataset.r); }
     const c = e.target.closest("[data-c]")?.dataset.c;
+    if (c === "more") { d.querySelector(".ctx-more").hidden = false; e.target.closest(".plus").remove(); return place(); }
+    if (e.target.closest(".ctx-msg")) return;
     closeMenu();
     if (c === "reply") setReply(m);
     if (c === "copy") navigator.clipboard?.writeText(m.text).then(() => toast("Kopiert"), () => toast("Kopieren nicht möglich"));
     if (c === "open") window.open(mediaUrl(m.files[0]), "_blank", "noopener");
   });
   document.body.append(d);
-  const box = d.querySelector(".ctx-box"), r = box.getBoundingClientRect();
-  box.style.left = `${Math.max(8, Math.min(x, innerWidth - r.width - 8))}px`;
-  box.style.top = `${Math.max(8, Math.min(y, innerHeight - r.height - 8))}px`;
+  src.closest(".bw").classList.add("lifted");
+  const stack = d.querySelector(".ctx-stack");
+  function place() {   // so nah wie möglich an der echten Stelle, aber ganz im Bild
+    const h = stack.offsetHeight, w = stack.offsetWidth, top0 = r.top - (stack.querySelector(".ctx-msg").offsetTop);
+    const top = Math.max(12 + (parseFloat(getComputedStyle(document.body).getPropertyValue("--sat")) || 0), Math.min(top0, innerHeight - h - 12));
+    const left = m.mine ? Math.min(r.right, innerWidth - 8) - w : Math.max(8, r.left);
+    stack.style.top = `${top}px`; stack.style.left = `${Math.max(8, Math.min(left, innerWidth - w - 8))}px`;
+  }
+  place();
   buzz(20);
 }
-const closeMenu = () => document.getElementById("ctx")?.remove();
+async function toggleReaction(m, key) {
+  const had = (m.reactions || []).find((x) => x.key === key && x.mine);
+  const before = JSON.stringify(m.reactions || []);
+  m.reactions = m.reactions || [];
+  if (had) { had.n -= 1; had.mine = false; m.reactions = m.reactions.filter((x) => x.n > 0); }
+  else { const e = m.reactions.find((x) => x.key === key); if (e) { e.n += 1; e.mine = true; } else m.reactions.push({ key, n: 1, mine: true }); }
+  drawMsgs(); buzz(10);
+  try {
+    const path = `/chats/${encodeURIComponent(S.id)}/messages/${encodeURIComponent(m.id)}/react`;
+    if (had) await api(`${path}?key=${encodeURIComponent(key)}`, { method: "DELETE" });
+    else await api(path, { method: "POST", body: JSON.stringify({ key }) });
+    setTimeout(() => loadMsgs({ quiet: true }), 1200);
+  } catch (e) {
+    m.reactions = JSON.parse(before); drawMsgs(); toast(`Reaktion ging nicht: ${e.message}`);
+  }
+}
+const closeMenu = () => { document.getElementById("ctx")?.remove(); document.querySelectorAll(".bw.lifted").forEach((x) => x.classList.remove("lifted")); };
 document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeMenu(); });
 const gest = { w: null, x: 0, y: 0, dx: 0, t: 0, lock: false, armed: false };
 function gestEnd() {
@@ -339,7 +404,7 @@ document.addEventListener("touchstart", (e) => {
   if (!w || e.touches.length !== 1 || e.target.closest(".voice,video,.vid,a")) return;
   const t = e.touches[0];
   Object.assign(gest, { w, x: t.clientX, y: t.clientY, dx: 0, lock: false, armed: false });
-  gest.t = setTimeout(() => { const m = bubbleMsg(w); if (m && !gest.lock) { gest.w = null; menu(m, gest.x, gest.y); } }, 450);
+  gest.t = setTimeout(() => { const m = bubbleMsg(w); if (m && !gest.lock) { gest.w = null; menu(m); } }, 450);
 }, { passive: true });
 document.addEventListener("touchmove", (e) => {
   if (!gest.w) return;
@@ -349,13 +414,14 @@ document.addEventListener("touchmove", (e) => {
     if (Math.abs(dx) > Math.abs(dy) * 1.4 && dx > 0) gest.lock = true; else return gestEnd();
   }
   if (!gest.lock) return;
+  if (e.cancelable) e.preventDefault();   // nur die eine Nachricht bewegt sich, der Chat bleibt stehen
   gest.dx = Math.min(dx, 90);
   gest.w.classList.add("drag");
   gest.w.style.transform = `translateX(${gest.dx * 0.8}px)`;
   const armed = gest.dx > 60;
   if (armed && !gest.armed) buzz(15);
   gest.armed = armed; gest.w.classList.toggle("armed", armed);
-}, { passive: true });
+}, { passive: false });
 document.addEventListener("touchend", () => {
   if (gest.w && gest.armed) { const m = bubbleMsg(gest.w); if (m && !m.pending) setReply(m); }
   gestEnd();
@@ -365,7 +431,7 @@ document.addEventListener("contextmenu", (e) => {   // Rechtsklick am PC, langes
   const w = e.target.closest?.("#msgs .bw");
   if (!w || e.target.closest("video")) return;
   const m = bubbleMsg(w);
-  if (m && !m.pending) { e.preventDefault(); menu(m, e.clientX, e.clientY); }
+  if (m && !m.pending) { e.preventDefault(); menu(m); }
 });
 
 function setReply(m) {
@@ -380,10 +446,10 @@ async function send() {
   S.sending = true; $("#sendBtn").disabled = true;
   const tmp = { id: `tmp${Date.now()}`, text, reply_to: S.reply?.id || null, reactions: [], mine: true, pending: true, at: new Date().toISOString(), files: [], type: "TEXT", sender: "" };
   S.msgs.push(tmp); drawMsgs({ stick: true });
-  ta.value = ""; ta.style.height = "auto";
+  ta.value = ""; ta.style.height = "auto"; sendMode();
   const rep = S.reply; setReply(null);
   try {
-    await api(`/chats/${encodeURIComponent(S.id)}/send`, { method: "POST", body: JSON.stringify({ text, reply_to: S.reply?.id || null }) });
+    await api(`/chats/${encodeURIComponent(S.id)}/send`, { method: "POST", body: JSON.stringify({ text, reply_to: rep?.id || null }) });
     setTimeout(() => loadMsgs({ quiet: true }), 600);
     const c = cur(); if (c) { c.at = new Date().toISOString(); c.unread = 0; markSeen(c); refreshReadBar(); drawList(); }
     loadChats({ quiet: true });
@@ -392,6 +458,169 @@ async function send() {
     setReply(rep); toast(`Nicht gesendet: ${e.message}`);
   }
   S.sending = false; $("#sendBtn").disabled = false; ta.focus();
+}
+function sendMode() {   // leeres Feld: Mikrofon (wie in Beeper), sonst Senden
+  const b = $("#sendBtn"), ta = $("#txt"); if (!b || !ta) return;
+  const txt = !!ta.value.trim();
+  b.classList.toggle("mic", !txt); b.querySelector(".ms").textContent = txt ? "send" : "mic";
+  b.setAttribute("aria-label", txt ? "Senden" : "Sprachnachricht aufnehmen");
+}
+
+// ---------------- Anhänge senden ----------------
+function attachMenu() {
+  closeMenu();
+  const d = document.createElement("div");
+  d.className = "ctx"; d.id = "ctx";
+  d.innerHTML = `<div class="ctx-back"></div><div class="sheet">
+    <button data-p="media"><span class="ms" style="color:var(--ev-violet, #c6a0ff)">photo_library</span>Fotos & Videos</button>
+    <button data-p="camera"><span class="ms" style="color:var(--ev-pink, #ff9ecf)">photo_camera</span>Kamera</button>
+    <button data-p="file"><span class="ms" style="color:var(--ev-blue, #8ab4ff)">description</span>Datei</button></div>`;
+  d.addEventListener("click", (e) => {
+    const p = e.target.closest("[data-p]")?.dataset.p;
+    closeMenu();
+    if (!p) return;
+    const inp = document.createElement("input");
+    inp.type = "file"; inp.multiple = p !== "camera";
+    if (p === "media") inp.accept = "image/*,video/*";
+    if (p === "camera") { inp.accept = "image/*"; inp.capture = "environment"; }
+    inp.onchange = () => pickFiles([...inp.files]);
+    inp.click();
+  });
+  document.body.append(d);
+}
+const MAX_UP = 95 * 1024 * 1024;
+function pickFiles(files) {
+  files = files.filter((f) => f.size > 0);
+  const big = files.filter((f) => f.size > MAX_UP);
+  if (big.length) toast(`${big.length > 1 ? "Dateien" : big[0].name} zu groß (höchstens 95 MB)`);
+  files = files.filter((f) => f.size <= MAX_UP).slice(0, 10);
+  if (!files.length) return;
+  closeMenu();
+  const urls = files.map((f) => (/^(image|video)\//.test(f.type) ? URL.createObjectURL(f) : ""));
+  const d = document.createElement("div");
+  d.className = "ctx"; d.id = "ctx";
+  const prev = files.map((f, i) => f.type.startsWith("image/") ? `<img src="${urls[i]}" alt="">`
+    : f.type.startsWith("video/") ? `<video src="${urls[i]}" muted playsinline></video>`
+    : `<div class="pfile"><span class="ms">description</span><b>${esc(f.name)}</b><small>${size(f.size)}</small></div>`).join("");
+  d.innerHTML = `<div class="ctx-back"></div><div class="preview">
+    <div class="ptop"><button class="icon-btn" data-x="close" aria-label="Abbrechen"><span class="ms">close</span></button><b>${files.length > 1 ? `${files.length} Dateien` : "Senden"}</b></div>
+    <div class="pitems ${files.length > 1 ? "many" : ""}">${prev}</div>
+    <form class="composer pcomp"><textarea rows="1" placeholder="Bildunterschrift" enterkeyhint="send"></textarea>
+    <button class="send" type="submit" aria-label="Senden"><span class="ms">send</span></button></form></div>`;
+  const done = () => { urls.forEach((u) => u && URL.revokeObjectURL(u)); closeMenu(); };
+  d.addEventListener("click", (e) => { if (e.target.closest("[data-x=close]") || e.target.classList.contains("ctx-back")) done(); });
+  const cap = d.querySelector("textarea");
+  cap.value = $("#txt")?.value || "";
+  cap.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey && !matchMedia("(pointer: coarse)").matches) { e.preventDefault(); d.querySelector("form").requestSubmit(); } });
+  d.querySelector("form").addEventListener("submit", (e) => {
+    e.preventDefault();
+    const text = cap.value.trim();
+    done();
+    if ($("#txt")) { $("#txt").value = ""; sendMode(); }
+    files.reduce((p, f, i) => p.then(() => sendFile(f, { text: i === 0 ? text : "" })), Promise.resolve());
+  });
+  document.body.append(d);
+  if (matchMedia("(pointer: fine)").matches) cap.focus();
+}
+const size = (n) => (n > 1048576 ? `${(n / 1048576).toFixed(1).replace(".", ",")} MB` : `${Math.max(1, Math.round(n / 1024))} KB`);
+function kindOf(t) { return t.startsWith("image/") ? "image" : t.startsWith("video/") ? "video" : t.startsWith("audio/") ? "audio" : "file"; }
+function sendFile(file, { text = "", voice = false, duration = 0 } = {}) {
+  const id = S.id, rep = S.reply; setReply(null);
+  const local = URL.createObjectURL(file);
+  const tmp = { id: `tmp${Date.now()}${Math.random()}`, text, reply_to: rep?.id || null, reactions: [], mine: true, pending: true, pendingFile: true, at: new Date().toISOString(),
+    type: voice ? "VOICE" : "MEDIA", sender: "", progress: 0, files: [{ local, kind: voice ? "audio" : kindOf(file.type), mime: file.type, name: file.name, size: file.size, duration }] };
+  S.msgs.push(tmp); drawMsgs({ stick: true });
+  const fd = new FormData();
+  fd.append("file", file, file.name || (voice ? "Sprachnachricht.webm" : "datei"));
+  if (text) fd.append("text", text);
+  if (rep?.id) fd.append("reply_to", rep.id);
+  if (voice) { fd.append("voice", "true"); fd.append("duration", String(duration)); }
+  return new Promise((ok) => {   // XHR statt fetch: so gibt es einen Fortschrittsbalken
+    const x = new XMLHttpRequest();
+    x.open("POST", `${API}/chats/${encodeURIComponent(id)}/upload`);
+    x.upload.onprogress = (e) => { if (e.lengthComputable) { tmp.progress = e.loaded / e.total; const bar = document.querySelector(`#m-${CSS.escape(tmp.id)} .prog i`); if (bar) bar.style.width = `${Math.round(tmp.progress * 100)}%`; } };
+    x.onload = () => {
+      if (x.status >= 200 && x.status < 300) {
+        tmp.sentAt = Date.now();
+        setTimeout(() => loadMsgs({ quiet: true }), 1500); setTimeout(() => loadMsgs({ quiet: true }), 5000);
+        loadChats({ quiet: true });
+      } else {
+        let msg = `Fehler ${x.status}`; try { msg = JSON.parse(x.responseText).detail || msg; } catch {}
+        fail(msg);
+      }
+      ok();
+    };
+    x.onerror = () => { fail("Keine Verbindung"); ok(); };
+    x.send(fd);
+    function fail(msg) { S.msgs = S.msgs.filter((m) => m !== tmp); URL.revokeObjectURL(local); if (id === S.id) drawMsgs(); toast(`Nicht gesendet: ${msg}`); }
+  });
+}
+
+// ---------------- Sprachnachricht aufnehmen ----------------
+const R = { rec: null, chunks: [], start: 0, paused: 0, pauseAt: 0, t: 0, stream: null, ana: null, ctx: null, levels: [] };
+function recMime() {
+  for (const t of ["audio/ogg;codecs=opus", "audio/webm;codecs=opus", "audio/mp4", "audio/webm"]) if (window.MediaRecorder?.isTypeSupported?.(t)) return t;
+  return "";
+}
+async function startRec() {
+  if (R.rec) return;
+  if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) return toast("Aufnehmen geht in diesem Browser nicht");
+  try {
+    R.stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+  } catch { return toast("Kein Zugriff aufs Mikrofon – in den Browser-Einstellungen erlauben"); }
+  const mime = recMime();
+  R.rec = new MediaRecorder(R.stream, mime ? { mimeType: mime, audioBitsPerSecond: 48000 } : undefined);
+  R.chunks = []; R.levels = []; R.start = Date.now(); R.paused = 0; R.pauseAt = 0;
+  R.rec.ondataavailable = (e) => e.data.size && R.chunks.push(e.data);
+  R.rec.start(250);
+  try {
+    R.ctx = new (window.AudioContext || window.webkitAudioContext)();
+    R.ana = R.ctx.createAnalyser(); R.ana.fftSize = 512;
+    R.ctx.createMediaStreamSource(R.stream).connect(R.ana);
+  } catch { R.ana = null; }
+  $("#form").hidden = true; $("#recbar").hidden = false; $("#recwave").innerHTML = "";
+  buzz(25);
+  const buf = new Uint8Array(256);
+  R.t = setInterval(() => {
+    if (!R.rec) return;
+    const el = recElapsed();
+    $("#rectime").textContent = mmss(el);
+    if (R.rec.state !== "recording") return;
+    let lvl = 0.15;
+    if (R.ana) { R.ana.getByteTimeDomainData(buf); let sum = 0; for (const v of buf) sum += (v - 128) ** 2; lvl = Math.min(1, Math.sqrt(sum / buf.length) / 40 + 0.08); }
+    R.levels.push(lvl);
+    const w = $("#recwave"), n = Math.max(10, Math.floor(w.clientWidth / 5));
+    w.innerHTML = R.levels.slice(-n).map((l) => `<i style="height:${Math.round(l * 100)}%"></i>`).join("");
+    if (el > 15 * 60) recAction("send");   // höchstens 15 Minuten
+  }, 100);
+}
+const recElapsed = () => (((R.pauseAt || Date.now()) - R.start - R.paused) / 1000);
+function stopRec() {
+  clearInterval(R.t);
+  R.stream?.getTracks().forEach((t) => t.stop());
+  R.ctx?.close().catch(() => {});
+  const f = $("#form"), b = $("#recbar"); if (f) f.hidden = false; if (b) b.hidden = true;
+}
+function recAction(a) {
+  const r = R.rec; if (!r) return;
+  if (a === "pause") {
+    const btn = document.querySelector('[data-rec="pause"] .ms');
+    if (r.state === "recording") { r.pause(); R.pauseAt = Date.now(); btn.textContent = "mic"; document.getElementById("recbar").classList.add("paused"); }
+    else { r.resume(); R.paused += Date.now() - R.pauseAt; R.pauseAt = 0; btn.textContent = "pause"; document.getElementById("recbar").classList.remove("paused"); }
+    return;
+  }
+  const dur = recElapsed();
+  R.rec = null;
+  r.onstop = () => {
+    stopRec();
+    if (a !== "send") return;
+    if (dur < 0.7) return toast("Zu kurz – zum Aufnehmen antippen, dann sprechen");
+    const type = (r.mimeType || "audio/webm").split(";")[0];
+    const ext = type.includes("ogg") ? "ogg" : type.includes("mp4") ? "m4a" : "webm";
+    sendFile(new File(R.chunks, `Sprachnachricht.${ext}`, { type }), { voice: true, duration: Math.round(dur * 10) / 10 });
+  };
+  r.stop();
+  if (a === "cancel") buzz(10);
 }
 
 // ---------------- Live (nur sichtbar) ----------------

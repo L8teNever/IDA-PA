@@ -85,3 +85,44 @@ def test_audio_mit_range_und_unsichere_dateien(client):
     assert client.get(f"{API}/media", params={"src": src}, headers={"range": "bytes=500-600"}).status_code == 416
     r = client.get(f"{API}/media", params={"src": "mxc://x/page"})   # HTML kommt nie als HTML an
     assert r.headers["content-type"] == "application/octet-stream" and r.headers["content-disposition"] == "attachment"
+
+
+def test_profilbilder(client, fake):
+    r = client.get(f"{API}/avatar/7")   # Gruppenbild (Windows-Pfad → file://)
+    assert r.status_code == 200 and r.headers["content-type"] == "image/png"
+    assert fake.served[-1] == "file:///C:/Users/x/grp.png"
+    assert client.get(f"{API}/avatar/7", params={"user": "@luka:x"}).status_code == 200   # Gruppenmitglied
+    assert client.get(f"{API}/avatar/7", params={"user": "@me:x"}).status_code == 404     # ohne Bild: Buchstabe bleibt
+    assert client.get(f"{API}/avatar/1").status_code == 200 and fake.served[-1].endswith("luka.png")   # Einzelchat: die andere Person
+    n = len(fake.served)
+    client.get(f"{API}/avatar/7")
+    assert len(fake.served) == n   # zwischengespeichert
+    assert client.get(f"{API}/avatar/x%2F..%2Fy").status_code in (400, 404)
+
+
+def test_reagieren(client, fake):
+    assert client.post(f"{API}/chats/1/messages/9/react", json={"key": "❤️"}).json() == {"ok": True}
+    assert fake.rest[-1] == ("POST", "/v1/chats/1/messages/9/reactions", {"reactionKey": "❤️"})
+    assert client.delete(f"{API}/chats/1/messages/9/react", params={"key": "❤️"}).status_code == 200
+    assert fake.rest[-1][0] == "DELETE" and fake.rest[-1][1] == "/v1/chats/1/messages/9/reactions/%E2%9D%A4%EF%B8%8F"
+    assert client.post(f"{API}/chats/1/messages/a%2Fb/react", json={"key": "x"}).status_code in (400, 404, 405)
+
+
+def test_bild_und_sprachnachricht_senden(client, fake, monkeypatch):
+    from app import api
+    r = client.post(f"{API}/chats/1/upload", files={"file": ("foto.jpg", b"\xff\xd8\xffdata", "image/jpeg")}, data={"text": "Schau", "reply_to": "8"})
+    assert r.json() == {"ok": True, "id": "p7", "type": "image"}
+    up, send = fake.rest[-2], fake.rest[-1]
+    assert up[0] == "UPLOAD" and b"foto.jpg" in up[2]["raw"] and up[2]["ct"] == "multipart/form-data"
+    assert send[1] == "/v1/chats/1/messages" and send[2] == {"attachment": {"uploadID": "up1", "type": "image", "mimeType": "image/jpeg", "fileName": "foto.jpg"},
+                                                            "text": "Schau", "replyToMessageID": "8"}
+
+    async def fake_ogg(data):
+        return b"OggS" + data
+    monkeypatch.setattr(api, "to_ogg", fake_ogg)   # ffmpeg gibt es im Test nicht unbedingt
+    r = client.post(f"{API}/chats/1/upload", files={"file": ("a.webm", b"webmdata", "audio/webm;codecs=opus")}, data={"voice": "true", "duration": "4.2"})
+    assert r.json()["type"] == "voice-note"
+    att = fake.rest[-1][2]["attachment"]
+    assert att == {"uploadID": "up1", "type": "voice-note", "mimeType": "audio/ogg", "fileName": "Sprachnachricht.ogg", "duration": 4.2}
+    assert b"OggSwebmdata" in fake.rest[-2][2]["raw"]
+    assert client.post(f"{API}/chats/1/upload", files={"file": ("x", b"", "text/plain")}).status_code == 400

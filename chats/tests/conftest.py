@@ -36,6 +36,8 @@ PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgYGD4DwABBAEAH
 class FakeBeeper:
     def __init__(self):
         self.calls: list[tuple[str, dict]] = []
+        self.served: list[str] = []
+        self.rest: list[tuple] = []
         self.chats = CHATS
         outer = self
 
@@ -43,7 +45,47 @@ class FakeBeeper:
             def log_message(self, *a):
                 pass
 
+            def do_GET(self):   # REST-API von Beeper Desktop (Profilbilder)
+                from urllib.parse import parse_qs, urlparse
+                u = urlparse(self.path)
+                if self.headers.get("authorization") != "Bearer tok":
+                    self.send_response(401); self.end_headers(); return
+                if u.path == "/v1/chats/7":
+                    out = json.dumps({"id": "7", "type": "group", "imgURL": "C:\\Users\\x\\grp.png", "participants": {"items": [
+                        {"id": "@luka:x", "fullName": "Luka", "imgURL": "file:///C:/Users/x/luka.png"}, {"id": "@me:x", "isSelf": True, "imgURL": None}]}}).encode()
+                    ct = "application/json"
+                elif u.path == "/v1/chats/1":
+                    out = json.dumps({"id": "1", "type": "single", "imgURL": None, "participants": {"items": [
+                        {"id": "@me:x", "isSelf": True, "imgURL": "file:///C:/Users/x/me.png"}, {"id": "@luka:x", "imgURL": "file:///C:/Users/x/luka.png"}]}}).encode()
+                    ct = "application/json"
+                elif u.path == "/v1/assets/serve" and parse_qs(u.query)["url"][0] in ("file:///C:/Users/x/grp.png", "file:///C:/Users/x/luka.png"):
+                    outer.served.append(parse_qs(u.query)["url"][0])
+                    out, ct = base64.b64decode(PNG), "application/octet-stream"
+                else:
+                    self.send_response(404); self.end_headers(); return
+                self.send_response(200); self.send_header("content-type", ct); self.send_header("content-length", str(len(out))); self.end_headers(); self.wfile.write(out)
+
+            def do_DELETE(self):
+                outer.rest.append(("DELETE", self.path, None))
+                out = b'{"success": true}'
+                self.send_response(200); self.send_header("content-type", "application/json"); self.send_header("content-length", str(len(out))); self.end_headers(); self.wfile.write(out)
+
             def do_POST(self):
+                if self.path == "/v1/assets/upload":
+                    raw = self.rfile.read(int(self.headers["content-length"]))
+                    outer.rest.append(("UPLOAD", self.path, {"size": len(raw), "ct": self.headers["content-type"].split(";")[0], "raw": raw}))
+                    out = b'{"uploadID": "up1", "fileName": "x"}'
+                    self.send_response(200); self.send_header("content-type", "application/json"); self.send_header("content-length", str(len(out))); self.end_headers(); self.wfile.write(out)
+                    return
+                if self.path.startswith("/v1/"):
+                    body = json.loads(self.rfile.read(int(self.headers["content-length"])))
+                    outer.rest.append(("POST", self.path, body))
+                    out = b'{"success": true, "pendingMessageID": "p7"}'
+                    self.send_response(200); self.send_header("content-type", "application/json"); self.send_header("content-length", str(len(out))); self.end_headers(); self.wfile.write(out)
+                    return
+                return self.mcp()
+
+            def mcp(self):
                 if self.headers.get("authorization") != "Bearer tok":
                     self.send_response(401); self.end_headers(); return
                 body = json.loads(self.rfile.read(int(self.headers["content-length"])))

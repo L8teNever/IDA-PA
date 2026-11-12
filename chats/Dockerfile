@@ -1,4 +1,4 @@
-# IDA Chats – Beeper-Chats im IDA-Stil. Kein eigener Speicher: alles liegt in Beeper Desktop (Zugang per MCP-Adresse in BEEPER_MCP_URL).
+# IDA Chats – Beeper-Chats im IDA-Stil (ffmpeg wandelt Sprachaufnahmen in Ogg/Opus). Kein eigener Speicher: alles liegt in Beeper Desktop (Zugang per MCP-Adresse in BEEPER_MCP_URL).
 # Build-Kontext ist das Repo-Root (die Oberfläche liegt in frontend/):  docker build -f chats/Dockerfile .
 FROM python:3.12-slim
 
@@ -7,7 +7,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
     FRONTEND_DIR=/app/frontend
 
-RUN apt-get update && apt-get install -y --no-install-recommends tini && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends tini ffmpeg && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app/chats
 COPY chats/requirements.txt .
