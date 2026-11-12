@@ -528,7 +528,7 @@ function rowMenu(c) {
 const rowChat = (id) => { const g = MERGES.find((x) => x.id === id); return g ? grpRow(g) : known(id); };
 let rowT, rowHeld = false;
 $("#list").addEventListener("pointerdown", (e) => {
-  const r = e.target.closest(".row"); rowHeld = false;
+  const r = e.target.closest(".row, .ptile"); rowHeld = false;
   if (!r || e.pointerType === "mouse") return;
   const x = e.clientX, y = e.clientY;
   const stop = () => { clearTimeout(rowT); removeEventListener("pointermove", mv); removeEventListener("pointerup", stop); removeEventListener("pointercancel", stop); };
@@ -537,7 +537,7 @@ $("#list").addEventListener("pointerdown", (e) => {
   rowT = setTimeout(() => { stop(); const c = rowChat(r.dataset.id); if (c) { rowHeld = true; navigator.vibrate?.(10); rowMenu(c); } }, 480);
 });
 $("#list").addEventListener("contextmenu", (e) => {
-  const r = e.target.closest(".row"); if (!r) return;
+  const r = e.target.closest(".row, .ptile"); if (!r) return;
   e.preventDefault();
   const c = rowChat(r.dataset.id); if (c && !$("#ctx")) rowMenu(c);
 });
@@ -559,7 +559,11 @@ function drawList() {
   const row = (c, pin) => `<div class="row ${left(c) ? "unread" : ""} ${c.id === S.id ? "sel" : ""}" data-id="${esc(c.id)}">
       ${pickAv(c)}<div class="rmain"><div class="rtop"><span class="rtitle">${esc(clean(c.title))}</span><span class="rtime">${when(c.at)}</span></div>
       <div class="rsub"><span class="last">${lastLine(c)}</span>${isMuted(c.id) ? '<span class="ms mute">notifications_off</span>' : ""}${pin ? '<span class="ms pin">push_pin</span>' : ""}${left(c) ? `<span class="cnt">${c.unread}</span>` : ""}</div></div></div>`;
-  $("#list").innerHTML = pinned.map((c) => row(c, true)).join("") + (pinned.length && rest.length ? '<div class="pinsep"></div>' : "") + rest.map((c) => row(c, false)).join("")
+  // Angepinnte Chats: große runde Bilder nebeneinander ganz oben (wie in Beeper), darunter die übrige Liste
+  const tile = (c) => `<button type="button" class="ptile ${left(c) ? "unread" : ""} ${c.id === S.id ? "sel" : ""}" data-id="${esc(c.id)}">
+      <span class="pav">${avatar(c.title, c.av || c.id)}${left(c) ? `<span class="cnt">${c.unread}</span>` : ""}</span>
+      <span class="pname"><span>${esc(clean(c.title))}</span>${isMuted(c.id) ? '<span class="ms">notifications_off</span>' : ""}</span></button>`;
+  $("#list").innerHTML = (pinned.length ? `<div class="pins">${pinned.map(tile).join("")}</div>` : "") + rest.map((c) => row(c, false)).join("")
     + (S.next ? '<button class="more" id="more">Mehr laden</button>' : "");
   if (S.id && $(".chead")) refreshReadBar();
 }
@@ -567,7 +571,7 @@ $("#list").addEventListener("click", (e) => {
   if (e.target.closest("#more")) return loadChats({ more: true });
   if (rowHeld) { rowHeld = false; return; }
   const av = e.target.closest(".row .av"); if (av && avatarBig(av)) return;
-  const r = e.target.closest(".row");
+  const r = e.target.closest(".row, .ptile");
   if (!r) return;
   const c = S.chats.find((x) => x.id === r.dataset.id);
   go(r.dataset.id);

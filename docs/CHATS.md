@@ -1,6 +1,6 @@
 # IDA Chats
 
-Deine Beeper-Chats im IDA-Stil als eigene App (Dienst `chats`, Image `ida-chats`, PWA): Chats suchen (schwebende Leiste unten im Material-3-Expressive-Stil: links Filter Alle / Ungelesen / Archiv, Mitte Einstellungen (eigene Adresse `/einstellungen`: Benachrichtigungen an/aus mit Probemeldung, stumme und automatisch gelesene Chats) und Neu laden, rechts Suche mit eigener Adresse `/suche`; keine Kopfzeile mehr),
+Deine Beeper-Chats im IDA-Stil als eigene App (Dienst `chats`, Image `ida-chats`, PWA): Chats suchen (schwebende Leiste unten im Material-3-Expressive-Stil, 48 px hoch: links Filter Alle / Ungelesen / Archiv, Mitte Einstellungen (eigene Adresse `/einstellungen`: Benachrichtigungen an/aus mit Probemeldung, stumme und automatisch gelesene Chats) und Neu laden, rechts Suche mit eigener Adresse `/suche`; keine Kopfzeile mehr),
 Unterhaltungen lesen, Nachrichten schreiben, auf Nachrichten antworten, Bilder sehen, Sprachnachrichten als Text anzeigen – und **live**.
 
 ```
@@ -53,7 +53,7 @@ Browser (chats.kulbarts.com, Cloudflare Access) ──> chats :8000 ──MCP─
   und merkt sich pro Chat die letzten 150 Nachrichten (40 Chats, `localStorage`), so steht ein Chat beim Öffnen sofort da und wird dann aufgefrischt.
   Geladene Profilbilder werden beim Neuzeichnen nicht neu eingeblendet.
 * **Anpinnen:** Langes Drücken (am PC Rechtsklick) auf einen Chat in der Liste → „Anpinnen“, höchstens 3. Das sind echte Beeper-Pins
-  (`PATCH /v1/chats/{id}` mit `isPinned`), sie stehen also auch in Beeper oben. Welche angepinnt sind, liest `GET /api/v1/pins` aus `GET /v1/chats` (60 s gemerkt).
+  (`PATCH /v1/chats/{id}` mit `isPinned`), sie stehen also auch in Beeper oben. In der Liste erscheinen sie ganz oben als große runde Profilbilder nebeneinander (Name darunter, Zähler am Bild) und nicht mehr als Zeilen. Welche angepinnt sind, liest `GET /api/v1/pins` aus `GET /v1/chats` (60 s gemerkt).
 * **Zusammenführen:** Langes Drücken auf einen Chat → „Mit anderem Chat zusammenführen“. Das passiert nur in IDA Chats (Tabelle `merges` in
   `chats.db`), Beeper bleibt unberührt. Die Gruppe heißt nach dem ersten Chat, ihre ID ist dessen ID. `GET /api/v1/chats/{gruppe}/messages` liefert
   alle Chats als einen Verlauf; jede Nachricht hat `chat` und `mid` (echte ID), `id` ist `chat~mid`, der Cursor merkt sich pro Chat den Stand.

@@ -726,7 +726,7 @@ html, body { max-width: 100%; }
 .b > .rx span.mine { background: color-mix(in srgb, var(--accent) 22%, transparent); }
 /* Leiste unten in der Übersicht (Material 3 Expressive, schwebende Toolbar): Filter links, Platzhalter in der Mitte, Suche rechts */
 .side { position: relative; }
-.list { padding-bottom: calc(env(safe-area-inset-bottom) + 104px); }
+.list { padding-bottom: calc(env(safe-area-inset-bottom) + 84px); }
 .tools[hidden] { display: none; }
 .tools .search { padding-left: 4px; gap: 4px; }
 .fmenu { transform-origin: bottom left; }
@@ -736,16 +736,15 @@ html, body { max-width: 100%; }
 .ldock.away { transform: translateY(calc(100% + 32px)); opacity: 0; }
 body.lsrch .ldock { display: none; }
 .dfab, .dbar { background: #1f1f1f; box-shadow: 0 6px 18px rgba(0,0,0,.55); }
-.dfab { flex: none; width: 64px; height: 64px; border: 0; border-radius: 50%; color: var(--on-surface); display: grid; place-items: center; transition: border-radius .2s var(--ease-out, ease), background-color .15s, transform .12s; }
-.dfab .ms { font-size: 26px; }
-.dfab:active { border-radius: 20px; transform: scale(.96); }
+.dfab { flex: none; width: 48px; height: 48px; border: 0; border-radius: 50%; color: var(--on-surface); display: grid; place-items: center; transition: border-radius .2s var(--ease-out, ease), background-color .15s, transform .12s; }
+.dfab .ms { font-size: 22px; }
+.dfab:active { border-radius: 16px; transform: scale(.96); }
 .dfab.on { background: var(--container); color: var(--on-container); }
-.dbar { height: 64px; border-radius: 32px; display: flex; align-items: center; gap: 4px; padding: 0 8px; }
-.dbar button { width: 64px; height: 48px; border: 0; border-radius: 24px; background: none; color: var(--on-surface); display: grid; place-items: center; transition: background-color .15s, border-radius .2s var(--ease-out, ease); }
-.dbar button .ms { font-size: 26px; }
+.dbar { height: 48px; border-radius: 24px; display: flex; align-items: center; gap: 2px; padding: 0 6px; }
+.dbar button { width: 52px; height: 36px; border: 0; border-radius: 18px; background: none; color: var(--on-surface); display: grid; place-items: center; transition: background-color .15s, border-radius .2s var(--ease-out, ease); }
+.dbar button .ms { font-size: 22px; }
 .dbar button.on { background: rgba(255,255,255,.1); }
-.dbar button:active { border-radius: 14px; }
-@media (max-width: 380px) { .dfab { width: 56px; height: 56px; } .dbar { height: 56px; } .dbar button { width: 52px; } }
+.dbar button:active { border-radius: 12px; }
 /* Ohne Kopfzeile: die Liste beginnt unter der Statusleiste */
 .list { padding-top: calc(env(safe-area-inset-top) + 8px); }
 body.lsrch .list { padding-top: 4px; }
@@ -757,3 +756,16 @@ body.setts .ldock { display: none; }
 .sett .irow:disabled { opacity: .5; cursor: default; }
 .sett .iperson .av { flex: none; }
 .sett .ihint { margin: 4px 8px 6px; }
+/* Angepinnte Chats oben: große runde Profilbilder nebeneinander (wie in Beeper), Name darunter, Zähler am Bild */
+.pins { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; padding: 8px 4px 10px; }
+.ptile { border: 0; background: none; color: inherit; font: inherit; padding: 8px 4px; border-radius: 24px; display: flex; flex-direction: column; align-items: center; gap: 8px; min-width: 0; cursor: pointer;
+  -webkit-touch-callout: none; user-select: none; transition: background-color .15s, transform .12s var(--ease-out, ease); }
+.ptile:active { transform: scale(.96); }
+.ptile:hover, .ptile.sel { background: var(--surface-high); }
+.ptile .pav { position: relative; width: min(88px, 100%); aspect-ratio: 1; }
+.ptile .pav .av { width: 100%; height: 100%; font-size: 30px; }
+.ptile .pav .cnt { position: absolute; top: 0; right: 0; margin: 0; box-shadow: 0 0 0 3px var(--surface, #000); }
+.ptile .pname { max-width: 100%; display: flex; align-items: center; justify-content: center; gap: 4px; font-size: 13px; color: var(--muted); }
+.ptile .pname > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ptile .pname .ms { font-size: 15px; flex: none; }
+.ptile.unread .pname { color: var(--on-surface); font-weight: 600; }
