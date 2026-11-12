@@ -264,8 +264,7 @@ a.file small { color: var(--muted); }
 [data-net]:not([data-net=""]) .b a.file { color: inherit; text-decoration: none; }
 [data-net]:not([data-net=""]) .b.me a { color: inherit; text-decoration: underline; }
 [data-net]:not([data-net=""]) .b.me .quote { color: inherit; opacity: .9; border-left-color: currentColor; background: var(--no); }
-[data-net]:not([data-net=""]) .b.me .rx span, [data-net]:not([data-net=""]) .b.me .spd, [data-net]:not([data-net=""]) .b.me .vtbtn { background: var(--no); }
-[data-net]:not([data-net=""]) .b.me .rx span.mine { outline-color: currentColor; }
+[data-net]:not([data-net=""]) .b.me .spd, [data-net]:not([data-net=""]) .b.me .vtbtn { background: var(--no); }
 [data-net]:not([data-net=""]) .b.me .play { background: currentColor; }
 [data-net]:not([data-net=""]) .b.me .play .ms { color: var(--nc); }
 [data-net]:not([data-net=""]) .b.me .wave i.on { background: currentColor; }
@@ -282,7 +281,7 @@ a.file small { color: var(--muted); }
 [data-net]:not([data-net=""]) .b:not(.me) .quote { border-left-color: var(--acc); }
 [data-net]:not([data-net=""]) .b:not(.me) .play { background: var(--nb); color: var(--nf); }
 [data-net]:not([data-net=""]) .b:not(.me) .wave i.on { background: var(--acc); }
-[data-net]:not([data-net=""]) .b:not(.me) .rx span.mine { outline-color: var(--acc); }
+[data-net]:not([data-net=""]) .b > .rx span.mine { background: color-mix(in srgb, var(--acc) 28%, transparent); }
 [data-net]:not([data-net=""]) .b:not(.me) .vtbtn.has { background: color-mix(in srgb, var(--acc) 25%, transparent); }
 [data-net]:not([data-net=""]) .bw.flash .b { outline-color: var(--acc); }
 [data-net]:not([data-net=""]) .bw.armed .swipe { background: var(--nb); color: var(--nf); }
@@ -500,7 +499,6 @@ body.kb .dock .recbar { margin-bottom: 8px; }
 .b.media .pic.stk { width: auto; max-height: 160px; }
 .b.media .pic + .pic, .b.media .vid + .vid, .b.media .pic + .vid, .b.media .vid + .pic { margin-top: 4px; }
 .b.media .tm { position: absolute; right: 8px; bottom: 8px; margin: 0; padding: 2px 8px; border-radius: 10px; background: rgba(0,0,0,.5); color: #fff !important; opacity: 1 !important; }
-.b.media .rx { margin-top: -10px; position: relative; }
 .b .pic, .b .vid { border-radius: 16px; }
 .vid > small { position: absolute; left: 10px; bottom: 8px; padding: 2px 8px; border-radius: 10px; background: rgba(0,0,0,.5); color: #fff; font-size: 12px; }
 .vid .ms { width: 60px; height: 60px; border-radius: 50%; display: grid; place-items: center; background: rgba(0,0,0,.35); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); font-size: 40px; text-shadow: none; }
@@ -713,3 +711,11 @@ html, body { max-width: 100%; }
 .seenrow { display: flex; justify-content: flex-end; align-items: center; gap: 4px; margin: 2px 14px 6px auto; max-width: 75%; font-size: 12px; color: var(--muted); text-align: right; }
 .seenrow .ms { font-size: 15px; }
 .seenrow.read .ms { color: var(--accent); }
+
+/* ---------------- Reaktionen wie bei WhatsApp/Beeper: eine kleine Pille, die unten über den Rand der Blase ragt ---------------- */
+.b:has(> .rx) { position: relative; margin-bottom: 18px; min-width: 64px; }
+.b > .rx { position: absolute; bottom: -20px; left: 10px; z-index: 1; margin: 0; gap: 0; flex-wrap: nowrap; align-items: center; max-width: calc(100% + 40px);
+  padding: 1px 3px; border-radius: 14px; background: var(--surface-high); border: 2px solid var(--surface); box-shadow: 0 1px 3px rgba(0,0,0,.35); color: var(--on-surface, #e3e3e3); }
+.b.me > .rx { left: auto; right: 10px; }
+.b > .rx span { background: none; outline: none; padding: 1px 4px; border-radius: 10px; font-size: 15px; line-height: 20px; white-space: nowrap; }
+.b > .rx span.mine { background: color-mix(in srgb, var(--accent) 22%, transparent); }

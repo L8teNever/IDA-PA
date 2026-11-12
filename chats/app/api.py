@@ -1149,3 +1149,107 @@ async def stream(request: Request):
             bus.unsubscribe(q)
 
     return StreamingResponse(gen(), media_type="text/event-stream", headers={"cache-control": "no-cache", "x-accel-buffering": "no"})
+
+
+# ---------------- Link-Vorschau selbst holen (z. B. Snapchat: Beeper liefert dort keine) ----------------
+# Holt Titel, Beschreibung und Bild aus den og:-Angaben der Seite. Nur öffentliche Adressen (kein Heimnetz, kein Server-Inneres).
+_og: dict[str, tuple[float, dict]] = {}
+_ogimg: dict[str, tuple[float, bytes, str]] = {}
+_web: httpx.AsyncClient | None = None
+OG_TTL = 6 * 3600
+UA = "Mozilla/5.0 (compatible; IDA-Chats-Linkvorschau; +facebookexternalhit/1.1)"
+
+
+def _public_url(u: str) -> bool:
+    import ipaddress
+    import socket
+    from urllib.parse import urlsplit
+    try:
+        p = urlsplit(u)
+        if p.scheme not in ("http", "https") or not p.hostname or len(u) > 2000:
+            return False
+        for info in socket.getaddrinfo(p.hostname, p.port or (443 if p.scheme == "https" else 80), proto=socket.IPPROTO_TCP):
+            if not ipaddress.ip_address(info[4][0]).is_global:
+                return False
+        return True
+    except (ValueError, OSError):
+        return False
+
+
+async def _web_get(u: str, limit: int) -> httpx.Response | None:
+    """GET mit eigener Weiterleitung (jede Station wird geprüft) und Größenlimit."""
+    global _web
+    if _web is None:
+        _web = httpx.AsyncClient(timeout=8, headers={"user-agent": UA, "accept-language": "de,en;q=0.8"})
+    for _ in range(5):
+        if not await asyncio.to_thread(_public_url, u):
+            return None
+        try:
+            async with _web.stream("GET", u) as r:
+                if r.is_redirect and r.headers.get("location"):
+                    u = str(r.url.join(r.headers["location"]))
+                    continue
+                if r.status_code >= 400:
+                    return None
+                buf = bytearray()
+                async for chunk in r.aiter_bytes():
+                    buf += chunk
+                    if len(buf) > limit:
+                        break
+                r._content = bytes(buf[:limit])   # noqa: SLF001 – gelesener Anfang reicht
+                return r
+        except httpx.HTTPError:
+            return None
+    return None
+
+
+def _meta(page: str, *names: str) -> str:
+    for n in names:
+        for pat in (rf'<meta[^>]+(?:property|name)=["\']{re.escape(n)}["\'][^>]*content=["\']([^"\']*)',
+                    rf'<meta[^>]+content=["\']([^"\']*)["\'][^>]*(?:property|name)=["\']{re.escape(n)}["\']'):
+            if (mm := re.search(pat, page, re.I)) and mm[1].strip():
+                return html.unescape(mm[1]).strip()
+    return ""
+
+
+@router.get("/link")
+async def link_preview(url: str):
+    """Vorschau zu einem Link: {title, summary, img, w, h}. img zeigt auf /link/img (über den Dienst geladen)."""
+    url = url.strip()
+    hit = _og.get(url)
+    if hit and time.time() - hit[0] < OG_TTL:
+        return hit[1]
+    out: dict = {"url": url, "title": "", "summary": "", "img": ""}
+    r = await _web_get(url, 600_000)
+    if r is not None and "html" in r.headers.get("content-type", ""):
+        page = r.content.decode(r.encoding or "utf-8", "replace")
+        title = _meta(page, "og:title", "twitter:title") or html.unescape((re.search(r"<title[^>]*>([^<]{1,300})", page, re.I) or [None, ""])[1]).strip()
+        out["title"] = plain(title)[:200]
+        out["summary"] = plain(_meta(page, "og:description", "twitter:description", "description"))[:300]
+        img = _meta(page, "og:image:secure_url", "og:image", "twitter:image", "twitter:image:src")
+        if img:
+            out["img"] = str(r.url.join(img))
+            for k, n in (("w", "og:image:width"), ("h", "og:image:height")):
+                v = _meta(page, n)
+                out[k] = int(v) if v.isdigit() else None
+    elif r is not None and r.headers.get("content-type", "").startswith("image/"):
+        out["img"] = url
+    if len(_og) > 2000:
+        _og.clear()
+    _og[url] = (time.time(), out)
+    return out
+
+
+@router.get("/link/img")
+async def link_img(u: str):
+    hit = _ogimg.get(u)
+    if not hit or time.time() - hit[0] > OG_TTL:
+        r = await _web_get(u, 8_000_000)
+        ctype = (r.headers.get("content-type", "") if r is not None else "").split(";")[0].strip().lower()
+        if r is None or ctype not in ("image/jpeg", "image/png", "image/webp", "image/gif", "image/avif"):
+            raise HTTPException(404, "Kein Bild")
+        if sum(len(x[1]) for x in _ogimg.values()) > 80_000_000:
+            _ogimg.clear()
+        hit = _ogimg[u] = (time.time(), r.content, ctype)
+    return Response(hit[1], media_type=hit[2], headers={"cache-control": "private, max-age=86400", "content-security-policy": "default-src 'none'",
+                                                         "x-content-type-options": "nosniff"})

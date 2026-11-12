@@ -802,7 +802,7 @@ function bubble(m, tail = true, stack = null, head = true) {
   const onlyLink = !m.deleted && m.text && (m.links || []).some((l) => (l.title || l.img) && lk(l.url) === lk(m.text));
   const body = m.deleted ? `<span class="gone"><span class="ms">block</span>${m.mine ? "Du hast diese Nachricht gelöscht" : "Diese Nachricht wurde gelöscht"}</span>${was}` : m.text && !onlyLink ? `<span class="tx">${mentionHtml(autolink(esc(m.text)))}</span>` : "";
   const host = (u) => { try { return new URL(u).hostname.replace(/^www\./, ""); } catch { return ""; } };
-  const links = m.deleted ? "" : (m.links || []).filter((l) => l.title || l.img).map((l) => `<a class="lp" href="${esc(l.url)}" target="_blank" rel="noopener noreferrer">${l.img ? `<img loading="lazy" alt=""${l.w && l.h ? ` style="aspect-ratio:${l.w}/${l.h}"` : ""} src="${mediaUrl({ src: l.img })}">` : ""}<span><b>${esc(l.title || host(l.url))}</b>${l.summary ? `<i>${esc(l.summary)}</i>` : ""}<small>${esc(host(l.url))}</small></span></a>`).join("");
+  const links = m.deleted ? "" : (m.links || []).filter((l) => l.title || l.img).map((l) => `<a class="lp" href="${esc(l.url)}" target="_blank" rel="noopener noreferrer">${l.img ? `<img loading="lazy" alt=""${l.w && l.h ? ` style="aspect-ratio:${l.w}/${l.h}"` : ""} src="${l.ext ? l.ext : mediaUrl({ src: l.img })}">` : ""}<span><b>${esc(l.title || host(l.url))}</b>${l.summary ? `<i>${esc(l.summary)}</i>` : ""}<small>${esc(host(l.url))}</small></span></a>`).join("");
   const group = "";
   const name = head && cur()?.type === "group" && !m.mine && clean(m.sender) ? `<div class="gname" style="color:${whoColor(m.sender_id || m.sender)}">${esc(clean(m.sender))}</div>` : "";
   const quote = "";
@@ -829,6 +829,7 @@ document.fonts?.ready.then(pinEnd);
 let drawn = { id: null, ids: new Set() };
 function drawMsgs({ stick = false, keepTop = false } = {}) {
   const box = $("#msgs"); if (!box) return;
+  ogApply();
   const fresh = drawn.id === S.id && !keepTop ? S.msgs.slice(-6).filter((m) => !drawn.ids.has(m.id)) : [];
   const prevH = box.scrollHeight, prevTop = box.scrollTop;
   S.replies = new Map();
@@ -866,6 +867,24 @@ function drawMsgs({ stick = false, keepTop = false } = {}) {
   else box.scrollTop = prevTop;
   growth.disconnect(); growth.observe(box); for (const c of box.children) growth.observe(c);
   if (!box.dataset.pin) { box.dataset.pin = 1; for (const ev of ["load", "loadedmetadata", "error"]) box.addEventListener(ev, pinEnd, true); }
+  ogFetch();
+}
+// Link-Vorschau selbst holen, wenn Beeper keine mitliefert (z. B. bei Snapchat): Bild, Titel, Text der Seite.
+// Einmal pro Adresse, gemerkt für die Sitzung; nur die letzten 40 Nachrichten, damit beim Hochscrollen nicht alles auf einmal lädt.
+const OG = new Map();
+const urlOf = (m) => !m || m.deleted || (m.links || []).some((l) => l.title || l.img) ? "" : ((m.text || "").match(/https?:\/\/[^\s<>"')\]]+/) || [""])[0].replace(/[.,!?:;]+$/, "");
+function ogApply() {
+  for (const m of S.msgs) {
+    const u = urlOf(m), c = u && OG.get(u);
+    if (c && c !== 1 && (c.title || c.img)) m.links = [{ url: u, title: c.title, summary: c.summary, img: c.img ? "x" : "", ext: c.img ? `${API}/link/img?u=${encodeURIComponent(c.img)}` : "", w: c.w, h: c.h }];
+  }
+}
+function ogFetch() {
+  const id = S.id, todo = [...new Set(S.msgs.slice(-40).map(urlOf).filter((u) => u && !OG.has(u)))].slice(0, 6);
+  if (!todo.length) return;
+  for (const u of todo) OG.set(u, 1);
+  Promise.all(todo.map((u) => api(`/link?url=${encodeURIComponent(u)}`).then((r) => OG.set(u, r), () => OG.set(u, {}))))
+    .then(() => { if (S.id === id && todo.some((u) => OG.get(u)?.title || OG.get(u)?.img)) drawMsgs({ stick: atBottom }); });
 }
 $("#conv").addEventListener("click", (e) => {
   const a = e.target.closest("[data-a]");

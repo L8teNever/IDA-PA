@@ -38,7 +38,7 @@ Browser (chats.kulbarts.com, Cloudflare Access) ──> chats :8000 ──MCP─
   Antippen nimmt auf (Wellenform, Zeit, Pause, Verwerfen, höchstens 15 Minuten). `POST /api/v1/chats/{id}/upload` lädt die Datei per
   `POST /v1/assets/upload` zu Beeper und schickt sie mit `POST /v1/chats/{id}/messages` (`attachment.uploadID`, Typ `voice-note` für
   Sprachnachrichten). Aufnahmen wandelt ffmpeg im Image vorher in Ogg/Opus (mono, 32 kbit/s) – das Format, das WhatsApp & Co. als Sprachnachricht erwarten.
-* **Reaktionen:** langes Drücken → Reaktionsleiste; `POST`/`DELETE /api/v1/chats/{id}/messages/{msg}/react` → Beeper `…/reactions`.
+* **Reaktionen:** langes Drücken → Reaktionsleiste; `POST`/`DELETE /api/v1/chats/{id}/messages/{msg}/react` → Beeper `…/reactions`. Anzeige als kleine Pille, die unten über den Rand der Blase ragt (fremde links, eigene rechts).
 * **Bearbeiten:** langes Drücken auf eine eigene Textnachricht → „Bearbeiten“; `PUT /api/v1/chats/{id}/messages/{msg}` → Beeper `PUT …/messages/{msg}`.
   Nur Text, keine Nachrichten mit Anhang; ob und wie lange es geht, entscheidet das Netzwerk (sonst kommt die Fehlermeldung von Beeper).
 * **Weiterleiten:** langes Drücken → „Weiterleiten“ → Chat aussuchen; `POST /api/v1/chats/{ziel}/forward` mit Text und Anhängen (`src`).
@@ -59,7 +59,9 @@ Browser (chats.kulbarts.com, Cloudflare Access) ──> chats :8000 ──MCP─
   Gesendet wird über den Chip im Eingabefeld (Standard: Chat der letzten eingehenden Nachricht), Antworten gehen in den Chat der zitierten Nachricht – der Chip springt dabei auf dessen Netzwerk.
   Eingabefeld und Senden-Knopf tragen die Farbe des Netzwerks, über das gerade gesendet wird.
 * **Link-Vorschauen:** Doppelte Links von Beeper (kurz/lang, mit/ohne www, gleicher Titel+Bild) werden zu einer Vorschau zusammengefasst;
-  besteht der Text nur aus dem Link, steht nur die Vorschau da.
+  besteht der Text nur aus dem Link, steht nur die Vorschau da. Liefert Beeper keine Vorschau (z. B. Snapchat), holt der Dienst sie selbst:
+  `GET /api/v1/link?url=` liest og:-Titel/-Text/-Bild der Seite, `GET /api/v1/link/img?u=` reicht das Bild durch. Nur öffentliche Adressen
+  (jede Weiterleitung wird geprüft, keine privaten IPs), Größenlimit, 6 h im Speicher; die Seite fragt nur die letzten 40 Nachrichten ab.
   `POST /api/v1/merges`, `DELETE /api/v1/merges/{gruppe}[?chat=…]` (ganze Gruppe bzw. einen Chat herausnehmen).
 * **Farben:** Eigene Nachrichten in der Farbe des Netzwerks; eingehende bleiben dunkel mit einem Hauch Netzwerkfarbe (7 %), Akzente (Name, Zitat, Links, Sprachnachricht,
   Antwortleiste) bekommen die Netzwerkfarbe. Der Netzwerkname steht nicht mehr in der Blase, die Farbe zeigt es. Mehrere Konten pro Netzwerk (z. B. ein zweites, lokal verbundenes Signal) erkennt die App am Kontonamen.
