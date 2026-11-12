@@ -4,6 +4,7 @@ import base64
 import difflib
 import html
 import json
+import logging
 import re
 import shutil
 import time
@@ -17,6 +18,8 @@ from pydantic import BaseModel, Field
 from . import bus, store
 from .config import get_settings
 from .mcp import Beeper, BeeperError
+
+log = logging.getLogger("ida.chats")
 
 router = APIRouter(prefix="/api/v1")
 
@@ -861,24 +864,67 @@ async def mark_read(chat_id: str):
     return {"ok": True}
 
 
-async def newest_incoming(chat_id: str) -> str | None:
-    """ID der neuesten Nachricht vom Gegenüber (nicht von mir) – darauf zeigt die Lesebestätigung."""
+async def newest_incoming(chat_id: str) -> tuple[str | None, str]:
+    """(ID der neuesten Nachricht vom Gegenüber, Netzwerk des Chats) – auf die ID zeigt die Lesebestätigung."""
     try:
         r = await rest_get(f"/v1/chats/{quote(chat_id, safe='')}/messages")
         items = r.json().get("items") or [] if r.status_code < 400 else []
     except (HTTPException, ValueError):
-        return None
+        return None, ""
+    net = next((str(m.get("accountID") or "").lower() for m in items if m.get("accountID")), "")
     for m in items:
         if not m.get("isSender") and m.get("id") and re.match(r"^[\w!:.@=+$-]{1,300}$", str(m["id"])):
-            return str(m["id"])
-    return None
+            return str(m["id"]), net
+    return None, net
 
 
 async def beeper_read(chat_id: str) -> None:
-    """In Beeper gelesen markieren – ausdrücklich bis zur neuesten Nachricht. Ohne Nachrichten-ID setzt Beeper bei manchen
-    Netzwerken nur den Chat zurück; mit ID geht eine echte Lesebestätigung raus, und bei Snapchat gilt der Snap damit als geöffnet."""
-    mid = await newest_incoming(chat_id)
+    """In Beeper gelesen markieren – ausdrücklich bis zur neuesten Nachricht. Snapchat reicht das nicht: dort gilt ein Snap
+    erst als geöffnet, wenn der Chat in Beeper Desktop wirklich aufgeht – das stößt open_in_beeper zusätzlich an."""
+    mid, net = await newest_incoming(chat_id)
     await rest_call("POST", f"/v1/chats/{quote(chat_id, safe='')}/read", {"messageID": mid} if mid else {})
+    if mid and any(n in net for n in OPEN_NETS):
+        t = asyncio.create_task(open_in_beeper(chat_id, mid))
+        _open_tasks.add(t)
+        t.add_done_callback(_open_tasks.discard)
+
+
+# ---------------- Chat in Beeper Desktop öffnen (Snapchat: erst dadurch gilt der Snap beim Absender als geöffnet) ----------------
+OPEN_NETS = ("snapchat",)      # Netzwerke, bei denen "gelesen" allein nicht beim Absender ankommt
+OPEN_HOLD_S = 2.5              # so lange bleibt der Chat in Beeper Desktop offen, bevor der Park-Chat drankommt
+_open_lock = asyncio.Lock()    # Beeper Desktop zeigt nur einen Chat – nacheinander öffnen
+_open_tasks: set = set()
+_park: dict = {}
+
+
+async def park_chat() -> str:
+    """Chat, auf den Beeper Desktop danach zurückspringt („Note to self“), damit im geöffneten Chat nicht jede weitere
+    Nachricht von selbst als gelesen/geöffnet gilt. BEEPER_PARK_CHAT legt ihn fest; sonst der eigene Notiz-Chat."""
+    if get_settings().beeper_park_chat:
+        return get_settings().beeper_park_chat
+    if "id" not in _park:
+        try:
+            r = await rest_get("/v1/chats", accountIDs="matrix", limit=50)
+            items = r.json().get("items") or [] if r.status_code < 400 else []
+        except (HTTPException, ValueError):
+            return ""
+        solo = [c for c in items if c.get("type") == "single" and len((c.get("participants") or {}).get("items") or []) <= 1]
+        solo.sort(key=lambda c: (c.get("title") or "").lower() != "note to self")
+        _park["id"] = str(solo[0].get("localChatID") or solo[0]["id"]) if solo else ""
+    return _park["id"]
+
+
+async def open_in_beeper(chat_id: str, msg_id: str) -> None:
+    """Chat in Beeper Desktop öffnen (wie von Hand), kurz offen lassen, dann auf den Park-Chat wechseln."""
+    async with _open_lock:
+        try:
+            await rest_call("POST", "/v1/focus", {"chatID": chat_id, "messageID": msg_id})
+            await asyncio.sleep(OPEN_HOLD_S)
+            park = await park_chat()
+            if park and park != chat_id:
+                await rest_call("POST", "/v1/focus", {"chatID": park})
+        except HTTPException as e:
+            log.warning("Chat %s in Beeper öffnen fehlgeschlagen: %s", chat_id, e.detail)
 
 
 # ---------------- Angepinnte Chats (echte Beeper-Pins, also auch in Beeper selbst oben) ----------------

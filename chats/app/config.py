@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     beeper_mcp_url: str = ""
     beeper_mcp_token: str = ""      # Bearer-Token (OAuth-Zugang von Beeper), wenn die Adresse allein nicht reicht
     beeper_api_url: str = ""        # REST-API von Beeper Desktop; leer = aus der MCP-Adresse abgeleitet (…/v0/mcp → …)
+    beeper_park_chat: str = ""      # Chat, den Beeper Desktop nach dem Öffnen eines Snapchat-Chats zeigt; leer = „Note to self“
     chats_public_url: str = ""
     live_poll_s: float = 5.0        # so oft fragt der Dienst Beeper nach Änderungen – nur solange die App irgendwo offen ist
     page_size: int = 40

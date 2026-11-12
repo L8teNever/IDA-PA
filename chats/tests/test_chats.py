@@ -306,3 +306,44 @@ def test_pins_mit_lokaler_id(client, monkeypatch):
     monkeypatch.setattr(api, "rest_chats", rest)
     monkeypatch.setattr(api, "_pins", None)
     assert [c["id"] for c in client.get(f"{API}/pins").json()["items"]] == ["66736"]
+
+
+def test_snap_oeffnen(monkeypatch):
+    """Snapchat: gelesen markieren öffnet den Chat zusätzlich in Beeper Desktop und springt danach auf den Park-Chat."""
+    import asyncio
+
+    from app import api
+    calls = []
+
+    class R:
+        status_code = 200
+
+        def __init__(self, items):
+            self._items = items
+
+        def json(self):
+            return {"items": self._items}
+
+    async def rest_get(path, **params):
+        if path == "/v1/chats":
+            return R([{"id": "!n:x", "localChatID": 5, "type": "single", "title": "Note to self", "participants": {"items": [{}]}}])
+        net = "snapchat" if "/7/" in path else "whatsapp"
+        return R([{"id": "3", "isSender": True, "accountID": net}, {"id": "2", "isSender": False, "accountID": net}])
+
+    async def rest_call(method, path, body=None):
+        calls.append((path, body))
+        return {}
+
+    monkeypatch.setattr(api, "rest_get", rest_get)
+    monkeypatch.setattr(api, "rest_call", rest_call)
+    monkeypatch.setattr(api, "OPEN_HOLD_S", 0)
+    api._park.clear()
+
+    async def run():
+        await api.beeper_read("7")
+        await api.beeper_read("8")
+        await asyncio.gather(*api._open_tasks)
+
+    asyncio.run(run())
+    assert calls == [("/v1/chats/7/read", {"messageID": "2"}), ("/v1/chats/8/read", {"messageID": "2"}),
+                     ("/v1/focus", {"chatID": "7", "messageID": "2"}), ("/v1/focus", {"chatID": "5"})]   # WhatsApp: nur gelesen
