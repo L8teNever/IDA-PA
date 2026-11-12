@@ -57,7 +57,26 @@ def hide(chat: str, msg_id: str) -> None:
 def _merges() -> sqlite3.Connection:
     d = db()
     d.execute("CREATE TABLE IF NOT EXISTS merges (chat TEXT PRIMARY KEY, grp TEXT, title TEXT, network TEXT, pos INTEGER)")
+    # Einstellungen einer Gruppe: eigener Name, Chat fürs Profilbild, Chat, über den standardmäßig gesendet wird
+    d.execute("CREATE TABLE IF NOT EXISTS merge_meta (grp TEXT PRIMARY KEY, name TEXT DEFAULT '', avatar TEXT DEFAULT '', send TEXT DEFAULT '')")
     return d
+
+
+def metas() -> dict[str, dict]:
+    with _lock:
+        rows = _merges().execute("SELECT grp, name, avatar, send FROM merge_meta").fetchall()
+    return {g: {"name": n or "", "avatar": a or "", "send": s or ""} for g, n, a, s in rows}
+
+
+def set_meta(grp: str, **kw) -> None:
+    keys = [k for k in ("name", "avatar", "send") if kw.get(k) is not None]
+    if not keys:
+        return
+    with _lock:
+        d = _merges()
+        d.execute("INSERT INTO merge_meta (grp) VALUES (?) ON CONFLICT (grp) DO NOTHING", (grp,))
+        d.execute(f"UPDATE merge_meta SET {', '.join(k + '=?' for k in keys)} WHERE grp=?", [kw[k] for k in keys] + [grp])
+        d.commit()
 
 
 def groups() -> dict[str, list[dict]]:
@@ -91,6 +110,10 @@ def merge(chats: list[dict]) -> str:
                 if o["id"] not in {m["id"] for m in members}:
                     members.append(o)
         grp = members[0]["id"]
+        olds = {g for (g,) in d.execute(f"SELECT DISTINCT grp FROM merges WHERE chat IN ({','.join('?' * len(members))})", [m["id"] for m in members])}
+        if grp not in olds and olds:   # Einstellungen einer bisherigen Gruppe mitnehmen
+            old = sorted(olds)[0]
+            d.execute("INSERT OR REPLACE INTO merge_meta (grp, name, avatar, send) SELECT ?, name, avatar, send FROM merge_meta WHERE grp=?", (grp, old))
         d.executemany("INSERT INTO merges (chat, grp, title, network, pos) VALUES (?,?,?,?,?) ON CONFLICT (chat) DO UPDATE SET "
                       "grp=excluded.grp, title=excluded.title, network=excluded.network, pos=excluded.pos",
                       [(m["id"], grp, m.get("title") or "", m.get("network") or "", i) for i, m in enumerate(members)])
@@ -108,4 +131,7 @@ def split(grp: str, chat: str | None = None) -> None:
             d.execute("DELETE FROM merges WHERE grp=?", (grp,))
         if d.execute("SELECT COUNT(*) FROM merges WHERE grp=?", (grp,)).fetchone()[0] < 2:
             d.execute("DELETE FROM merges WHERE grp=?", (grp,))
+            d.execute("DELETE FROM merge_meta WHERE grp=?", (grp,))
+        elif chat:   # herausgenommener Chat war Profilbild/Standard: zurück auf automatisch
+            d.execute("UPDATE merge_meta SET avatar=CASE WHEN avatar=? THEN '' ELSE avatar END, send=CASE WHEN send=? THEN '' ELSE send END WHERE grp=?", (chat, chat, grp))
         d.commit()

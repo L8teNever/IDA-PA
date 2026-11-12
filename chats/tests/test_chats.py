@@ -216,5 +216,9 @@ def test_merge_combines_chats(client, monkeypatch):
     assert [(m["chat"], m["mid"], m["id"]) for m in d["items"]] == [("a", "1", "a~1"), ("b", "1", "b~1")]
     assert d["items"][1]["reply_to"] == "b~0" and d["more"]
     assert client.get("/api/v1/chats/a/messages", params={"cursor": d["oldest"]}).json()["items"] == []
+    assert client.patch("/api/v1/merges/a", json={"name": " Arne ", "avatar": "b", "send": "b"}).status_code == 200
+    assert client.patch("/api/v1/merges/a", json={"send": "x"}).status_code == 400
+    g = client.get("/api/v1/merges").json()["items"][0]
+    assert (g["name"], g["avatar"], g["send"]) == ("Arne", "b", "b")
     client.delete("/api/v1/merges/a", params={"chat": "b"})
     assert store.groups() == {}

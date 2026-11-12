@@ -298,7 +298,27 @@ class Merge(BaseModel):
 
 @router.get("/merges")
 async def merges():
-    return {"items": [{"id": g, "chats": m} for g, m in store.groups().items()]}
+    meta = store.metas()
+    return {"items": [{"id": g, "chats": m, **meta.get(g, {"name": "", "avatar": "", "send": ""})} for g, m in store.groups().items()]}
+
+
+class MergeMeta(BaseModel):
+    name: str | None = Field(None, max_length=100)
+    avatar: str | None = Field(None, max_length=300)   # "" = erster Chat
+    send: str | None = Field(None, max_length=300)     # "" = automatisch (Chat der letzten eingehenden Nachricht)
+
+
+@router.patch("/merges/{grp}")
+async def merge_settings(grp: str, body: MergeMeta):
+    g = store.groups().get(grp)
+    if not g:
+        raise HTTPException(404, "Keine zusammengeführten Chats")
+    ids = {m["id"] for m in g}
+    for v in (body.avatar, body.send):
+        if v and v not in ids:
+            raise HTTPException(400, "Chat gehört nicht dazu")
+    store.set_meta(grp, name=body.name.strip() if body.name is not None else None, avatar=body.avatar, send=body.send)
+    return {"ok": True}
 
 
 @router.post("/merges")

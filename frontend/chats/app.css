@@ -189,8 +189,6 @@ a.file small { color: var(--muted); }
 /* ---------- Eingabe: Anhängen, Mikrofon, Aufnahme ---------- */
 .composer .attach { flex: none; width: 44px; height: 48px; color: var(--on-surface-variant, var(--muted)); }
 .composer .attach .ms { font-size: 26px; }
-.composer .tochip { flex: none; height: 32px; margin-bottom: 8px; max-width: 96px; padding: 0 10px; border: 1px solid var(--line); border-radius: 16px; background: var(--surface-high); color: var(--on-surface); font: inherit; font-size: 12px; text-transform: capitalize; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
-.composer .tochip[hidden] { display: none; }
 .send.mic { background: var(--surface-high); color: var(--accent); }
 .composer[hidden], .recbar[hidden] { display: none; }
 .recbar { display: flex; align-items: center; gap: 8px; padding: 8px 12px calc(env(safe-area-inset-bottom) + 10px); border-top: 1px solid var(--line); animation: fade .15s ease-out; }
@@ -325,3 +323,34 @@ body.kb .composer, body.kb .recbar { padding-bottom: 8px; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
 }
+.gset .fwd-list { display: flex; flex-direction: column; gap: 2px; }
+.gset-h { font-size: 13px; color: var(--muted); padding: 12px 8px 4px; }
+.gset .search { margin: 0 4px 4px; }
+.gset .av .ms { font-size: 20px; }
+.gset .netdot { flex: none; width: 40px; height: 40px; border-radius: 50%; background: var(--nb, var(--surface-high)); }
+.chead .t[data-a=gset] { cursor: pointer; }
+
+/* ---------------- Zusammengeführte Chats: "Senden an …" wie in Beeper ---------------- */
+.inwrap { flex: 1; min-width: 0; display: flex; align-items: flex-end; background: var(--surface-high); border-radius: 24px; }
+.inwrap textarea { background: none !important; }
+.composer .tochip { flex: none; width: 40px; height: 40px; margin: 4px 0 4px 6px; padding: 0; border: 0; border-radius: 50%; background: none; cursor: pointer; display: grid; place-items: center; }
+.composer .tochip[hidden] { display: none; }
+.composer .tochip .av { width: 32px; height: 32px; font-size: 13px; }
+.composer .tochip.open .avw { transform: scale(.9); }
+.avw { position: relative; display: inline-grid; flex: none; transition: transform .15s var(--ease-out, ease); }
+.nbadge { position: absolute; right: -3px; bottom: -3px; width: 16px; height: 16px; border-radius: 50%; display: grid; place-items: center; font: 700 9px/1 system-ui, sans-serif; font-style: normal;
+  background: var(--nb, var(--surface-highest)); color: var(--nf, var(--on-surface)); box-shadow: 0 0 0 2px var(--surface-high); }
+.avw.big .av { width: 48px; height: 48px; }
+.avw.big .nbadge { width: 22px; height: 22px; font-size: 11px; right: -2px; bottom: -2px; box-shadow: 0 0 0 3px var(--surface-highest); }
+.topanel { padding: 4px 12px 2px; display: flex; flex-direction: column; gap: 8px; animation: slideup .22s var(--ease-out, ease); }
+.to-h { font-size: 15px; padding: 6px 6px 2px; color: var(--on-surface); }
+.to-card { display: flex; align-items: center; gap: 16px; width: 100%; padding: 12px 16px; border: 0; border-radius: 22px; background: var(--surface-highest); color: var(--on-surface); font: inherit; text-align: left; cursor: pointer;
+  transition: background-color .15s, transform .12s var(--ease-out, ease); }
+.to-card:active { transform: scale(.98); }
+.to-card.on { box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--accent) 55%, transparent); }
+.to-t { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.to-t b { font-weight: 500; font-size: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.to-t small { color: var(--muted); font-size: 14px; }
+.to-ok { color: var(--accent); font-size: 28px; font-variation-settings: "FILL" 1; animation: pop .18s ease-out; }
+.to-set { align-self: center; border: 0; background: none; color: var(--muted); font: inherit; font-size: 13px; display: flex; align-items: center; gap: 6px; padding: 6px 10px; border-radius: 14px; cursor: pointer; }
+.to-set .ms { font-size: 18px; }
