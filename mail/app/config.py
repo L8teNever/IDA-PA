@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     mail_public_url: str = ""
     live_poll_s: float = 10.0       # so oft fragt der Dienst Gmail nach Änderungen – nur solange die App irgendwo offen ist
     page_size: int = 30             # Konversationen pro Seite
+    gmail_concurrency: int = 8      # so viele Gmail-Anfragen gleichzeitig (für den ganzen Dienst); mehr lässt Google pro Nutzer nicht zu
 
 
 @lru_cache

@@ -129,3 +129,9 @@ a.file small { color: var(--muted); }
 .ctx-box button { width: 100%; height: 48px; border: 0; background: none; color: var(--on-surface); border-radius: 14px; display: flex; align-items: center; gap: 14px; padding: 0 14px; font-size: 15px; text-align: left; }
 .ctx-box button:hover { background: var(--surface-high); }
 @keyframes pop { from { opacity: 0; transform: scale(.92); } }
+
+/* Hinweisleiste: Chat geöffnet, aber nicht als gelesen markiert */
+.readbar { display: flex; align-items: center; gap: 10px; padding: 8px 12px; background: var(--surface, #141414); border-bottom: 1px solid var(--line); font-size: 13px; color: var(--muted); }
+.readbar .ms { font-size: 20px; }
+.readbar div { flex: 1; min-width: 0; }
+.readbar .chip { flex: none; border: 1px solid var(--line); background: transparent; color: inherit; border-radius: 999px; padding: 6px 12px; font: inherit; font-size: 12px; cursor: pointer; }

@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import random
 import email.utils
 import re
 import time
@@ -50,6 +51,27 @@ def people(value: str) -> list[dict]:
     return [{"name": n or a.split("@")[0], "email": a} for n, a in email.utils.getaddresses([value or ""]) if a]
 
 
+RETRIES = 4
+
+
+def backoff(attempt: int, retry_after: str | None = None) -> float:
+    """0,4 s, 0,8 s, 1,6 s, 3,2 s (+ etwas Zufall, damit nicht alle gleichzeitig wiederkommen); Retry-After von Google zählt, höchstens 5 s."""
+    try:
+        if retry_after:
+            return min(5.0, float(retry_after))
+    except ValueError:
+        pass
+    return 0.4 * 2 ** attempt + random.random() * 0.2
+
+
+def rate_limited(r: httpx.Response) -> bool:
+    try:
+        errs = r.json().get("error", {}).get("errors", [])
+    except ValueError:
+        return False
+    return any(e.get("reason") in ("rateLimitExceeded", "userRateLimitExceeded", "quotaExceeded") for e in errs)
+
+
 class Gmail:
     def __init__(self):
         self.s = get_settings()
@@ -57,6 +79,10 @@ class Gmail:
         self._token, self._exp = "", 0.0
         self._lock = asyncio.Lock()
         self._cache: dict[str, tuple[float, object]] = {}
+        # Gmail erlaubt pro Nutzer nur begrenzt viele gleichzeitige Anfragen ("Too many concurrent requests" → 429/403).
+        # Darum laufen alle Anfragen des Dienstes zusammen über diese Schranke – auch wenn mehrere Listen gleichzeitig laden.
+        self._gate = asyncio.Semaphore(max(1, self.s.gmail_concurrency))
+        self._meta: dict[str, dict] = {}   # Thread-Kopfdaten nach (id, historyId) – ändert sich der Thread, ändert sich die historyId
 
     async def close(self) -> None:
         await self.http.aclose()
@@ -80,16 +106,30 @@ class Gmail:
 
     async def req(self, method: str, path: str, *, upload: bool = False, **kw) -> httpx.Response:
         base = self.s.gmail_upload_url if upload else self.s.gmail_api_url
-        for attempt in (0, 1):
-            r = await self.http.request(method, base + path, headers={"authorization": f"Bearer {await self.token(attempt == 1)}"}, **kw)
-            if r.status_code != 401:
-                break
+        fresh = False
+        for attempt in range(RETRIES + 1):
+            try:
+                async with self._gate:
+                    r = await self.http.request(method, base + path, headers={"authorization": f"Bearer {await self.token(fresh)}"}, **kw)
+            except httpx.TransportError as e:   # Verbindung kurz weg / Zeitüberschreitung
+                if attempt == RETRIES:
+                    raise GmailError(503, f"Gmail nicht erreichbar ({e.__class__.__name__})") from e
+                await asyncio.sleep(backoff(attempt))
+                continue
+            if r.status_code == 401 and not fresh:
+                fresh = True
+                continue
+            if attempt < RETRIES and (r.status_code in (429, 500, 502, 503, 504) or (r.status_code == 403 and rate_limited(r))):
+                await asyncio.sleep(backoff(attempt, r.headers.get("retry-after")))
+                continue
+            break
         if r.status_code >= 400:
             try:
                 msg = r.json().get("error", {}).get("message") or r.text
             except ValueError:
                 msg = r.text
-            raise GmailError(r.status_code, str(msg)[:300])
+            status = 429 if r.status_code == 403 and rate_limited(r) else r.status_code
+            raise GmailError(status, str(msg)[:300])
         return r
 
     async def get(self, path: str, **params) -> dict:
@@ -104,6 +144,8 @@ class Gmail:
         return val
 
     def forget(self, *prefixes: str) -> None:
+        if not prefixes:
+            self._meta.clear()
         for k in list(self._cache):
             if not prefixes or k.startswith(prefixes):
                 self._cache.pop(k, None)
@@ -185,12 +227,14 @@ class Gmail:
             params["includeSpamTrash"] = "true"
         d = await self.get("/threads", **params)
         me = (await self.profile()).get("emailAddress", "").lower()
-        sem = asyncio.Semaphore(10)
-
         async def one(t):
-            async with sem:
+            key = f"{t['id']}:{t.get('historyId', '')}"
+            if key not in self._meta:
                 full = await self.get(f"/threads/{t['id']}", format="metadata", metadataHeaders=META_HEADERS)
-            return summary(full, me)
+                if len(self._meta) > 2000:
+                    self._meta.pop(next(iter(self._meta)))
+                self._meta[key] = summary(full, me)
+            return self._meta[key]
         items = await asyncio.gather(*(one(t) for t in d.get("threads", [])))
         return {"items": [i for i in items if i], "next": d.get("nextPageToken"), "estimate": d.get("resultSizeEstimate", 0)}
 

@@ -37,7 +37,11 @@ async def run(coro):
     except NotConnected as e:
         raise HTTPException(409, f"Google ist nicht verbunden: {e}. In IDA unter Einstellungen → Google anmelden.") from e
     except GmailError as e:
-        raise HTTPException(404 if e.status == 404 else 502, f"Gmail: {e.detail}") from e
+        if e.status == 404:
+            raise HTTPException(404, f"Gmail: {e.detail}") from e
+        if e.status in (429, 503):   # Gmail bremst oder ist kurz weg – die Seite versucht es selbst noch einmal
+            raise HTTPException(503, "Gmail ist gerade ausgelastet – gleich nochmal versuchen", headers={"retry-after": "2"}) from e
+        raise HTTPException(502, f"Gmail: {e.detail}") from e
 
 
 @router.get("/health")

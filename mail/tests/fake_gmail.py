@@ -44,6 +44,8 @@ class FakeGmail:
         self.expire_once = False
         self.history: list[dict] = []
         self.tokens = 0
+        self.busy = 0          # so viele Anfragen hintereinander mit "zu viele gleichzeitige Anfragen" ablehnen
+        self.busy_code = 429
         outer = self
 
         class H(BaseHTTPRequestHandler):
@@ -74,6 +76,10 @@ class FakeGmail:
                 if outer.expire_once and self.headers.get("authorization") == "Bearer tok1":
                     outer.expire_once = False
                     return self._json({"error": {"message": "expired"}}, 401)
+                if outer.busy > 0:
+                    outer.busy -= 1
+                    reason = "rateLimitExceeded" if outer.busy_code == 403 else "tooManyRequests"
+                    return self._json({"error": {"message": "Too many concurrent requests for user", "errors": [{"reason": reason}]}}, outer.busy_code)
                 if p == "/profile":
                     return self._json({"emailAddress": ME, "historyId": "100"})
                 if p == "/settings/sendAs":

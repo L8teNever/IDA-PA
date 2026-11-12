@@ -154,3 +154,23 @@ def test_adressvorschlaege(client):
     assert mails["p@x.de"]["name"] == "Paul" and mails["lena@x.de"]["name"] == "Lena Müller"
     assert all(c["email"].lower() != "simon@example.com" for c in r.json())   # eigene Adresse nicht vorschlagen
     assert client.get("/t/abc").status_code == 200 and client.get("/l/INBOX").status_code == 200 and client.get("/compose").status_code == 200   # Pfade laden die App
+
+
+def test_gmail_bremst_wird_wiederholt(client, fake, monkeypatch):
+    from app import gmail
+    monkeypatch.setattr(gmail, "backoff", lambda *a: 0)
+    for code in (429, 403):
+        fake.busy, fake.busy_code = 3, code
+        r = client.get(f"{API}/threads", params={"label": "INBOX"})
+        assert r.status_code == 200 and r.json()["items"][0]["subject"] == "Projektarbeit"
+    fake.busy = 50   # bleibt es dabei: verständliche 503 statt 502, damit die Seite selbst nochmal fragt
+    r = client.get(f"{API}/labels")
+    assert r.status_code == 503 and "ausgelastet" in r.json()["detail"]
+    fake.busy = 0
+
+
+def test_listenkoepfe_werden_wiederverwendet(client, fake):
+    client.get(f"{API}/threads", params={"label": "INBOX"})
+    n = sum(r["path"].endswith("/threads/t1") for r in fake.requests)
+    client.get(f"{API}/threads", params={"label": "INBOX"})
+    assert sum(r["path"].endswith("/threads/t1") for r in fake.requests) == n

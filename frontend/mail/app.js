@@ -7,8 +7,22 @@ const S = { me: "", sendAs: [], labels: [], label: "INBOX", q: "", items: [], ne
 const COLORS = ["rot", "orange", "gelb", "salbei", "gruen", "tuerkis", "blau", "lavendel", "lila", "koralle"];
 
 // ---------------- Hilfen ----------------
+const wait = (ms) => new Promise((ok) => setTimeout(ok, ms));
 async function api(path, opts = {}) {
-  const r = await fetch(API + path, { credentials: "same-origin", cache: "no-store", redirect: "manual", ...opts });
+  // Lesende Anfragen versucht die Seite bei kurzen Aussetzern (Gmail bremst, Tunnel hakt) selbst noch zweimal, bevor ein Fehler kommt.
+  const tries = (opts.method || "GET") === "GET" ? 3 : 1;
+  let r;
+  for (let i = 0; ; i++) {
+    try {
+      r = await fetch(API + path, { credentials: "same-origin", cache: "no-store", redirect: "manual", ...opts });
+    } catch (e) {
+      if (e.name === "AbortError" || i + 1 >= tries) throw e.name === "AbortError" ? e : new Error("Keine Verbindung – nochmal versuchen");
+      await wait(700 * (i + 1)); continue;
+    }
+    if (![502, 503, 504].includes(r.status) || i + 1 >= tries) break;
+    await wait(Math.min(5, Number(r.headers.get("retry-after")) || 0) * 1000 || 700 * (i + 1));
+    if (opts.signal?.aborted) throw new DOMException("abgebrochen", "AbortError");
+  }
   if (r.type === "opaqueredirect" || r.status === 401 || r.status === 403) throw Object.assign(new Error("Anmeldung abgelaufen – Seite neu laden"), { login: true });
   const d = r.headers.get("content-type")?.includes("json") ? await r.json() : null;
   if (!r.ok) throw Object.assign(new Error(d?.detail || `Fehler ${r.status}`), { status: r.status });
@@ -127,20 +141,22 @@ $("labels").addEventListener("click", (e) => {
 });
 
 // ---------------- Liste ----------------
-let listSeq = 0;
+let listSeq = 0, listAbort;
 async function loadList({ more = false, quiet = false } = {}) {
   const seq = ++listSeq;
+  listAbort?.abort(); listAbort = new AbortController();
+  const signal = listAbort.signal;
   if (!more && !quiet) $("list").innerHTML = '<div class="skel"></div>'.repeat(6);
   try {
     const p = new URLSearchParams({ label: S.q ? "ALL" : S.label, q: S.q });
     if (more && S.next) p.set("page", S.next);
-    const d = await api(`/threads?${p}`);
+    const d = await api(`/threads?${p}`, { signal });
     if (seq !== listSeq) return;
     S.items = more ? S.items.concat(d.items) : d.items;
     S.next = d.next;
     drawList();
   } catch (e) {
-    if (seq !== listSeq) return;
+    if (seq !== listSeq || e.name === "AbortError") return;
     if (e.status === 409) return showSetup(e.message);
     $("list").innerHTML = `<div class="empty"><span class="ms">cloud_off</span>${esc(e.message)}<br><button class="es-btn primary" onclick="location.reload()">Nochmal versuchen</button></div>`;
   }
@@ -179,14 +195,16 @@ function closeReader() {
   $("reader").innerHTML = `<div class="reader-empty"><span class="ms">mail</span><p>Wähle eine Mail aus.</p></div>`;
   document.querySelectorAll(".trow.sel").forEach((r) => r.classList.remove("sel"));
 }
-let threadSeq = 0;
+let threadSeq = 0, threadAbort;
 async function openThread(tid, { quiet = false } = {}) {
   const seq = ++threadSeq;
+  threadAbort?.abort(); threadAbort = new AbortController();
+  const signal = threadAbort.signal;
   document.body.classList.add("reading");
   document.querySelectorAll(".trow").forEach((r) => r.classList.toggle("sel", r.dataset.t === tid));
   if (!quiet && S.thread?.id !== tid) $("reader").innerHTML = `<div class="rbody"><div class="skel" style="height:40px;margin-top:70px"></div><div class="skel" style="height:240px"></div></div>`;
   try {
-    const t = await api(`/threads/${encodeURIComponent(tid)}`);
+    const t = await api(`/threads/${encodeURIComponent(tid)}`, { signal });
     if (seq !== threadSeq) return;
     // live: nur neu zeichnen, wenn eine Mail dazukam/wegfiel – sonst bleiben aufgeklappte Mails, Scrollstand und Bilder, wie sie sind
     const same = quiet && S.thread?.id === t.id && S.thread.messages.map((m) => m.id).join() === t.messages.map((m) => m.id).join();

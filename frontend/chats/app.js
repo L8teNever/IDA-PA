@@ -78,23 +78,32 @@ async function loadChats({ more = false, quiet = false } = {}) {
     if (seq === listSeq && !quiet) $("#list").innerHTML = errBox(e);
   }
 }
+// Gelesen-Markierung: Beeper bekommt vom Öffnen nichts mit (kein Lesebestätigung an den Absender). Der Zustand "hier gelesen" liegt nur auf diesem Gerät.
+const SEEN_KEY = "chats-seen";
+const seen = (() => { try { return JSON.parse(localStorage.getItem(SEEN_KEY) || "{}"); } catch { return {}; } })();
+const left = (c) => (c && c.unread && seen[c.id] !== c.unread ? c.unread : 0);   // gilt als ungelesen, bis markiert (oder neue Nachricht kommt)
+function markSeen(c) {
+  if (!c) return;
+  if (c.unread) seen[c.id] = c.unread; else delete seen[c.id];
+  try { localStorage.setItem(SEEN_KEY, JSON.stringify(seen)); } catch {}
+}
 function drawList() {
-  const n = S.chats.reduce((a, c) => a + (c.unread || 0), 0);
+  const n = S.chats.reduce((a, c) => a + left(c), 0);
   $("#sub").textContent = n ? `${n} ungelesen` : "aus Beeper";
   document.title = n ? `(${n}) Chats` : "Chats";
   if (navigator.setAppBadge) (n ? navigator.setAppBadge(n) : navigator.clearAppBadge()).catch(() => {});
   if (!S.chats.length) { $("#list").innerHTML = `<div class="empty"><span class="ms">${S.q ? "search_off" : "forum"}</span>${S.q ? "Nichts gefunden." : "Keine Chats."}</div>`; return; }
-  $("#list").innerHTML = S.chats.map((c) => `<div class="row ${c.unread ? "unread" : ""} ${c.id === S.id ? "sel" : ""}" data-id="${esc(c.id)}">
+  $("#list").innerHTML = S.chats.map((c) => `<div class="row ${left(c) ? "unread" : ""} ${c.id === S.id ? "sel" : ""}" data-id="${esc(c.id)}">
       ${avatar(clean(c.title), c.id)}<div class="rmain"><div class="rtop"><span class="rtitle">${esc(clean(c.title))}</span><span class="rtime">${when(c.at)}</span></div>
-      <div class="rsub">${c.network ? `<span class="net">${esc(c.network)}</span>` : ""}${c.type === "group" ? '<span class="ms" style="font-size:16px">group</span>' : ""}${c.unread ? `<span class="cnt">${c.unread}</span>` : ""}</div></div></div>`).join("")
+      <div class="rsub">${c.network ? `<span class="net">${esc(c.network)}</span>` : ""}${c.type === "group" ? '<span class="ms" style="font-size:16px">group</span>' : ""}${left(c) ? `<span class="cnt">${c.unread}</span>` : ""}</div></div></div>`).join("")
     + (S.next ? '<button class="more" id="more">Mehr laden</button>' : "");
+  if (S.id && $(".chead")) refreshReadBar();
 }
 $("#list").addEventListener("click", (e) => {
   if (e.target.closest("#more")) return loadChats({ more: true });
   const r = e.target.closest(".row");
   if (!r) return;
   const c = S.chats.find((x) => x.id === r.dataset.id);
-  if (c) c.unread = 0;
   go(r.dataset.id);
 });
 document.querySelectorAll(".tab").forEach((b) => (b.onclick = () => {
@@ -111,15 +120,23 @@ function head() {
   return `<div class="chead"><button class="icon-btn back" data-a="back" aria-label="Zurück"><span class="ms">arrow_back</span></button>${avatar(title, S.id)}
     <div class="t"><b>${esc(title)}</b><small>${esc(c?.network || "")}${c?.type === "group" ? " · Gruppe" : ""}</small></div></div>`;
 }
+function readBar(c) {
+  return left(c) ? `<div class="readbar" id="readbar"><span class="ms">visibility_off</span><div>${c.unread} ungelesen · für den Absender nicht als gelesen markiert</div><button class="chip" data-a="seen">Als gelesen markieren</button></div>` : "";
+}
+function refreshReadBar() {
+  const c = cur(), old = $("#readbar");
+  if (old) old.remove();
+  const h = $(".chead"); if (h && left(c)) h.insertAdjacentHTML("afterend", readBar(c));
+}
 async function openChat() {
-  $("#conv").innerHTML = `${head()}<div class="msgs" id="msgs"><div class="skel"></div><div class="skel"></div></div>
+  $("#conv").innerHTML = `${head()}${readBar(cur())}<div class="msgs" id="msgs"><div class="skel"></div><div class="skel"></div></div>
     <div class="replybar" id="replybar" hidden></div><form class="composer" id="form"><textarea id="txt" rows="1" placeholder="Nachricht" enterkeyhint="send"></textarea>
     <button class="send" id="sendBtn" type="submit" aria-label="Senden"><span class="ms">send</span></button></form>`;
   const ta = $("#txt");
   ta.addEventListener("input", () => { ta.style.height = "auto"; ta.style.height = `${Math.min(ta.scrollHeight, 140)}px`; });
   ta.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey && !matchMedia("(pointer: coarse)").matches) { e.preventDefault(); $("#form").requestSubmit(); } });
   $("#form").addEventListener("submit", (e) => { e.preventDefault(); send(); });
-  if (!cur()) loadChats({ quiet: true }).then(() => { if (S.id && $(".chead")) $(".chead").outerHTML = head(); });
+  if (!cur()) loadChats({ quiet: true }).then(() => { if (S.id && $(".chead")) { $(".chead").outerHTML = head(); refreshReadBar(); } });
   await loadMsgs({ first: true });
   if (matchMedia("(pointer: fine)").matches) ta.focus();
 }
@@ -196,6 +213,7 @@ $("#conv").addEventListener("click", (e) => {
   if (a.dataset.a === "back") return history.length > 1 ? history.back() : go(null);
   if (a.dataset.a === "older") return loadMsgs({ older: true });
   if (a.dataset.a === "reply") return setReply(S.msgs.find((m) => m.id === a.dataset.id));
+  if (a.dataset.a === "seen") { markSeen(cur()); refreshReadBar(); return drawList(); }
   if (a.dataset.a === "cancel") return setReply(null);
   if (a.dataset.a === "jump") { const el = document.getElementById(`m-${a.dataset.id}`); if (el) { el.scrollIntoView({ block: "center", behavior: "smooth" }); el.classList.add("flash"); setTimeout(() => el.classList.remove("flash"), 1200); } return; }
   if (a.dataset.a === "play") return togglePlay(a.closest(".voice"));
@@ -353,7 +371,7 @@ async function send() {
   try {
     await api(`/chats/${encodeURIComponent(S.id)}/send`, { method: "POST", body: JSON.stringify({ text, reply_to: S.reply?.id || null }) });
     setTimeout(() => loadMsgs({ quiet: true }), 600);
-    const c = cur(); if (c) { c.at = new Date().toISOString(); c.unread = 0; }
+    const c = cur(); if (c) { c.at = new Date().toISOString(); c.unread = 0; markSeen(c); refreshReadBar(); drawList(); }
     loadChats({ quiet: true });
   } catch (e) {
     S.msgs = S.msgs.filter((m) => m !== tmp); drawMsgs(); ta.value = text;
