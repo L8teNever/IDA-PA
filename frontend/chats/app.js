@@ -1130,14 +1130,18 @@ function setReply(m) {
   if (m) { bar.innerHTML = `<span class="ms">reply</span><div><b>${esc(m.mine ? "Du" : clean(m.sender))}</b>${esc((m.text || (m.files[0] ? "Anhang" : "")).slice(0, 100))}</div><button class="icon-btn" data-a="cancel" aria-label="Abbrechen"><span class="ms">close</span></button>`; $("#txt").focus(); }
 }
 // ---------------- Tippfehler-Vorschlag (Dienst "korrektur"): 1 s nach dem letzten Tippen, über dem Eingabefeld ----------------
-function hideFix() { clearTimeout(S.fixT); S.fix = null; S.fixSeq = (S.fixSeq || 0) + 1; const b = $("#fixbar"); if (b) b.hidden = true; }
+function hideFix() { clearTimeout(S.fixT); S.fix = null; S.fixSeq = (S.fixSeq || 0) + 1; think(false); const b = $("#fixbar"); if (b) b.hidden = true; }
+function think(on) { $("#sendBtn")?.classList.toggle("think", on); }   // Ring um den Senden-Knopf, solange die Korrektur läuft
 function fixLater() {
   hideFix();
   const ta = $("#txt"), text = ta?.value || "";
   if (!text.trim() || S.edit || S.fixOff) return;
   const seq = S.fixSeq;
   S.fixT = setTimeout(async () => {
-    let d; try { d = await api("/korrektur", { method: "POST", body: JSON.stringify({ text }) }); } catch { return; }
+    think(true);
+    let d; try { d = await api("/korrektur", { method: "POST", body: JSON.stringify({ text }) }); } catch { if (seq === S.fixSeq) think(false); return; }
+    if (seq !== S.fixSeq) return;
+    think(false);
     const bar = $("#fixbar");
     if (seq !== S.fixSeq || !bar || $("#txt")?.value !== text || !d.changed) return;
     S.fix = d;
