@@ -1155,8 +1155,10 @@ function menu(m) {
   box.addEventListener("scroll", fade, { passive: true });
   function place() {   // so nah wie möglich an der echten Stelle, aber ganz im Bild
     const sat = parseFloat(getComputedStyle(document.body).getPropertyValue("--sat")) || 0;
-    box.style.maxHeight = "none";
-    box.style.maxHeight = `${Math.max(140, innerHeight - 24 - sat - (stack.offsetHeight - box.offsetHeight) - 8)}px`;
+    // Platz = Bildschirm minus Reaktionsleiste, Menü und Abstände (direkt gemessen, nicht über die Stapelhöhe)
+    const rest = [...stack.children].filter((x) => x !== box && x.offsetParent).reduce((a, x) => a + x.offsetHeight + 8, 0);
+    box.style.maxHeight = `${Math.max(160, innerHeight - 24 - sat - rest)}px`;
+    box.scrollTop = 0;
     fade();
     const h = stack.offsetHeight, w = stack.offsetWidth, top0 = r.top - (stack.querySelector(".ctx-msg").offsetTop);
     const top = Math.max(12 + sat, Math.min(top0, innerHeight - h - 12));
@@ -1164,6 +1166,8 @@ function menu(m) {
     stack.style.top = `${top}px`; stack.style.left = `${Math.max(8, Math.min(left, innerWidth - w - 8))}px`;
   }
   place();
+  const onRs = () => (d.isConnected ? place() : removeEventListener("resize", onRs));
+  addEventListener("resize", onRs);
   buzz(20);
 }
 // Nachrichten-Info: wann gesendet, über welches Netzwerk und wer sie wann gelesen hat (statt "Gelesen von …" im Chat)
