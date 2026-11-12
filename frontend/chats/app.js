@@ -51,9 +51,19 @@ function readUrl() {
   const m = /^chat\/([^/]+)/.exec(location.pathname.slice(BASE.length));
   return m ? decodeURIComponent(m[1]) : null;
 }
+// Verlauf bleibt immer flach: Übersicht → ein Chat. Chat-Wechsel ersetzt den Eintrag, Zurück führt direkt zur Übersicht
+// (auch die Zurück-Taste am Handy), statt alle vorher geöffneten Chats nacheinander zu zeigen.
 function go(id, push = true) {
-  if (urlFor(id) !== location.pathname) history[push ? "pushState" : "replaceState"](null, "", urlFor(id));
+  if (urlFor(id) !== location.pathname) {
+    const fromList = !readUrl();
+    if (id && fromList && push) history.pushState({ fromList: true }, "", urlFor(id));
+    else history.replaceState(id ? history.state : null, "", urlFor(id));
+  }
   route();
+}
+function back() {
+  if (history.state?.fromList) history.back();   // davor liegt die Übersicht
+  else go(null, false);
 }
 window.addEventListener("popstate", route);
 function route() {
@@ -250,7 +260,7 @@ function drawMsgs({ stick = false, keepTop = false } = {}) {
 $("#conv").addEventListener("click", (e) => {
   const a = e.target.closest("[data-a]");
   if (!a) return;
-  if (a.dataset.a === "back") return history.length > 1 ? history.back() : go(null);
+  if (a.dataset.a === "back") return back();
   if (a.dataset.a === "older") return loadMsgs({ older: true });
   if (a.dataset.a === "reply") return setReply(S.msgs.find((m) => m.id === a.dataset.id));
   if (a.dataset.a === "seen") { markSeen(cur()); refreshReadBar(); return drawList(); }
