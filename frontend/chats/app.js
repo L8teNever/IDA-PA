@@ -233,13 +233,13 @@ function groupSettings(c) {
   d.innerHTML = `<div class="ctx-back"></div><div class="sheet fwd gset"><div class="fwd-top"><b>Zusammengeführter Chat</b><button class="icon-btn" data-x="close" aria-label="Schließen"><span class="ms">close</span></button></div>
     <div class="fwd-list">
       <div class="gset-h">Name</div><label class="search"><span class="ms">edit</span><input id="gname" maxlength="100" placeholder="${esc(clean(mem[0].title))}" value="${esc(g.name || "")}" autocomplete="off"></label>
-      <div class="gset-h">Profilbild</div>${mem.map((x) => `<button class="fwd-row ${x.id === av ? "on" : ""}" data-av="${esc(x.id)}">${netAv(x)}<span class="fwd-t">${label(x)}</span><span class="ms">${x.id === av ? "radio_button_checked" : "radio_button_unchecked"}</span></button>`).join("")}
+      <div class="gset-h">Profilbild</div>${mem.map((x) => `<button class="fwd-row ${x.id === av ? "on" : ""}" data-av="${esc(x.id)}">${netAv(x)}<span class="fwd-t">${label(x)}</span>${tick(x.id === av)}</button>`).join("")}
       <div class="gset-h">Standardmäßig senden über</div>
-      <button class="fwd-row ${g.send ? "" : "on"}" data-send=""><span class="av"><span class="ms">auto_mode</span></span><span class="fwd-t">Automatisch<small>Chat der letzten Nachricht</small></span><span class="ms">${g.send ? "radio_button_unchecked" : "radio_button_checked"}</span></button>
-      ${mem.map((x) => `<button class="fwd-row ${x.id === g.send ? "on" : ""}" data-send="${esc(x.id)}" >${netAv(x)}<span class="fwd-t">${label(x)}</span><span class="ms">${x.id === g.send ? "radio_button_checked" : "radio_button_unchecked"}</span></button>`).join("")}
+      <button class="fwd-row ${g.send ? "" : "on"}" data-send=""><span class="av"><span class="ms">auto_mode</span></span><span class="fwd-t">Automatisch<small>Chat der letzten Nachricht</small></span>${tick(!g.send)}</button>
+      ${mem.map((x) => `<button class="fwd-row ${x.id === g.send ? "on" : ""}" data-send="${esc(x.id)}" >${netAv(x)}<span class="fwd-t">${label(x)}</span>${tick(x.id === g.send)}</button>`).join("")}
     </div><button class="btn fwd-go">Speichern</button></div>`;
   let pAv = av, pSend = g.send || "";
-  const mark = (attr, v) => d.querySelectorAll(`[${attr}]`).forEach((b) => { const on = b.getAttribute(attr) === v; b.classList.toggle("on", on); b.lastElementChild.textContent = on ? "radio_button_checked" : "radio_button_unchecked"; });
+  const mark = (attr, v) => d.querySelectorAll(`[${attr}]`).forEach((b) => { const on = b.getAttribute(attr) === v; b.classList.toggle("on", on); b.lastElementChild.classList.toggle("on", on); });
   d.addEventListener("click", async (e) => {
     if (e.target.closest("[data-x=close]") || e.target.classList.contains("ctx-back")) return closeMenu();
     const a = e.target.closest("[data-av]"), sn = e.target.closest("[data-send]");
@@ -319,16 +319,17 @@ function infoHtml(c, d) {
   </div>`;
 }
 document.addEventListener("click", (e) => {
+  const av = e.target.closest("#info .ihero > .av, #info .iperson .av, #msgs .bw > .av"); if (av && avatarBig(av)) return;
   const a = e.target.closest("#info [data-i]")?.dataset.i; if (!a) return;
   const c = cur(); if (!c) return;
   if (a === "close" || a === "chat") return closeInfo();
   if (a === "pin") { togglePin(c); setTimeout(() => { const el = $("#info"); if (el) el.innerHTML = infoHtml(cur(), ABOUT.get(c.id)?.d); }, 50); return; }
   if (a === "search") { closeInfo(); return toast("Suche im Chat gibt es noch nicht"); }
-  if (a === "media") { const t = e.target.closest("[data-src]"); if (t.dataset.kind === "image") return lightbox(mediaUrl({ src: t.dataset.src })); closeInfo(); const el = [...document.querySelectorAll("#msgs .vid")].find((v) => v.dataset.src === t.dataset.src); el?.scrollIntoView({ block: "center" }); return; }
+  if (a === "media") { const t = e.target.closest("[data-src]"); if (t.dataset.kind === "image") return gallery(t.dataset.src); closeInfo(); const el = [...document.querySelectorAll("#msgs .vid")].find((v) => v.dataset.src === t.dataset.src); el?.scrollIntoView({ block: "center" }); return; }
   if (a === "gset") return groupSettings(c);
   if (a === "read") { markRead(c); return closeInfo(); }
   if (a === "unread") { markUnread(c); return closeInfo(); }
-  if (a === "merge") return chatPick({ title: `${clean(c.title)} zusammenführen mit`, verb: "Zusammenführen", multi: true, skip: new Set((c.merged || [c]).map((x) => x.id)) }, (to) => { closeInfo(); doMerge(c, to); });
+  if (a === "merge") return chatPick({ title: "Zusammenführen mit …", verb: "Zusammenführen", multi: true, from: c, skip: new Set((c.merged || [c]).map((x) => x.id)) }, (to) => { closeInfo(); doMerge(c, to); });
   if (a === "split") { closeInfo(); return unMerge(grpOf(c.id)); }
 });
 document.addEventListener("keydown", (e) => { if (e.key === "Escape" && $("#info") && !$("#ctx")) closeInfo(); });
@@ -348,7 +349,7 @@ function rowMenu(c) {
     if (p === "pin") togglePin(c);
     if (p === "read") markRead(c);
     if (p === "unread") markUnread(c);
-    if (p === "merge") chatPick({ title: `${clean(c.title)} zusammenführen mit`, verb: "Zusammenführen", multi: true, skip: new Set((c.merged || [c]).map((x) => x.id)) }, (to) => doMerge(c, to));
+    if (p === "merge") chatPick({ title: "Zusammenführen mit …", verb: "Zusammenführen", multi: true, from: c, skip: new Set((c.merged || [c]).map((x) => x.id)) }, (to) => doMerge(c, to));
     if (p === "split") unMerge(grpOf(c.id));
     if (p === "gset") groupSettings(c);
   });
@@ -390,6 +391,7 @@ function drawList() {
 $("#list").addEventListener("click", (e) => {
   if (e.target.closest("#more")) return loadChats({ more: true });
   if (rowHeld) { rowHeld = false; return; }
+  const av = e.target.closest(".row > .av"); if (av && avatarBig(av)) return;
   const r = e.target.closest(".row");
   if (!r) return;
   const c = S.chats.find((x) => x.id === r.dataset.id);
@@ -566,6 +568,26 @@ function readLine(m) {
   const names = m.read_by.map(t), shown = names.slice(0, 3).join(", ") + (names.length > 3 ? ` und ${names.length - 3} weitere` : "");
   return `<div class="readline" title="${esc(m.read_by.map((r) => `${t(r)} ${r.at ? fmtTime.format(new Date(r.at)) : ""}`).join("\n"))}"><span class="ms">done_all</span>Gelesen von ${esc(shown)}</div>`;
 }
+// Antworten wie in Beeper: über der Blase wer wem geantwortet hat, darunter die zitierte Nachricht gedimmt als kleine Blase,
+// an der Seite eine dünne Linie, die beides verbindet. Antippen springt zur Nachricht.
+function replyHead(m) {
+  const q = S.msgs.find((x) => x.id === m.reply_to), who = (x) => (x.mine ? "dir" : clean(x.sender) || "jemandem");
+  const single = cur()?.type !== "group";
+  const label = !q ? (m.mine ? "Du hast geantwortet" : `${single ? "Hat" : `${esc(clean(m.sender))} hat`} geantwortet`)
+    : m.mine ? (q.mine ? "Du hast dir selbst geantwortet" : `Du hast ${esc(who(q))} geantwortet`)
+    : single ? (q.mine ? "Hat dir geantwortet" : "Hat sich selbst geantwortet") : `${esc(clean(m.sender))} hat ${q.sender_id === m.sender_id ? "sich selbst" : esc(who(q))} geantwortet`;
+  const f = q && !q.deleted && q.files[0];
+  const thumb = f && (f.kind === "image" || (f.kind === "video" && f.poster)) ? `<img class="rq-img" loading="lazy" alt="" src="${mediaUrl(f.kind === "image" ? f : { src: f.poster })}">` : "";
+  const what = !q ? "Ursprüngliche Nachricht nicht geladen" : q.deleted ? "Gelöschte Nachricht" : q.text ? esc(q.text.slice(0, 300))
+    : f ? ({ audio: "🎤 Sprachnachricht", video: "🎬 Video", image: f.sticker ? "Sticker" : "📷 Foto" }[f.kind] || `📎 ${esc(f.name || "Datei")}`) : "Nachricht";
+  return `<div class="rq ${m.mine ? "me" : ""}" data-a="jump" data-id="${esc(m.reply_to)}"><small><span class="ms">reply</span>${label}</small>
+    <div class="rq-b ${q?.mine ? "mine" : ""} ${thumb && !q.text ? "pic" : ""}">${thumb}${thumb && !q.text ? "" : `<span>${what}</span>`}</div></div>`;
+}
+function tmLine(m) {   // klein in der Blase: Netzwerk (zusammengeführt), "bearbeitet", Häkchen – die Uhrzeit kommt beim Wischen nach links
+  const bits = [m.chat && cur()?.merged ? esc(netName((cur().merged.find((x) => x.id === m.chat) || {}).network)) : "", m.edited && !m.deleted ? "bearbeitet" : ""].filter(Boolean).join(" · ");
+  const t = ticks(m);
+  return bits || t ? `<span class="tm">${bits}${t}</span>` : "";
+}
 function bubble(m, tail = true) {
   const files = m.files.map((f) => fileHtml(f)).join("");
   // Gelöscht: Hinweis – und darunter, was drinstand, wenn der Dienst die Nachricht vorher schon gesehen hatte
@@ -574,14 +596,15 @@ function bubble(m, tail = true) {
   const host = (u) => { try { return new URL(u).hostname.replace(/^www\./, ""); } catch { return ""; } };
   const links = m.deleted ? "" : (m.links || []).filter((l) => l.title || l.img).map((l) => `<a class="lp" href="${esc(l.url)}" target="_blank" rel="noopener noreferrer">${l.img ? `<img loading="lazy" alt=""${l.w && l.h ? ` style="aspect-ratio:${l.w}/${l.h}"` : ""} src="${mediaUrl({ src: l.img })}">` : ""}<span><b>${esc(l.title || host(l.url))}</b>${l.summary ? `<i>${esc(l.summary)}</i>` : ""}<small>${esc(host(l.url))}</small></span></a>`).join("");
   const group = cur()?.type === "group" && !m.mine ? `<span class="who">${esc(clean(m.sender))}</span>` : "";
-  const q = m.reply_to && S.msgs.find((x) => x.id === m.reply_to);
-  const quote = m.reply_to ? `<div class="quote" data-a="jump" data-id="${esc(m.reply_to)}"><b>${esc(q ? (q.mine ? "Du" : clean(q.sender)) : "Antwort")}</b>${esc(q ? (q.text || (q.files[0] ? "Anhang" : "")).slice(0, 120) : "Nachricht")}</div>` : "";
+  const quote = m.reply_to ? replyHead(m) : "";
+  const nRep = (S.replies?.get(m.id) || []).length;
+  const more = nRep && !m.pending ? `<button class="vrep" data-a="replies" data-id="${esc(m.id)}">${nRep > 1 ? `${nRep} Antworten ansehen` : "Antwort ansehen"}</button>` : "";
   const rx = m.reactions?.length ? `<div class="rx">${m.reactions.map((r) => `<span class="${r.mine ? "mine" : ""}" data-a="rx" data-id="${esc(m.id)}" data-k="${esc(r.key)}">${esc(r.key)}${r.n > 1 ? ` ${r.n}` : ""}</span>`).join("")}</div>` : "";
   const tools = m.pending || m.deleted ? "" : `<button class="rep" data-a="reply" data-id="${esc(m.id)}" aria-label="Antworten" title="Antworten"><span class="ms">reply</span></button>`;
   const face = cur()?.type === "group" && !m.mine ? (tail ? avatar(clean(m.sender), cid(m), m.sender_id) : '<span class="av gap"></span>') : "";
   const prog = m.pendingFile ? `<div class="prog"><i style="width:${Math.round((m.progress || 0) * 100)}%"></i></div>` : "";
   const mc = cur()?.merged, net = mc ? netKey((mc.find((x) => x.id === (m.chat || target())) || {}).network) : null;
-  return `<div class="bw ${m.mine ? "me" : ""} ${face ? "grp" : ""}"${net !== null ? ` data-net="${net}"` : ""} id="m-${esc(m.id)}" data-id="${esc(m.id)}"><span class="swipe ms">reply</span>${face}${tools}<div class="b ${m.mine ? "me" : ""} ${m.pending ? "pending" : ""} ${m.deleted ? "del" : ""}">${group}${quote}${files}${prog}${body}${links}${rx}<span class="tm">${m.chat && cur()?.merged ? `${esc((cur().merged.find((x) => x.id === m.chat) || {}).network || "")} · ` : ""}${m.edited && !m.deleted ? "bearbeitet · " : ""}${m.at ? fmtTime.format(new Date(m.at)) : "…"}${ticks(m)}</span></div>${readLine(m)}</div>`;
+  return `<div class="bw ${m.mine ? "me" : ""} ${face ? "grp" : ""}"${net !== null ? ` data-net="${net}"` : ""} id="m-${esc(m.id)}" data-id="${esc(m.id)}"><span class="swipe ms">reply</span>${face}${tools}<div class="bcol">${quote}<div class="b ${m.mine ? "me" : ""} ${m.pending ? "pending" : ""} ${m.deleted ? "del" : ""} ${!m.deleted && !m.text && m.files.length && m.files.every((f) => f.kind === "image" || f.kind === "video") && !group ? "media" : ""}">${group}${files}${prog}${body}${links}${rx}${tmLine(m)}</div>${more}</div>${readLine(m)}<span class="st">${m.at && !m.pending ? fmtTime.format(new Date(m.at)) : ""}</span></div>`;
 }
 const NETS = [["snapchat", "snapchat"], ["instagram", "instagram"], ["whatsapp", "whatsapp"], ["signal", "signal"], ["telegram", "telegram"], ["discord", "discord"],
   ["messenger", "messenger"], ["facebook", "messenger"], ["gmessages", "gmessages"], ["google messages", "gmessages"], ["googlechat", "googlechat"], ["google chat", "googlechat"],
@@ -595,6 +618,8 @@ function drawMsgs({ stick = false, keepTop = false } = {}) {
   const box = $("#msgs"); if (!box) return;
   const fresh = drawn.id === S.id && !keepTop ? S.msgs.slice(-6).filter((m) => !drawn.ids.has(m.id)) : [];
   const prevH = box.scrollHeight, prevTop = box.scrollTop;
+  S.replies = new Map();
+  for (const m of S.msgs) if (m.reply_to) S.replies.set(m.reply_to, [...(S.replies.get(m.reply_to) || []), m.id]);
   let last = "", html = S.more ? '<button class="older" data-a="older">Ältere laden</button>' : "";
   if (!S.msgs.length) html += '<div class="empty">Noch keine Nachrichten.</div>';
   S.msgs.forEach((m, i) => {
@@ -624,12 +649,19 @@ $("#conv").addEventListener("click", (e) => {
   if (a.dataset.a === "unseen") return markUnread(cur());
   if (a.dataset.a === "rx") { const m = S.msgs.find((x) => x.id === a.dataset.id); return m && toggleReaction(m, a.dataset.k); }
   if (a.dataset.a === "cancel") return S.edit ? setEdit(null) : setReply(null);
+  if (a.dataset.a === "replies") {
+    const ids = S.replies?.get(a.dataset.id) || []; if (!ids.length) return;
+    const i = ((+a.dataset.n || 0)) % ids.length; a.dataset.n = i + 1;
+    const el = document.getElementById(`m-${ids[i]}`);
+    if (el) { el.scrollIntoView({ block: "center", behavior: "smooth" }); el.classList.add("flash"); setTimeout(() => el.classList.remove("flash"), 1200); }
+    return;
+  }
   if (a.dataset.a === "jump") { const el = document.getElementById(`m-${a.dataset.id}`); if (el) { el.scrollIntoView({ block: "center", behavior: "smooth" }); el.classList.add("flash"); setTimeout(() => el.classList.remove("flash"), 1200); } return; }
   if (a.dataset.a === "play") return togglePlay(a.closest(".voice"));
   if (a.dataset.a === "speed") return cycleSpeed(a);
   if (a.dataset.a === "seek") return seek(a.closest(".voice"), e);
   if (a.dataset.a === "vtext") return voiceText(a);
-  if (a.dataset.a === "zoom") return lightbox(a.src);
+  if (a.dataset.a === "zoom") return a.dataset.src ? gallery(a.dataset.src) : lightbox(a.src);
   if (a.dataset.a === "video") return playVideo(a);
 });
 // ---------------- Sprachnachrichten ----------------
@@ -689,11 +721,40 @@ function playVideo(el) {
   v.addEventListener("error", () => toast("Video konnte nicht geladen werden"));
   el.replaceWith(v);
 }
-function lightbox(src) {
+// Vollbild wie in Beeper: alle Bilder des Chats, durchwischen nach links/rechts, nach unten wischen schließt
+function lightbox(src, items = null, start = 0) {
+  document.querySelector(".lightbox")?.remove();
+  const list = items || [{ url: src }];
   const d = document.createElement("div");
-  d.className = "lightbox"; d.innerHTML = `<img alt="" src="${src}"><button class="icon-btn" aria-label="Schließen"><span class="ms">close</span></button>`;
-  d.onclick = () => d.remove();
+  d.className = "lightbox";
+  d.innerHTML = `<div class="lb-top"><button class="icon-btn" data-lb="close" aria-label="Schließen"><span class="ms">close</span></button><div class="lb-info"></div>
+    <a class="icon-btn" data-lb="dl" aria-label="Herunterladen" download><span class="ms">download</span></a></div>
+    <div class="lb-track">${list.map((x) => `<div class="lb-slide"><img alt="" decoding="async" ${Math.abs(list.indexOf(x) - start) < 2 ? "" : 'loading="lazy" '}src="${x.url}"></div>`).join("")}</div>`;
+  const track = d.querySelector(".lb-track"), info = d.querySelector(".lb-info"), dl = d.querySelector("[data-lb=dl]");
+  let cur_ = start;
+  const show = () => { const x = list[cur_] || {}; info.innerHTML = `<b>${esc(x.who || "")}</b><small>${x.at ? `${fmtDay.format(new Date(x.at))}, ${fmtTime.format(new Date(x.at))}` : ""}${list.length > 1 ? ` · ${cur_ + 1} von ${list.length}` : ""}</small>`; dl.href = x.url; };
+  track.addEventListener("scroll", () => { const i = Math.round(track.scrollLeft / track.clientWidth); if (i !== cur_) { cur_ = i; show(); } }, { passive: true });
+  const close = () => { d.classList.add("out"); setTimeout(() => d.remove(), 180); };
+  d.addEventListener("click", (e) => { if (e.target.closest("[data-lb=close]") || e.target.classList.contains("lb-slide")) close(); });
+  let y0 = null, dy = 0;   // nach unten wischen schließt
+  d.addEventListener("touchstart", (e) => { y0 = e.touches.length === 1 ? e.touches[0].clientY : null; dy = 0; }, { passive: true });
+  d.addEventListener("touchmove", (e) => { if (y0 === null) return; dy = e.touches[0].clientY - y0; if (dy > 0) { track.style.transform = `translateY(${dy}px)`; d.style.setProperty("--lbo", Math.max(.3, 1 - dy / 400)); } }, { passive: true });
+  d.addEventListener("touchend", () => { if (y0 === null) return; y0 = null; if (dy > 110) return close(); track.style.transform = ""; d.style.removeProperty("--lbo"); });
+  addEventListener("keydown", function k(e) { if (!d.isConnected) return removeEventListener("keydown", k);
+    if (e.key === "Escape") close(); if (e.key === "ArrowRight" || e.key === "ArrowLeft") track.scrollBy({ left: (e.key === "ArrowRight" ? 1 : -1) * track.clientWidth, behavior: "smooth" }); });
   document.body.append(d);
+  track.scrollLeft = start * track.clientWidth; show();
+}
+function gallery(src) {   // alle Bilder des geladenen Chats, beim angetippten anfangen
+  const pics = S.msgs.flatMap((m) => m.deleted ? [] : m.files.filter((f) => f.kind === "image" && !f.sticker && f.src).map((f) => ({ src: f.src, url: mediaUrl(f), at: m.at, who: m.mine ? "Du" : clean(m.sender) || clean(cur()?.title || "") })));
+  const i = pics.findIndex((p) => p.src === src);
+  if (i < 0) return lightbox(mediaUrl({ src }));
+  lightbox(null, pics, i);
+}
+function avatarBig(el) {   // Profilbild groß ansehen
+  const img = el.querySelector?.(".avimg.ok"); if (!img) return false;
+  lightbox(null, [{ url: img.getAttribute("src"), who: el.closest(".row, .iperson, .ihero, .bw")?.querySelector(".rtitle, .it b, h2")?.textContent || "" }], 0);
+  return true;
 }
 
 // ---------------- Wischen, langes Drücken, Menü ----------------
@@ -826,6 +887,21 @@ document.addEventListener("touchend", () => {
   gestEnd();
 });
 document.addEventListener("touchcancel", gestEnd);
+const TS = { x: 0, y: 0, on: false, dead: false };
+document.addEventListener("touchstart", (e) => {
+  const b = e.target.closest?.("#msgs"); TS.dead = !b || e.touches.length !== 1 || !!e.target.closest(".voice,video,.vid,.rq");
+  if (TS.dead) return;
+  TS.x = e.touches[0].clientX; TS.y = e.touches[0].clientY; TS.on = false;
+}, { passive: true });
+document.addEventListener("touchmove", (e) => {
+  if (TS.dead) return;
+  const dx = e.touches[0].clientX - TS.x, dy = e.touches[0].clientY - TS.y, b = msgsEl(); if (!b) return;
+  if (!TS.on) { if (Math.abs(dy) > 10 && Math.abs(dy) > Math.abs(dx)) { TS.dead = true; return; } if (dx < -10 && Math.abs(dx) > Math.abs(dy) * 1.4) { TS.on = true; b.classList.add("ts"); } else return; }
+  if (e.cancelable) e.preventDefault();
+  b.style.setProperty("--sx", `${Math.min(64, Math.max(0, -dx - 10) * .7)}px`);
+}, { passive: false });
+const tsEnd = () => { if (!TS.on) return; TS.on = false; const b = msgsEl(); if (b) { b.classList.remove("ts"); b.style.removeProperty("--sx"); } };
+document.addEventListener("touchend", tsEnd); document.addEventListener("touchcancel", tsEnd);
 document.addEventListener("contextmenu", (e) => {   // Rechtsklick am PC, langes Drücken am Handy (falls der Browser es meldet)
   const w = e.target.closest?.("#msgs .bw");
   if (!w || e.target.closest("video")) return;
@@ -871,11 +947,16 @@ function forwardPick(m) {
     } catch (err) { toast(`Weiterleiten ging nicht: ${err.message}`); }
   });
 }
-function chatPick({ title, verb, tail = "", skip = new Set(), multi = false }, done) {
+// Ein Chat als Zeile in Auswahl-Fenstern: Profilbild mit Netzwerk-Abzeichen, Name, darunter Netzwerk(e); rechts ein runder Haken
+const pickAv = (c) => netAv({ title: c.title, id: c.av || c.id, network: c.merged ? c.merged[0].network : c.network });
+const pickSub = (c) => c.merged ? `Zusammengeführt · ${c.merged.map((x) => netName(x.network)).join(", ")}` : netName(c.network);
+const tick = (on) => `<span class="pk ${on ? "on" : ""}"><span class="ms">check</span></span>`;
+function chatPick({ title, verb, tail = "", skip = new Set(), multi = false, from = null }, done) {
   closeMenu();
   const d = document.createElement("div");
   d.className = "ctx"; d.id = "ctx";
   d.innerHTML = `<div class="ctx-back"></div><div class="sheet fwd"><div class="fwd-top"><b>${esc(title)}</b><button class="icon-btn" data-x="close" aria-label="Abbrechen"><span class="ms">close</span></button></div>
+    ${multi ? '<div class="fwd-chips" hidden></div>' : ""}
     <label class="search"><span class="ms">search</span><input type="search" placeholder="Chat suchen" autocomplete="off"></label><div class="fwd-list"></div>
     <button class="btn fwd-go" disabled>${esc(verb)}</button></div>`;
   const list = d.querySelector(".fwd-list"), inp = d.querySelector("input"), goBtn = d.querySelector(".fwd-go");
@@ -885,10 +966,16 @@ function chatPick({ title, verb, tail = "", skip = new Set(), multi = false }, d
   const keep = (l) => collapse(l).filter((c) => !skip.has(c.id) && !(c.merged || []).some((x) => skip.has(x.id)));
   const base = () => { const ids = new Set(PINS.map((p) => p.id)); return keep([...PINS, ...S.chats.filter((c) => !ids.has(c.id))]); };
   const draw = () => {
-    list.innerHTML = items.length ? items.map((c) => `<button class="fwd-row ${on(c) ? "on" : ""}" data-id="${esc(c.id)}">${avatar(clean(c.title), c.av || c.id)}
-      <span class="fwd-t">${esc(clean(c.title))}<small>${esc(c.network || "")}</small></span><span class="ms">${on(c) ? (multi ? "check_box" : "check_circle") : (multi ? "check_box_outline_blank" : "radio_button_unchecked")}</span></button>`).join("")
+    list.innerHTML = items.length ? items.map((c) => `<button class="fwd-row ${on(c) ? "on" : ""}" data-id="${esc(c.id)}">${pickAv(c)}
+      <span class="fwd-t">${esc(clean(c.title))}<small>${esc(pickSub(c))}</small></span>${tick(on(c))}</button>`).join("")
       : '<div class="empty">Nichts gefunden.</div>';
-    if (multi) { goBtn.disabled = !picks.size; goBtn.textContent = picks.size ? `${verb} (${picks.size + 1} Chats)` : "Chats auswählen"; return; }
+    if (multi) {   // oben die Auswahl als Chips: der Ausgangschat fest, die gewählten zum Wieder-Abwählen
+      const chips = d.querySelector(".fwd-chips");
+      chips.innerHTML = (from ? `<span class="fchip base">${pickAv(from)}<span>${esc(clean(from.title))}</span></span>` : "")
+        + [...picks.values()].map((c) => `<button class="fchip" data-un="${esc(c.id)}">${pickAv(c)}<span>${esc(clean(c.title))}</span><span class="ms">close</span></button>`).join("");
+      chips.hidden = !picks.size && !from;
+      goBtn.disabled = !picks.size; goBtn.textContent = picks.size ? `${verb} · ${picks.size + 1} Chats` : "Chats auswählen"; return;
+    }
     goBtn.disabled = !pick; goBtn.textContent = pick ? `${verb} ${clean(pick.title)}${tail}` : verb;
   };
   items = base(); draw();
@@ -902,6 +989,8 @@ function chatPick({ title, verb, tail = "", skip = new Set(), multi = false }, d
   });
   d.addEventListener("click", async (e) => {
     if (e.target.closest("[data-x=close]") || e.target.classList.contains("ctx-back")) return closeMenu();
+    const un = e.target.closest("[data-un]");
+    if (un) { picks.delete(un.dataset.un); return draw(); }
     const r = e.target.closest(".fwd-row");
     if (r) {
       const c = items.find((x) => x.id === r.dataset.id) || null;
