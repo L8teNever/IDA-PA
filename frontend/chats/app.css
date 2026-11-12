@@ -665,3 +665,51 @@ html, body { max-width: 100%; }
 .rsub .mute { flex: none; font-size: 15px; color: var(--muted); margin-left: auto; }
 .rsub .mute + .pin, .rsub .mute + .cnt { margin-left: 0; }
 .sheet button small { margin-left: auto; padding-left: 12px; font-size: 13px; color: var(--muted); text-align: right; }
+/* Erwähnungen: @Name farbig, an dich gerichtet zusätzlich hinterlegt; Blase mit Erwähnung von dir bekommt einen Rand */
+.ment { font-weight: 600; color: var(--accent); }
+.b.me .ment { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
+.ment.me { background: color-mix(in srgb, var(--accent) 22%, transparent); border-radius: 6px; padding: 0 3px; }
+.b.atme { box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--accent) 70%, transparent); }
+.mentbox { display: flex; flex-direction: column; margin: 0 10px 6px; padding: 4px; border-radius: 20px; max-height: 260px; overflow-y: auto; animation: slideup .2s var(--ease-out); }
+.mentbox[hidden] { display: none; }
+.mentbox button { display: flex; align-items: center; gap: 10px; padding: 6px 10px; border: 0; background: none; color: inherit; font: inherit; text-align: left; border-radius: 14px; cursor: pointer; }
+.mentbox button:hover, .mentbox button:focus-visible { background: var(--surface-high); }
+.mentbox .av { width: 32px; height: 32px; font-size: 14px; flex: none; }
+.mentbox span:not(.av) { display: flex; flex-direction: column; min-width: 0; }
+.mentbox small { color: var(--muted); font-size: 12px; }
+/* Suche im Chat */
+.sfield { flex: 1; display: flex; align-items: center; gap: 8px; height: 44px; padding: 0 14px; border-radius: 22px; background: var(--surface-high); min-width: 0; }
+.sfield .ms { color: var(--muted); font-size: 20px; }
+.sfield input { flex: 1; min-width: 0; border: 0; outline: 0; background: none; color: inherit; font: inherit; font-size: 16px; }
+.sfilters { display: flex; flex-direction: column; gap: 6px; padding: 2px 0 10px; max-width: 640px; width: 100%; margin: 0 auto; }
+.schips { display: flex; gap: 6px; overflow-x: auto; padding: 0 12px; scrollbar-width: none; }
+.schips::-webkit-scrollbar { display: none; }
+.schips .chip { flex: none; display: inline-flex; align-items: center; gap: 5px; height: 34px; padding: 0 12px; border: 1px solid var(--line); border-radius: 999px; background: transparent; color: inherit; font: inherit; font-size: 13px; cursor: pointer; position: relative; }
+.schips .chip .ms { font-size: 17px; }
+.schips .chip.on { background: var(--accent); color: var(--on-accent); border-color: transparent; }
+.schips .chip[data-net].on { background: var(--acc, var(--accent)); color: var(--nf, var(--on-accent)); }
+.schips .chip[hidden] { display: none; }
+.sday input { position: absolute; inset: 0; opacity: 0; width: 100%; cursor: pointer; }
+.sempty { margin-top: 40px; }
+.sday-h { font-size: 12px; color: var(--muted); padding: 10px 6px 2px; text-transform: capitalize; }
+.shit { display: flex; align-items: center; gap: 10px; width: 100%; padding: 10px 12px; border: 0; border-radius: 16px; background: var(--surface-high); color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.shit[data-net]:not([data-net=""]) { box-shadow: inset 3px 0 0 var(--acc); }
+.shit .it { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.shit b { display: flex; align-items: baseline; gap: 6px; font-weight: 600; font-size: 14px; }
+.shit b small { margin-left: auto; color: var(--muted); font-weight: 400; font-size: 12px; }
+.snet { color: var(--acc, var(--muted)); font-weight: 500; font-size: 12px; }
+.stx { font-size: 14px; color: var(--on-surface); overflow: hidden; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; white-space: pre-wrap; overflow-wrap: anywhere; }
+.stx mark { background: color-mix(in srgb, var(--accent) 35%, transparent); color: inherit; border-radius: 3px; }
+.sthumb { width: 48px; height: 48px; border-radius: 10px; object-fit: cover; flex: none; }
+.smore { align-self: center; margin-top: 6px; }
+
+/* Eingabe in der Farbe des Netzwerks, über das gesendet wird (grün bei WhatsApp, gelb bei Snapchat …) */
+.composer[data-net]:not([data-net=""]) textarea { background: color-mix(in srgb, var(--na, var(--nc)) 12%, var(--surface-high)); caret-color: var(--nc); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--na, var(--nc)) 28%, transparent); }
+.composer[data-net]:not([data-net=""]) .send:not(.mic) { background: var(--nb); color: var(--nf); }
+.composer[data-net]:not([data-net=""]) .send.mic, .composer[data-net]:not([data-net=""]) .attach { color: var(--na, var(--nc)); }
+.composer[data-net]:not([data-net=""]) .send.think::after { border-top-color: var(--na, var(--nc)); border-right-color: color-mix(in srgb, var(--na, var(--nc)) 40%, transparent); }
+
+/* Gesendet/Gesehen einmal unter meiner letzten Nachricht statt Häkchen an jeder Blase */
+.seenrow { display: flex; justify-content: flex-end; align-items: center; gap: 4px; margin: 2px 14px 6px auto; max-width: 75%; font-size: 12px; color: var(--muted); text-align: right; }
+.seenrow .ms { font-size: 15px; }
+.seenrow.read .ms { color: var(--accent); }

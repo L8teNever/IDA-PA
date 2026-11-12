@@ -27,6 +27,7 @@ def _db():
     d.execute("CREATE TABLE IF NOT EXISTS kv (k TEXT PRIMARY KEY, v TEXT)")
     d.execute("CREATE TABLE IF NOT EXISTS push_subs (endpoint TEXT PRIMARY KEY, p256dh TEXT, auth TEXT, at REAL)")
     d.execute("CREATE TABLE IF NOT EXISTS mutes (chat TEXT PRIMARY KEY, until REAL)")
+    d.execute("CREATE TABLE IF NOT EXISTS autoread (chat TEXT PRIMARY KEY, mode TEXT)")
     return d
 
 
@@ -100,6 +101,30 @@ def unmute(chat: str) -> None:
         _db().commit()
 
 
+# ---------------- Automatisch gelesen: "open" = beim Öffnen, "always" = sofort, ohne dass du den Chat öffnest ----------------
+AUTOREAD = ("open", "always")
+
+
+def autoreads() -> dict[str, str]:
+    with store._lock:
+        return {c: m for c, m in _db().execute("SELECT chat, mode FROM autoread")}
+
+
+def autoread_of(chat: str, a: dict[str, str] | None = None) -> str:
+    a = autoreads() if a is None else a
+    grp = store.group_of(chat)
+    return a.get(chat) or (a.get(grp, "") if grp else "")
+
+
+def set_autoread(chat: str, mode: str) -> None:
+    with store._lock:
+        if mode in AUTOREAD:
+            _db().execute("INSERT OR REPLACE INTO autoread (chat, mode) VALUES (?, ?)", (chat, mode))
+        else:
+            _db().execute("DELETE FROM autoread WHERE chat=?", (chat,))
+        _db().commit()
+
+
 # ---------------- Senden ----------------
 def _send_one(sub: dict, data: str, pem: str, claims: dict) -> int:
     from py_vapid import Vapid01
@@ -138,6 +163,10 @@ class Sub(BaseModel):
 
 class Unsub(BaseModel):
     endpoint: str = Field(max_length=2000)
+
+
+class AutoRead(BaseModel):
+    mode: str = Field(default="", max_length=10)   # "", "open" oder "always"
 
 
 class Mute(BaseModel):
@@ -187,3 +216,17 @@ async def del_mute(chat_id: str):
     _check_id(chat_id)
     unmute(chat_id)
     return {"ok": True}
+
+
+@router.get("/autoread")
+async def list_autoread():
+    return {"items": [{"id": c, "mode": m} for c, m in autoreads().items()]}
+
+
+@router.put("/chats/{chat_id}/autoread")
+async def put_autoread(chat_id: str, body: AutoRead):
+    _check_id(chat_id)
+    if body.mode and body.mode not in AUTOREAD:
+        raise HTTPException(400, "Unbekannte Einstellung")
+    set_autoread(chat_id, body.mode)
+    return {"id": chat_id, "mode": body.mode}

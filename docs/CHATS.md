@@ -31,8 +31,8 @@ Browser (chats.kulbarts.com, Cloudflare Access) ──> chats :8000 ──MCP─
   `GET /v1/assets/serve?url=…`. Der Dienst gibt sie unter `/api/v1/avatar/{chat}` (Gruppenbild bzw. andere Person) und
   `/api/v1/avatar/{chat}?user={id}` (Gruppenmitglied) aus, zwischengespeichert; ohne Bild (404) bleibt der farbige Anfangsbuchstabe.
   In Gruppen steht das Bild an der letzten Nachricht einer Folge vom selben Absender. Der Name steht frei über der ersten Blase der Folge (nicht in der Blase), jede Person in eigener Farbe.
-* **Lesebestätigung:** Beeper liefert pro Nachricht `seen` ({Nutzer: Zeitpunkt}); die App zeigt bei eigenen Nachrichten ein Häkchen
-  (gesendet) oder zwei mintfarbene (gelesen). Wer wann gelesen hat, zeigt langes Drücken → „Info“ (nicht mehr im Verlauf). Der offene Chat wird alle 4 s neu geholt.
+* **Lesebestätigung:** Beeper liefert pro Nachricht `seen` ({Nutzer: Zeitpunkt}); die App zeigt nur einmal unter der
+  letzten eigenen Nachricht „Gesendet“ (Häkchen) bzw. „Gesehen“ (zwei Häkchen, in Gruppen „Gesehen von …“ mit Namen); an den Blasen selbst steht nur die Uhr beim Senden. Wer wann gelesen hat, zeigt langes Drücken → „Info“ (nicht mehr im Verlauf). Der offene Chat wird alle 4 s neu geholt.
 * **Senden von Dateien und Sprachnachrichten:** „+“ öffnet Fotos & Videos, Kamera, Datei (auch Einfügen und Ziehen am PC); vor dem Senden
   eine Vorschau mit Bildunterschrift, bis 10 Dateien, je höchstens 95 MB (Cloudflare-Grenze). Bei leerem Feld wird aus Senden ein Mikrofon:
   Antippen nimmt auf (Wellenform, Zeit, Pause, Verwerfen, höchstens 15 Minuten). `POST /api/v1/chats/{id}/upload` lädt die Datei per
@@ -57,6 +57,9 @@ Browser (chats.kulbarts.com, Cloudflare Access) ──> chats :8000 ──MCP─
   `chats.db`), Beeper bleibt unberührt. Die Gruppe heißt nach dem ersten Chat, ihre ID ist dessen ID. `GET /api/v1/chats/{gruppe}/messages` liefert
   alle Chats als einen Verlauf; jede Nachricht hat `chat` und `mid` (echte ID), `id` ist `chat~mid`, der Cursor merkt sich pro Chat den Stand.
   Gesendet wird über den Chip im Eingabefeld (Standard: Chat der letzten eingehenden Nachricht), Antworten gehen in den Chat der zitierten Nachricht – der Chip springt dabei auf dessen Netzwerk.
+  Eingabefeld und Senden-Knopf tragen die Farbe des Netzwerks, über das gerade gesendet wird.
+* **Link-Vorschauen:** Doppelte Links von Beeper (kurz/lang, mit/ohne www, gleicher Titel+Bild) werden zu einer Vorschau zusammengefasst;
+  besteht der Text nur aus dem Link, steht nur die Vorschau da.
   `POST /api/v1/merges`, `DELETE /api/v1/merges/{gruppe}[?chat=…]` (ganze Gruppe bzw. einen Chat herausnehmen).
 * **Farben:** Eigene Nachrichten in der Farbe des Netzwerks; eingehende bleiben dunkel mit einem Hauch Netzwerkfarbe (7 %), Akzente (Name, Zitat, Links, Sprachnachricht,
   Antwortleiste) bekommen die Netzwerkfarbe. Der Netzwerkname steht nicht mehr in der Blase, die Farbe zeigt es. Mehrere Konten pro Netzwerk (z. B. ein zweites, lokal verbundenes Signal) erkennt die App am Kontonamen.

@@ -110,14 +110,22 @@ HTML_TAG = re.compile(r"</?(?:p|br|a|b|i|em|strong|u|s|del|strike|code|pre|span|
 HTML_LINK = re.compile(r"<a\s[^<>]*?href=([\"'])(.*?)\1[^<>]*>(.*?)</a>", re.I | re.S)
 
 
+MENTION_URL = re.compile(r"^https://matrix\.to/#/[@!]", re.I)
+MD_MENTION = re.compile(r"\[([^\]\n]{1,80})\]\(https://matrix\.to/#/[@!][^)\s]+\)")
+
+
 def plain(text: str) -> str:
     """Manche Netzwerke (Matrix, Mail-Brücken, Bots) liefern HTML statt Text. Daraus wird lesbarer Text: Absätze und <br> zu
     Zeilenumbrüchen, Links zu ihrer Adresse. Text ohne bekannte HTML-Tags bleibt unverändert."""
+    if text and "matrix.to/#/" in text:   # Erwähnung als Markdown-Link
+        text = MD_MENTION.sub(lambda m: m[1] if m[1].startswith("@") else f"@{m[1]}", text)
     if not text or not HTML_TAG.search(text):
         return text
 
     def link(m: re.Match) -> str:
         url, label = html.unescape(m[2]).strip(), html.unescape(HTML_TAG.sub("", m[3])).strip()
+        if MENTION_URL.match(url):   # Erwähnung (Matrix-Pill): als "@Name"
+            return label if label.startswith("@") else f"@{label}"
         if not label or url in label:
             return label or url
         return f"{label} ({url})" if url.lower().startswith("http") else label
@@ -142,15 +150,35 @@ def message(m: dict, me: set[str] | None = None, names: dict[str, str] | None = 
         "id": m.get("id"), "at": m.get("timestamp"), "mine": bool(m.get("isSender")), "sender": m.get("senderName") or "",
         "type": (m.get("type") or "TEXT").upper(), "text": plain(m.get("text") or ""), "deleted": bool(m.get("isDeleted")), "edited": bool(m.get("editedTimestamp")),
         "reply_to": m.get("linkedMessageID") or None, "reactions": reactions(m, me),
+        # Erwähnungen: wen (IDs) – und ob du gemeint bist (auch @room = alle)
+        "mentions": [x for x in m.get("mentions") or [] if isinstance(x, str)][:50],
+        "at_me": any(x == "@room" or x in (me or set()) for x in m.get("mentions") or []),
         "files": [{"src": a.get("srcURL") or a.get("id"), "kind": kind(a), "mime": a.get("mimeType") or "", "name": a.get("fileName") or "",
                    "size": a.get("fileSize") or 0, "duration": a.get("duration") or 0, "w": (a.get("size") or {}).get("width"), "h": (a.get("size") or {}).get("height"),
                    "transcript": ((a.get("transcription") or {}).get("transcription") or "").strip(), "sticker": bool(a.get("isSticker")), "gif": bool(a.get("isGif")), "poster": media_src(a.get("posterImg"))}
                   for a in m.get("attachments") or []],
         # Link-Vorschau (Titel, Bild), wie Beeper sie zeigt
-        "links": [{"url": l.get("originalURL") or l.get("url") or "", "title": plain(l.get("title") or "")[:200], "summary": plain(l.get("summary") or "")[:300],
+        "links": uniq_links([{"url": l.get("originalURL") or l.get("url") or "", "title": plain(l.get("title") or "")[:200], "summary": plain(l.get("summary") or "")[:300],
                    "img": media_src(l.get("img")), "w": (l.get("imgSize") or {}).get("width"), "h": (l.get("imgSize") or {}).get("height")}
-                  for l in (m.get("links") or [])[:3] if isinstance(l, dict) and str(l.get("url") or "").lower().startswith("http")],
+                  for l in (m.get("links") or [])[:6] if isinstance(l, dict) and str(l.get("url") or "").lower().startswith("http")])[:3],
     }
+
+
+def _link_key(u: str) -> str:
+    u = re.sub(r"^https?://(www\.)?", "", (u or "").strip().lower()).split("#")[0]
+    return u.rstrip("/")
+
+
+def uniq_links(links: list[dict]) -> list[dict]:
+    """Beeper liefert denselben Link manchmal doppelt (kurze und lange Adresse, mit/ohne www) – jede Vorschau nur einmal."""
+    out, seen = [], set()
+    for l in links:
+        k = {_link_key(l["url"])} | ({(l["title"], l["img"])} if l["title"] else set())
+        if k & seen:
+            continue
+        seen |= k
+        out.append(l)
+    return out
 
 
 @router.get("/health", include_in_schema=False)
@@ -264,6 +292,59 @@ def keep_deleted(chat_id: str, items: list[dict]) -> list[dict]:
             m["text"], m["files"] = "", []
         out.append(m)
     return out
+
+
+# ---------------- Suche im Chat (Text, Medien, Tag; bei zusammengeführten Chats auf Wunsch nur ein Netzwerk) ----------------
+MEDIA_KINDS = ("image", "video", "link", "file")
+ISO = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})$")
+
+
+@router.get("/chats/{chat_id}/search")
+async def search_chat(chat_id: str, q: str = "", media: str = "", start: str = "", end: str = "", only: str = "", cursor: str = ""):
+    """Nachrichten eines Chats suchen. media: image/video/link/file (Komma), start/end: ISO-Zeit (z. B. ein Tag), only: ein Chat
+    der Zusammenführung. Pro Chat höchstens 20 je Seite; cursor gilt pro Chat (bei Zusammenführung zusammen kodiert)."""
+    check_ids(chat_id)
+    ids = group_members(chat_id) or [chat_id]
+    if only:
+        if only not in ids:
+            raise HTTPException(400, "Chat gehört nicht dazu")
+        ids = [only]
+    kinds = [k for k in media.split(",") if k in MEDIA_KINDS]
+    base: dict = {"limit": 20, "excludeLowPriority": "false"}
+    if q.strip():
+        base["query"] = q.strip()[:100]
+    if kinds:
+        base["mediaTypes"] = kinds
+    for k, v in (("dateAfter", start), ("dateBefore", end)):
+        if v:
+            if not ISO.match(v):
+                raise HTTPException(400, "Ungültiges Datum")
+            base[k] = v
+    if not (q.strip() or kinds or start or end):
+        return {"items": [], "next": ""}
+    curs = _dec(cursor) if cursor else {}
+    todo = [c for c in ids if not cursor or curs.get(c)]
+
+    async def one(c: str) -> tuple[str, dict]:
+        params = {**base, "chatIDs": [c], **({"cursor": curs[c][:300], "direction": "before"} if curs.get(c) else {})}
+        r = await rest_get("/v1/messages/search", **params)
+        if r.status_code != 200:
+            raise HTTPException(502, "Beeper: Suche ging nicht")
+        return c, r.json()
+
+    got = await asyncio.gather(*(one(c) for c in todo))
+    items, nxt = [], {}
+    for c, d in got:
+        raw = [m for m in d.get("items", []) if isinstance(m, dict) and (m.get("type") or "").upper() != "REACTION"]
+        me = {m["senderID"] for m in raw if m.get("isSender") and m.get("senderID")}
+        for m in raw:
+            x = message(m, me)
+            x["chat"] = c
+            items.append(x)
+        if d.get("hasMore") and d.get("oldestCursor"):
+            nxt[c] = d["oldestCursor"]
+    items.sort(key=lambda x: x["at"] or "", reverse=True)   # neueste zuerst
+    return {"items": items, "next": _enc(nxt) if nxt else ""}
 
 
 # ---------------- Zusammengeführte Chats (nur hier in IDA Chats, Beeper weiß davon nichts) ----------------
@@ -380,9 +461,26 @@ async def delete_message(chat_id: str, msg_id: str, everyone: bool = False):
     return {"ok": True}
 
 
+class Mention(BaseModel):
+    id: str = Field(max_length=300)
+    name: str = Field(max_length=120)
+
+
 class Send(BaseModel):
     text: str = Field(min_length=1, max_length=8000)
     reply_to: str | None = None
+    mentions: list[Mention] = Field(default_factory=list, max_length=50)   # beim Tippen per @ ausgewählt
+
+
+def with_mentions(text: str, mentions: list[Mention]) -> str:
+    """"@Name" im Text wird zur echten Erwähnung (Matrix-Link als Markdown; Beeper macht daraus die Erwähnung im jeweiligen Netzwerk)."""
+    for m in sorted(mentions, key=lambda x: -len(x.name)):
+        name = m.name.strip()
+        if not name or not re.match(r"^@[\w.=+/-]+:[\w.-]+$", m.id):
+            continue
+        label = re.sub(r"[\[\]()\\]", "", name)
+        text = re.sub(rf"(?<![\w\[])@{re.escape(name)}(?![\w])", lambda _: f"[{label}](https://matrix.to/#/{m.id})", text)
+    return text
 
 
 @router.post("/chats/{chat_id}/send")
@@ -390,32 +488,75 @@ async def send(chat_id: str, body: Send):
     text = body.text.strip()
     if not text:
         raise HTTPException(400, "Leere Nachricht")
+    rich = with_mentions(text, body.mentions) if body.mentions else text
+    if rich != text:   # mit Erwähnung: über die REST-API (nimmt Markdown an)
+        check_ids(chat_id)
+        out = await rest_call("POST", f"/v1/chats/{quote(chat_id, safe='')}/messages",
+                              {"text": rich, **({"replyToMessageID": body.reply_to} if body.reply_to else {})})
+        return {"ok": True, "info": str(out)[:300]}
     out = await call(beeper().text, "send_message", {"chatID": chat_id, "text": text, "replyToMessageID": body.reply_to})
     return {"ok": True, "info": out[:300]}
 
 
+class FixCtx(BaseModel):
+    who: str = Field(default="", max_length=80)
+    text: str = Field(default="", max_length=1000)
+
+
 class Fix(BaseModel):
     text: str = Field(max_length=8000)
+    context: list[FixCtx] = Field(default_factory=list, max_length=20)   # letzte Nachrichten des Chats (älteste zuerst)
 
 
 _fix: httpx.AsyncClient | None = None
-_engine = {"v": "haiku", "t": 0.0}
+_engine = {"v": {"engine": "haiku", "vorfilter": True, "kontext": True, "kontext_n": 5}, "t": 0.0}
 
 
-async def fix_engine() -> str:
-    """Welche Engine zuerst fragt (Einstellung in IDA: haiku oder t5); 30 s gemerkt."""
+async def fix_options() -> dict:
+    """Einstellungen aus IDA (Engine, Vorab-Check, Kontext); 30 s gemerkt."""
     url = get_settings().ida_url.rstrip("/")
     if not url:
-        return "t5"
+        return {**_engine["v"], "engine": "t5"}
     if time.time() - _engine["t"] > 30:
         _engine["t"] = time.time()
         try:
             r = await _fix.get(f"{url}/api/v1/korrektur/settings", timeout=5)
             if r.status_code == 200:
-                _engine["v"] = r.json().get("engine", "haiku")
+                _engine["v"] = {**_engine["v"], **{k: v for k, v in r.json().items() if k in _engine["v"]}}
         except httpx.HTTPError:
             pass
     return _engine["v"]
+
+
+_spell: list | None = None
+WORD = re.compile(r"[^\W\d_]+(?:['’-][^\W\d_]+)*", re.UNICODE)
+SKIP = re.compile(r"https?://\S+|www\.\S+|\S+@\S+|@\S+|:[a-z_]+:")
+
+
+def _dicts() -> list:
+    global _spell
+    if _spell is None:
+        from spellchecker import SpellChecker   # Wörterbücher Deutsch + Englisch, einmal geladen
+        _spell = [SpellChecker(language="de", distance=1), SpellChecker(language="en", distance=1)]
+    return _spell
+
+
+def looks_ok(text: str) -> bool:
+    """Schneller Vorab-Check (wenige ms): stehen alle Wörter im deutschen oder englischen Wörterbuch, braucht es keine KI.
+    "Hi wie geht's" geht so gar nicht erst an Haiku. Kurze Wörter (Kürzel wie "hdl", "ok") zählen als bekannt."""
+    words = [w for w in WORD.findall(SKIP.sub(" ", text)) if len(w) > 3]
+    if not words:
+        return True
+    ds = _dicts()
+    for w in words:
+        lw = w.lower().replace("’", "'")
+        if any(v in d for d in ds for v in (lw, lw.replace("'", ""), lw.split("'")[0])):   # geht's, gibt's
+            continue
+        if w[0].isupper() and w[1:].islower() and len(w) > 4:   # Namen, Orte, zusammengesetzte Hauptwörter: nicht anmeckern lassen
+            if any(d.known([lw[:i]]) and d.known([lw[i:]]) for d in ds for i in range(3, len(lw) - 2)):
+                continue
+        return False
+    return True
 
 
 def word_parts(old: str, new: str) -> list[dict]:
@@ -429,12 +570,12 @@ def word_parts(old: str, new: str) -> list[dict]:
     return out
 
 
-async def fix_haiku(text: str) -> dict | None:
+async def fix_haiku(text: str, context: list | None = None) -> dict | None:
     url = get_settings().ida_url.rstrip("/")
     if not url:
         return None
     try:
-        r = await _fix.post(f"{url}/api/v1/korrektur/haiku", json={"text": text}, timeout=30)
+        r = await _fix.post(f"{url}/api/v1/korrektur/haiku", json={"text": text, "context": context or []}, timeout=30)
         d = r.json() if r.status_code == 200 else {}
     except (httpx.HTTPError, ValueError):
         return None
@@ -445,7 +586,7 @@ async def fix_haiku(text: str) -> dict | None:
     return {"changed": new != text, "text": new, "parts": word_parts(text, new), "engine": "haiku"}
 
 
-async def fix_t5(text: str) -> dict | None:
+async def fix_t5(text: str, context: list | None = None) -> dict | None:
     url = get_settings().korrektur_url.rstrip("/")
     if not url:
         return None
@@ -467,12 +608,21 @@ async def korrektur(body: Fix):
         return {"changed": False}
     if _fix is None:
         _fix = httpx.AsyncClient(timeout=20)
-    eng = await fix_engine()
+    o = await fix_options()
+    eng = o["engine"]
     if eng == "aus":
         return {"changed": False}
+    if o.get("vorfilter", True):
+        try:
+            if await asyncio.to_thread(looks_ok, body.text):
+                return {"changed": False, "skipped": True}
+        except Exception:  # noqa: BLE001 – ohne Wörterbuch einfach die KI fragen
+            pass
+    n = int(o.get("kontext_n") or 5)
+    ctx = [c.model_dump() for c in body.context if c.text.strip()][-n:] if o.get("kontext", True) else []
     order = (fix_haiku, fix_t5) if eng == "haiku" else (fix_t5, fix_haiku)
     for f in order:
-        d = await f(body.text)
+        d = await f(body.text, ctx)
         if d is not None:
             return d
     return {"changed": False}
@@ -623,7 +773,7 @@ async def chat_info(chat_id: str) -> dict:
         img = file_url(d.get("imgURL"))
         if not img and d.get("type") == "single":   # Einzelchat: Bild der anderen Person
             img = next((p["img"] for p in people.values() if not p["self"] and p["img"]), "")
-        info = {"img": img, "people": people}
+        info = {"img": img, "people": people, "group": d.get("type") == "group"}
     if len(_info) > 1000:
         _info.pop(next(iter(_info)))
     _info[chat_id] = (time.time(), info)
@@ -930,6 +1080,29 @@ async def about(chat_id: str):
     return {"chats": chats}
 
 
+# Felder (x, y, b, h) im 100×100-Bild: 2 nebeneinander, 3 = eins links + zwei rechts, 4 = Viertel (wie bei WhatsApp/Signal)
+TILES = {2: [(0, 0, 50, 100), (50, 0, 50, 100)], 3: [(0, 0, 50, 100), (50, 0, 50, 50), (50, 50, 50, 50)],
+         4: [(0, 0, 50, 50), (50, 0, 50, 50), (0, 50, 50, 50), (50, 50, 50, 50)]}
+
+
+async def group_collage(info: dict) -> tuple[bytes, str] | None:
+    """Gruppe ohne eigenes Bild: aus den Profilbildern von bis zu 4 Mitgliedern ein Bild (SVG, die Bilder stecken darin)."""
+    urls = [p["img"] for p in info["people"].values() if not p["self"] and p["img"]][:8]
+    got = [g for g in await asyncio.gather(*(avatar_bytes(u) for u in urls), return_exceptions=True) if isinstance(g, tuple)]
+    got = [g for g in got if len(g[0]) < 400 * 1024][:4]
+    if len(got) < 2:
+        return got[0] if got else None
+    parts = []
+    for (x, y, w, h), (b, ct) in zip(TILES[len(got)], got):
+        href = f"data:{ct};base64,{base64.b64encode(b).decode()}"
+        parts.append(f'<image x="{x}" y="{y}" width="{w}" height="{h}" preserveAspectRatio="xMidYMid slice" href="{href}"/>')
+    lines = '<path d="M50 0V100" stroke="#000" stroke-opacity=".35" stroke-width="1.2"/>' + (
+        '<path d="M50 50H100" stroke="#000" stroke-opacity=".35" stroke-width="1.2"/>' if len(got) == 3 else
+        '<path d="M0 50H100" stroke="#000" stroke-opacity=".35" stroke-width="1.2"/>' if len(got) == 4 else "")
+    svg = f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">{"".join(parts)}{lines}</svg>'
+    return svg.encode(), "image/svg+xml"
+
+
 @router.get("/avatar/{chat_id}")
 async def avatar(chat_id: str, user: str = ""):
     """Profilbild eines Chats (Gruppenbild bzw. Bild der anderen Person) oder – mit user – eines Gruppenmitglieds."""
@@ -938,6 +1111,8 @@ async def avatar(chat_id: str, user: str = ""):
     info = await chat_info(chat_id)
     url = (info["people"].get(user) or {}).get("img", "") if user else info["img"]
     got = await avatar_bytes(url) if url else None
+    if not got and not user and info.get("group"):
+        got = await group_collage(info)
     if not got:
         return Response(status_code=404, headers={"cache-control": "private, max-age=3600"})
     return Response(got[0], media_type=got[1], headers={"cache-control": "private, max-age=86400", "x-content-type-options": "nosniff"})
