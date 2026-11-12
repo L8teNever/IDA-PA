@@ -1,6 +1,6 @@
 # IDA Chats
 
-Deine Beeper-Chats im IDA-Stil als eigene App (Dienst `chats`, Image `ida-chats`, PWA): Chats suchen (Filter-Knopf rechts in der Suche: Alle / Ungelesen / Archiv),
+Deine Beeper-Chats im IDA-Stil als eigene App (Dienst `chats`, Image `ida-chats`, PWA): Chats suchen (schwebende Leiste unten im Material-3-Expressive-Stil: links Filter Alle / Ungelesen / Archiv, Mitte vorerst drei Platzhalter, rechts Suche mit eigener Adresse `/suche`),
 Unterhaltungen lesen, Nachrichten schreiben, auf Nachrichten antworten, Bilder sehen, Sprachnachrichten als Text anzeigen – und **live**.
 
 ```

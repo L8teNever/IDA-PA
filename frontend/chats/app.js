@@ -76,6 +76,7 @@ window.addEventListener("popstate", () => {
   if (OV && !readOv()) { const c = OV; OV = null; c(); }   // Zurück-Taste schließt Bild/Video
   if ($("#srch") && !readSrch()) dropSrch();                // … die Suche
   if ($("#info") && !readInfo() && !readSrch()) dropInfo();   // … und die Info-Seite
+  if (!$("#tools").hidden !== readLsrch()) showLsrch(readLsrch());   // … und die Chat-Suche in der Übersicht
   route();
   if (!OV) openFromUrl();
 });
@@ -564,13 +565,13 @@ $("#list").addEventListener("click", (e) => {
   const c = S.chats.find((x) => x.id === r.dataset.id);
   go(r.dataset.id);
 });
-// Filter (Alle / Ungelesen / Archiv) hinter dem Filter-Knopf rechts in der Suche
+// Filter (Alle / Ungelesen / Archiv) hinter dem Filter-Knopf links in der Leiste unten; das Menü klappt nach oben auf
 const FILTERS = [["all", "forum", "Alle"], ["unread", "mark_chat_unread", "Ungelesen"], ["archive", "archive", "Archiv"]];
 $("#fbtn").onclick = (e) => {
   e.preventDefault(); closeMenu();
   const r = e.currentTarget.getBoundingClientRect(), d = document.createElement("div");
   d.className = "ctx"; d.id = "ctx";
-  d.innerHTML = `<div class="ctx-back clear"></div><div class="ctx-box fmenu" style="top:${r.bottom + 6}px;right:${Math.max(8, innerWidth - r.right)}px">${FILTERS.map(([f, ic, t]) =>
+  d.innerHTML = `<div class="ctx-back clear"></div><div class="ctx-box fmenu" style="bottom:${innerHeight - r.top + 8}px;left:${Math.max(8, r.left)}px">${FILTERS.map(([f, ic, t]) =>
     `<button data-f="${f}" class="${S.f === f ? "on" : ""}"><span class="ms">${ic}</span>${t}${S.f === f ? '<span class="ms tick">check</span>' : ""}</button>`).join("")}</div>`;
   d.addEventListener("click", (ev) => {
     const f = ev.target.closest("[data-f]")?.dataset.f; closeMenu();
@@ -582,6 +583,21 @@ $("#fbtn").onclick = (e) => {
 };
 let qT;
 $("#q").addEventListener("input", () => { clearTimeout(qT); qT = setTimeout(() => { S.q = $("#q").value.trim(); S.chats = []; loadChats(); }, 350); });
+// Chat-Suche: hinter dem Such-Knopf rechts unten, mit eigener Adresse (…/suche), damit die Zurück-Taste sie wieder schließt
+const readLsrch = () => location.pathname.slice(BASE.length) === "suche";
+function showLsrch(on) {
+  $("#tools").hidden = !on; document.body.classList.toggle("lsrch", on);
+  if (on) { $("#q").focus(); return; }
+  clearTimeout(qT); $("#q").blur();
+  if ($("#q").value || S.q) { $("#q").value = ""; S.q = ""; S.chats = []; loadChats(); }
+}
+$("#sbtn").onclick = () => { if (!readLsrch()) history.pushState({ lsrch: true }, "", `${BASE}suche`); showLsrch(true); };
+$("#qback").onclick = () => { if (history.state?.lsrch) history.back(); else { history.replaceState(null, "", BASE); showLsrch(false); } };
+$("#q").addEventListener("keydown", (e) => { if (e.key === "Escape") $("#qback").click(); });
+// Mitte der Leiste: vorerst Platzhalter
+$("#dock .dbar").onclick = (e) => { const b = e.target.closest("[data-ph]"); if (b) toast(`${b.dataset.ph}: kommt noch`); };
+// Leiste beim Runterscrollen ausblenden, beim Hochscrollen wieder zeigen
+{ let y = 0; $("#list").addEventListener("scroll", (e) => { const t = e.target.scrollTop; if (Math.abs(t - y) < 8) return; $("#dock").classList.toggle("away", t > y && t > 80); y = t; }, { passive: true }); }
 $("#refresh").onclick = () => { loadChats({ quiet: true }); if (S.id) loadMsgs({ quiet: true }); };
 
 // ---------------- Unterhaltung ----------------
@@ -1822,6 +1838,7 @@ function autoReadMenu(c) {
 loadAutoRead();
 loadMutes();
 route();
+if (readLsrch()) showLsrch(true);
 loadChats();
 live(!document.hidden);
 

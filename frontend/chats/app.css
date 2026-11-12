@@ -723,3 +723,25 @@ html, body { max-width: 100%; }
 .b.me > .rx { left: auto; right: 10px; }
 .b > .rx span { background: none; outline: none; padding: 1px 4px; border-radius: 10px; font-size: 15px; line-height: 20px; white-space: nowrap; }
 .b > .rx span.mine { background: color-mix(in srgb, var(--accent) 22%, transparent); }
+/* Leiste unten in der Übersicht (Material 3 Expressive, schwebende Toolbar): Filter links, Platzhalter in der Mitte, Suche rechts */
+.side { position: relative; }
+.list { padding-bottom: calc(env(safe-area-inset-bottom) + 104px); }
+.tools[hidden] { display: none; }
+.tools .search { padding-left: 4px; gap: 4px; }
+.fmenu { transform-origin: bottom left; }
+.dock { position: absolute; left: 0; right: 0; bottom: calc(env(safe-area-inset-bottom) + 16px); z-index: 5; display: flex; align-items: center; justify-content: center; gap: 8px;
+  padding: 0 12px; pointer-events: none; transition: transform .28s var(--ease-out, ease), opacity .2s; }
+.dock > * { pointer-events: auto; }
+.dock.away { transform: translateY(calc(100% + 32px)); opacity: 0; }
+body.lsrch .dock { display: none; }
+.dfab, .dbar { background: #1f1f1f; box-shadow: 0 6px 18px rgba(0,0,0,.55); }
+.dfab { flex: none; width: 64px; height: 64px; border: 0; border-radius: 50%; color: var(--on-surface); display: grid; place-items: center; transition: border-radius .2s var(--ease-out, ease), background-color .15s, transform .12s; }
+.dfab .ms { font-size: 26px; }
+.dfab:active { border-radius: 20px; transform: scale(.96); }
+.dfab.on { background: var(--container); color: var(--on-container); }
+.dbar { height: 64px; border-radius: 32px; display: flex; align-items: center; gap: 4px; padding: 0 8px; }
+.dbar button { width: 64px; height: 48px; border: 0; border-radius: 24px; background: none; color: var(--on-surface); display: grid; place-items: center; transition: background-color .15s, border-radius .2s var(--ease-out, ease); }
+.dbar button .ms { font-size: 26px; }
+.dbar button.on { background: rgba(255,255,255,.1); }
+.dbar button:active { border-radius: 14px; }
+@media (max-width: 380px) { .dfab { width: 56px; height: 56px; } .dbar { height: 56px; } .dbar button { width: 52px; } }
