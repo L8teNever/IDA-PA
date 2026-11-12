@@ -7,7 +7,7 @@ Unterhaltungen lesen, Nachrichten schreiben, auf Nachrichten antworten, Bilder s
 Browser (chats.kulbarts.com, Cloudflare Access) ──> chats :8000 ──MCP──> Beeper Desktop (beeper.kulbarts.com/v0/mcp)
 ```
 
-* **Kein eigener Speicher.** Alles liegt in Beeper Desktop. Der Dienst spricht dessen MCP-Adresse an (`BEEPER_MCP_URL`, enthält den Token –
+* **Kein eigener Speicher.** Alles liegt in Beeper Desktop. Der Dienst spricht dessen MCP-Adresse an (`BEEPER_MCP_URL`) mit dem Bearer-Token `BEEPER_MCP_TOKEN` an – dem Zugang, den IDA beim Beeper-Anbieter speichert.
   dieselbe wie beim Beeper-Anbieter in IDA).
 * **Live, aber sparsam:** Nur solange die App irgendwo offen (und sichtbar) ist, fragt der Dienst alle `LIVE_POLL_S` Sekunden (Standard 5)
   die 30 zuletzt aktiven Chats ab und meldet geänderte per Server-Sent Events (`/api/v1/stream`). Ohne offene App fragt er nichts ab.
@@ -18,7 +18,7 @@ Browser (chats.kulbarts.com, Cloudflare Access) ──> chats :8000 ──MCP─
 
 ## Einrichten
 
-1. `.env`: `BEEPER_MCP_URL=…`, `CHATS_PORT=10.7.0.1:8454`, optional `CHATS_PUBLIC_URL`. `docker compose up -d chats`.
+1. `.env`: `BEEPER_MCP_URL=https://beeper.kulbarts.com/v0/mcp`, `BEEPER_MCP_TOKEN=…`, `CHATS_PORT=10.7.0.1:8454`, optional `CHATS_PUBLIC_URL`. `docker compose up -d chats`.
 2. Cloudflare: Access-App für `chats.kulbarts.com` (wie IDA), dann Tunnel-Route → `http://10.7.0.1:8454` (über das Dashboard).
 
 ## API (für die Oberfläche)

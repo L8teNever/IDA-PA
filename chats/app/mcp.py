@@ -14,8 +14,8 @@ class BeeperError(Exception):
 
 
 class Beeper:
-    def __init__(self, url: str, client: httpx.AsyncClient | None = None):
-        self.url = url
+    def __init__(self, url: str, token: str = "", client: httpx.AsyncClient | None = None):
+        self.url, self.token = url, token
         self.client = client or httpx.AsyncClient(timeout=30)
         self.sid: str | None = None
         self.n = 0
@@ -30,6 +30,8 @@ class Beeper:
             self.n += 1
             body["id"] = self.n
         headers = {"content-type": "application/json", "accept": "application/json, text/event-stream"}
+        if self.token:
+            headers["authorization"] = f"Bearer {self.token}"
         if self.sid:
             headers["mcp-session-id"] = self.sid
         try:
@@ -37,7 +39,7 @@ class Beeper:
         except httpx.HTTPError as e:
             raise BeeperError("Beeper nicht erreichbar") from e
         if r.status_code in (401, 403):
-            raise BeeperError("Beeper lehnt den Zugang ab (Token prüfen)", 401)
+            raise BeeperError("Beeper lehnt den Zugang ab (BEEPER_MCP_TOKEN prüfen)", 403)
         if r.status_code >= 400:
             raise BeeperError(f"Beeper: HTTP {r.status_code}")
         self.sid = r.headers.get("mcp-session-id") or self.sid
@@ -77,7 +79,7 @@ class Beeper:
                     break
                 except BeeperError as e:
                     self.sid = None
-                    if attempt or e.status == 401:
+                    if attempt or e.status == 403:
                         raise
         if res.get("isError"):
             raise BeeperError(("Beeper: " + "\n".join(c.get("text", "") for c in res.get("content", [])))[:300])

@@ -27,7 +27,8 @@ _voice: dict[str, str] = {}
 def beeper() -> Beeper:
     global _beeper
     if _beeper is None:
-        _beeper = Beeper(get_settings().beeper_mcp_url)
+        st = get_settings()
+        _beeper = Beeper(st.beeper_mcp_url, st.beeper_mcp_token)
     return _beeper
 
 
@@ -35,7 +36,7 @@ async def call(fn, *a, **kw):
     try:
         return await fn(*a, **kw)
     except BeeperError as e:
-        raise HTTPException(e.status, str(e)) from e
+        raise HTTPException(502 if e.status == 403 else e.status, str(e)) from e
 
 
 def parse_chats(text: str) -> tuple[list[dict], str | None]:

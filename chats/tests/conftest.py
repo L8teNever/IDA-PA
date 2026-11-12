@@ -42,6 +42,8 @@ class FakeBeeper:
                 pass
 
             def do_POST(self):
+                if self.headers.get("authorization") != "Bearer tok":
+                    self.send_response(401); self.end_headers(); return
                 body = json.loads(self.rfile.read(int(self.headers["content-length"])))
                 m, rid = body["method"], body.get("id")
                 res: dict = {}
@@ -81,7 +83,7 @@ def fake():
 
 @pytest.fixture(scope="session")
 def client(fake):
-    os.environ.update({"BEEPER_MCP_URL": fake.url, "LIVE_POLL_S": "0.2",
+    os.environ.update({"BEEPER_MCP_URL": fake.url, "BEEPER_MCP_TOKEN": "tok", "LIVE_POLL_S": "0.2",
                        "FRONTEND_DIR": os.path.join(os.path.dirname(__file__), "..", "..", "frontend")})
     from fastapi.testclient import TestClient
 
