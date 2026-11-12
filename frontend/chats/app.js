@@ -1157,7 +1157,9 @@ function menu(m) {
     const sat = parseFloat(getComputedStyle(document.body).getPropertyValue("--sat")) || 0;
     // Platz = Bildschirm minus Reaktionsleiste, Menü und Abstände (direkt gemessen, nicht über die Stapelhöhe)
     const rest = [...stack.children].filter((x) => x !== box && x.offsetParent).reduce((a, x) => a + x.offsetHeight + 8, 0);
-    box.style.maxHeight = `${Math.max(160, innerHeight - 24 - sat - rest)}px`;
+    // feste Höhe statt max-height: natürliche Höhe der Blase, höchstens so viel wie frei ist (nichts kann sie mehr zusammendrücken)
+    box.style.height = "auto";
+    box.style.height = `${Math.min(box.scrollHeight, Math.max(160, innerHeight - 24 - sat - rest))}px`;
     box.scrollTop = 0;
     fade();
     const h = stack.offsetHeight, w = stack.offsetWidth, top0 = r.top - (stack.querySelector(".ctx-msg").offsetTop);
@@ -1683,8 +1685,20 @@ document.addEventListener("visibilitychange", () => {
   poll(!document.hidden);
   if (document.hidden) return live(false);
   loadChats({ quiet: true }); if (S.id) { loadMsgs({ quiet: true }); clearNotes(S.id); }
-  loadMutes(); live(true);
+  loadMutes(); live(true); checkVersion();
 });
+// Nach einem Update: ein offener Tab hätte sonst noch den alten Code im Speicher. Beim Zurückholen (höchstens einmal pro Minute)
+// kurz die Version abfragen und neu laden, wenn sie sich geändert hat und gerade nichts getippt wird.
+const MYVER = /\/s\/([^/]+)\//.exec(import.meta.url)?.[1];
+let verAt = 0;
+async function checkVersion() {
+  if (!MYVER || Date.now() - verAt < 60000) return;
+  verAt = Date.now();
+  try {
+    const { v } = await (await fetch("/version", { cache: "no-store" })).json();
+    if (v && v !== MYVER && !$("#txt")?.value && !document.querySelector(".ctx")) location.reload();
+  } catch {}
+}
 
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js", { scope: "/" }).catch(() => {});
 

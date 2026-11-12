@@ -66,6 +66,10 @@ def create_app() -> FastAPI:
     app.mount("/icons", Static(directory=own / "icons", cache="public, max-age=86400"), name="icons")
     index_html = (own / "index.html").read_text(encoding="utf8").replace('"/static/', f'"/s/{version}/')
 
+    @app.get("/version", include_in_schema=False)
+    async def frontend_ver():   # offene Tabs fragen das beim Zurückholen ab und laden sich nach einem Update neu
+        return JSONResponse({"v": version}, headers={"cache-control": "no-store"})
+
     @app.get("/manifest.webmanifest", include_in_schema=False)
     async def manifest():
         icon, rev = "/icons", "?v=1"
