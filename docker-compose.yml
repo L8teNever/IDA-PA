@@ -135,8 +135,8 @@ services:
     labels:
       com.centurylinklabs.watchtower.enable: "true"
 
-  # IDA Chats – deine Beeper-Chats im IDA-Stil (lesen, schreiben, antworten, Bilder, Sprachnachrichten als Text, live). Kein eigener Speicher:
-  # alles liegt in Beeper Desktop; der Dienst spricht dessen MCP-Adresse an (BEEPER_MCP_URL + Bearer-Token BEEPER_MCP_TOKEN).
+  # IDA Chats – deine Beeper-Chats im IDA-Stil (lesen, schreiben, antworten, Bilder, Sprachnachrichten als Text, live). Chats liegen in Beeper Desktop,
+  # im Volume chats-data merkt er sich nur gesehene Nachrichten; der Dienst spricht dessen MCP-Adresse an (BEEPER_MCP_URL + Bearer-Token BEEPER_MCP_TOKEN).
   # Davor gehört Cloudflare Access (z. B. chats.kulbarts.com). Siehe docs/CHATS.md
   chats:
     image: ${CHATS_IMAGE:-ghcr.io/l8tenever/ida-chats:latest}
@@ -146,6 +146,8 @@ services:
       BEEPER_MCP_URL: ${BEEPER_MCP_URL:-}
       BEEPER_MCP_TOKEN: ${BEEPER_MCP_TOKEN:-}
       CHATS_PUBLIC_URL: ${CHATS_PUBLIC_URL:-}
+    volumes:
+      - chats-data:/data       # chats.db: gemerkte Nachrichten (Gelöschtes bleibt lesbar)
     ports:
       - "${CHATS_PORT:-8095}:8000"
     labels:
@@ -461,6 +463,7 @@ volumes:
   server-data:
   links-data:
   tasks-data:
+  chats-data:
   docs-data:
   launcher-data:
   google-data:

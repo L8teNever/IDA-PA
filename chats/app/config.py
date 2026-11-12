@@ -16,6 +16,8 @@ class Settings(BaseSettings):
     chats_public_url: str = ""
     live_poll_s: float = 5.0        # so oft fragt der Dienst Beeper nach Änderungen – nur solange die App irgendwo offen ist
     page_size: int = 40
+    data_dir: Path = Path("/data")  # chats.db: gemerkte Nachrichten (damit Gelöschtes lesbar bleibt)
+    archive_poll_s: float = 60.0    # so oft merkt sich der Dienst neue Nachrichten, auch wenn die App zu ist; 0 = aus
 
 
 @lru_cache

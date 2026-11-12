@@ -296,11 +296,14 @@ async function loadMsgs({ first = false, quiet = false, older = false } = {}) {
     const box = $("#msgs"), atEnd = !box || box.scrollHeight - box.scrollTop - box.clientHeight < 120;
     const keep = new Map(S.msgs.map((m) => [m.id, m]));
     for (const m of d.items) keep.set(m.id, m);
-    const sig = (l) => l.map((m) => `${m.id}|${m.text}|${m.edited ? 1 : 0}|${(m.read_by || []).length}|${(m.reactions || []).map((r) => r.key + r.n).join()}|${m.deleted}|${m.pending ? 1 : 0}`).join(";");
+    const sig = (l) => l.map((m) => `${m.id}|${m.text}|${m.edited ? 1 : 0}|${(m.read_by || []).length}|${(m.reactions || []).map((r) => r.key + r.n).join()}|${m.deleted}${m.was ? 1 : 0}|${m.pending ? 1 : 0}`).join(";");
     const before = sig(S.msgs);
     const landed = (m) => m.pendingFile ? m.sentAt && d.items.some((x) => x.mine && x.files.length && Date.parse(x.at) >= Date.parse(m.at) - 10000)
       : d.items.some((x) => x.mine && x.text === m.text);
-    S.msgs = [...keep.values()].filter((m) => !m.pending || !landed(m)).sort((a, b) => (a.at || "").localeCompare(b.at || ""));
+    // Was im Zeitraum der geladenen Seite liegt, dort aber fehlt, gibt es nicht mehr (z. B. für mich gelöscht) – nicht aus dem Speicher zurückholen
+    const lo = d.items[0]?.at, hi = d.items.at(-1)?.at, got = new Set(d.items.map((m) => m.id));
+    const stale = (m) => !m.pending && m.at && lo && m.at >= lo && m.at <= hi && !got.has(m.id);
+    S.msgs = [...keep.values()].filter((m) => !stale(m) && (!m.pending || !landed(m))).sort((a, b) => (a.at || "").localeCompare(b.at || ""));
     if (!keepOld) { S.more = d.more; S.oldest = d.oldest; }
     cacheMsgs();
     setTimeout(prefetchOlder, 300);
@@ -333,7 +336,7 @@ function fileHtml(f) {
   }
   if (f.kind === "video") {
     const r = f.w && f.h ? ` style="aspect-ratio:${f.w}/${f.h}"` : "";
-    return `<div class="vid"${r} data-a="video" data-src="${src}" data-mime="${esc(f.mime)}"><span class="ms">play_circle</span>${f.duration ? `<small>${mmss(f.duration)}</small>` : ""}</div>`;
+    return `<div class="vid"${r} data-a="video" data-src="${src}" data-mime="${esc(f.mime)}">${f.poster ? `<img class="poster" loading="lazy" alt="" src="${mediaUrl({ src: f.poster })}">` : ""}<span class="ms">play_circle</span>${f.duration ? `<small>${mmss(f.duration)}</small>` : ""}</div>`;
   }
   return `<a class="file" href="${mediaUrl(f)}" download="${esc(f.name || "Datei")}"><span class="ms">attach_file</span><span>${esc(f.name || "Datei")}${f.size ? ` <small>${f.size > 1e6 ? (f.size / 1e6).toFixed(1) + " MB" : Math.round(f.size / 1e3) + " KB"}</small>` : ""}</span></a>`;
 }
@@ -350,7 +353,11 @@ function readLine(m) {
 }
 function bubble(m, tail = true) {
   const files = m.files.map((f) => fileHtml(f)).join("");
-  const body = m.deleted ? "Nachricht gelöscht" : m.text ? `<span class="tx">${autolink(esc(m.text))}</span>` : "";
+  // Gelöscht: Hinweis – und darunter, was drinstand, wenn der Dienst die Nachricht vorher schon gesehen hatte
+  const was = m.deleted && m.was ? `<div class="was">${(m.was.files || []).map((f) => fileHtml(f)).join("")}${m.was.text ? `<span class="tx">${autolink(esc(m.was.text))}</span>` : ""}</div>` : "";
+  const body = m.deleted ? `<span class="gone"><span class="ms">block</span>${m.mine ? "Du hast diese Nachricht gelöscht" : "Diese Nachricht wurde gelöscht"}</span>${was}` : m.text ? `<span class="tx">${autolink(esc(m.text))}</span>` : "";
+  const host = (u) => { try { return new URL(u).hostname.replace(/^www\./, ""); } catch { return ""; } };
+  const links = m.deleted ? "" : (m.links || []).filter((l) => l.title || l.img).map((l) => `<a class="lp" href="${esc(l.url)}" target="_blank" rel="noopener noreferrer">${l.img ? `<img loading="lazy" alt=""${l.w && l.h ? ` style="aspect-ratio:${l.w}/${l.h}"` : ""} src="${mediaUrl({ src: l.img })}">` : ""}<span><b>${esc(l.title || host(l.url))}</b>${l.summary ? `<i>${esc(l.summary)}</i>` : ""}<small>${esc(host(l.url))}</small></span></a>`).join("");
   const group = cur()?.type === "group" && !m.mine ? `<span class="who">${esc(clean(m.sender))}</span>` : "";
   const q = m.reply_to && S.msgs.find((x) => x.id === m.reply_to);
   const quote = m.reply_to ? `<div class="quote" data-a="jump" data-id="${esc(m.reply_to)}"><b>${esc(q ? (q.mine ? "Du" : clean(q.sender)) : "Antwort")}</b>${esc(q ? (q.text || (q.files[0] ? "Anhang" : "")).slice(0, 120) : "Nachricht")}</div>` : "";
@@ -358,12 +365,15 @@ function bubble(m, tail = true) {
   const tools = m.pending || m.deleted ? "" : `<button class="rep" data-a="reply" data-id="${esc(m.id)}" aria-label="Antworten" title="Antworten"><span class="ms">reply</span></button>`;
   const face = cur()?.type === "group" && !m.mine ? (tail ? avatar(clean(m.sender), S.id, m.sender_id) : '<span class="av gap"></span>') : "";
   const prog = m.pendingFile ? `<div class="prog"><i style="width:${Math.round((m.progress || 0) * 100)}%"></i></div>` : "";
-  return `<div class="bw ${m.mine ? "me" : ""} ${face ? "grp" : ""}" id="m-${esc(m.id)}" data-id="${esc(m.id)}"><span class="swipe ms">reply</span>${face}${tools}<div class="b ${m.mine ? "me" : ""} ${m.pending ? "pending" : ""} ${m.deleted ? "del" : ""}">${group}${quote}${files}${prog}${body}${rx}<span class="tm">${m.edited && !m.deleted ? "bearbeitet · " : ""}${m.at ? fmtTime.format(new Date(m.at)) : "…"}${ticks(m)}</span></div>${readLine(m)}</div>`;
+  return `<div class="bw ${m.mine ? "me" : ""} ${face ? "grp" : ""}" id="m-${esc(m.id)}" data-id="${esc(m.id)}"><span class="swipe ms">reply</span>${face}${tools}<div class="b ${m.mine ? "me" : ""} ${m.pending ? "pending" : ""} ${m.deleted ? "del" : ""}">${group}${quote}${files}${prog}${body}${links}${rx}<span class="tm">${m.edited && !m.deleted ? "bearbeitet · " : ""}${m.at ? fmtTime.format(new Date(m.at)) : "…"}${ticks(m)}</span></div>${readLine(m)}</div>`;
 }
 const NETS = [["snapchat", "snapchat"], ["instagram", "instagram"], ["whatsapp", "whatsapp"], ["signal", "signal"], ["telegram", "telegram"], ["discord", "discord"],
   ["messenger", "messenger"], ["facebook", "messenger"], ["gmessages", "gmessages"], ["google messages", "gmessages"], ["googlechat", "googlechat"], ["google chat", "googlechat"],
   ["slack", "slack"], ["linkedin", "linkedin"], ["twitter", "x"], ["imessage", "imessage"], ["sms", "gmessages"]];
 const netKey = (n) => { n = String(n || "").toLowerCase(); return (NETS.find(([k]) => n.includes(k)) || [, ""])[1]; };
+// Steht der Chat am Ende? Nur dann darf nachladendes (Bilder, Tastatur) ans Ende schieben – wer hochgescrollt hat, bleibt dort.
+let atBottom = true;
+document.addEventListener("scroll", (e) => { const b = e.target; if (b.id === "msgs") atBottom = b.scrollHeight - b.scrollTop - b.clientHeight < 150; }, true);
 function drawMsgs({ stick = false, keepTop = false } = {}) {
   const box = $("#msgs"); if (!box) return;
   const prevH = box.scrollHeight, prevTop = box.scrollTop;
@@ -379,7 +389,7 @@ function drawMsgs({ stick = false, keepTop = false } = {}) {
   $("#conv").dataset.net = netKey(cur()?.network);   // eigene Nachrichten in Netzwerkfarbe, eingehende mit Akzenten in Netzwerkfarbe
   paint();
   if (keepTop) box.scrollTop = box.scrollHeight - prevH + prevTop;
-  else if (stick) { box.scrollTop = box.scrollHeight; box.querySelectorAll("img").forEach((i) => i.addEventListener("load", () => { box.scrollTop = box.scrollHeight; }, { once: true })); }
+  else if (stick) { atBottom = true; box.scrollTop = box.scrollHeight; box.querySelectorAll("img").forEach((i) => i.addEventListener("load", () => { if (atBottom) box.scrollTop = box.scrollHeight; }, { once: true })); }
   else box.scrollTop = prevTop;
 }
 $("#conv").addEventListener("click", (e) => {
@@ -490,6 +500,9 @@ function menu(m) {
       ${!m.pending && !m.deleted && (m.text || m.files.length) ? '<button data-c="fwd"><span class="ms">forward</span>Weiterleiten</button>' : ""}
       ${m.files[0] ? '<button data-c="open"><span class="ms">open_in_new</span>Datei öffnen</button>' : ""}
       ${m.mine || m.pending ? "" : '<button data-c="unread"><span class="ms">mark_chat_unread</span>Ab hier ungelesen</button>'}
+      ${m.deleted && m.was?.text ? '<button data-c="copywas"><span class="ms">content_copy</span>Text kopieren</button>' : ""}
+      ${m.mine && !m.pending && !m.deleted ? '<button class="danger" data-c="delall"><span class="ms">delete_forever</span>Für alle löschen</button>' : ""}
+      ${m.pending ? "" : `<button class="danger" data-c="delme"><span class="ms">delete</span>${m.mine && !m.deleted ? "Nur für mich löschen" : "Für mich löschen"}</button>`}
     </div></div>`;
   const clone = src.cloneNode(true);
   clone.removeAttribute("id"); clone.querySelectorAll("[id]").forEach((x) => x.removeAttribute("id"));
@@ -508,6 +521,9 @@ function menu(m) {
     if (c === "fwd") forwardPick(m);
     if (c === "copy") navigator.clipboard?.writeText(m.text).then(() => toast("Kopiert"), () => toast("Kopieren nicht möglich"));
     if (c === "unread") markUnread(cur(), m.id);
+    if (c === "copywas") navigator.clipboard?.writeText(m.was.text).then(() => toast("Kopiert"), () => toast("Kopieren nicht möglich"));
+    if (c === "delall") deleteMsg(m, true);
+    if (c === "delme") deleteMsg(m, false);
     if (c === "open") window.open(mediaUrl(m.files[0]), "_blank", "noopener");
   });
   document.body.append(d);
@@ -537,6 +553,19 @@ async function toggleReaction(m, key) {
   } catch (e) {
     m.reactions = JSON.parse(before); drawMsgs(); toast(`Reaktion ging nicht: ${e.message}`);
   }
+}
+async function deleteMsg(m, everyone) {
+  if (!confirm(everyone ? "Nachricht für alle löschen? Das lässt sich nicht rückgängig machen." : "Nachricht nur bei dir löschen?")) return;
+  const id = S.id;
+  try {
+    await api(`/chats/${encodeURIComponent(id)}/messages/${encodeURIComponent(m.id)}${everyone ? "?everyone=true" : ""}`, { method: "DELETE" });
+    if (id !== S.id) return;
+    if (everyone) { if (m.text || m.files.length) m.was = { text: m.text, files: m.files }; m.deleted = true; m.text = ""; m.files = []; m.reactions = []; }
+    else S.msgs = S.msgs.filter((x) => x !== m);
+    drawMsgs({ keepTop: true });
+    toast(everyone ? "Für alle gelöscht" : "Bei dir gelöscht");
+    setTimeout(() => loadMsgs({ quiet: true }), 1500);
+  } catch (e) { toast(`Löschen ging nicht: ${e.message}`); }
 }
 const closeMenu = () => { document.getElementById("ctx")?.remove(); document.querySelectorAll(".bw.lifted").forEach((x) => x.classList.remove("lifted")); };
 document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeMenu(); });
@@ -879,7 +908,7 @@ if (window.visualViewport && matchMedia("(pointer: coarse)").matches) {
     document.body.style.setProperty("--vvt", `${vv.offsetTop}px`);
     const was = document.body.classList.contains("kb");
     document.body.classList.toggle("kb", open);
-    if (open) { scrollTo(0, 0); if (!was) { const b = $("#msgs"); if (b) requestAnimationFrame(() => { b.scrollTop = b.scrollHeight; }); } }
+    if (open) { scrollTo(0, 0); if (!was && atBottom) { const b = $("#msgs"); if (b) requestAnimationFrame(() => { b.scrollTop = b.scrollHeight; }); } }
   };
   vv.addEventListener("resize", fit); vv.addEventListener("scroll", fit);
 }

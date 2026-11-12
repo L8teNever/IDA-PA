@@ -176,3 +176,26 @@ def test_bearbeiten_und_weiterleiten(client, fake):
     assert fake.rest[-1][2] == {"attachment": {"uploadID": "up1", "type": "image", "mimeType": "image/png", "fileName": "datei.png"}, "text": "Schau"}
     assert client.post(f"{API}/chats/2/forward", json={"files": [{"src": "file:///C:/Windows/win.ini"}]}).status_code == 400
     assert client.post(f"{API}/chats/2/forward", json={}).status_code == 400
+
+
+def test_html_wird_zu_text():
+    from app.api import plain
+    assert plain("<p>Hallo</p>\n<p>Welt &amp; so</p>") == "Hallo\nWelt & so"
+    assert plain('<a href="https://a.de/x?y=1" rel="noopener" target="_blank">https://a.de/x?y=1</a>') == "https://a.de/x?y=1"
+    assert plain('Schau <a href="https://a.de">hier</a><br>und <b>da</b>') == "Schau hier (https://a.de)\nund da"
+    assert plain("a < b und c > d <3") == "a < b und c > d <3"
+
+
+def test_geloeschtes_bleibt_lesbar_und_loeschen(client, fake):
+    from app.api import keep_deleted
+    m = {"id": "a1", "at": "2026-11-12T10:00:00Z", "text": "Geheim", "files": [], "deleted": False}
+    assert keep_deleted("c9", [dict(m)])[0].get("was") is None
+    gone = keep_deleted("c9", [{**m, "text": "", "deleted": True}])[0]
+    assert gone["deleted"] and gone["text"] == "" and gone["was"] == {"text": "Geheim", "files": []}
+    assert keep_deleted("c9", [{"id": "nie", "text": "", "files": [], "deleted": True}])[0]["was"] is None
+    # für mich löschen: geht an Beeper und bleibt danach ausgeblendet
+    assert client.delete(f"{API}/chats/c9/messages/a1").json() == {"ok": True}
+    assert fake.rest[-1][:2] == ("DELETE", "/v1/chats/c9/messages/a1?forEveryone=false")
+    assert keep_deleted("c9", [dict(m)]) == []
+    client.delete(f"{API}/chats/c9/messages/a2", params={"everyone": "true"})
+    assert fake.rest[-1][1].endswith("forEveryone=true")

@@ -1,6 +1,7 @@
 """Schnittstelle der Chats-App: übersetzt die Beeper-Tools (MCP) für die Oberfläche."""
 import asyncio
 import base64
+import html
 import json
 import re
 import shutil
@@ -12,7 +13,7 @@ from fastapi import APIRouter, File, Form, HTTPException, Request, Response, Upl
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from . import bus
+from . import bus, store
 from .config import get_settings
 from .mcp import Beeper, BeeperError
 
@@ -104,16 +105,50 @@ def seen_by(m: dict, me: set[str], names: dict[str, str]) -> list[dict]:
                    for u, t in s.items() if u not in me and t), key=lambda x: x["at"] or "")
 
 
+HTML_TAG = re.compile(r"</?(?:p|br|a|b|i|em|strong|u|s|del|strike|code|pre|span|div|ul|ol|li|blockquote|h[1-6]|font|mx-reply)(?:\s[^<>]*)?/?>", re.I)
+HTML_LINK = re.compile(r"<a\s[^<>]*?href=([\"'])(.*?)\1[^<>]*>(.*?)</a>", re.I | re.S)
+
+
+def plain(text: str) -> str:
+    """Manche Netzwerke (Matrix, Mail-Brücken, Bots) liefern HTML statt Text. Daraus wird lesbarer Text: Absätze und <br> zu
+    Zeilenumbrüchen, Links zu ihrer Adresse. Text ohne bekannte HTML-Tags bleibt unverändert."""
+    if not text or not HTML_TAG.search(text):
+        return text
+
+    def link(m: re.Match) -> str:
+        url, label = html.unescape(m[2]).strip(), html.unescape(HTML_TAG.sub("", m[3])).strip()
+        if not label or url in label:
+            return label or url
+        return f"{label} ({url})" if url.lower().startswith("http") else label
+
+    t = re.sub(r"<mx-reply>.*?</mx-reply>", "", text, flags=re.I | re.S)
+    t = HTML_LINK.sub(link, t)
+    t = re.sub(r"<br\s*/?>\n?", "\n", t, flags=re.I)
+    t = re.sub(r"<li(?:\s[^<>]*)?>", "• ", t, flags=re.I)
+    t = re.sub(r"</(?:p|div|li|blockquote|h[1-6]|pre|ul|ol)>\n?", "\n", t, flags=re.I)
+    t = html.unescape(HTML_TAG.sub("", t))
+    return re.sub(r"\n{3,}", "\n\n", t).strip()
+
+
+def media_src(src) -> str:
+    """Nur Adressen, die /media auch holen darf (Beepers eigene Dateien) – sonst leer."""
+    return src if isinstance(src, str) and (SRC.match(src) or is_local(src)) else ""
+
+
 def message(m: dict, me: set[str] | None = None, names: dict[str, str] | None = None) -> dict:
     return {
         "read_by": seen_by(m, me or set(), names or {}), "sender_id": m.get("senderID") or "",
         "id": m.get("id"), "at": m.get("timestamp"), "mine": bool(m.get("isSender")), "sender": m.get("senderName") or "",
-        "type": (m.get("type") or "TEXT").upper(), "text": m.get("text") or "", "deleted": bool(m.get("isDeleted")), "edited": bool(m.get("editedTimestamp")),
+        "type": (m.get("type") or "TEXT").upper(), "text": plain(m.get("text") or ""), "deleted": bool(m.get("isDeleted")), "edited": bool(m.get("editedTimestamp")),
         "reply_to": m.get("linkedMessageID") or None, "reactions": reactions(m, me),
         "files": [{"src": a.get("srcURL") or a.get("id"), "kind": kind(a), "mime": a.get("mimeType") or "", "name": a.get("fileName") or "",
                    "size": a.get("fileSize") or 0, "duration": a.get("duration") or 0, "w": (a.get("size") or {}).get("width"), "h": (a.get("size") or {}).get("height"),
-                   "transcript": ((a.get("transcription") or {}).get("transcription") or "").strip(), "sticker": bool(a.get("isSticker")), "gif": bool(a.get("isGif"))}
+                   "transcript": ((a.get("transcription") or {}).get("transcription") or "").strip(), "sticker": bool(a.get("isSticker")), "gif": bool(a.get("isGif")), "poster": media_src(a.get("posterImg"))}
                   for a in m.get("attachments") or []],
+        # Link-Vorschau (Titel, Bild), wie Beeper sie zeigt
+        "links": [{"url": l.get("originalURL") or l.get("url") or "", "title": plain(l.get("title") or "")[:200], "summary": plain(l.get("summary") or "")[:300],
+                   "img": media_src(l.get("img")), "w": (l.get("imgSize") or {}).get("width"), "h": (l.get("imgSize") or {}).get("height")}
+                  for l in (m.get("links") or [])[:3] if isinstance(l, dict) and str(l.get("url") or "").lower().startswith("http")],
     }
 
 
@@ -140,7 +175,7 @@ async def messages(chat_id: str, cursor: str = "", direction: str = "before"):
     if key and (hit := _older.get(key)) and time.monotonic() - hit[0] < OLDER_TTL:
         return hit[1]   # ältere Seiten ändern sich kaum: "Ältere laden" kommt dann sofort
     d = await fetch_messages(chat_id, cursor[:300], direction)
-    out = shape_messages(d)
+    out = shape_messages(d, chat_id)
     if key:
         if len(_older) > 400:
             _older.clear()
@@ -168,13 +203,51 @@ async def fetch_messages(chat_id: str, cursor: str, direction: str) -> dict:
         raise HTTPException(502, "Beeper: unerwartete Antwort") from e
 
 
-def shape_messages(d: dict) -> dict:
+def shape_messages(d: dict, chat_id: str = "") -> dict:
     raw = d.get("items", [])
     me = {m["senderID"] for m in raw if m.get("isSender") and m.get("senderID")}
     names = {m["senderID"]: m["senderName"] for m in raw if m.get("senderID") and m.get("senderName") and not m.get("isSender")}
     items = [message(m, me, names) for m in raw]
     items.reverse()   # Beeper liefert neueste zuerst; die Seite will alt → neu
+    if chat_id:
+        items = keep_deleted(chat_id, items)
     return {"items": items, "more": bool(d.get("hasMore")), "oldest": d.get("oldestCursor"), "newest": d.get("newestCursor")}
+
+
+def keep_deleted(chat_id: str, items: list[dict]) -> list[dict]:
+    """Merkt sich alle Nachrichten; bei gelöschten hängt es an, was vorher drinstand ("was"). Für mich Gelöschtes fällt raus."""
+    try:
+        known = store.recall(chat_id, [m["id"] for m in items if m.get("id")])
+        store.remember(chat_id, [m for m in items if not m["deleted"]])
+    except Exception:  # noqa: BLE001 – der Merkzettel darf das Laden nie verhindern
+        return items
+    out = []
+    for m in items:
+        k = known.get(str(m["id"]))
+        if k and k["hidden"]:
+            continue
+        if m["deleted"]:
+            was = k if k and (k["text"] or k["files"]) else m
+            m["was"] = {"text": was["text"], "files": was["files"]} if was["text"] or was["files"] else None
+            m["text"], m["files"] = "", []
+        out.append(m)
+    return out
+
+
+async def archive(chat_id: str) -> None:
+    """Neueste Seite eines Chats holen, nur damit sie gemerkt ist (läuft im Hintergrund, siehe live.py)."""
+    shape_messages(await fetch_messages(chat_id, "", "before"), chat_id)
+
+
+@router.delete("/chats/{chat_id}/messages/{msg_id}")
+async def delete_message(chat_id: str, msg_id: str, everyone: bool = False):
+    """everyone=true: für alle löschen (wenn das Netzwerk es kann), sonst nur bei mir. Geht nur über die REST-API von Beeper."""
+    await rest_call("DELETE", f"/v1/chats/{quote(chat_id, safe='')}/messages/{quote(msg_id, safe='')}?forEveryone={'true' if everyone else 'false'}")
+    if not everyone:
+        store.hide(chat_id, msg_id)
+    for k in [k for k in _older if k[0] == chat_id]:
+        _older.pop(k, None)
+    return {"ok": True}
 
 
 class Send(BaseModel):

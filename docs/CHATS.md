@@ -7,7 +7,7 @@ Unterhaltungen lesen, Nachrichten schreiben, auf Nachrichten antworten, Bilder s
 Browser (chats.kulbarts.com, Cloudflare Access) ──> chats :8000 ──MCP──> Beeper Desktop (beeper.kulbarts.com/v0/mcp)
 ```
 
-* **Kein eigener Speicher.** Alles liegt in Beeper Desktop. Der Dienst spricht dessen MCP-Adresse an (`BEEPER_MCP_URL`) mit dem Bearer-Token `BEEPER_MCP_TOKEN` an – dem Zugang, den IDA beim Beeper-Anbieter speichert.
+* **Fast kein eigener Speicher.** Chats und Nachrichten liegen in Beeper Desktop; der Dienst merkt sich nur gesehene Nachrichten (siehe „Löschen und gelöschte Nachrichten“). Der Dienst spricht dessen MCP-Adresse an (`BEEPER_MCP_URL`) mit dem Bearer-Token `BEEPER_MCP_TOKEN` an – dem Zugang, den IDA beim Beeper-Anbieter speichert.
   dieselbe wie beim Beeper-Anbieter in IDA).
 * **Live, aber sparsam:** Nur solange die App irgendwo offen (und sichtbar) ist, fragt der Dienst alle `LIVE_POLL_S` Sekunden (Standard 5)
   die 30 zuletzt aktiven Chats ab und meldet geänderte per Server-Sent Events (`/api/v1/stream`). Ohne offene App fragt er nichts ab.
@@ -57,3 +57,14 @@ Browser (chats.kulbarts.com, Cloudflare Access) ──> chats :8000 ──MCP─
 
 `GET /api/v1/chats?q=&unread=&inbox=&cursor=` · `GET /api/v1/chats/{id}/messages?cursor=&direction=` ·
 `POST /api/v1/chats/{id}/send` `{text, reply_to}` · `GET /api/v1/image?src=` · `GET /api/v1/transcript?src=` · `GET /api/v1/stream` (SSE)
+
+## Löschen und gelöschte Nachrichten
+
+- **Löschen:** Lange auf eine Nachricht drücken. Eigene: „Für alle löschen“ (auch im Netzwerk, z. B. WhatsApp, wenn es das kann) oder
+  „Nur für mich löschen“. Fremde: „Für mich löschen“. Läuft über `DELETE /v1/chats/{id}/messages/{id}?forEveryone=…` der Beeper-REST-API.
+  Für mich Gelöschtes blendet der Dienst zusätzlich selbst aus.
+- **Gelöschtes bleibt lesbar:** Der Dienst merkt sich jede Nachricht, die er einmal gesehen hat (`chats.db` im Volume `chats-data`,
+  `DATA_DIR=/data`). Meldet Beeper eine Nachricht später als gelöscht, steht in der Blase „Diese Nachricht wurde gelöscht“ und darunter
+  der frühere Inhalt. Anhänge sind nur noch da, solange Beeper die Datei noch liefert.
+- **Merken im Hintergrund:** Auch bei geschlossener App fragt der Dienst alle `ARCHIVE_POLL_S` Sekunden (Standard 60, 0 = aus) die
+  30 zuletzt aktiven Chats ab und lädt geänderte einmal. Was innerhalb dieser Zeit geschickt und wieder gelöscht wird, fehlt.

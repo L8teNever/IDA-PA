@@ -1,4 +1,4 @@
-"""IDA Chats: deine Beeper-Chats im IDA-Stil – eigene App mit eigener PWA (docs/CHATS.md). Ohne eigene Datenbank: alles liegt in Beeper."""
+"""IDA Chats: deine Beeper-Chats im IDA-Stil – eigene App mit eigener PWA (docs/CHATS.md). Chats liegen in Beeper; chats.db merkt sich nur gesehene Nachrichten (store.py)."""
 import asyncio
 import hashlib
 import logging

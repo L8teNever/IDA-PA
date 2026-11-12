@@ -1,14 +1,23 @@
 """Live: solange die App irgendwo offen ist, fragt der Dienst Beeper alle paar Sekunden nach den zuletzt aktiven Chats und sagt den
-offenen Fenstern Bescheid, wenn sich einer geändert hat (neue Aktivität oder Ungelesen-Zahl). Ohne offene App wird nichts abgefragt."""
+offenen Fenstern Bescheid, wenn sich einer geändert hat (neue Aktivität oder Ungelesen-Zahl). Ohne offene App fragt er nur selten
+(ARCHIVE_POLL_S) – dann nur, um neue Nachrichten zu merken (store.py)."""
 import asyncio
 import logging
 
 from . import bus
-from .api import beeper, parse_chats
+from .api import archive, beeper, parse_chats
 from .config import get_settings
-from .mcp import BeeperError
 
 log = logging.getLogger("chats.live")
+
+
+async def remember(ids: list[str]) -> None:
+    """Geänderte Chats einmal laden, damit ihre Nachrichten gemerkt sind – auch wenn sie später jemand löscht."""
+    for i in ids:
+        try:
+            await archive(i)
+        except Exception as e:  # noqa: BLE001
+            log.debug("Merken %s: %s", i, e)
 
 
 async def check(state: dict) -> None:
@@ -16,6 +25,10 @@ async def check(state: dict) -> None:
     sig = {c["id"]: (c["at"], c["unread"]) for c in items}
     old = state.get("sig")
     state["sig"] = sig
+    if get_settings().archive_poll_s > 0 and not (state.get("job") and not state["job"].done()):
+        changed = [c["id"] for c in items if old is None or old.get(c["id"], ("",))[0] != c["at"]]
+        if changed:
+            state["job"] = asyncio.create_task(remember(changed))
     if old is None:
         return
     for c in items:
@@ -28,16 +41,18 @@ async def check(state: dict) -> None:
 async def loop() -> None:
     state: dict = {}
     while True:
-        wait = get_settings().live_poll_s
-        if bus.count():
+        s = get_settings()
+        wait = s.live_poll_s if bus.count() else s.archive_poll_s   # App zu: seltener, nur zum Merken
+        if wait > 0:
             try:
                 await check(state)
-            except BeeperError as e:
-                log.warning("Live-Abgleich: %s", e)
-                wait = 30
             except Exception as e:  # noqa: BLE001 – live darf nie sterben
                 log.warning("Live-Abgleich: %s", e)
-                wait = 30
+                wait = max(wait, 30)
         else:
             state.pop("sig", None)
-        await asyncio.sleep(wait if bus.count() else 2)
+        # App geht auf, während selten abgefragt wird: nicht die ganze Pause abwarten
+        end = asyncio.get_running_loop().time() + (wait if wait > 0 else 2)
+        open_before = bool(bus.count())
+        while asyncio.get_running_loop().time() < end and bool(bus.count()) == open_before:
+            await asyncio.sleep(min(2, max(0.05, end - asyncio.get_running_loop().time())))

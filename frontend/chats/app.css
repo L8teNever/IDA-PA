@@ -72,9 +72,16 @@ button { cursor: pointer; font: inherit; }
 .b .tm { display: block; font-size: 11px; color: var(--muted); text-align: right; margin-top: 2px; white-space: normal; }
 .b.me .tm { color: inherit; opacity: .6; }
 .b.pending { opacity: .55; }
-.b.del { opacity: .5; font-style: italic; }
+.b .gone { display: flex; align-items: center; gap: 6px; opacity: .6; font-style: italic; font-size: 14px; white-space: normal; }
+.b .gone .ms { font-size: 16px; }
+.b .was { margin-top: 6px; padding-top: 6px; border-top: 1px dashed color-mix(in srgb, currentColor 30%, transparent); }
+.ctx-box button.danger, .ctx-box button.danger .ms { color: var(--error, #ffb4ab); }
 .b img { display: block; max-width: 100%; max-height: 360px; border-radius: 14px; margin: 2px 0 4px; background: #111; }
-.b .file { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 13px; white-space: normal; }
+.b a.file, .b.me a.file { display: flex; align-items: center; gap: 10px; min-width: min(220px, 100%); padding: 8px 10px; margin: 2px 0 4px; border-radius: 14px; background: rgba(255,255,255,.08); color: inherit; font-size: 14px; white-space: normal; text-decoration: none; }
+.b a.file > .ms { flex: none; width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center; background: rgba(255,255,255,.12); font-size: 20px; }
+.b a.file > span:last-child { min-width: 0; overflow-wrap: anywhere; line-height: 1.3; }
+.b a.file small { display: block; font-size: 12px; opacity: .7; color: inherit; }
+.b .tx { overflow-wrap: anywhere; }
 .older { align-self: center; height: 36px; padding: 0 16px; border: 0; border-radius: 18px; background: var(--surface-high); color: var(--on-surface); font-size: 14px; margin-bottom: 8px; }
 .composer { display: flex; align-items: flex-end; gap: 8px; padding: 8px 12px calc(env(safe-area-inset-bottom) + 10px); border-top: 1px solid var(--line); }
 .composer textarea { flex: 1; min-width: 0; resize: none; max-height: 140px; border: 0; outline: 0; border-radius: 22px; background: var(--surface-high); color: var(--on-surface); font: inherit; font-size: 16px; padding: 12px 16px; line-height: 1.35; }
@@ -107,7 +114,16 @@ button { cursor: pointer; font: inherit; }
 .vtbtn.has { background: rgba(var(--accent-rgb), .25); }
 .vtext { font-size: 14px; margin-top: 6px; padding-top: 6px; border-top: 1px solid rgba(255,255,255,.1); white-space: pre-wrap; }
 .vid { position: relative; width: min(320px, 100%); aspect-ratio: 16/9; background: #111; border-radius: 14px; display: grid; place-items: center; cursor: pointer; margin: 2px 0 4px; }
-.vid .ms { font-size: 56px; color: #fff; opacity: .9; }
+.vid { overflow: hidden; }
+.vid[style*="aspect-ratio"] { width: min(260px, 100%); max-height: 460px; }
+.b .vid img.poster { position: absolute; inset: 0; width: 100%; height: 100%; max-height: none; margin: 0; object-fit: cover; border-radius: 0; }
+.vid .ms { position: relative; font-size: 56px; color: #fff; opacity: .95; text-shadow: 0 2px 12px rgba(0,0,0,.6); }
+.b a.lp, .b.me a.lp { display: block; margin: 6px 0 2px; border-radius: 14px; overflow: hidden; background: rgba(255,255,255,.08); color: inherit; text-decoration: none; white-space: normal; max-width: 320px; }
+.b a.lp img { width: 100%; max-height: 260px; object-fit: cover; margin: 0; border-radius: 0; }
+.b a.lp span { display: block; padding: 8px 10px; }
+.b a.lp b { display: block; font-weight: 500; font-size: 14px; line-height: 1.3; }
+.b a.lp i { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; font-style: normal; font-size: 13px; opacity: .75; margin-top: 2px; }
+.b a.lp small { display: block; font-size: 12px; opacity: .6; margin-top: 2px; }
 .vid small { position: absolute; right: 10px; bottom: 8px; background: rgba(0,0,0,.6); border-radius: 8px; padding: 1px 6px; font-size: 12px; }
 .vplay { display: block; width: min(320px, 100%); max-height: 420px; border-radius: 14px; background: #000; margin: 2px 0 4px; }
 a.file { text-decoration: none; color: inherit; }
@@ -236,7 +252,8 @@ a.file small { color: var(--muted); }
 [data-net=imessage]   { --na: #0a84ff; --nb: #3b3b3d; --nf: #fff; --nc: #3b3b3d; --no: rgba(255,255,255,.14); }
 [data-net]:not([data-net=""]) .b.me { background: var(--nb); color: var(--nf); }
 [data-net]:not([data-net=""]) .b.me .who, [data-net]:not([data-net=""]) .b.me .quote b { color: inherit; font-weight: 600; }
-[data-net]:not([data-net=""]) .b.me .tm, [data-net]:not([data-net=""]) .b.me .file { color: inherit; opacity: .7; }
+[data-net]:not([data-net=""]) .b.me .tm { color: inherit; opacity: .7; }
+[data-net]:not([data-net=""]) .b a.file { color: inherit; text-decoration: none; }
 [data-net]:not([data-net=""]) .b.me a { color: inherit; text-decoration: underline; }
 [data-net]:not([data-net=""]) .b.me .quote { color: inherit; opacity: .9; border-left-color: currentColor; background: var(--no); }
 [data-net]:not([data-net=""]) .b.me .rx span, [data-net]:not([data-net=""]) .b.me .spd, [data-net]:not([data-net=""]) .b.me .vtbtn { background: var(--no); }
