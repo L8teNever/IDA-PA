@@ -52,10 +52,13 @@ Browser (chats.kulbarts.com, Cloudflare Access) ──> chats :8000 ──MCP─
   `POST /api/v1/merges`, `DELETE /api/v1/merges/{gruppe}[?chat=…]` (ganze Gruppe bzw. einen Chat herausnehmen).
 * **Farben:** Eigene Nachrichten in der Farbe des Netzwerks; eingehende behalten die Blase, nur Akzente (Name, Zitat, Links, Sprachnachricht,
   Antwortleiste) bekommen die Netzwerkfarbe. Mehrere Konten pro Netzwerk (z. B. ein zweites, lokal verbundenes Signal) erkennt die App am Kontonamen.
+* **Tippfehler-Vorschlag:** 1 s nach dem letzten Tippen fragt die App den Dienst `korrektur` (docs/KORREKTUR.md). Hat er etwas korrigiert, steht der
+  Vorschlag über dem Eingabefeld, geänderte Wörter markiert, mit eigenem Senden-Knopf. Der normale Knopf schickt dein Original, Antippen des
+  Vorschlags übernimmt ihn ins Feld. `POST /api/v1/korrektur` `{text}` → `{changed, text, parts}`; `KORREKTUR_URL` leer = aus.
 
 ## Einrichten
 
-1. `.env`: `BEEPER_MCP_URL=https://beeper.kulbarts.com/v0/mcp`, `BEEPER_MCP_TOKEN=…`, `CHATS_PORT=10.7.0.1:8454`, optional `CHATS_PUBLIC_URL`. `docker compose up -d chats`.
+1. `.env`: `BEEPER_MCP_URL=https://beeper.kulbarts.com/v0/mcp`, `BEEPER_MCP_TOKEN=…`, `CHATS_PORT=10.7.0.1:8454`, optional `CHATS_PUBLIC_URL`. `docker compose up -d chats korrektur`.
 2. Cloudflare: Access-App für `chats.kulbarts.com` (wie IDA), dann Tunnel-Route → `http://10.7.0.1:8454` (über das Dashboard).
 
 ## API (für die Oberfläche)

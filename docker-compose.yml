@@ -146,10 +146,25 @@ services:
       BEEPER_MCP_URL: ${BEEPER_MCP_URL:-}
       BEEPER_MCP_TOKEN: ${BEEPER_MCP_TOKEN:-}
       CHATS_PUBLIC_URL: ${CHATS_PUBLIC_URL:-}
+      KORREKTUR_URL: ${KORREKTUR_URL:-http://korrektur:8000}   # leer = keine Korrekturvorschläge
     volumes:
       - chats-data:/data       # chats.db: gemerkte Nachrichten (Gelöschtes bleibt lesbar)
     ports:
       - "${CHATS_PORT:-8095}:8000"
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"
+
+  # IDA Korrektur – korrigiert Tippfehler in Chats-Nachrichten mit einem lokalen T5-Modell (nur Prozessor). Kein Port nach außen:
+  # nur "chats" fragt hier, sobald du kurz nicht tippst. Das Modell (~1 GB) lädt beim ersten Start ins Volume korrektur-data. Siehe docs/KORREKTUR.md
+  korrektur:
+    image: ${KORREKTUR_IMAGE:-ghcr.io/l8tenever/ida-korrektur:latest}
+    pull_policy: always
+    restart: unless-stopped
+    environment:
+      KORREKTUR_THREADS: ${KORREKTUR_THREADS:-4}
+    volumes:
+      - korrektur-data:/data   # hf/: das heruntergeladene Modell
+    mem_limit: ${KORREKTUR_MEM:-3g}
     labels:
       com.centurylinklabs.watchtower.enable: "true"
 
@@ -464,6 +479,7 @@ volumes:
   links-data:
   tasks-data:
   chats-data:
+  korrektur-data:
   docs-data:
   launcher-data:
   google-data:

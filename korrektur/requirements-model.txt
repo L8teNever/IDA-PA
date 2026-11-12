@@ -1,0 +1,3 @@
+# Nur im Image (schwer): Torch kommt als CPU-Version aus dem PyTorch-Index (siehe Dockerfile)
+transformers>=4.44,<5
+sentencepiece>=0.2,<1

@@ -1,5 +1,5 @@
 # Tests (IDA: SQLite + PostgreSQL, Kalender/Wiki: SQLite, Code), dann Images bauen und nach GHCR pushen
-# (ghcr.io/<owner>/<repo>:latest, ida-kalender:latest, ida-wiki:latest, ida-code:latest, ida-dashboard:latest, ida-tasks:latest, ida-html:latest, ida-docs:latest, ida-launcher:latest, ida-google-stack:latest, ida-mail:latest, ida-chats:latest).
+# (ghcr.io/<owner>/<repo>:latest, ida-kalender:latest, ida-wiki:latest, ida-code:latest, ida-dashboard:latest, ida-tasks:latest, ida-html:latest, ida-docs:latest, ida-launcher:latest, ida-google-stack:latest, ida-mail:latest, ida-chats:latest, ida-korrektur:latest).
 name: Test & Docker-Image
 
 on:
@@ -202,8 +202,21 @@ jobs:
       - name: pytest
         run: python -m pytest
 
+  korrektur-test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: korrektur
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12", cache: pip, cache-dependency-path: korrektur/requirements*.txt }
+      - run: pip install -r requirements-dev.txt
+      - name: pytest
+        run: python -m pytest
+
   image:
-    needs: [test, kalender-test, kalender-frontend-test, wiki-test, code-test, dashboard-test, tasks-test, docs-test, google-test, launcher-test, mail-test, chats-test]
+    needs: [test, kalender-test, kalender-frontend-test, wiki-test, code-test, dashboard-test, tasks-test, docs-test, google-test, launcher-test, mail-test, chats-test, korrektur-test]
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     strategy:
@@ -221,6 +234,7 @@ jobs:
           - { name: google, dockerfile: google/Dockerfile, image: "ghcr.io/${{ github.repository_owner }}/ida-google-stack" }
           - { name: mail, dockerfile: mail/Dockerfile, image: "ghcr.io/${{ github.repository_owner }}/ida-mail" }
           - { name: chats, dockerfile: chats/Dockerfile, image: "ghcr.io/${{ github.repository_owner }}/ida-chats" }
+          - { name: korrektur, dockerfile: korrektur/Dockerfile, image: "ghcr.io/${{ github.repository_owner }}/ida-korrektur" }
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3

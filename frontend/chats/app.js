@@ -76,6 +76,7 @@ function route() {
   document.body.classList.toggle("reading", !!id);
   if (id === S.id) return drawList();
   const c = id && MC.get(id);
+  TS.open = false; TS.sx = 0;
   S.id = id; S.msgs = c ? c.msgs.slice() : []; S.more = c ? c.more : false; S.oldest = c ? c.oldest : null; S.reply = null; S.edit = null; S.to = null;
   document.querySelectorAll("#list .row").forEach((r) => r.classList.toggle("sel", r.dataset.id === id));
   if (!$("#list .row")) drawList();
@@ -194,7 +195,7 @@ function grpRow(g) {   // Gruppe als eine Zeile: Titel vom ersten Chat, neueste 
   const live = g.chats.map((m) => ({ ...m, ...(known(m.id) || {}) })), head = live[0];
   const av = g.avatar && g.chats.some((x) => x.id === g.avatar) ? g.avatar : g.id;
   return { ...head, id: g.id, av, title: g.name || head.title || g.chats[0].title, at: live.map((c) => c.at || "").sort().at(-1), unread: live.reduce((a, c) => a + (left(c) ? c.unread : 0), 0),
-    network: [...new Set(live.map((c) => c.network).filter(Boolean))].join(" + "), type: live.length && live.every((c) => c.type === "group") ? "group" : "single", merged: live };
+    network: [...new Set(live.map((c) => c.network).filter(Boolean))].join(" + "), last: live.map((c) => c.last).filter(Boolean).sort((a, b) => (a.at || "").localeCompare(b.at || "")).at(-1) || null, type: live.length && live.every((c) => c.type === "group") ? "group" : "single", merged: live };
 }
 function collapse(list) {   // Mitglieder einer Gruppe verschwinden hinter der Gruppenzeile (an der Stelle des neuesten Mitglieds)
   const done = new Set(), out = [];
@@ -371,6 +372,12 @@ $("#list").addEventListener("contextmenu", (e) => {
   e.preventDefault();
   const c = rowChat(r.dataset.id); if (c && !$("#ctx")) rowMenu(c);
 });
+function lastLine(c) {   // "Du: …" / in Gruppen "Name: …" / sonst nur der Text; ohne Text ein Hinweis aufs Netzwerk
+  const l = c.last;
+  if (!l) return `<i>${esc(c.merged ? c.merged.map((x) => netName(x.network)).join(" · ") : netName(c.network))}</i>`;
+  const who = l.mine ? "Du: " : l.sender ? `${clean(l.sender)}: ` : "";
+  return `${who ? `<b>${esc(who)}</b>` : ""}${l.text ? esc(clean(l.text)) : "<i>Anhang</i>"}`;
+}
 function drawList() {
   const pinIds = new Set(PINS.map((p) => p.id)), showPins = S.f === "all" && !S.q;
   const pinned = showPins ? collapse(PINS.map((p) => { const c = S.chats.find((x) => x.id === p.id); if (c) c.pinned = true; return c || p; })) : [];
@@ -382,8 +389,8 @@ function drawList() {
   if (navigator.setAppBadge) (n ? navigator.setAppBadge(n) : navigator.clearAppBadge()).catch(() => {});
   if (!S.chats.length && !pinned.length) { $("#list").innerHTML = `<div class="empty"><span class="ms">${S.q ? "search_off" : "forum"}</span>${S.q ? "Nichts gefunden." : "Keine Chats."}</div>`; return; }
   const row = (c, pin) => `<div class="row ${left(c) ? "unread" : ""} ${c.id === S.id ? "sel" : ""}" data-id="${esc(c.id)}">
-      ${avatar(clean(c.title), c.av || c.id)}<div class="rmain"><div class="rtop"><span class="rtitle">${esc(clean(c.title))}</span><span class="rtime">${when(c.at)}</span></div>
-      <div class="rsub">${c.network ? `<span class="net">${esc(c.network)}</span>` : ""}${c.type === "group" ? '<span class="ms" style="font-size:16px">group</span>' : ""}${c.merged ? '<span class="ms" style="font-size:16px" title="Zusammengeführt">call_merge</span>' : ""}${pin ? '<span class="ms pin">push_pin</span>' : ""}${left(c) ? `<span class="cnt">${c.unread}</span>` : ""}</div></div></div>`;
+      ${pickAv(c)}<div class="rmain"><div class="rtop"><span class="rtitle">${esc(clean(c.title))}</span><span class="rtime">${when(c.at)}</span></div>
+      <div class="rsub"><span class="last">${lastLine(c)}</span>${pin ? '<span class="ms pin">push_pin</span>' : ""}${left(c) ? `<span class="cnt">${c.unread}</span>` : ""}</div></div></div>`;
   $("#list").innerHTML = pinned.map((c) => row(c, true)).join("") + (pinned.length && rest.length ? '<div class="pinsep"></div>' : "") + rest.map((c) => row(c, false)).join("")
     + (S.next ? '<button class="more" id="more">Mehr laden</button>' : "");
   if (S.id && $(".chead")) refreshReadBar();
@@ -391,7 +398,7 @@ function drawList() {
 $("#list").addEventListener("click", (e) => {
   if (e.target.closest("#more")) return loadChats({ more: true });
   if (rowHeld) { rowHeld = false; return; }
-  const av = e.target.closest(".row > .av"); if (av && avatarBig(av)) return;
+  const av = e.target.closest(".row .av"); if (av && avatarBig(av)) return;
   const r = e.target.closest(".row");
   if (!r) return;
   const c = S.chats.find((x) => x.id === r.dataset.id);
@@ -470,7 +477,7 @@ function refreshReadBar() {
 }
 async function openChat() {
   $("#conv").innerHTML = `${head()}${readBar(cur())}<div class="msgs" id="msgs"><div class="skel"></div><div class="skel"></div></div>
-    <div class="dock" id="dock"><div class="replybar float" id="replybar" hidden></div><form class="composer" id="form">
+    <div class="dock" id="dock"><div class="fixbar float" id="fixbar" hidden></div><div class="replybar float" id="replybar" hidden></div><form class="composer" id="form">
     <button class="icon-btn attach" id="attachBtn" type="button" aria-label="Anhängen" title="Foto, Video oder Datei"><span class="ms">add</span></button>
     <div class="inwrap"><button class="tochip" id="toBtn" type="button" aria-label="Senden an …" hidden></button>
     <textarea id="txt" rows="1" placeholder="Nachricht" enterkeyhint="send"></textarea></div>
@@ -483,8 +490,13 @@ async function openChat() {
   const ro = new ResizeObserver(() => { const cv = $("#conv"), d = $("#dock"); if (cv && d) { cv.style.setProperty("--dockh", `${d.offsetHeight}px`); const b = $("#msgs"); if (b && atBottom) b.scrollTop = b.scrollHeight; } });
   ro.observe($("#dock"));
   const ta = $("#txt");
-  ta.addEventListener("input", () => { ta.style.height = "auto"; ta.style.height = `${Math.min(ta.scrollHeight, 140)}px`; sendMode(); });
+  ta.addEventListener("input", () => { ta.style.height = "auto"; ta.style.height = `${Math.min(ta.scrollHeight, 140)}px`; sendMode(); fixLater(); });
   ta.addEventListener("paste", (e) => { const f = [...(e.clipboardData?.files || [])]; if (f.length) { e.preventDefault(); pickFiles(f); } });
+  $("#fixbar").addEventListener("click", (e) => {
+    const t = S.fix?.text; if (!t) return;
+    if (e.target.closest("[data-fix=send]")) return send(t);
+    ta.value = t; ta.dispatchEvent(new Event("input")); hideFix(); ta.focus();   // Text antippen: Vorschlag ins Feld übernehmen
+  });
   $("#attachBtn").onclick = attachMenu;
   $("#toBtn").onclick = toMenu; toChip();
   $("#recbar").addEventListener("click", (e) => { const a = e.target.closest("[data-rec]")?.dataset.rec; if (a) recAction(a); });
@@ -538,7 +550,7 @@ function bars(key) {   // Wellenform: aus der Adresse abgeleitet, damit sie pro 
   for (const c of String(key)) h = (h * 31 + c.charCodeAt(0)) >>> 0;
   return Array.from({ length: 34 }, (_, i) => { h = (h * 1103515245 + 12345) >>> 0; return 18 + ((h >>> 16) % 70) * (0.55 + 0.45 * Math.sin((i / 34) * Math.PI)); });
 }
-function fileHtml(f) {
+function fileHtml(f, clips = null) {
   const src = esc(f.src || "");
   if (f.kind === "image") {
     const r = f.w && f.h ? ` style="aspect-ratio:${f.w}/${f.h}"` : "";
@@ -553,7 +565,8 @@ function fileHtml(f) {
   }
   if (f.kind === "video") {
     const r = f.w && f.h ? ` style="aspect-ratio:${f.w}/${f.h}"` : "";
-    return `<div class="vid"${r} data-a="video" data-src="${src}" data-mime="${esc(f.mime)}">${f.poster ? `<img class="poster" loading="lazy" alt="" src="${mediaUrl({ src: f.poster })}">` : ""}<span class="ms">play_circle</span>${f.duration ? `<small>${mmss(f.duration)}</small>` : ""}</div>`;
+    const total = clips ? clips.reduce((a, c) => a + (c.duration || 0), 0) : f.duration;
+    return `<div class="vid"${r} data-a="video" data-src="${src}" data-mime="${esc(f.mime)}">${f.poster ? `<img class="poster" loading="lazy" alt="" src="${mediaUrl({ src: f.poster })}">` : ""}<span class="ms">play_arrow</span>${total ? `<small>${mmss(total)}</small>` : ""}${clips ? `<i class="vparts">${clips.length} Teile</i>` : ""}</div>`;
   }
   return `<a class="file" href="${mediaUrl(f)}" download="${esc(f.name || "Datei")}"><span class="ms">attach_file</span><span>${esc(f.name || "Datei")}${f.size ? ` <small>${f.size > 1e6 ? (f.size / 1e6).toFixed(1) + " MB" : Math.round(f.size / 1e3) + " KB"}</small>` : ""}</span></a>`;
 }
@@ -571,40 +584,49 @@ function readLine(m) {
 // Antworten wie in Beeper: über der Blase wer wem geantwortet hat, darunter die zitierte Nachricht gedimmt als kleine Blase,
 // an der Seite eine dünne Linie, die beides verbindet. Antippen springt zur Nachricht.
 function replyHead(m) {
-  const q = S.msgs.find((x) => x.id === m.reply_to), who = (x) => (x.mine ? "dir" : clean(x.sender) || "jemandem");
-  const single = cur()?.type !== "group";
-  const label = !q ? (m.mine ? "Du hast geantwortet" : `${single ? "Hat" : `${esc(clean(m.sender))} hat`} geantwortet`)
-    : m.mine ? (q.mine ? "Du hast dir selbst geantwortet" : `Du hast ${esc(who(q))} geantwortet`)
-    : single ? (q.mine ? "Hat dir geantwortet" : "Hat sich selbst geantwortet") : `${esc(clean(m.sender))} hat ${q.sender_id === m.sender_id ? "sich selbst" : esc(who(q))} geantwortet`;
+  const q = S.msgs.find((x) => x.id === m.reply_to);
   const f = q && !q.deleted && q.files[0];
-  const thumb = f && (f.kind === "image" || (f.kind === "video" && f.poster)) ? `<img class="rq-img" loading="lazy" alt="" src="${mediaUrl(f.kind === "image" ? f : { src: f.poster })}">` : "";
-  const what = !q ? "Ursprüngliche Nachricht nicht geladen" : q.deleted ? "Gelöschte Nachricht" : q.text ? esc(q.text.slice(0, 300))
+  const what = !q ? "Nachricht" : q.deleted ? "Gelöschte Nachricht" : q.text ? esc(q.text.replace(/\s+/g, " ").slice(0, 200))
     : f ? ({ audio: "🎤 Sprachnachricht", video: "🎬 Video", image: f.sticker ? "Sticker" : "📷 Foto" }[f.kind] || `📎 ${esc(f.name || "Datei")}`) : "Nachricht";
-  return `<div class="rq ${m.mine ? "me" : ""}" data-a="jump" data-id="${esc(m.reply_to)}"><small><span class="ms">reply</span>${label}</small>
-    <div class="rq-b ${q?.mine ? "mine" : ""} ${thumb && !q.text ? "pic" : ""}">${thumb}${thumb && !q.text ? "" : `<span>${what}</span>`}</div></div>`;
+  const side = q ? (q.mine ? "r" : "l") : (m.mine ? "r" : "l");   // die Pille steht dort, wo die zitierte Nachricht steht
+  const grp = cur()?.type === "group" && !m.mine;
+  return `<div class="rqrow ${side} ${m.mine ? "me" : "them"} ${grp ? "grp" : ""}" data-a="jump" data-id="${esc(m.reply_to)}"><span class="rqline"></span><span class="rq-b">${what}</span></div>`;
 }
 function tmLine(m) {   // klein in der Blase: Netzwerk (zusammengeführt), "bearbeitet", Häkchen – die Uhrzeit kommt beim Wischen nach links
   const bits = [m.chat && cur()?.merged ? esc(netName((cur().merged.find((x) => x.id === m.chat) || {}).network)) : "", m.edited && !m.deleted ? "bearbeitet" : ""].filter(Boolean).join(" · ");
   const t = ticks(m);
   return bits || t ? `<span class="tm">${bits}${t}</span>` : "";
 }
-function bubble(m, tail = true) {
-  const files = m.files.map((f) => fileHtml(f)).join("");
+// Mehrere Bilder hintereinander (Album) als Stapel wie in Beeper: oben das erste, dahinter leicht verdreht die nächsten
+// Snapchat teilt Videos in ~10-Sekunden-Stücke: aufeinanderfolgende reine Videos vom selben Absender werden ein Video
+const vidOnly = (m) => m && !m.deleted && !m.pending && !m.text && !m.reply_to && m.files.length === 1 && m.files[0].kind === "video" && m.files[0].src;
+const CLIPS = new Map();   // ID der ersten Nachricht → alle Stücke
+const picOnly = (m) => m && !m.deleted && !m.pending && !m.text && !m.reply_to && m.files.length && m.files.every((f) => f.kind === "image" && !f.sticker && f.src);
+function stackHtml(fs) {
+  const top = fs[0], r = top.w && top.h ? ` style="aspect-ratio:${top.w}/${top.h}"` : "";
+  return `<div class="stackw"><div class="stack" data-a="zoom" data-src="${esc(top.src)}">${fs.slice(1, 3).reverse().map((f, i) => `<img class="sk sk${i}" loading="lazy" alt="" src="${mediaUrl(f)}">`).join("")}
+    <img class="pic sk-top" loading="lazy" alt="Bild"${r} src="${mediaUrl(top)}"><span class="skn">${fs.length}</span></div>
+    <a class="dlbtn" href="${mediaUrl(top)}" download="${esc(top.name || "bild.jpg")}" aria-label="Herunterladen"><span class="ms">download</span></a></div>`;
+}
+function bubble(m, tail = true, stack = null) {
+  const visual = !m.deleted && m.files.length && m.files.every((f) => (f.kind === "image" || f.kind === "video") && !f.sticker);
+  const dl = (f) => f?.src ? `<a class="dlbtn" href="${mediaUrl(f)}" download="${esc(f.name || (f.kind === "video" ? "video.mp4" : "bild.jpg"))}" aria-label="Herunterladen"><span class="ms">download</span></a>` : "";
+  const files = stack ? stackHtml(stack) : visual && !m.pending ? `<div class="mwrap"><div class="mcol">${m.files.map((f) => fileHtml(f, CLIPS.get(m.id) || null)).join("")}</div>${dl(m.files[0])}</div>` : m.files.map((f) => fileHtml(f)).join("");
+  const split = visual && !stack && (m.text || (m.links || []).some((l) => l.title || l.img));   // Bild/Video und Text: zwei Blasen
   // Gelöscht: Hinweis – und darunter, was drinstand, wenn der Dienst die Nachricht vorher schon gesehen hatte
   const was = m.deleted && m.was ? `<div class="was">${(m.was.files || []).map((f) => fileHtml(f)).join("")}${m.was.text ? `<span class="tx">${autolink(esc(m.was.text))}</span>` : ""}</div>` : "";
   const body = m.deleted ? `<span class="gone"><span class="ms">block</span>${m.mine ? "Du hast diese Nachricht gelöscht" : "Diese Nachricht wurde gelöscht"}</span>${was}` : m.text ? `<span class="tx">${autolink(esc(m.text))}</span>` : "";
   const host = (u) => { try { return new URL(u).hostname.replace(/^www\./, ""); } catch { return ""; } };
   const links = m.deleted ? "" : (m.links || []).filter((l) => l.title || l.img).map((l) => `<a class="lp" href="${esc(l.url)}" target="_blank" rel="noopener noreferrer">${l.img ? `<img loading="lazy" alt=""${l.w && l.h ? ` style="aspect-ratio:${l.w}/${l.h}"` : ""} src="${mediaUrl({ src: l.img })}">` : ""}<span><b>${esc(l.title || host(l.url))}</b>${l.summary ? `<i>${esc(l.summary)}</i>` : ""}<small>${esc(host(l.url))}</small></span></a>`).join("");
   const group = cur()?.type === "group" && !m.mine ? `<span class="who">${esc(clean(m.sender))}</span>` : "";
-  const quote = m.reply_to ? replyHead(m) : "";
-  const nRep = (S.replies?.get(m.id) || []).length;
-  const more = nRep && !m.pending ? `<button class="vrep" data-a="replies" data-id="${esc(m.id)}">${nRep > 1 ? `${nRep} Antworten ansehen` : "Antwort ansehen"}</button>` : "";
+  const quote = "";
+  const more = "";
   const rx = m.reactions?.length ? `<div class="rx">${m.reactions.map((r) => `<span class="${r.mine ? "mine" : ""}" data-a="rx" data-id="${esc(m.id)}" data-k="${esc(r.key)}">${esc(r.key)}${r.n > 1 ? ` ${r.n}` : ""}</span>`).join("")}</div>` : "";
   const tools = m.pending || m.deleted ? "" : `<button class="rep" data-a="reply" data-id="${esc(m.id)}" aria-label="Antworten" title="Antworten"><span class="ms">reply</span></button>`;
   const face = cur()?.type === "group" && !m.mine ? (tail ? avatar(clean(m.sender), cid(m), m.sender_id) : '<span class="av gap"></span>') : "";
   const prog = m.pendingFile ? `<div class="prog"><i style="width:${Math.round((m.progress || 0) * 100)}%"></i></div>` : "";
   const mc = cur()?.merged, net = mc ? netKey((mc.find((x) => x.id === (m.chat || target())) || {}).network) : null;
-  return `<div class="bw ${m.mine ? "me" : ""} ${face ? "grp" : ""}"${net !== null ? ` data-net="${net}"` : ""} id="m-${esc(m.id)}" data-id="${esc(m.id)}"><span class="swipe ms">reply</span>${face}${tools}<div class="bcol">${quote}<div class="b ${m.mine ? "me" : ""} ${m.pending ? "pending" : ""} ${m.deleted ? "del" : ""} ${!m.deleted && !m.text && m.files.length && m.files.every((f) => f.kind === "image" || f.kind === "video") && !group ? "media" : ""}">${group}${files}${prog}${body}${links}${rx}${tmLine(m)}</div>${more}</div>${readLine(m)}<span class="st">${m.at && !m.pending ? fmtTime.format(new Date(m.at)) : ""}</span></div>`;
+  return `${m.reply_to && !m.deleted ? replyHead(m) : ""}<div class="bw ${m.mine ? "me" : ""} ${face ? "grp" : ""} ${m.reply_to && !m.deleted ? "isrep" : ""}"${net !== null ? ` data-net="${net}"` : ""} id="m-${esc(m.id)}" data-id="${esc(m.id)}"><span class="swipe ms">reply</span>${face}${tools}<div class="bcol">${quote}${split ? `<div class="b media ${m.mine ? "me" : ""}">${group}${files}</div>` : ""}<div class="b ${m.mine ? "me" : ""} ${m.pending ? "pending" : ""} ${m.deleted ? "del" : ""} ${!split && visual && !m.text && !group ? "media" : ""}">${split ? "" : group}${split ? "" : files}${prog}${body}${links}${rx}${tmLine(m)}</div>${more}</div>${readLine(m)}<span class="st">${m.at && !m.pending ? fmtTime.format(new Date(m.at)) : ""}</span></div>`;
 }
 const NETS = [["snapchat", "snapchat"], ["instagram", "instagram"], ["whatsapp", "whatsapp"], ["signal", "signal"], ["telegram", "telegram"], ["discord", "discord"],
   ["messenger", "messenger"], ["facebook", "messenger"], ["gmessages", "gmessages"], ["google messages", "gmessages"], ["googlechat", "googlechat"], ["google chat", "googlechat"],
@@ -622,12 +644,23 @@ function drawMsgs({ stick = false, keepTop = false } = {}) {
   for (const m of S.msgs) if (m.reply_to) S.replies.set(m.reply_to, [...(S.replies.get(m.reply_to) || []), m.id]);
   let last = "", html = S.more ? '<button class="older" data-a="older">Ältere laden</button>' : "";
   if (!S.msgs.length) html += '<div class="empty">Noch keine Nachrichten.</div>';
-  S.msgs.forEach((m, i) => {
+  for (let i = 0; i < S.msgs.length; i++) {
+    const m = S.msgs[i];
     const k = m.at ? dayKey(m.at) : last;
     if (k !== last) { last = k; html += `<div class="day">${esc(fmtDay.format(new Date(m.at)))}</div>`; }
-    const n = S.msgs[i + 1];   // Bild nur an der letzten Nachricht einer Folge vom selben Absender (wie in Beeper)
-    html += bubble(m, !n || n.mine || n.sender_id !== m.sender_id || (n.at && dayKey(n.at) !== k));
-  });
+    let j = i, files = null;   // Bilder-Folge vom selben Absender innerhalb von 3 Minuten → ein Stapel
+    if (vidOnly(m)) {
+      while (vidOnly(S.msgs[j + 1]) && S.msgs[j + 1].sender_id === m.sender_id && S.msgs[j + 1].mine === m.mine && Date.parse(S.msgs[j + 1].at) - Date.parse(S.msgs[j].at) < 90000 && dayKey(S.msgs[j + 1].at) === k) j++;
+      if (j > i) CLIPS.set(m.id, S.msgs.slice(i, j + 1).map((x) => x.files[0])); else CLIPS.delete(m.id);
+    } else if (picOnly(m)) {
+      while (picOnly(S.msgs[j + 1]) && S.msgs[j + 1].sender_id === m.sender_id && S.msgs[j + 1].mine === m.mine && Date.parse(S.msgs[j + 1].at) - Date.parse(S.msgs[j].at) < 180000 && dayKey(S.msgs[j + 1].at) === k) j++;
+      files = S.msgs.slice(i, j + 1).flatMap((x) => x.files);
+      if (files.length < 2) files = null;
+    }
+    const n = S.msgs[j + 1];   // Bild nur an der letzten Nachricht einer Folge vom selben Absender (wie in Beeper)
+    html += bubble(m, !n || n.mine || n.sender_id !== m.sender_id || (n.at && dayKey(n.at) !== k), files);
+    i = j;
+  }
   box.innerHTML = html;
   drawn = { id: S.id, ids: new Set(S.msgs.map((m) => m.id)) };
   for (const m of fresh) document.getElementById(`m-${m.id}`)?.classList.add("in");
@@ -714,12 +747,80 @@ async function voiceText(btn) {
   }
   drawMsgs();
 }
+// Video-Player wie in Beeper: oben "Video · MP4 Video", groß in der Mitte, dicker Spulbalken, Text der Nachricht, unten Pause, Reaktion, Antworten, Download
 function playVideo(el) {
-  const v = document.createElement("video");
-  v.controls = true; v.autoplay = true; v.playsInline = true; v.className = "vplay";
-  v.src = `${API}/media?src=${encodeURIComponent(el.dataset.src)}${el.dataset.mime ? `&mime=${encodeURIComponent(el.dataset.mime)}` : ""}`;
-  v.addEventListener("error", () => toast("Video konnte nicht geladen werden"));
-  el.replaceWith(v);
+  document.querySelector(".vp")?.remove();
+  const m = bubbleMsg(el), mime = el.dataset.mime || "video/mp4";
+  // Abspielliste: bei zusammengefügten Snapchat-Stücken alle, sonst nur das eine Video
+  const clips = (m && CLIPS.get(m.id)) || [{ src: el.dataset.src, mime: el.dataset.mime, duration: 0 }];
+  const urlOf = (c) => `${API}/media?src=${encodeURIComponent(c.src)}${c.mime ? `&mime=${encodeURIComponent(c.mime)}` : ""}`;
+  const dur = clips.map((c) => c.duration || 0);
+  const kindName = `${(mime.split("/")[1] || "mp4").split(";")[0].replace("quicktime", "mov").toUpperCase()} Video`;
+  const d = document.createElement("div");
+  d.className = "vp";
+  d.innerHTML = `<div class="vp-top"><button class="icon-btn" data-v="close" aria-label="Zurück"><span class="ms">arrow_back</span></button><div><b>Video</b><small>${esc(kindName)}${clips.length > 1 ? ` · ${clips.length} Teile` : ""}${m && !m.mine && m.sender ? ` · ${esc(clean(m.sender))}` : ""}</small></div></div>
+    <div class="vp-stage"><video playsinline preload="auto"></video><video playsinline preload="auto" class="next"></video><button class="vp-big" data-v="play" aria-label="Pause"><span class="ms">pause</span></button></div>
+    <div class="vp-bar"><div class="vp-track" data-v="seek">${clips.length > 1 ? '<span class="vp-cuts"></span>' : ""}<i class="vp-fill"></i><b class="vp-thumb"></b><i class="vp-end"></i></div><span class="vp-time">0:00</span></div>
+    ${m?.text ? `<div class="vp-cap">${autolink(esc(m.text))}</div>` : ""}
+    <div class="vp-rx" hidden>${QUICK.map((k) => `<button data-r="${esc(k)}">${esc(k)}</button>`).join("")}</div>
+    <div class="vp-acts"><button data-v="play" aria-label="Pause"><span class="ms">pause</span></button>${m ? '<button data-v="emo" aria-label="Reagieren"><span class="ms">add_reaction</span></button><button data-v="reply" aria-label="Antworten"><span class="ms">reply</span></button>' : ""}
+      <a data-v="dl" href="${urlOf(clips[0])}" download="video.mp4" aria-label="Herunterladen"><span class="ms">download</span></a></div>`;
+  const [vA, vB] = d.querySelectorAll("video"), fill = d.querySelector(".vp-fill"), thumb = d.querySelector(".vp-thumb"), time = d.querySelector(".vp-time"), big = d.querySelector(".vp-big");
+  const cuts = d.querySelector(".vp-cuts"), dl = d.querySelector("[data-v=dl]");
+  // Zwei Video-Elemente: eins spielt, das andere lädt schon das nächste Stück – beim Ende wird nur umgeschaltet (kein Ruckler)
+  let act = vA, idle = vB, i = 0, raf = 0, hideT, wantPlay = true;
+  const load = (v, k) => { v.dataset.k = k; v.src = urlOf(clips[k]); v.load(); };
+  const before = (k) => dur.slice(0, k).reduce((a, x) => a + x, 0);
+  const total = () => dur.reduce((a, x) => a + x, 0);
+  const paintBar = () => {
+    const t = before(i) + (act.currentTime || 0), T = total(), p = T ? Math.min(1, t / T) : 0;
+    fill.style.width = `calc(${p * 100}% - 6px)`; thumb.style.left = `${p * 100}%`;
+    time.textContent = `${mmss(t)} / ${T ? mmss(T) : "–:–"}`;
+    if (cuts && T) cuts.innerHTML = dur.slice(0, -1).map((_, k) => `<i style="left:${(before(k + 1) / T) * 100}%"></i>`).join("");
+  };
+  const icons = () => { const ic = act.paused && !wantPlay ? "play_arrow" : "pause"; d.querySelectorAll("[data-v=play] .ms").forEach((x) => (x.textContent = ic)); };
+  const loop = () => { paintBar(); if (!act.paused) raf = requestAnimationFrame(loop); };   // nur solange es läuft
+  const flash = () => { big.classList.add("show"); clearTimeout(hideT); if (wantPlay) hideT = setTimeout(() => big.classList.remove("show"), 900); };
+  const show = () => { act.classList.remove("next"); idle.classList.add("next"); dl.href = urlOf(clips[i]); };
+  const preloadNext = () => { if (i + 1 < clips.length) { if (idle.dataset.k !== String(i + 1)) load(idle, i + 1); } };
+  function go(k, at = 0) {   // zu Stück k springen (at = Sekunde darin)
+    if (k === +idle.dataset.k && idle.readyState >= 1) { [act, idle] = [idle, act]; act.pause(); }
+    else if (k !== i || !act.src) load(act, k);
+    i = k; show();
+    const start = () => { try { act.currentTime = at; } catch { /* noch nicht bereit */ } if (wantPlay) act.play().catch(() => {}); paintBar(); };
+    act.readyState >= 1 ? start() : act.addEventListener("loadedmetadata", start, { once: true });
+    idle.pause(); preloadNext();
+  }
+  for (const v of [vA, vB]) {
+    v.addEventListener("loadedmetadata", () => { const k = +v.dataset.k; if (isFinite(v.duration)) dur[k] = v.duration; paintBar(); });
+    v.addEventListener("play", () => { if (v !== act) return; icons(); flash(); cancelAnimationFrame(raf); loop(); });
+    v.addEventListener("pause", () => { if (v !== act) return; icons(); cancelAnimationFrame(raf); paintBar(); });
+    v.addEventListener("ended", () => { if (v !== act) return; if (i + 1 < clips.length) go(i + 1); else { wantPlay = false; icons(); flash(); } });
+    v.addEventListener("error", () => { if (v === act) toast("Video konnte nicht geladen werden"); });
+  }
+  const toggle = () => { if (act.ended && i === clips.length - 1) { wantPlay = true; return go(0); } wantPlay = act.paused; wantPlay ? act.play() : act.pause(); icons(); flash(); };
+  const track = d.querySelector(".vp-track");
+  const seekTo = (x) => {   // Position auf dem gemeinsamen Balken → Stück + Sekunde darin
+    const r = track.getBoundingClientRect(), T = total(); if (!T) return;
+    let t = Math.min(1, Math.max(0, (x - r.left) / r.width)) * T, k = 0;
+    while (k < clips.length - 1 && t >= dur[k]) { t -= dur[k]; k++; }
+    if (k === i) { act.currentTime = t; paintBar(); } else go(k, t);
+  };
+  track.addEventListener("pointerdown", (e) => { track.setPointerCapture(e.pointerId); track.classList.add("drag"); seekTo(e.clientX); });
+  track.addEventListener("pointermove", (e) => { if (track.hasPointerCapture(e.pointerId)) seekTo(e.clientX); });
+  track.addEventListener("pointerup", () => track.classList.remove("drag"));
+  const close = () => { wantPlay = false; vA.pause(); vB.pause(); cancelAnimationFrame(raf); d.classList.add("out"); setTimeout(() => { vA.removeAttribute("src"); vB.removeAttribute("src"); d.remove(); }, 180); };
+  d.addEventListener("click", (e) => {
+    const r = e.target.closest("[data-r]"); if (r && m) { toggleReaction(m, r.dataset.r); d.querySelector(".vp-rx").hidden = true; return toast(`${r.dataset.r} gesendet`); }
+    const a = e.target.closest("[data-v]")?.dataset.v;
+    if (a === "close") return close();
+    if (a === "play" || (!a && e.target.closest(".vp-stage"))) return toggle();
+    if (a === "emo") { const x = d.querySelector(".vp-rx"); x.hidden = !x.hidden; return; }
+    if (a === "reply") { close(); return setReply(m); }
+  });
+  addEventListener("keydown", function k(e) { if (!d.isConnected) return removeEventListener("keydown", k); if (e.key === "Escape") close(); if (e.key === " ") { e.preventDefault(); toggle(); } });
+  document.body.append(d);
+  go(0);
 }
 // Vollbild wie in Beeper: alle Bilder des Chats, durchwischen nach links/rechts, nach unten wischen schließt
 function lightbox(src, items = null, start = 0) {
@@ -862,6 +963,7 @@ const msgsEl = () => document.getElementById("msgs");
 document.addEventListener("touchstart", (e) => {
   const w = e.target.closest?.("#msgs .bw");
   if (!w || e.touches.length !== 1 || e.target.closest(".voice,video,.vid,a")) return;
+  if (TS.open) return;
   const t = e.touches[0];
   Object.assign(gest, { w, x: t.clientX, y: t.clientY, dx: 0, lock: false, armed: false });
   gest.t = setTimeout(() => { const m = bubbleMsg(w); if (m && !gest.lock) { gest.w = null; menu(m); } }, 450);
@@ -887,20 +989,36 @@ document.addEventListener("touchend", () => {
   gestEnd();
 });
 document.addEventListener("touchcancel", gestEnd);
-const TS = { x: 0, y: 0, on: false, dead: false };
+// Uhrzeiten: nach links ziehen. Weit genug gezogen rastet es ein (kurzes Ruckeln) und bleibt offen; zurück nach rechts schieben schließt es.
+const TS = { x: 0, y: 0, on: false, dead: false, open: false, sx: 0, snap: false };
+const TS_MAX = 64, TS_SNAP = 40;
+function tsSet(b, sx) { TS.sx = sx; b.style.setProperty("--sx", `${sx}px`); }
 document.addEventListener("touchstart", (e) => {
   const b = e.target.closest?.("#msgs"); TS.dead = !b || e.touches.length !== 1 || !!e.target.closest(".voice,video,.vid,.rq");
   if (TS.dead) return;
-  TS.x = e.touches[0].clientX; TS.y = e.touches[0].clientY; TS.on = false;
+  TS.x = e.touches[0].clientX; TS.y = e.touches[0].clientY; TS.on = false; TS.snap = TS.open;
 }, { passive: true });
 document.addEventListener("touchmove", (e) => {
   if (TS.dead) return;
   const dx = e.touches[0].clientX - TS.x, dy = e.touches[0].clientY - TS.y, b = msgsEl(); if (!b) return;
-  if (!TS.on) { if (Math.abs(dy) > 10 && Math.abs(dy) > Math.abs(dx)) { TS.dead = true; return; } if (dx < -10 && Math.abs(dx) > Math.abs(dy) * 1.4) { TS.on = true; b.classList.add("ts"); } else return; }
+  if (!TS.on) {
+    if (Math.abs(dy) > 10 && Math.abs(dy) > Math.abs(dx)) { TS.dead = true; return; }
+    if (Math.abs(dx) > 10 && Math.abs(dx) > Math.abs(dy) * 1.4 && (dx < 0 || TS.open)) { TS.on = true; b.classList.add("ts"); } else return;
+  }
   if (e.cancelable) e.preventDefault();
-  b.style.setProperty("--sx", `${Math.min(64, Math.max(0, -dx - 10) * .7)}px`);
+  const base = TS.open ? TS_MAX : 0, sx = Math.min(TS_MAX, Math.max(0, base - dx * .7));
+  const past = sx >= TS_SNAP;
+  if (past !== TS.snap) { TS.snap = past; buzz(8); }   // Raste spürbar
+  tsSet(b, sx);
 }, { passive: false });
-const tsEnd = () => { if (!TS.on) return; TS.on = false; const b = msgsEl(); if (b) { b.classList.remove("ts"); b.style.removeProperty("--sx"); } };
+const tsEnd = () => {
+  if (!TS.on) return; TS.on = false;
+  const b = msgsEl(); if (!b) return;
+  b.classList.remove("ts");
+  TS.open = TS.sx >= TS_SNAP;
+  b.classList.toggle("tsopen", TS.open);
+  if (TS.open) tsSet(b, TS_MAX); else { TS.sx = 0; b.style.removeProperty("--sx"); }
+};
 document.addEventListener("touchend", tsEnd); document.addEventListener("touchcancel", tsEnd);
 document.addEventListener("contextmenu", (e) => {   // Rechtsklick am PC, langes Drücken am Handy (falls der Browser es meldet)
   const w = e.target.closest?.("#msgs .bw");
@@ -1011,8 +1129,26 @@ function setReply(m) {
   bar.hidden = !m;
   if (m) { bar.innerHTML = `<span class="ms">reply</span><div><b>${esc(m.mine ? "Du" : clean(m.sender))}</b>${esc((m.text || (m.files[0] ? "Anhang" : "")).slice(0, 100))}</div><button class="icon-btn" data-a="cancel" aria-label="Abbrechen"><span class="ms">close</span></button>`; $("#txt").focus(); }
 }
-async function send() {
-  const ta = $("#txt"), text = ta.value.trim();
+// ---------------- Tippfehler-Vorschlag (Dienst "korrektur"): 1 s nach dem letzten Tippen, über dem Eingabefeld ----------------
+function hideFix() { clearTimeout(S.fixT); S.fix = null; S.fixSeq = (S.fixSeq || 0) + 1; const b = $("#fixbar"); if (b) b.hidden = true; }
+function fixLater() {
+  hideFix();
+  const ta = $("#txt"), text = ta?.value || "";
+  if (!text.trim() || S.edit || S.fixOff) return;
+  const seq = S.fixSeq;
+  S.fixT = setTimeout(async () => {
+    let d; try { d = await api("/korrektur", { method: "POST", body: JSON.stringify({ text }) }); } catch { return; }
+    const bar = $("#fixbar");
+    if (seq !== S.fixSeq || !bar || $("#txt")?.value !== text || !d.changed) return;
+    S.fix = d;
+    bar.innerHTML = `<span class="ms">spellcheck</span><div class="fixt" title="Antippen zum Übernehmen">${d.parts.map((p) => p.neu ? `<mark>${esc(p.t)}</mark>` : esc(p.t)).join("")}</div>
+      <button class="send" type="button" data-fix="send" aria-label="Korrigiert senden"><span class="ms">send</span></button>`;
+    bar.hidden = false;
+  }, 1000);
+}
+async function send(override) {
+  const ta = $("#txt"), text = (typeof override === "string" ? override : ta.value).trim();
+  hideFix();
   if (S.edit) return saveEdit();
   if (!text || S.sending) return;
   S.sending = true; $("#sendBtn").disabled = true;

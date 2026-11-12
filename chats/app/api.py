@@ -165,7 +165,36 @@ async def chats(q: str = "", unread: bool = False, inbox: str = "primary", curso
     if cursor:
         args.update(cursor=cursor[:300], direction="before")
     items, nxt = parse_chats(await call(beeper().text, "search_chats", args))
+    try:
+        prev = {k: c.get("preview") for c in await rest_chats() for k in (c.get("localChatID"), c.get("id")) if k}
+    except HTTPException:
+        prev = {}
+    for c in items:
+        c["last"] = preview(prev.get(c["id"]), c.get("type") == "group")
     return {"items": items, "next": nxt}
+
+
+_chats_cache: tuple[float, list[dict]] | None = None
+
+
+async def rest_chats() -> list[dict]:
+    """Die neuesten 200 Chats aus der REST-API (Vorschau, Pins) – 5 s gemerkt, die Liste lädt oft hintereinander."""
+    global _chats_cache
+    if _chats_cache and time.monotonic() - _chats_cache[0] < 5:
+        return _chats_cache[1]
+    r = await rest_get("/v1/chats", limit=200)
+    if r.status_code != 200:
+        raise HTTPException(502, "Beeper: Chats nicht lesbar")
+    _chats_cache = (time.monotonic(), [c for c in r.json().get("items", []) if isinstance(c, dict)])
+    return _chats_cache[1]
+
+
+def preview(p, group: bool) -> dict | None:
+    if not isinstance(p, dict):
+        return None
+    text = re.sub(r"\s+", " ", plain(p.get("text") or "")).strip()[:140]
+    return {"text": text, "mine": bool(p.get("isSender")), "sender": "" if p.get("isSender") or not group else (p.get("senderName") or "").split(" ")[0][:40],
+            "at": p.get("timestamp") or ""}
 
 
 @router.get("/chats/{chat_id}/messages")
@@ -206,7 +235,7 @@ async def fetch_messages(chat_id: str, cursor: str, direction: str) -> dict:
 
 
 def shape_messages(d: dict, chat_id: str = "") -> dict:
-    raw = d.get("items", [])
+    raw = [m for m in d.get("items", []) if (m.get("type") or "").upper() != "REACTION"]
     me = {m["senderID"] for m in raw if m.get("isSender") and m.get("senderID")}
     names = {m["senderID"]: m["senderName"] for m in raw if m.get("senderID") and m.get("senderName") and not m.get("isSender")}
     items = [message(m, me, names) for m in raw]
@@ -362,6 +391,32 @@ async def send(chat_id: str, body: Send):
         raise HTTPException(400, "Leere Nachricht")
     out = await call(beeper().text, "send_message", {"chatID": chat_id, "text": text, "replyToMessageID": body.reply_to})
     return {"ok": True, "info": out[:300]}
+
+
+class Fix(BaseModel):
+    text: str = Field(max_length=8000)
+
+
+_fix: httpx.AsyncClient | None = None
+
+
+@router.post("/korrektur")
+async def korrektur(body: Fix):
+    """Tippfehler-Vorschlag vom Dienst "korrektur". Ist er aus, nicht erreichbar oder lädt noch: einfach kein Vorschlag."""
+    global _fix
+    url = get_settings().korrektur_url.rstrip("/")
+    if not url or not body.text.strip():
+        return {"changed": False}
+    if _fix is None:
+        _fix = httpx.AsyncClient(timeout=20)
+    try:
+        r = await _fix.post(f"{url}/api/v1/korrigieren", json={"text": body.text})
+    except httpx.HTTPError:
+        return {"changed": False}
+    if r.status_code != 200:
+        return {"changed": False}
+    d = r.json()
+    return {"changed": bool(d.get("changed")), "text": d.get("text", ""), "parts": d.get("parts", [])}
 
 
 def is_local(src: str) -> bool:
@@ -608,13 +663,10 @@ async def pinned() -> list[dict]:
     global _pins
     if _pins and time.monotonic() - _pins[0] < PINS_TTL:
         return _pins[1]
-    r = await rest_get("/v1/chats", limit=200)
-    if r.status_code != 200:
-        raise HTTPException(502, "Beeper: Chats nicht lesbar")
     out = [{"id": c["id"], "title": (c.get("title") or "").strip(), "network": (c.get("accountID") or c.get("network") or "").lower(),
             "type": c.get("type") or "", "at": c.get("lastActivity") or "", "unread": int(c.get("unreadCount") or 0),
-            "muted": bool(c.get("isMuted")), "pinned": True}
-           for c in r.json().get("items", []) if c.get("isPinned") and c.get("id")]
+            "muted": bool(c.get("isMuted")), "pinned": True, "last": preview(c.get("preview"), c.get("type") == "group")}
+           for c in await rest_chats() if c.get("isPinned") and c.get("id")]
     _pins = (time.monotonic(), out)
     return out
 
@@ -630,14 +682,14 @@ class Pin(BaseModel):
 
 @router.post("/chats/{chat_id}/pin")
 async def pin(chat_id: str, body: Pin):
-    global _pins
+    global _pins, _chats_cache
     check_ids(chat_id)
     if body.pinned:
         now = await pinned()
         if chat_id not in {c["id"] for c in now} and len(now) >= PIN_MAX:
             raise HTTPException(400, f"Höchstens {PIN_MAX} Chats anpinnen")
     await rest_call("PATCH", f"/v1/chats/{quote(chat_id, safe='')}", {"isPinned": body.pinned})
-    _pins = None
+    _pins = _chats_cache = None
     return {"ok": True}
 
 

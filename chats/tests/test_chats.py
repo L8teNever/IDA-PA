@@ -239,3 +239,12 @@ def test_about(client, monkeypatch):
     d = client.get("/api/v1/chats/7/about").json()["chats"][0]
     assert (d["description"], d["muted"], d["total"]) == ("Hey", True, 2)
     assert d["people"][0]["phone"] == "+49 1" and "img" not in d["people"][0]
+
+
+def test_korrektur(client, monkeypatch):
+    from app import api
+    from app.config import get_settings
+    assert client.post(f"{API}/korrektur", json={"text": "eknn"}).json() == {"changed": False}   # Dienst aus
+    monkeypatch.setattr(get_settings(), "korrektur_url", "http://127.0.0.1:9")                  # nicht erreichbar
+    assert client.post(f"{API}/korrektur", json={"text": "eknn"}).json() == {"changed": False}
+    api._fix = None
