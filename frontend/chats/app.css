@@ -205,7 +205,7 @@ a.file small { color: var(--muted); }
 .prog { height: 4px; border-radius: 2px; background: rgba(255,255,255,.15); overflow: hidden; margin: 4px 0 2px; }
 .prog i { display: block; height: 100%; background: currentColor; transition: width .2s; }
 
-/* ---------- Eingehende Nachrichten in den Farben des Netzwerks ----------
+/* ---------- Eigene Nachrichten in den Farben des Netzwerks (die der anderen bleiben grau) ----------
    --nb Hintergrund, --nf Schrift, --nc Farbe fürs Play-Symbol, --no Fläche für Zitate/Chips (dunkel auf hell, hell auf dunkel) */
 [data-net=snapchat]   { --nb: #fffc00; --nf: #111; --nc: #fffc00; --no: rgba(0,0,0,.12); }
 [data-net=instagram]  { --nb: linear-gradient(135deg, #833ab4 0%, #c13584 55%, #e1306c 100%); --nf: #fff; --nc: #c13584; --no: rgba(255,255,255,.18); }
@@ -220,15 +220,17 @@ a.file small { color: var(--muted); }
 [data-net=linkedin]   { --nb: #0a66c2; --nf: #fff; --nc: #0a66c2; --no: rgba(255,255,255,.18); }
 [data-net=x]          { --nb: #e7e9ea; --nf: #0f1419; --nc: #e7e9ea; --no: rgba(0,0,0,.1); }
 [data-net=imessage]   { --nb: #3b3b3d; --nf: #fff; --nc: #3b3b3d; --no: rgba(255,255,255,.14); }
-[data-net]:not([data-net=""]) .b:not(.me) { background: var(--nb); color: var(--nf); }
-[data-net]:not([data-net=""]) .b:not(.me) .who, [data-net]:not([data-net=""]) .b:not(.me) .quote b { color: inherit; font-weight: 600; }
-[data-net]:not([data-net=""]) .b:not(.me) .tm, [data-net]:not([data-net=""]) .b:not(.me) .file { color: inherit; opacity: .7; }
-[data-net]:not([data-net=""]) .b:not(.me) a { color: inherit; text-decoration: underline; }
-[data-net]:not([data-net=""]) .b:not(.me) .quote { color: inherit; opacity: .9; border-left-color: currentColor; background: var(--no); }
-[data-net]:not([data-net=""]) .b:not(.me) .rx span, [data-net]:not([data-net=""]) .b:not(.me) .spd, [data-net]:not([data-net=""]) .b:not(.me) .vtbtn { background: var(--no); }
-[data-net]:not([data-net=""]) .b:not(.me) .rx span.mine { outline-color: currentColor; }
-[data-net]:not([data-net=""]) .b:not(.me) .play { background: currentColor; }
-[data-net]:not([data-net=""]) .b:not(.me) .play .ms { color: var(--nc); }
-[data-net]:not([data-net=""]) .b:not(.me) .wave i.on { background: currentColor; }
-[data-net]:not([data-net=""]) .b:not(.me) .prog { background: var(--no); }
-[data-net]:not([data-net=""]) .b:not(.me) .vtext { border-top-color: color-mix(in srgb, currentColor 25%, transparent); }
+[data-net]:not([data-net=""]) .b.me { background: var(--nb); color: var(--nf); }
+[data-net]:not([data-net=""]) .b.me .who, [data-net]:not([data-net=""]) .b.me .quote b { color: inherit; font-weight: 600; }
+[data-net]:not([data-net=""]) .b.me .tm, [data-net]:not([data-net=""]) .b.me .file { color: inherit; opacity: .7; }
+[data-net]:not([data-net=""]) .b.me a { color: inherit; text-decoration: underline; }
+[data-net]:not([data-net=""]) .b.me .quote { color: inherit; opacity: .9; border-left-color: currentColor; background: var(--no); }
+[data-net]:not([data-net=""]) .b.me .rx span, [data-net]:not([data-net=""]) .b.me .spd, [data-net]:not([data-net=""]) .b.me .vtbtn { background: var(--no); }
+[data-net]:not([data-net=""]) .b.me .rx span.mine { outline-color: currentColor; }
+[data-net]:not([data-net=""]) .b.me .play { background: currentColor; }
+[data-net]:not([data-net=""]) .b.me .play .ms { color: var(--nc); }
+[data-net]:not([data-net=""]) .b.me .wave i.on { background: currentColor; }
+[data-net]:not([data-net=""]) .b.me .prog { background: var(--no); }
+[data-net]:not([data-net=""]) .b.me .vtext { border-top-color: color-mix(in srgb, currentColor 25%, transparent); }
+[data-net]:not([data-net=""]) .b.me .tm { opacity: .75; }
+[data-net]:not([data-net=""]) .b.me .tm .tick.read { color: inherit; opacity: 1; }

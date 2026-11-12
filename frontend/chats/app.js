@@ -241,7 +241,7 @@ function drawMsgs({ stick = false, keepTop = false } = {}) {
     html += bubble(m, !n || n.mine || n.sender_id !== m.sender_id || (n.at && dayKey(n.at) !== k));
   });
   box.innerHTML = html;
-  box.dataset.net = netKey(cur()?.network);   // eingehende Nachrichten in der Farbe des Netzwerks (Snapchat gelb, Instagram lila-rosa)
+  box.dataset.net = netKey(cur()?.network);   // eigene Nachrichten in der Farbe des Netzwerks (Snapchat gelb, Instagram lila-rosa …)
   paint();
   if (keepTop) box.scrollTop = box.scrollHeight - prevH + prevTop;
   else if (stick) { box.scrollTop = box.scrollHeight; box.querySelectorAll("img").forEach((i) => i.addEventListener("load", () => { box.scrollTop = box.scrollHeight; }, { once: true })); }
