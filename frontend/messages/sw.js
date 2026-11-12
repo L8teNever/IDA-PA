@@ -4,7 +4,8 @@ const OFFLINE = `<!doctype html><html lang="de"><head><meta charset="utf-8"><met
 <title>Nachrichten – offline</title><style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#000;color:#e3e2e9;font:16px system-ui,sans-serif;text-align:center}
 button{margin-top:18px;height:44px;padding:0 20px;border:0;border-radius:22px;background:#7fd3ff;color:#00344a;font:inherit;font-weight:600}</style></head>
 <body><div><p>Gerade nicht erreichbar.<br>Prüf deine Verbindung.</p><button onclick="location.reload()">Nochmal versuchen</button></div></body></html>`;
-const ICON = "/static/icons/icon-192.png?v=1";
+const ICON = "/static/messages/icons/icon-192.png?v=1";
+const BADGE = "/static/messages/icons/badge-96.png?v=1";  // Android-Statusleiste: einfarbige Sprechblase
 
 self.addEventListener("install", () => self.skipWaiting());
 self.addEventListener("activate", (e) => e.waitUntil(self.clients.claim()));
@@ -22,7 +23,7 @@ self.addEventListener("push", (e) => {
     const wins = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
     wins.forEach((w) => w.postMessage({ type: "new", id: d.id }));
     await self.registration.showNotification(title, {
-      body: d.body || "", tag: d.id || "ida", renotify: true, icon: ICON, lang: "de",
+      body: d.body || "", tag: d.id || "ida", renotify: true, icon: ICON, badge: BADGE, lang: "de",
       timestamp: d.at ? Date.parse(d.at) : Date.now(), requireInteraction: d.priority === "high",
       vibrate: d.priority === "high" ? [200, 100, 200, 100, 200] : [150, 80, 150], data: { id: d.id },
     });

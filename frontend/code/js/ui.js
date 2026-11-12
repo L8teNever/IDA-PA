@@ -92,10 +92,32 @@ export function md(src) {
     .replace(/\n(\u0000\d+\u0000)/g, "$1")
     .replace(/\n?(\u0001\d+\u0001)\n?/g, "$1");
   s = s.replace(/\u0001(\d+)\u0001/g, (_, i) => tables[+i]);
-  return s.replace(/\u0000(\d+)\u0000/g, (_, i) => {
+  return autolink(s.replace(/\u0000(\d+)\u0000/g, (_, i) => {
     const [lang, code] = blocks[+i];
     return `<div class="md-code"><div class="md-code-head"><span>${lang || "code"}</span><button type="button" class="md-copy" title="Kopieren"><span class="ms">content_copy</span></button></div><pre>${code}</pre></div>`;
-  });
+  }));
+}
+
+// Nackte Adressen (https://… oder www.…) anklickbar machen – nur im Text, nicht in Tags, vorhandenen Links oder Code.
+// Erwartet fertiges (escaptes) HTML; Satzzeichen am Ende gehören nicht zur Adresse.
+const URL_RE = /\b(?:https?:\/\/|www\.)[^\s<]+/gi;
+export function autolink(html) {
+  let skip = 0;
+  return String(html ?? "").split(/(<[^>]*>)/).map((part) => {
+    if (part[0] === "<") {
+      if (/^<(a|code|pre)[\s>]/i.test(part)) skip++;
+      else if (/^<\/(a|code|pre)>/i.test(part)) skip = Math.max(0, skip - 1);
+      return part;
+    }
+    return skip ? part : part.replace(URL_RE, (raw) => {
+      const tail = (raw.match(/(?:[.,;:!?'")\]}*_]|&quot;|&#39;|&gt;)+$/) || [""])[0];
+      let url = raw.slice(0, raw.length - tail.length), rest = tail;
+      if (rest[0] === ")" && url.split("(").length > url.split(")").length) { url += ")"; rest = rest.slice(1); } // (Wikipedia-Links)
+      if (/^(https?:\/\/|www\.)$/i.test(url)) return raw;
+      const href = /^www\./i.test(url) ? `https://${url}` : url;
+      return `<a href="${href}" target="_blank" rel="noopener">${url}</a>${rest}`;
+    });
+  }).join("");
 }
 document.addEventListener("click", (e) => {
   const b = e.target.closest(".md-copy");

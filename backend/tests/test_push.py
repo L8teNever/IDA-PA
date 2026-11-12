@@ -111,10 +111,23 @@ def test_message_to_you_is_pushed(client, device):
     assert got[0]["title"] == "Post" and got[0]["priority"] == "high" and got[0]["from"] == "Lea"
     inbox = client.get(f"{API}/messages/inbox").json()
     m = next(x for x in inbox["items"] if x["id"] == got[0]["id"])
-    assert m["from_name"] == "Lea" and not m["read"] and inbox["unread"] >= 1
+    assert m["from_name"] == "Lea" and m["from_palette"] and not m["read"] and inbox["unread"] >= 1
     assert all(x["to"] == "user" for x in inbox["items"])
     older = client.get(f"{API}/messages/inbox?before={m['id']}").json()["items"]
     assert all(x["id"] != m["id"] for x in older)
+
+
+def test_no_emojis_but_an_icon(client, device):
+    """Nachrichten-App und Pop-ups: Emojis fliegen raus, dafür kommt ein passendes Material-Icon."""
+    from app.services.push import no_emoji
+    assert no_emoji("☑ Gesicht waschen") == "Gesicht waschen" and no_emoji("Lakers 🏀 heute → 02:00 👍🏽") == "Lakers heute → 02:00"
+    client.post(f"{API}/push/subscribe", json=device.sub())
+    chat(client, agent_id="lea", text='TOOL notify_user {"text": "Alles klar ✅ 🎉", "title": "☑ Zähne putzen"}')
+    got = wait(lambda: [g for g in device.got if g.get("title") == "Zähne putzen"])
+    assert got[0]["body"] == "Alles klar"
+    m = next(x for x in client.get(f"{API}/messages/inbox").json()["items"] if x["id"] == got[0]["id"])
+    assert m["title"] == "Zähne putzen" and m["text"] == "Alles klar" and m["icon"] == "task_alt"
+    client.post(f"{API}/messages/read-all")  # keine ungelesenen Reste für andere Tests
 
 
 def test_gone_device_is_removed(client):
@@ -140,6 +153,12 @@ def test_messages_app_and_own_address(client):
     assert "showNotification" in client.get("/sw.js", headers=host).text
     man = client.get("/manifest.webmanifest", headers=host).json()
     assert man["short_name"] == "Nachrichten" and man["start_url"] == "./"
+    assert all(i["src"].startswith("/static/messages/icons/") for i in man["icons"])
+    for i in man["icons"]:
+        assert client.get(i["src"], headers=host).status_code == 200
+    # IDA-Design: dieselben Grundlagen wie IDA (tokens/components) und IDAs Bausteine im Skript
+    css = [h.split('"', 1)[0] for h in page.text.split('rel="stylesheet" href="')[1:]]
+    assert any(c.endswith("/css/tokens.css") for c in css) and all(client.get(c, headers=host).status_code == 200 for c in css)
     assert client.get(f"{API}/messages/inbox", headers=host).status_code == 200
     asset = page.text.split('src="', 1)[1].split('"', 1)[0]
     assert client.get(asset, headers=host).status_code == 200

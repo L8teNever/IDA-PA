@@ -1,13 +1,15 @@
 // IDA Nachrichten: was die KIs dir schicken (Nachrichten an „user“). Kein Polling: geladen wird beim Öffnen,
 // wenn die App wieder sichtbar wird und wenn ein Push ankommt (der Service Worker sagt Bescheid).
+// Bausteine aus IDA selbst (gleiche Farben je Agent, gleiches Markdown wie im Chat)
+import { esc, md } from "../js/ui/dom.js";
+import { PALETTE } from "../js/store.js";
+
 const API = "/api/v1";
 const $ = (s) => document.querySelector(s);
-const list = $("#list"), count = $("#count"), more = $("#more"), bell = $("#bell"), banner = $("#push"), readall = $("#readall");
+const list = $("#list"), sub = $("#sub"), more = $("#more"), bell = $("#bell"), banner = $("#push"), readall = $("#readall");
 const PAGE = 50;
 let items = [], unread = 0, lastLoad = 0, full = false, openId = location.hash.slice(1) || null;
 
-const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
-const linkify = (s) => esc(s).replace(/https?:\/\/[^\s<]+[^\s<.,;:!?)\]'"]/g, (u) => `<a href="${u}" target="_blank" rel="noopener">${u}</a>`);
 const fmtDay = new Intl.DateTimeFormat("de-DE", { weekday: "short", day: "2-digit", month: "2-digit" });
 const fmtTime = new Intl.DateTimeFormat("de-DE", { hour: "2-digit", minute: "2-digit" });
 
@@ -27,15 +29,18 @@ async function api(path, opts = {}) {
 }
 
 function row(m) {
-  const cls = ["msg", m.read ? "" : "new", m.priority === "high" ? "high" : "", m.id === openId ? "open" : ""].filter(Boolean).join(" ");
-  const title = m.title && m.title !== m.from_name ? `<div class="title">${esc(m.title)}</div>` : "";
-  return `<article class="${cls}" data-id="${m.id}"><div class="meta"><span class="who">${esc(m.from_name)}</span><time>${when(m.at)}</time></div>${title}<div class="text">${linkify(m.text)}</div></article>`;
+  const c = PALETTE[m.from_palette] || PALETTE.blau;
+  const cls = ["mcard", m.read ? "" : "unread", m.priority === "high" ? "high" : "", m.id === openId ? "open" : ""].filter(Boolean).join(" ");
+  return `<article class="${cls}" data-id="${esc(m.id)}">
+    <span class="ric" style="background:${c["--container"]};color:${c["--accent"]}"><span class="ms">${esc(m.icon || "notifications")}</span></span>
+    <div class="rmain"><div class="mtop"><b>${esc(m.title || m.from_name)}</b><span>${when(m.at)}</span></div>
+      <div class="mfrom">${esc(m.from_name)}${m.priority === "high" ? ' · <span class="hi">wichtig</span>' : ""}</div>
+      <div class="mtext md">${md(m.text)}</div></div></article>`;
 }
 
 function render() {
-  list.innerHTML = items.length ? items.map(row).join("") : `<div class="empty">Noch keine Nachrichten.</div>`;
-  count.hidden = !unread;
-  count.textContent = unread;
+  list.innerHTML = items.length ? items.map(row).join("") : `<div class="empty"><span class="ms">notifications</span>Noch keine Nachrichten.</div>`;
+  sub.textContent = unread ? `${unread} neu` : "alles gelesen";
   readall.hidden = !unread;
   more.hidden = full || items.length < PAGE;
   if (navigator.setAppBadge) (unread ? navigator.setAppBadge(unread) : navigator.clearAppBadge()).catch(() => {});
@@ -53,8 +58,8 @@ async function load() {
     if (openId) markRead(openId);
   } catch (e) {
     list.innerHTML = e.login
-      ? `<div class="empty">Anmeldung abgelaufen.<br><button class="ghost" onclick="location.reload()">Neu anmelden</button></div>`
-      : `<div class="empty">Gerade nicht erreichbar.<br><button class="ghost" onclick="location.reload()">Nochmal versuchen</button></div>`;
+      ? `<div class="empty"><span class="ms">lock</span>Anmeldung abgelaufen.<br><button class="es-btn primary" onclick="location.reload()">Neu anmelden</button></div>`
+      : `<div class="empty"><span class="ms">cloud_off</span>Gerade nicht erreichbar.<br><button class="es-btn primary" onclick="location.reload()">Nochmal versuchen</button></div>`;
   }
 }
 
@@ -76,7 +81,7 @@ async function markRead(id) {
 
 list.addEventListener("click", (e) => {
   if (e.target.closest("a")) return;
-  const el = e.target.closest(".msg");
+  const el = e.target.closest(".mcard");
   if (!el) return;
   el.classList.toggle("open");
   markRead(el.dataset.id);
@@ -107,24 +112,30 @@ async function saveSub(sub) {
   localStorage.setItem("pushSaved", String(Date.now()));
 }
 
-function showBanner(html) { banner.innerHTML = html; banner.hidden = !html; }
+// Hinweis-Karte im IDA-Stil: Icon, Überschrift, Text, optional ein Knopf
+function showBanner(html, { icon = "notifications", title = "", button = "" } = {}) {
+  banner.hidden = !html;
+  banner.innerHTML = html ? `<span class="ric"><span class="ms">${icon}</span></span><div class="pmain">${title ? `<b>${title}</b>` : ""}${html}
+    ${button ? `<br><button class="es-btn primary" id="on"><span class="ms">notifications_active</span>${button}</button>` : ""}</div>` : "";
+}
 
 async function refreshPush() {
   if (!reg || !("PushManager" in window)) {
     bell.hidden = true;
-    showBanner(ios && !standalone ? "Für Benachrichtigungen: Teilen → <b>Zum Home-Bildschirm</b>, dann die App von dort öffnen." : "");
+    showBanner(ios && !standalone ? "Teilen → „Zum Home-Bildschirm“, dann die App von dort öffnen." : "", { icon: "add_to_home_screen", title: "Für Pop-ups als App installieren" });
     return;
   }
   const sub = await reg.pushManager.getSubscription();
-  bell.classList.toggle("off", !sub);
+  bell.classList.toggle("on", !!sub);
+  bell.querySelector(".ms").textContent = sub ? "notifications_active" : "notifications_off";
   if (sub) {
     showBanner("");
     // einmal am Tag beim Server auffrischen (falls er das Gerät vergessen hat)
     if (Date.now() - Number(localStorage.getItem("pushSaved") || 0) > 864e5) saveSub(sub).catch(() => {});
   } else if (Notification.permission === "denied") {
-    showBanner("Benachrichtigungen sind für diese Seite blockiert. Erlaub sie in den Browser- bzw. App-Einstellungen.");
+    showBanner("Erlaub sie in den Einstellungen des Browsers bzw. der App für diese Seite.", { icon: "notifications_off", title: "Benachrichtigungen blockiert" });
   } else {
-    showBanner(`Neue Nachrichten als Pop-up aufs Handy bekommen?<button id="on">Benachrichtigungen einschalten</button>`);
+    showBanner("Neue Nachrichten von Ida kommen dann sofort als Pop-up aufs Handy.", { title: "Pop-ups einschalten?", button: "Einschalten" });
     $("#on").onclick = enablePush;
   }
 }
@@ -137,7 +148,7 @@ async function enablePush() {
     await saveSub(sub);
     await api("/push/test", { method: "POST" }).catch(() => {});
   } catch (e) {
-    showBanner(`Einschalten hat nicht geklappt (${esc(e.message)}).`);
+    showBanner(`Einschalten hat nicht geklappt (${esc(e.message)}).`, { icon: "error", title: "Hat nicht geklappt" });
     return;
   }
   refreshPush();

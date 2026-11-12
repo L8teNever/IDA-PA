@@ -153,7 +153,7 @@ def create_app() -> FastAPI:
 
     @app.get("/m/manifest.webmanifest", include_in_schema=False)
     async def messages_manifest():
-        icon, rev = "/static/icons", "?v=1"
+        icon, rev = "/static/messages/icons", "?v=1"  # eigenes Icon: Sprechblase mit Idas Augen
         # relative id/start/scope: the same file works under ida…/m/ and at the root of messages.kulbarts.com
         return JSONResponse({
             "id": "./", "name": "IDA Nachrichten", "short_name": "Nachrichten", "description": "Was Ida und die anderen dir schicken",

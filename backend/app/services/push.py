@@ -11,6 +11,7 @@ import hmac
 import json
 import logging
 import os
+import re
 import struct
 import time
 from urllib.parse import urlsplit
@@ -106,9 +107,33 @@ async def send_to(sub: PushSubscription, data: dict, key: ec.EllipticCurvePrivat
     return r.status_code
 
 
+# ---------------- ohne Emojis, dafür ein Icon (Nachrichten-App und Pop-ups) ----------------
+EMOJI = re.compile("[\U0001F000-\U0001FAFF\u2600-\u27BF\u2B00-\u2BFF\u2300-\u23FF\uFE0E\uFE0F\u200D\u20E3\U000E0020-\U000E007F]+")
+# (Material-Symbol, Emojis am Anfang, Stichwörter im Titel) – das erste passende gewinnt
+ICONS = [("task_alt", "☑✅✔✓", ("abgehakt", "erledigt", "tracker")),
+         ("alarm", "⏰⏱⌚🔔", ("erinnerung", "wecker")),
+         ("call", "📞☎📱", ("anruf", "gespräch", "telefon", "stella")),
+         ("mail", "📧✉📨📩", ("mail",)),
+         ("event", "📅📆🗓", ("termin", "kalender", "stundenplan", "schule")),
+         ("warning", "⚠❗‼🚨", ("dringend", "warnung", "fehler"))]
+
+
+def no_emoji(s: str) -> str:
+    return re.sub(r"[ \t]{2,}", " ", EMOJI.sub("", s or "")).strip()
+
+
+def icon_for(m: Message) -> str:
+    head, title = (m.title or m.text or "").lstrip()[:2], (m.title or "").lower()
+    for icon, emojis, words in ICONS:
+        if any(ch in emojis for ch in head) or any(w in title for w in words):
+            return icon
+    return {"result": "assignment_turned_in", "task": "assignment"}.get(m.kind, "notifications")
+
+
 def payload(m: Message, sender: str) -> dict:
-    text = m.text if len(m.text) <= MAX_BODY else m.text[:MAX_BODY - 1] + "…"
-    return {"id": m.id, "title": m.title or sender, "from": sender, "body": text, "priority": m.priority, "at": m.at.isoformat() if m.at else None}
+    text = no_emoji(m.text)
+    text = text if len(text) <= MAX_BODY else text[:MAX_BODY - 1] + "…"
+    return {"id": m.id, "title": no_emoji(m.title) or sender, "from": sender, "body": text, "priority": m.priority, "at": m.at.isoformat() if m.at else None}
 
 
 async def _send_all(db, datas: list[dict]) -> dict:

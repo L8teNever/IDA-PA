@@ -7,19 +7,27 @@
 <meta name="color-scheme" content="dark">
 <title>Nachrichten</title>
 <link rel="manifest" href="manifest.webmanifest" crossorigin="use-credentials">
-<link rel="icon" href="/static/icons/favicon-64.png">
-<link rel="apple-touch-icon" href="/static/icons/apple-touch-icon.png">
+<link rel="icon" href="/static/messages/icons/favicon-64.png">
+<link rel="apple-touch-icon" href="/static/messages/icons/apple-touch-icon.png">
+<link rel="preload" href="/static/fonts/GoogleSansFlex-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/static/css/tokens.css">
+<link rel="stylesheet" href="/static/css/components.css">
 <link rel="stylesheet" href="/static/messages/app.css">
 </head>
 <body>
-<header>
-  <h1>Nachrichten <span id="count" hidden></span></h1>
-  <button id="readall" class="ghost" hidden>Alle gelesen</button>
-  <button id="bell" class="icon" title="Benachrichtigungen" aria-label="Benachrichtigungen">🔔</button>
+<header class="top">
+  <span class="ida-mini"><i></i><i></i></span>
+  <div class="top-ttl"><div class="top-name">Nachrichten</div><div class="top-sub" id="sub">von Ida und den anderen</div></div>
+  <button class="icon-btn" id="readall" title="Alle als gelesen markieren" aria-label="Alle als gelesen markieren" hidden><span class="ms">done_all</span></button>
+  <button class="icon-btn" id="bell" title="Benachrichtigungen" aria-label="Benachrichtigungen"><span class="ms">notifications_off</span></button>
 </header>
-<div id="push" class="banner" hidden></div>
-<main id="list" aria-live="polite"></main>
-<button id="more" class="ghost wide" hidden>Ältere laden</button>
+<main id="scroll">
+  <div class="col">
+    <div id="push" class="pushcard" hidden></div>
+    <div id="list" aria-live="polite"></div>
+    <button id="more" class="more-btn" hidden><span class="ms">expand_more</span>Ältere laden</button>
+  </div>
+</main>
 <script type="module" src="/static/messages/app.js"></script>
 </body>
 </html>

@@ -1,26 +1,46 @@
-/* Bewusst schlicht: reines Schwarz (OLED zieht dafür kaum Strom), keine Animationen, keine Webfonts. */
-:root { color-scheme: dark; --fg: #e3e2e9; --dim: #8e8d96; --line: #1c1c22; --acc: #7fd3ff; --hi: #ff8a80; }
-* { box-sizing: border-box; }
-html, body { margin: 0; background: #000; color: var(--fg); font: 16px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
-body { padding: env(safe-area-inset-top) env(safe-area-inset-right) calc(env(safe-area-inset-bottom) + 24px) env(safe-area-inset-left); }
-header { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; gap: 8px; padding: 14px 16px 10px; background: #000; border-bottom: 1px solid var(--line); }
-h1 { flex: 1; margin: 0; font-size: 22px; font-weight: 650; }
-#count { margin-left: 6px; padding: 1px 8px; border-radius: 10px; background: var(--acc); color: #00344a; font-size: 13px; vertical-align: 3px; }
-button { font: inherit; color: var(--fg); background: none; border: 0; cursor: pointer; -webkit-tap-highlight-color: transparent; }
-.ghost { height: 36px; padding: 0 12px; border-radius: 18px; color: var(--acc); }
-.icon { width: 40px; height: 40px; border-radius: 20px; font-size: 18px; }
-.icon.off { opacity: .45; }
-.wide { display: block; margin: 16px auto 0; }
-.banner { margin: 12px 16px 0; padding: 12px 14px; border: 1px solid var(--line); border-radius: 14px; color: var(--dim); font-size: 14px; }
-.banner button { display: block; margin-top: 8px; height: 40px; padding: 0 18px; border-radius: 20px; background: var(--acc); color: #00344a; font-weight: 600; }
-main { padding: 0 16px; }
-.msg { padding: 14px 0; border-bottom: 1px solid var(--line); }
-.msg.new .who::before { content: ""; display: inline-block; width: 8px; height: 8px; margin-right: 7px; border-radius: 4px; background: var(--acc); vertical-align: 1px; }
-.msg.high .who::after { content: "dringend"; margin-left: 8px; color: var(--hi); font-size: 12px; }
-.meta { display: flex; gap: 8px; color: var(--dim); font-size: 13px; }
-.who { flex: 1; color: var(--fg); font-weight: 600; }
-.title { margin-top: 2px; font-weight: 600; }
-.text { margin-top: 4px; color: #c9c8d0; white-space: pre-wrap; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 4; line-clamp: 4; overflow: hidden; }
-.msg.open .text { display: block; }
-.text a { color: var(--acc); }
-.empty { padding: 48px 0; text-align: center; color: var(--dim); }
+/* Nachrichten-App im IDA-Design (tokens.css + components.css von IDA). Sparsam: reines Schwarz, keine Dauer-Animationen. */
+.top { display: flex; align-items: center; gap: 12px; padding: calc(env(safe-area-inset-top) + 12px) 16px 12px; max-width: 760px; width: 100%; margin: 0 auto; }
+.ida-mini i { animation: none; }  /* kein Blinzeln: spart die Neuzeichnungen */
+.top-ttl { flex: 1; min-width: 0; }
+.top-name { font-size: 20px; font-weight: 500; color: var(--accent); }
+.top-sub { font-size: 13px; color: var(--muted); }
+.top .icon-btn { width: 44px; height: 44px; }
+.top .icon-btn.on { background: var(--container); color: var(--on-container); }
+main { flex: 1; overflow-y: auto; overscroll-behavior: contain; }
+.col { max-width: 760px; margin: 0 auto; padding: 4px 16px calc(env(safe-area-inset-bottom) + 24px); }
+
+.pushcard { background: var(--surface-high); border-radius: 22px; padding: 16px; margin-bottom: 12px; display: flex; gap: 14px; align-items: flex-start; }
+.pushcard .ric { width: 42px; height: 42px; border-radius: 14px; display: grid; place-items: center; flex: none; background: var(--container); color: var(--accent); }
+.pushcard .pmain { flex: 1; min-width: 0; font-size: 14px; color: var(--muted); line-height: 1.4; }
+.pushcard .pmain b { display: block; color: var(--on-surface); font-size: 15px; font-weight: 500; margin-bottom: 2px; }
+.pushcard .es-btn { margin-top: 12px; height: 44px; flex: none; display: inline-flex; padding: 0 20px; }
+
+/* Karten wie in IDA unter „Nachrichten“ */
+.mcard { display: flex; gap: 14px; background: var(--surface-high); border-radius: 22px; padding: 14px 16px; margin-bottom: 6px; cursor: pointer; }
+.mcard.unread { box-shadow: inset 3px 0 0 var(--accent); }
+.mcard .ric { width: 42px; height: 42px; border-radius: 14px; display: grid; place-items: center; flex: none; }
+.mcard.high .ric { box-shadow: 0 0 0 2px #ff8f8f; }
+.mcard .rmain { flex: 1; min-width: 0; }
+.mcard .mtop { display: flex; justify-content: space-between; gap: 10px; font-size: 15px; }
+.mcard .mtop b { font-weight: 500; min-width: 0; overflow-wrap: anywhere; }
+.mcard .mtop span, .mcard .mfrom { color: var(--muted); font-size: 12px; white-space: nowrap; }
+.mcard .mfrom .hi { color: #ff8f8f; }
+.mcard .mtext { font-size: 14px; margin-top: 6px; line-height: 1.45; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 5; line-clamp: 5; overflow: hidden; }
+.mcard.open .mtext { display: block; }
+
+/* Markdown wie im IDA-Chat */
+.md code { background: rgba(255,255,255,.08); border-radius: 6px; padding: 1px 5px; font-size: .92em; }
+.md-pre { background: rgba(0,0,0,.35); border-radius: 12px; padding: 10px 12px; overflow-x: auto; font-size: 13px; white-space: pre; margin: 6px 0; }
+.md-h { display: block; font-size: 1.05em; margin-top: 4px; }
+.md-li { display: block; padding-left: 16px; position: relative; }
+.md-li::before { content: "•"; position: absolute; left: 3px; color: var(--accent); }
+.md-li.num::before { content: attr(data-n) "."; left: 0; font-size: .9em; }
+.md a { color: var(--accent); }
+.md table { border-collapse: collapse; font-size: 13px; margin: 6px 0; display: block; overflow-x: auto; }
+.md th, .md td { border: 1px solid rgba(255,255,255,.1); padding: 4px 8px; text-align: left; }
+
+.empty { color: var(--muted); font-size: 14px; text-align: center; padding: 48px 8px; }
+.empty .ms { display: block; font-size: 36px; margin-bottom: 8px; }
+.empty .es-btn { margin: 14px auto 0; height: 44px; display: inline-flex; padding: 0 20px; }
+.more-btn { height: 48px; border: 0; cursor: pointer; border-radius: 24px; width: 100%; margin-top: 8px; display: flex; align-items: center; justify-content: center; gap: 8px;
+  font: inherit; font-size: 15px; font-weight: 500; background: var(--surface-high); color: var(--on-surface); }

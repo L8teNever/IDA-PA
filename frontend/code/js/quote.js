@@ -1,6 +1,8 @@
 // Text in einer Antwort markieren -> kleiner Knopf "Fragen" -> der Ausschnitt hängt als Zitat über dem Eingabefeld,
 // die nächste Nachricht bezieht sich darauf. Gesendet wird er als Markdown-Zitat ("> ...") vor dem Text.
 // (Dieselbe Datei liegt in frontend/js/ui/quote.js – Änderungen immer in beiden Kopien machen.)
+import { autolink } from "./ui.js";
+
 const MAX = 2000;
 let quote = "";
 let fab = null;
@@ -23,9 +25,9 @@ export function withQuote(text) {
 // Eigene Nachricht anzeigen: führendes Zitat als Block, Rest als Text
 export function userHtml(text) {
   const m = /^((?:> ?[^\n]*\n?)+)\n+([\s\S]*)$/.exec(text || "");
-  if (!m) return esc(text);
+  if (!m) return autolink(esc(text)); // Links in deinen Nachrichten anklickbar
   const q = m[1].split("\n").filter((l) => l.startsWith(">")).map((l) => l.replace(/^> ?/, "")).join("\n");
-  return `<span class="msg-quote"><span class="ms">format_quote</span><span>${esc(q)}</span></span>${esc(m[2])}`;
+  return `<span class="msg-quote"><span class="ms">format_quote</span><span>${autolink(esc(q))}</span></span>${autolink(esc(m[2]))}`;
 }
 
 function drawChip() {

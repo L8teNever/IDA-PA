@@ -117,7 +117,29 @@ export function md(src) {
     .replace(/^#{1,3} (.+)$/gm, "<b class=\"md-h\">$1</b>")
     .replace(/^\s*[-*] (.+)$/gm, "<span class=\"md-li\">$1</span>")
     .replace(/^\s*(\d+)\. (.+)$/gm, "<span class=\"md-li num\" data-n=\"$1\">$2</span>");
-  return s.replace(/\u0001(\d+)\u0001/g, (_, i) => tables[+i]).replace(/\u0000(\d+)\u0000/g, (_, i) => `<pre class="md-pre">${blocks[+i]}</pre>`);
+  return autolink(s.replace(/\u0001(\d+)\u0001/g, (_, i) => tables[+i]).replace(/\u0000(\d+)\u0000/g, (_, i) => `<pre class="md-pre">${blocks[+i]}</pre>`));
+}
+
+// Nackte Adressen (https://… oder www.…) anklickbar machen – nur im Text, nicht in Tags, vorhandenen Links oder Code.
+// Erwartet fertiges (escaptes) HTML; Satzzeichen am Ende gehören nicht zur Adresse.
+const URL_RE = /\b(?:https?:\/\/|www\.)[^\s<]+/gi;
+export function autolink(html) {
+  let skip = 0;
+  return String(html ?? "").split(/(<[^>]*>)/).map((part) => {
+    if (part[0] === "<") {
+      if (/^<(a|code|pre)[\s>]/i.test(part)) skip++;
+      else if (/^<\/(a|code|pre)>/i.test(part)) skip = Math.max(0, skip - 1);
+      return part;
+    }
+    return skip ? part : part.replace(URL_RE, (raw) => {
+      const tail = (raw.match(/(?:[.,;:!?'")\]}*_]|&quot;|&#39;|&gt;)+$/) || [""])[0];
+      let url = raw.slice(0, raw.length - tail.length), rest = tail;
+      if (rest[0] === ")" && url.split("(").length > url.split(")").length) { url += ")"; rest = rest.slice(1); } // (Wikipedia-Links)
+      if (/^(https?:\/\/|www\.)$/i.test(url)) return raw;
+      const href = /^www\./i.test(url) ? `https://${url}` : url;
+      return `<a href="${href}" target="_blank" rel="noopener">${url}</a>${rest}`;
+    });
+  }).join("");
 }
 
 // Textarea grows with its text (up to max-height in CSS), so long prompts are readable without an inner scrollbar.

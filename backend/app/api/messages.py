@@ -5,6 +5,7 @@ from sqlalchemy import func, or_, select, update
 
 from ..db import utcnow
 from ..models import USER, Agent, Message
+from ..services import push
 from ..services.errors import NotFound
 from . import serializers as ser
 from .deps import DB
@@ -33,9 +34,17 @@ async def inbox(db: DB, limit: int = 60, before: str | None = None):
         if ref:
             stmt = stmt.where(Message.at < ref.at)
     rows = (await db.scalars(stmt)).all()
-    names = {a.id: a.name for a in (await db.scalars(select(Agent))).all()}
+    agents = {a.id: a for a in (await db.scalars(select(Agent))).all()}
+    main = next((a for a in agents.values() if a.is_main), None)
     unread = await db.scalar(select(func.count()).select_from(Message).where(Message.to_id == USER, Message.read_at.is_(None)))
-    return {"unread": unread or 0, "items": [{**ser.message(m), "from_name": names.get(m.from_id, "IDA" if m.from_id == USER else m.from_id)} for m in rows]}
+
+    def sender(m: Message) -> dict:
+        a = agents.get(m.from_id) or (main if m.from_id == USER else None)  # Erinnerungen/Tracker kommen von „user“: zeigen wie Ida
+        return {"from_name": a.name if a else m.from_id, "from_palette": a.palette if a else "blau",
+                "from_avatar": f"/api/v1/agents/{a.id}/avatar?v={a.avatar}" if a and a.avatar else None}
+    # ohne Emojis, dafür ein Material-Icon je Nachricht
+    return {"unread": unread or 0, "items": [{**ser.message(m), **sender(m), "title": push.no_emoji(m.title), "text": push.no_emoji(m.text),
+                                              "icon": push.icon_for(m)} for m in rows]}
 
 
 @router.get("/tasks")

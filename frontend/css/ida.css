@@ -157,6 +157,9 @@
   .msg { max-width: 78%; padding: 11px 16px; font-size: 15px; line-height: 1.42; white-space: pre-wrap; word-wrap: break-word; }
   .msg.me { background: var(--accent); color: var(--on-accent); border-radius: 22px 22px 6px 22px; transition: background .4s, color .4s; }
   .msg.bot { background: var(--surface-high); border-radius: 22px 22px 22px 6px; }
+  /* Links im Chat: anklickbar und lesbar – in deiner (hellen) Blase in Textfarbe, lange Adressen brechen um */
+  .msg a { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; overflow-wrap: anywhere; }
+  .msg.me a { color: inherit; }
   .row.me + .row.me .msg.me { border-top-right-radius: 6px; }
   .row.bot + .row.bot .msg.bot { border-top-left-radius: 6px; }
   .row.bot + .row.bot .mini { visibility: hidden; }
