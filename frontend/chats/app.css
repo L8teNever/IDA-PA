@@ -15,9 +15,14 @@ button { cursor: pointer; font: inherit; }
 .tools { padding: 4px 12px 8px; }
 .search { height: 48px; display: flex; align-items: center; gap: 10px; padding: 0 16px; border-radius: 24px; background: var(--surface-high); color: var(--muted); }
 .search input { flex: 1; min-width: 0; border: 0; outline: 0; background: none; color: var(--on-surface); font: inherit; font-size: 16px; }
-.tabs { display: flex; gap: 8px; padding: 10px 4px 0; }
-.tab { height: 36px; padding: 0 16px; border: 0; border-radius: 18px; background: var(--surface-high); color: var(--muted); font-size: 14px; }
-.tab.on { background: var(--container); color: var(--on-container); }
+.search { padding-right: 4px; }
+.fbtn { flex: none; width: 40px; height: 40px; border: 0; border-radius: 20px; background: none; color: var(--muted); display: grid; place-items: center; cursor: pointer; transition: background-color .15s, color .15s; }
+.fbtn.on { background: var(--container); color: var(--on-container); }
+.fbtn:active { transform: scale(.94); }
+.ctx-back.clear { background: none; backdrop-filter: none; -webkit-backdrop-filter: none; }
+.fmenu { position: absolute; min-width: 200px; transform-origin: top right; }
+.fmenu button.on { color: var(--accent); }
+.fmenu .tick { margin-left: auto; }
 .list { flex: 1; overflow-y: auto; overscroll-behavior: contain; padding: 4px 8px calc(env(safe-area-inset-bottom) + 16px); }
 .row { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 20px; cursor: pointer; }
 .row:hover { background: var(--surface-high); }

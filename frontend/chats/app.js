@@ -71,6 +71,7 @@ function back() {
 }
 window.addEventListener("popstate", () => {
   if (OV && !readOv()) { const c = OV; OV = null; c(); }   // Zurück-Taste schließt Bild/Video
+  if ($("#info") && !readInfo()) dropInfo();                // … und die Info-Seite
   route();
   if (!OV) openFromUrl();
 });
@@ -94,9 +95,10 @@ function ovClosed() {   // über den eigenen Knopf, Wischen oder Esc geschlossen
   if (history.state?.ov) history.back(); else history.replaceState(history.state, "", ovBase());
 }
 function openFromUrl() {
-  const m = /^chat\/[^/]+\/(foto|video|bild)(?:\/([^/]+))?(?:\/(\d+))?/.exec(location.pathname.slice(BASE.length));
+  const m = /^chat\/[^/]+\/(foto|video|bild|info)(?:\/([^/]+))?(?:\/(\d+))?/.exec(location.pathname.slice(BASE.length));
   if (!m && readOv()) return history.replaceState(history.state, "", ovBase());
   if (!m || !S.id) return;
+  if (m[1] === "info") return $("#info") ? undefined : openInfo();
   const msg = m[2] && S.msgs.find((x) => x.id === decodeURIComponent(m[2]));
   if (m[1] === "foto" && msg) {
     const f = msg.files.filter((x) => x.kind === "image" && !x.sticker && x.src)[(+m[3] || 1) - 1];
@@ -295,15 +297,24 @@ function groupSettings(c) {
 }
 // ---------------- Info-Seite: Tipp auf den Chat-Kopf (wie "Kontaktinfo" bei WhatsApp) ----------------
 const ABOUT = new Map();   // pro Chat kurz gemerkt, damit die Seite beim zweiten Öffnen sofort da ist
-function closeInfo() {
+// Die Info-Seite hat eine eigene Adresse (…/chat/<id>/info): die Zurück-Taste am Handy schließt sie.
+function dropInfo() {
   const el = $("#info"); if (!el) return;
   el.classList.add("out"); setTimeout(() => el.remove(), 200);
+}
+const readInfo = () => /^chat\/[^/]+\/info$/.test(location.pathname.slice(BASE.length));
+function closeInfo() {
+  if (readInfo()) { if (history.state?.info) history.back(); else history.replaceState(history.state, "", urlFor(S.id)); }
+  dropInfo();
 }
 async function openInfo() {
   const c = cur(); if (!c || $("#info")) return;
   const el = document.createElement("div");
   el.className = "info"; el.id = "info";
   $("#conv").append(el);
+  const path = `${urlFor(c.id)}/info`;
+  if (location.pathname === path) history.replaceState(history.state, "", urlFor(c.id));   // per Link geöffnet: davor liegt der Chat
+  history.pushState({ ...(history.state || {}), info: true }, "", path);
   const draw = (d) => { if (el.isConnected) el.innerHTML = infoHtml(c, d); };
   const hit = ABOUT.get(c.id);
   draw(hit?.d || null);
@@ -439,9 +450,22 @@ $("#list").addEventListener("click", (e) => {
   const c = S.chats.find((x) => x.id === r.dataset.id);
   go(r.dataset.id);
 });
-document.querySelectorAll(".tab").forEach((b) => (b.onclick = () => {
-  S.f = b.dataset.f; document.querySelectorAll(".tab").forEach((x) => x.classList.toggle("on", x === b)); S.chats = []; loadChats();
-}));
+// Filter (Alle / Ungelesen / Archiv) hinter dem Filter-Knopf rechts in der Suche
+const FILTERS = [["all", "forum", "Alle"], ["unread", "mark_chat_unread", "Ungelesen"], ["archive", "archive", "Archiv"]];
+$("#fbtn").onclick = (e) => {
+  e.preventDefault(); closeMenu();
+  const r = e.currentTarget.getBoundingClientRect(), d = document.createElement("div");
+  d.className = "ctx"; d.id = "ctx";
+  d.innerHTML = `<div class="ctx-back clear"></div><div class="ctx-box fmenu" style="top:${r.bottom + 6}px;right:${Math.max(8, innerWidth - r.right)}px">${FILTERS.map(([f, ic, t]) =>
+    `<button data-f="${f}" class="${S.f === f ? "on" : ""}"><span class="ms">${ic}</span>${t}${S.f === f ? '<span class="ms tick">check</span>' : ""}</button>`).join("")}</div>`;
+  d.addEventListener("click", (ev) => {
+    const f = ev.target.closest("[data-f]")?.dataset.f; closeMenu();
+    if (!f || f === S.f) return;
+    S.f = f; const b = $("#fbtn"); b.classList.toggle("on", f !== "all"); b.setAttribute("aria-label", `Filter: ${FILTERS.find((x) => x[0] === f)[2]}`);
+    S.chats = []; loadChats();
+  });
+  document.body.append(d);
+};
 let qT;
 $("#q").addEventListener("input", () => { clearTimeout(qT); qT = setTimeout(() => { S.q = $("#q").value.trim(); S.chats = []; loadChats(); }, 350); });
 $("#refresh").onclick = () => { loadChats({ quiet: true }); if (S.id) loadMsgs({ quiet: true }); };
