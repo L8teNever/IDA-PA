@@ -108,7 +108,7 @@ def message(m: dict, me: set[str] | None = None, names: dict[str, str] | None = 
     return {
         "read_by": seen_by(m, me or set(), names or {}), "sender_id": m.get("senderID") or "",
         "id": m.get("id"), "at": m.get("timestamp"), "mine": bool(m.get("isSender")), "sender": m.get("senderName") or "",
-        "type": (m.get("type") or "TEXT").upper(), "text": m.get("text") or "", "deleted": bool(m.get("isDeleted")),
+        "type": (m.get("type") or "TEXT").upper(), "text": m.get("text") or "", "deleted": bool(m.get("isDeleted")), "edited": bool(m.get("editedTimestamp")),
         "reply_to": m.get("linkedMessageID") or None, "reactions": reactions(m, me),
         "files": [{"src": a.get("srcURL") or a.get("id"), "kind": kind(a), "mime": a.get("mimeType") or "", "name": a.get("fileName") or "",
                    "size": a.get("fileSize") or 0, "duration": a.get("duration") or 0, "w": (a.get("size") or {}).get("width"), "h": (a.get("size") or {}).get("height"),
@@ -528,6 +528,12 @@ async def upload(chat_id: str, file: UploadFile = File(...), text: str = Form(""
         ogg = await to_ogg(data)
         if ogg:
             data, mime, name = ogg, "audio/ogg", "Sprachnachricht.ogg"
+    out = await send_attachment(chat_id, data, name, mime, att_type(mime, voice), duration=duration, text=text, reply_to=reply_to)
+    return {"ok": True, "id": out.get("pendingMessageID"), "type": att_type(mime, voice)}
+
+
+async def send_attachment(chat_id: str, data: bytes, name: str, mime: str, kind_: str, duration: float = 0, text: str = "", reply_to: str = "") -> dict:
+    """Datei zu Beeper hochladen und als Anhang in einen Chat schicken."""
     global _rest
     if not rest_base():
         raise HTTPException(409, "Beeper ist nicht eingerichtet")
@@ -542,7 +548,7 @@ async def upload(chat_id: str, file: UploadFile = File(...), text: str = Form(""
     up = r.json() if r.status_code == 200 else {}
     if not up.get("uploadID"):
         raise HTTPException(502, f"Beeper: Hochladen ging nicht ({(up.get('error') or r.text)[:150]})")
-    att: dict = {"uploadID": up["uploadID"], "type": att_type(mime, voice), "mimeType": mime, "fileName": name}
+    att: dict = {"uploadID": up["uploadID"], "type": kind_, "mimeType": mime, "fileName": name}
     if duration and 0 < duration < 36000:
         att["duration"] = round(duration, 2)
     body: dict = {"attachment": att}
@@ -550,8 +556,65 @@ async def upload(chat_id: str, file: UploadFile = File(...), text: str = Form(""
         body["text"] = text.strip()[:8000]
     if reply_to:
         body["replyToMessageID"] = reply_to
-    out = await rest_call("POST", f"/v1/chats/{quote(chat_id, safe='')}/messages", body)
-    return {"ok": True, "id": out.get("pendingMessageID"), "type": att["type"]}
+    return await rest_call("POST", f"/v1/chats/{quote(chat_id, safe='')}/messages", body)
+
+
+# ---------------- Bearbeiten und Weiterleiten ----------------
+class Edit(BaseModel):
+    text: str = Field(min_length=1, max_length=8000)
+
+
+@router.put("/chats/{chat_id}/messages/{msg_id}")
+async def edit(chat_id: str, msg_id: str, body: Edit):
+    """Eigene Textnachricht bearbeiten (Beeper: nur Text, keine Nachrichten mit Anhang; ob es geht, entscheidet das Netzwerk)."""
+    check_ids(chat_id, msg_id)
+    text = body.text.strip()
+    if not text:
+        raise HTTPException(400, "Leere Nachricht")
+    await rest_call("PUT", f"/v1/chats/{quote(chat_id, safe='')}/messages/{quote(msg_id, safe='')}", {"text": text})
+    for k in [k for k in _older if k[0] == chat_id]:   # ältere Seiten dieses Chats neu holen, sonst stünde dort der alte Text
+        _older.pop(k, None)
+    return {"ok": True}
+
+
+class FwdFile(BaseModel):
+    src: str = Field(max_length=4000)
+    mime: str = Field("", max_length=120)
+    name: str = Field("", max_length=200)
+    kind: str = Field("file", max_length=10)
+    duration: float = 0
+    sticker: bool = False
+    gif: bool = False
+
+
+class Forward(BaseModel):
+    text: str = Field("", max_length=8000)
+    files: list[FwdFile] = Field(default_factory=list, max_length=10)
+
+
+EXT = {"image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "image/gif": "gif", "video/mp4": "mp4", "audio/ogg": "ogg", "audio/mpeg": "mp3", "audio/mp4": "m4a"}
+
+
+@router.post("/chats/{chat_id}/forward")
+async def forward(chat_id: str, body: Forward):
+    """Nachricht in einen anderen Chat weiterleiten. Beeper kennt kein echtes Weiterleiten: Text und Anhänge werden dort neu gesendet
+    (die Dateien holt der Dienst direkt bei Beeper, sie laufen nicht übers Handy)."""
+    check_ids(chat_id)
+    text = body.text.strip()
+    if not text and not body.files:
+        raise HTTPException(400, "Nichts zum Weiterleiten")
+    for f in body.files:
+        check_src(f.src)
+    for i, f in enumerate(body.files):
+        data, ct = await media_bytes(f.src, f.mime)
+        mime = ct if ct != "application/octet-stream" else (f.mime.split(";")[0].strip().lower() or ct)
+        voice = f.kind == "audio" and "ogg" in mime
+        t = "sticker" if f.sticker else "gif" if f.gif else att_type(mime, voice)
+        name = re.sub(r"[\\/\x00-\x1f]", "_", f.name)[:200] or f"datei.{EXT.get(mime, 'bin')}"
+        await send_attachment(chat_id, data, name, mime, t, duration=f.duration, text=text if i == 0 else "")
+    if text and not body.files:
+        await rest_call("POST", f"/v1/chats/{quote(chat_id, safe='')}/messages", {"text": text})
+    return {"ok": True}
 
 
 @router.get("/avatar/{chat_id}")

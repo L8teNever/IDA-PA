@@ -31,6 +31,11 @@ Browser (chats.kulbarts.com, Cloudflare Access) ──> chats :8000 ──MCP─
   `POST /v1/assets/upload` zu Beeper und schickt sie mit `POST /v1/chats/{id}/messages` (`attachment.uploadID`, Typ `voice-note` für
   Sprachnachrichten). Aufnahmen wandelt ffmpeg im Image vorher in Ogg/Opus (mono, 32 kbit/s) – das Format, das WhatsApp & Co. als Sprachnachricht erwarten.
 * **Reaktionen:** langes Drücken → Reaktionsleiste; `POST`/`DELETE /api/v1/chats/{id}/messages/{msg}/react` → Beeper `…/reactions`.
+* **Bearbeiten:** langes Drücken auf eine eigene Textnachricht → „Bearbeiten“; `PUT /api/v1/chats/{id}/messages/{msg}` → Beeper `PUT …/messages/{msg}`.
+  Nur Text, keine Nachrichten mit Anhang; ob und wie lange es geht, entscheidet das Netzwerk (sonst kommt die Fehlermeldung von Beeper).
+* **Weiterleiten:** langes Drücken → „Weiterleiten“ → Chat aussuchen; `POST /api/v1/chats/{ziel}/forward` mit Text und Anhängen (`src`).
+  Die Beeper-API hat kein echtes Weiterleiten: Der Dienst holt die Anhänge bei Beeper und sendet alles im Zielchat neu –
+  beim Empfänger steht deshalb kein „Weitergeleitet“.
 * **Grenzen von Beeper-MCP** (nicht der App): Kein Werkzeug für Reaktionen, Dateien und Gelesen-Markieren –
   dafür nutzt die App die REST-API. „Als gelesen markieren“ geht über `/v1/chats/{id}/read` (auch in Beeper gelesen), „Als ungelesen markieren“
   (Knopf oben im Chat, „Ab hier ungelesen“ im Menü einer Nachricht) über `/v1/chats/{id}/unread`. Öffnen und Lesen allein markiert nichts. Umfragen sind noch nicht eingebaut.

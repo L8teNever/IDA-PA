@@ -81,6 +81,12 @@ class FakeBeeper:
                 out = b'{"id": "x"}'
                 self.send_response(200); self.send_header("content-type", "application/json"); self.send_header("content-length", str(len(out))); self.end_headers(); self.wfile.write(out)
 
+            def do_PUT(self):
+                body = json.loads(self.rfile.read(int(self.headers["content-length"])))
+                outer.rest.append(("PUT", self.path, body))
+                out = b'{"id": "9"}'
+                self.send_response(200); self.send_header("content-type", "application/json"); self.send_header("content-length", str(len(out))); self.end_headers(); self.wfile.write(out)
+
             def do_DELETE(self):
                 outer.rest.append(("DELETE", self.path, None))
                 out = b'{"success": true}'

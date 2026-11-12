@@ -161,3 +161,18 @@ def test_anpinnen(client, fake):
     assert client.post(f"{API}/chats/4/pin", json={"pinned": True}).status_code == 400   # höchstens drei
     assert client.post(f"{API}/chats/2/pin", json={"pinned": False}).status_code == 200
     assert [c["id"] for c in client.get(f"{API}/pins").json()["items"]] == ["1", "3"]
+
+
+def test_bearbeiten_und_weiterleiten(client, fake):
+    assert client.put(f"{API}/chats/1/messages/9", json={"text": " Neu "}).json() == {"ok": True}
+    assert fake.rest[-1] == ("PUT", "/v1/chats/1/messages/9", {"text": "Neu"})
+    assert client.put(f"{API}/chats/1/messages/9", json={"text": "  "}).status_code == 400
+    assert client.post(f"{API}/chats/2/forward", json={"text": "Hallo"}).json() == {"ok": True}
+    assert fake.rest[-1] == ("POST", "/v1/chats/2/messages", {"text": "Hallo"})
+    src = "file:///C:/Users/Docker/AppData/Roaming/BeeperTexts/media/local.beeper.com/abc"
+    n = len(fake.rest)
+    assert client.post(f"{API}/chats/2/forward", json={"text": "Schau", "files": [{"src": src, "mime": "image/png", "name": "", "kind": "image"}]}).status_code == 200
+    assert [x[0] for x in fake.rest[n:]] == ["UPLOAD", "POST"]   # Text hängt am Bild, keine zweite Nachricht
+    assert fake.rest[-1][2] == {"attachment": {"uploadID": "up1", "type": "image", "mimeType": "image/png", "fileName": "datei.png"}, "text": "Schau"}
+    assert client.post(f"{API}/chats/2/forward", json={"files": [{"src": "file:///C:/Windows/win.ini"}]}).status_code == 400
+    assert client.post(f"{API}/chats/2/forward", json={}).status_code == 400

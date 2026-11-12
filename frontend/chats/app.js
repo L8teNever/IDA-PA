@@ -5,7 +5,7 @@ const API = "/api/v1";
 const $ = (s) => document.querySelector(s);
 const BASE = "/";
 const COLORS = ["rot", "orange", "gelb", "salbei", "gruen", "tuerkis", "blau", "lavendel", "lila", "koralle"];
-const S = { chats: [], next: null, q: "", f: "all", id: null, msgs: [], more: false, oldest: null, seq: 0, sending: false, reply: null, voice: {}, vopen: {} };
+const S = { chats: [], next: null, q: "", f: "all", id: null, msgs: [], more: false, oldest: null, seq: 0, sending: false, reply: null, edit: null, voice: {}, vopen: {} };
 
 const fmtDay = new Intl.DateTimeFormat("de-DE", { weekday: "long", day: "2-digit", month: "long" });
 const fmtShort = new Intl.DateTimeFormat("de-DE", { day: "2-digit", month: "2-digit" });
@@ -75,7 +75,7 @@ function route() {
   document.body.classList.toggle("reading", !!id);
   if (id === S.id) return drawList();
   const c = id && MC.get(id);
-  S.id = id; S.msgs = c ? c.msgs.slice() : []; S.more = c ? c.more : false; S.oldest = c ? c.oldest : null; S.reply = null;
+  S.id = id; S.msgs = c ? c.msgs.slice() : []; S.more = c ? c.more : false; S.oldest = c ? c.oldest : null; S.reply = null; S.edit = null;
   document.querySelectorAll("#list .row").forEach((r) => r.classList.toggle("sel", r.dataset.id === id));
   if (!$("#list .row")) drawList();
   if (id) openChat(); else $("#conv").innerHTML = `<div class="conv-empty"><span class="ms">forum</span><p>Wähle einen Chat aus.</p></div>`;
@@ -276,7 +276,7 @@ async function openChat() {
   conv.ondragleave = (e) => { if (e.target === conv || !conv.contains(e.relatedTarget)) conv.classList.remove("drop"); };
   conv.ondrop = (e) => { conv.classList.remove("drop"); const f = [...(e.dataTransfer?.files || [])]; if (f.length) { e.preventDefault(); pickFiles(f); } };
   ta.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey && !matchMedia("(pointer: coarse)").matches) { e.preventDefault(); $("#form").requestSubmit(); } });
-  $("#form").addEventListener("submit", (e) => { e.preventDefault(); if (ta.value.trim()) send(); else startRec(); });
+  $("#form").addEventListener("submit", (e) => { e.preventDefault(); if (ta.value.trim()) send(); else if (!S.edit) startRec(); });
   $("#conv").dataset.net = netKey(cur()?.network);
   if (S.msgs.length) drawMsgs({ stick: true });   // sofort aus dem Speicher, Frisches kommt gleich
   if (!cur()) loadChats({ quiet: true }).then(() => { if (S.id && $(".chead")) { $(".chead").outerHTML = head(); refreshReadBar(); } });
@@ -296,7 +296,7 @@ async function loadMsgs({ first = false, quiet = false, older = false } = {}) {
     const box = $("#msgs"), atEnd = !box || box.scrollHeight - box.scrollTop - box.clientHeight < 120;
     const keep = new Map(S.msgs.map((m) => [m.id, m]));
     for (const m of d.items) keep.set(m.id, m);
-    const sig = (l) => l.map((m) => `${m.id}|${(m.read_by || []).length}|${(m.reactions || []).map((r) => r.key + r.n).join()}|${m.deleted}|${m.pending ? 1 : 0}`).join(";");
+    const sig = (l) => l.map((m) => `${m.id}|${m.text}|${m.edited ? 1 : 0}|${(m.read_by || []).length}|${(m.reactions || []).map((r) => r.key + r.n).join()}|${m.deleted}|${m.pending ? 1 : 0}`).join(";");
     const before = sig(S.msgs);
     const landed = (m) => m.pendingFile ? m.sentAt && d.items.some((x) => x.mine && x.files.length && Date.parse(x.at) >= Date.parse(m.at) - 10000)
       : d.items.some((x) => x.mine && x.text === m.text);
@@ -358,7 +358,7 @@ function bubble(m, tail = true) {
   const tools = m.pending || m.deleted ? "" : `<button class="rep" data-a="reply" data-id="${esc(m.id)}" aria-label="Antworten" title="Antworten"><span class="ms">reply</span></button>`;
   const face = cur()?.type === "group" && !m.mine ? (tail ? avatar(clean(m.sender), S.id, m.sender_id) : '<span class="av gap"></span>') : "";
   const prog = m.pendingFile ? `<div class="prog"><i style="width:${Math.round((m.progress || 0) * 100)}%"></i></div>` : "";
-  return `<div class="bw ${m.mine ? "me" : ""} ${face ? "grp" : ""}" id="m-${esc(m.id)}" data-id="${esc(m.id)}"><span class="swipe ms">reply</span>${face}${tools}<div class="b ${m.mine ? "me" : ""} ${m.pending ? "pending" : ""} ${m.deleted ? "del" : ""}">${group}${quote}${files}${prog}${body}${rx}<span class="tm">${m.at ? fmtTime.format(new Date(m.at)) : "…"}${ticks(m)}</span></div>${readLine(m)}</div>`;
+  return `<div class="bw ${m.mine ? "me" : ""} ${face ? "grp" : ""}" id="m-${esc(m.id)}" data-id="${esc(m.id)}"><span class="swipe ms">reply</span>${face}${tools}<div class="b ${m.mine ? "me" : ""} ${m.pending ? "pending" : ""} ${m.deleted ? "del" : ""}">${group}${quote}${files}${prog}${body}${rx}<span class="tm">${m.edited && !m.deleted ? "bearbeitet · " : ""}${m.at ? fmtTime.format(new Date(m.at)) : "…"}${ticks(m)}</span></div>${readLine(m)}</div>`;
 }
 const NETS = [["snapchat", "snapchat"], ["instagram", "instagram"], ["whatsapp", "whatsapp"], ["signal", "signal"], ["telegram", "telegram"], ["discord", "discord"],
   ["messenger", "messenger"], ["facebook", "messenger"], ["gmessages", "gmessages"], ["google messages", "gmessages"], ["googlechat", "googlechat"], ["google chat", "googlechat"],
@@ -391,7 +391,7 @@ $("#conv").addEventListener("click", (e) => {
   if (a.dataset.a === "seen") return markRead(cur());
   if (a.dataset.a === "unseen") return markUnread(cur());
   if (a.dataset.a === "rx") { const m = S.msgs.find((x) => x.id === a.dataset.id); return m && toggleReaction(m, a.dataset.k); }
-  if (a.dataset.a === "cancel") return setReply(null);
+  if (a.dataset.a === "cancel") return S.edit ? setEdit(null) : setReply(null);
   if (a.dataset.a === "jump") { const el = document.getElementById(`m-${a.dataset.id}`); if (el) { el.scrollIntoView({ block: "center", behavior: "smooth" }); el.classList.add("flash"); setTimeout(() => el.classList.remove("flash"), 1200); } return; }
   if (a.dataset.a === "play") return togglePlay(a.closest(".voice"));
   if (a.dataset.a === "speed") return cycleSpeed(a);
@@ -486,6 +486,8 @@ function menu(m) {
     <div class="ctx-box">
       <button data-c="reply"><span class="ms">reply</span>Antworten</button>
       ${m.text ? '<button data-c="copy"><span class="ms">content_copy</span>Text kopieren</button>' : ""}
+      ${m.mine && m.text && !m.files.length && !m.pending && !m.deleted ? '<button data-c="edit"><span class="ms">edit</span>Bearbeiten</button>' : ""}
+      ${!m.pending && !m.deleted && (m.text || m.files.length) ? '<button data-c="fwd"><span class="ms">forward</span>Weiterleiten</button>' : ""}
       ${m.files[0] ? '<button data-c="open"><span class="ms">open_in_new</span>Datei öffnen</button>' : ""}
       ${m.mine || m.pending ? "" : '<button data-c="unread"><span class="ms">mark_chat_unread</span>Ab hier ungelesen</button>'}
     </div></div>`;
@@ -502,6 +504,8 @@ function menu(m) {
     if (e.target.closest(".ctx-msg")) return;
     closeMenu();
     if (c === "reply") setReply(m);
+    if (c === "edit") setEdit(m);
+    if (c === "fwd") forwardPick(m);
     if (c === "copy") navigator.clipboard?.writeText(m.text).then(() => toast("Kopiert"), () => toast("Kopieren nicht möglich"));
     if (c === "unread") markUnread(cur(), m.id);
     if (c === "open") window.open(mediaUrl(m.files[0]), "_blank", "noopener");
@@ -578,7 +582,77 @@ document.addEventListener("contextmenu", (e) => {   // Rechtsklick am PC, langes
   if (m && !m.pending) { e.preventDefault(); menu(m); }
 });
 
+// Bearbeiten: der Text steht im Eingabefeld, Senden speichert die Änderung (nur eigene Textnachrichten; ob es geht, entscheidet das Netzwerk)
+function setEdit(m) {
+  const ta = $("#txt"), bar = $("#replybar"); if (!ta || !bar) return;
+  if (m) S.reply = null;
+  S.edit = m || null;
+  bar.hidden = !m;
+  ta.value = m ? m.text : ""; ta.dispatchEvent(new Event("input"));
+  if (m) { bar.innerHTML = `<span class="ms">edit</span><div><b>Bearbeiten</b>${esc(m.text.slice(0, 100))}</div><button class="icon-btn" data-a="cancel" aria-label="Abbrechen"><span class="ms">close</span></button>`; ta.focus(); }
+}
+async function saveEdit() {
+  const m = S.edit, ta = $("#txt"), text = ta.value.trim(), id = S.id;
+  if (!m || !text || S.sending) return;
+  if (text === m.text) return setEdit(null);
+  const old = m.text, was = m.edited;
+  S.sending = true;
+  m.text = text; m.edited = true; setEdit(null); drawMsgs();
+  try {
+    await api(`/chats/${encodeURIComponent(id)}/messages/${encodeURIComponent(m.id)}`, { method: "PUT", body: JSON.stringify({ text }) });
+    cacheMsgs();
+  } catch (e) {
+    m.text = old; m.edited = was;
+    if (id === S.id) { drawMsgs(); setEdit(m); $("#txt").value = text; $("#txt").dispatchEvent(new Event("input")); }
+    toast(`Bearbeiten ging nicht: ${e.message}`);
+  }
+  S.sending = false;
+}
+// Weiterleiten: Chat aussuchen, dann schickt der Server Text und Anhänge dorthin (Beeper hat kein echtes Weiterleiten – es kommt als neue Nachricht an)
+function forwardPick(m) {
+  closeMenu();
+  const d = document.createElement("div");
+  d.className = "ctx"; d.id = "ctx";
+  d.innerHTML = `<div class="ctx-back"></div><div class="sheet fwd"><div class="fwd-top"><b>Weiterleiten an</b><button class="icon-btn" data-x="close" aria-label="Abbrechen"><span class="ms">close</span></button></div>
+    <label class="search"><span class="ms">search</span><input type="search" placeholder="Chat suchen" autocomplete="off"></label><div class="fwd-list"></div>
+    <button class="btn fwd-go" disabled>Senden</button></div>`;
+  const list = d.querySelector(".fwd-list"), inp = d.querySelector("input"), goBtn = d.querySelector(".fwd-go");
+  let items = [], pick = null, t, seq = 0;
+  const base = () => { const ids = new Set(PINS.map((p) => p.id)); return [...PINS, ...S.chats.filter((c) => !ids.has(c.id))]; };
+  const draw = () => {
+    list.innerHTML = items.length ? items.map((c) => `<button class="fwd-row ${pick?.id === c.id ? "on" : ""}" data-id="${esc(c.id)}">${avatar(clean(c.title), c.id)}
+      <span class="fwd-t">${esc(clean(c.title))}<small>${esc(c.network || "")}</small></span><span class="ms">${pick?.id === c.id ? "check_circle" : "radio_button_unchecked"}</span></button>`).join("")
+      : '<div class="empty">Nichts gefunden.</div>';
+    goBtn.disabled = !pick; goBtn.textContent = pick ? `An ${clean(pick.title)} senden` : "Senden";
+  };
+  items = base(); draw();
+  inp.addEventListener("input", () => {
+    clearTimeout(t);
+    const q = inp.value.trim(), lq = q.toLowerCase(), n = ++seq;
+    items = q ? base().filter((c) => clean(c.title).toLowerCase().includes(lq)) : base(); draw();
+    if (q) t = setTimeout(async () => {   // auch Chats finden, die gerade nicht in der Liste stehen
+      try { const r = await api(`/chats?${new URLSearchParams({ q, inbox: "" })}`); if (n === seq && $("#ctx") === d) { items = r.items; draw(); } } catch { /* dann bleibt der lokale Treffer */ }
+    }, 350);
+  });
+  d.addEventListener("click", async (e) => {
+    if (e.target.closest("[data-x=close]") || e.target.classList.contains("ctx-back")) return closeMenu();
+    const r = e.target.closest(".fwd-row");
+    if (r) { pick = items.find((c) => c.id === r.dataset.id) || null; return draw(); }
+    if (!e.target.closest(".fwd-go") || !pick) return;
+    const to = pick;
+    closeMenu(); toast(`Wird an ${clean(to.title)} weitergeleitet …`);
+    try {
+      await api(`/chats/${encodeURIComponent(to.id)}/forward`, { method: "POST", body: JSON.stringify({ text: m.text || "",
+        files: m.files.filter((f) => f.src).map((f) => ({ src: f.src, mime: f.mime || "", name: f.name || "", kind: f.kind, duration: f.duration || 0, sticker: !!f.sticker, gif: !!f.gif })) }) });
+      toast(`Weitergeleitet an ${clean(to.title)}`, () => go(to.id));
+      loadChats({ quiet: true }); if (S.id === to.id) loadMsgs({ quiet: true });
+    } catch (err) { toast(`Weiterleiten ging nicht: ${err.message}`); }
+  });
+  document.body.append(d);
+  if (matchMedia("(pointer: fine)").matches) inp.focus();
+}
 function setReply(m) {
+  if (m && S.edit) setEdit(null);
   S.reply = m || null;
   const bar = $("#replybar"); if (!bar) return;
   bar.hidden = !m;
@@ -586,6 +660,7 @@ function setReply(m) {
 }
 async function send() {
   const ta = $("#txt"), text = ta.value.trim();
+  if (S.edit) return saveEdit();
   if (!text || S.sending) return;
   S.sending = true; $("#sendBtn").disabled = true;
   const tmp = { id: `tmp${Date.now()}`, text, reply_to: S.reply?.id || null, reactions: [], mine: true, pending: true, at: new Date().toISOString(), files: [], type: "TEXT", sender: "" };
