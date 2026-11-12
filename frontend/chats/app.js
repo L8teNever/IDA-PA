@@ -491,7 +491,7 @@ function toMenu() {
   drawTo();
   p.addEventListener("click", (e) => {
     const t = e.target.closest("[data-to]")?.dataset.to;
-    if (t) { S.to = t; buzz(10); toChip(); setTimeout(closeTo, 160); $("#txt")?.focus(); }
+    if (t) { S.to = t; buzz(10); if (S.reply?.chat && S.reply.chat !== t) setReply(null); toChip(); setTimeout(closeTo, 160); $("#txt")?.focus(); }
     if (e.target.closest("[data-set]")) { closeTo(); groupSettings(c); }
   });
 }
@@ -606,22 +606,18 @@ function fileHtml(f, clips = null) {
   }
   return `<a class="file" href="${mediaUrl(f)}" download="${esc(f.name || "Datei")}"><span class="ms">attach_file</span><span>${esc(f.name || "Datei")}${f.size ? ` <small>${f.size > 1e6 ? (f.size / 1e6).toFixed(1) + " MB" : Math.round(f.size / 1e3) + " KB"}</small>` : ""}</span></a>`;
 }
-// Lesebestätigung wie in Beeper: ein Häkchen = gesendet, zwei (mint) = gelesen. In Gruppen steht unter der letzten gelesenen Nachricht, wer sie gelesen hat.
+// Lesebestätigung wie in Beeper: ein Häkchen = gesendet, zwei (mint) = gelesen. Wer wann gelesen hat, steht unter Halten → Info.
 const ticks = (m) => !m.mine || m.deleted ? "" : m.pending ? '<span class="ms tick">schedule</span>'
   : m.read_by?.length ? '<span class="ms tick read" title="Gelesen">done_all</span>' : '<span class="ms tick" title="Gesendet">check</span>';
-function readLine(m) {
-  if (!m.mine || !m.read_by?.length || cur()?.type !== "group") return "";
-  const last = [...S.msgs].reverse().find((x) => x.mine && x.read_by?.length);
-  if (last !== m) return "";
-  const t = (r) => clean(r.name) || "Jemand";
-  const names = m.read_by.map(t), shown = names.slice(0, 3).join(", ") + (names.length > 3 ? ` und ${names.length - 3} weitere` : "");
-  return `<div class="readline" title="${esc(m.read_by.map((r) => `${t(r)} ${r.at ? fmtTime.format(new Date(r.at)) : ""}`).join("\n"))}"><span class="ms">done_all</span>Gelesen von ${esc(shown)}</div>`;
-}
 // Antworten wie in Beeper: über der Blase wer wem geantwortet hat, darunter die zitierte Nachricht gedimmt als kleine Blase,
 // an der Seite eine dünne Linie, die beides verbindet. Antippen springt zur Nachricht.
 function replyHead(m) {
   const q = S.msgs.find((x) => x.id === m.reply_to);
   const f = q && !q.deleted && q.files[0];
+  const th = !q?.text && f && !f.sticker && f.src && (f.kind === "image" || f.kind === "video")
+    ? (f.kind === "image" || f.poster ? `<img class="rq-th" loading="lazy" alt="" src="${mediaUrl(f.kind === "image" ? f : { src: f.poster })}">`
+      : `<video class="rq-th" preload="metadata" muted playsinline src="${mediaUrl(f)}#t=0.1"></video>`) + (f.kind === "video" ? '<span class="ms">play_arrow</span>' : "") : "";
+  if (th) return `<div class="rqrow ${q.mine ? "r" : "l"} ${m.mine ? "me" : "them"} ${cur()?.type === "group" && !m.mine ? "grp" : ""}" data-a="jump" data-id="${esc(m.reply_to)}"><span class="rqline"></span><span class="rq-b th">${th}</span></div>`;
   const what = !q ? "Nachricht" : q.deleted ? "Gelöschte Nachricht" : q.text ? esc(q.text.replace(/\s+/g, " ").slice(0, 200))
     : f ? ({ audio: "🎤 Sprachnachricht", video: "🎬 Video", image: f.sticker ? "Sticker" : "📷 Foto" }[f.kind] || `📎 ${esc(f.name || "Datei")}`) : "Nachricht";
   const side = q ? (q.mine ? "r" : "l") : (m.mine ? "r" : "l");   // die Pille steht dort, wo die zitierte Nachricht steht
@@ -641,13 +637,11 @@ const picOnly = (m) => m && !m.deleted && !m.pending && !m.text && !m.reply_to &
 function stackHtml(fs) {
   const top = fs[0], r = top.w && top.h ? ` style="aspect-ratio:${top.w}/${top.h}"` : "";
   return `<div class="stackw"><div class="stack" data-a="zoom" data-src="${esc(top.src)}">${fs.slice(1, 3).reverse().map((f, i) => `<img class="sk sk${i}" loading="lazy" alt="" src="${mediaUrl(f)}">`).join("")}
-    <img class="pic sk-top" loading="lazy" alt="Bild"${r} src="${mediaUrl(top)}"><span class="skn">${fs.length}</span></div>
-    <a class="dlbtn" href="${mediaUrl(top)}" download="${esc(top.name || "bild.jpg")}" aria-label="Herunterladen"><span class="ms">download</span></a></div>`;
+    <img class="pic sk-top" loading="lazy" alt="Bild"${r} src="${mediaUrl(top)}"><span class="skn">${fs.length}</span></div></div>`;
 }
 function bubble(m, tail = true, stack = null) {
   const visual = !m.deleted && m.files.length && m.files.every((f) => (f.kind === "image" || f.kind === "video") && !f.sticker);
-  const dl = (f) => f?.src ? `<a class="dlbtn" href="${mediaUrl(f)}" download="${esc(f.name || (f.kind === "video" ? "video.mp4" : "bild.jpg"))}" aria-label="Herunterladen"><span class="ms">download</span></a>` : "";
-  const files = stack ? stackHtml(stack) : visual && !m.pending ? `<div class="mwrap"><div class="mcol">${m.files.map((f) => fileHtml(f, CLIPS.get(m.id) || null)).join("")}</div>${dl(m.files[0])}</div>` : m.files.map((f) => fileHtml(f)).join("");
+  const files = stack ? stackHtml(stack) : visual && !m.pending ? `<div class="mwrap"><div class="mcol">${m.files.map((f) => fileHtml(f, CLIPS.get(m.id) || null)).join("")}</div></div>` : m.files.map((f) => fileHtml(f)).join("");
   const split = visual && !stack && (m.text || (m.links || []).some((l) => l.title || l.img));   // Bild/Video und Text: zwei Blasen
   // Gelöscht: Hinweis – und darunter, was drinstand, wenn der Dienst die Nachricht vorher schon gesehen hatte
   const was = m.deleted && m.was ? `<div class="was">${(m.was.files || []).map((f) => fileHtml(f)).join("")}${m.was.text ? `<span class="tx">${autolink(esc(m.was.text))}</span>` : ""}</div>` : "";
@@ -662,7 +656,7 @@ function bubble(m, tail = true, stack = null) {
   const face = cur()?.type === "group" && !m.mine ? (tail ? avatar(clean(m.sender), cid(m), m.sender_id) : '<span class="av gap"></span>') : "";
   const prog = m.pendingFile ? `<div class="prog"><i style="width:${Math.round((m.progress || 0) * 100)}%"></i></div>` : "";
   const mc = cur()?.merged, net = mc ? netKey((mc.find((x) => x.id === (m.chat || target())) || {}).network) : null;
-  return `${m.reply_to && !m.deleted ? replyHead(m) : ""}<div class="bw ${m.mine ? "me" : ""} ${face ? "grp" : ""} ${m.reply_to && !m.deleted ? "isrep" : ""}"${net !== null ? ` data-net="${net}"` : ""} id="m-${esc(m.id)}" data-id="${esc(m.id)}"><span class="swipe ms">reply</span>${face}${tools}<div class="bcol">${quote}${split ? `<div class="b media ${m.mine ? "me" : ""}">${group}${files}</div>` : ""}<div class="b ${m.mine ? "me" : ""} ${m.pending ? "pending" : ""} ${m.deleted ? "del" : ""} ${!split && visual && !m.text && !group ? "media" : ""}">${split ? "" : group}${split ? "" : files}${prog}${body}${links}${rx}${tmLine(m)}</div>${more}</div>${readLine(m)}<span class="st">${m.at && !m.pending ? fmtTime.format(new Date(m.at)) : ""}</span></div>`;
+  return `${m.reply_to && !m.deleted ? replyHead(m) : ""}<div class="bw ${m.mine ? "me" : ""} ${face ? "grp" : ""} ${m.reply_to && !m.deleted ? "isrep" : ""}"${net !== null ? ` data-net="${net}"` : ""} id="m-${esc(m.id)}" data-id="${esc(m.id)}"><span class="swipe ms">reply</span>${face}${tools}<div class="bcol">${quote}${split ? `<div class="b media ${m.mine ? "me" : ""}">${group}${files}</div>` : ""}<div class="b ${m.mine ? "me" : ""} ${m.pending ? "pending" : ""} ${m.deleted ? "del" : ""} ${!split && visual && !m.text ? "media" : ""}">${split ? "" : group}${split ? "" : files}${prog}${body}${links}${rx}${tmLine(m)}</div>${more}</div><span class="st">${m.at && !m.pending ? fmtTime.format(new Date(m.at)) : ""}</span></div>`;
 }
 const NETS = [["snapchat", "snapchat"], ["instagram", "instagram"], ["whatsapp", "whatsapp"], ["signal", "signal"], ["telegram", "telegram"], ["discord", "discord"],
   ["messenger", "messenger"], ["facebook", "messenger"], ["gmessages", "gmessages"], ["google messages", "gmessages"], ["googlechat", "googlechat"], ["google chat", "googlechat"],
@@ -671,6 +665,11 @@ const netKey = (n) => { n = String(n || "").toLowerCase(); return (NETS.find(([k
 // Steht der Chat am Ende? Nur dann darf nachladendes (Bilder, Tastatur) ans Ende schieben – wer hochgescrollt hat, bleibt dort.
 let atBottom = true;
 document.addEventListener("scroll", (e) => { const b = e.target; if (b.id === "msgs") atBottom = b.scrollHeight - b.scrollTop - b.clientHeight < 150; }, { capture: true, passive: true });
+// Nachladendes (Bilder, Video-Vorschauen, Link-Vorschauen, Schrift) ändert die Höhe erst nach dem Zeichnen.
+// Solange der Chat am Ende steht, hält ihn das am Ende – sonst landet man beim Öffnen irgendwo darüber.
+const pinEnd = () => { const b = $("#msgs"); if (b && atBottom) b.scrollTop = b.scrollHeight; };
+const growth = new ResizeObserver(pinEnd);
+document.fonts?.ready.then(pinEnd);
 let drawn = { id: null, ids: new Set() };
 function drawMsgs({ stick = false, keepTop = false } = {}) {
   const box = $("#msgs"); if (!box) return;
@@ -703,8 +702,10 @@ function drawMsgs({ stick = false, keepTop = false } = {}) {
   $("#conv").dataset.net = cur()?.merged ? "" : netKey(cur()?.network);   // eigene Nachrichten in Netzwerkfarbe, eingehende mit Akzenten in Netzwerkfarbe
   paint();
   if (keepTop) box.scrollTop = box.scrollHeight - prevH + prevTop;
-  else if (stick) { atBottom = true; box.scrollTop = box.scrollHeight; box.querySelectorAll("img").forEach((i) => i.addEventListener("load", () => { if (atBottom) box.scrollTop = box.scrollHeight; }, { once: true })); }
+  else if (stick) { atBottom = true; box.scrollTop = box.scrollHeight; requestAnimationFrame(pinEnd); }
   else box.scrollTop = prevTop;
+  growth.disconnect(); growth.observe(box); for (const c of box.children) growth.observe(c);
+  if (!box.dataset.pin) { box.dataset.pin = 1; for (const ev of ["load", "loadedmetadata", "error"]) box.addEventListener(ev, pinEnd, true); }
 }
 $("#conv").addEventListener("click", (e) => {
   const a = e.target.closest("[data-a]");
@@ -865,15 +866,26 @@ function lightbox(src, items = null, start = 0) {
   const list = items || [{ url: src }];
   const d = document.createElement("div");
   d.className = "lightbox";
-  d.innerHTML = `<div class="lb-top"><button class="icon-btn" data-lb="close" aria-label="Schließen"><span class="ms">close</span></button><div class="lb-info"></div>
-    <a class="icon-btn" data-lb="dl" aria-label="Herunterladen" download><span class="ms">download</span></a></div>
-    <div class="lb-track">${list.map((x) => `<div class="lb-slide"><img alt="" decoding="async" ${Math.abs(list.indexOf(x) - start) < 2 ? "" : 'loading="lazy" '}src="${x.url}"></div>`).join("")}</div>`;
-  const track = d.querySelector(".lb-track"), info = d.querySelector(".lb-info"), dl = d.querySelector("[data-lb=dl]");
+  d.innerHTML = `<div class="lb-top"><button class="icon-btn" data-lb="close" aria-label="Schließen"><span class="ms">close</span></button><div class="lb-info"></div></div>
+    <div class="lb-track">${list.map((x) => `<div class="lb-slide"><img alt="" decoding="async" ${Math.abs(list.indexOf(x) - start) < 2 ? "" : 'loading="lazy" '}src="${x.url}"></div>`).join("")}</div>
+    <div class="lb-bot"><div class="vp-rx" hidden>${QUICK.map((k) => `<button data-r="${esc(k)}">${esc(k)}</button>`).join("")}</div>
+    <div class="vp-acts"><button data-lb="emo" aria-label="Reagieren"><span class="ms">add_reaction</span></button><button data-lb="reply" aria-label="Antworten"><span class="ms">reply</span></button>
+      <button data-lb="fwd" aria-label="Weiterleiten"><span class="ms">forward</span></button><a data-lb="dl" aria-label="Herunterladen" download><span class="ms">download</span></a></div></div>`;
+  const track = d.querySelector(".lb-track"), info = d.querySelector(".lb-info"), dl = d.querySelector("[data-lb=dl]"), rx = d.querySelector(".vp-rx");
   let cur_ = start;
-  const show = () => { const x = list[cur_] || {}; ovSet(x.sub || "bild"); info.innerHTML = `<b>${esc(x.who || "")}</b><small>${x.at ? `${fmtDay.format(new Date(x.at))}, ${fmtTime.format(new Date(x.at))}` : ""}${list.length > 1 ? ` · ${cur_ + 1} von ${list.length}` : ""}</small>`; dl.href = x.url; };
+  const show = () => { const x = list[cur_] || {}; ovSet(x.sub || "bild"); info.innerHTML = `<b>${esc(x.who || "")}</b><small>${x.at ? `${fmtDay.format(new Date(x.at))}, ${fmtTime.format(new Date(x.at))}` : ""}${list.length > 1 ? ` · ${cur_ + 1} von ${list.length}` : ""}</small>`; dl.href = x.url; dl.download = x.name || "bild.jpg";
+    for (const b of d.querySelectorAll("[data-lb=emo], [data-lb=reply], [data-lb=fwd]")) b.hidden = !x.m; rx.hidden = true; };
   track.addEventListener("scroll", () => { const i = Math.round(track.scrollLeft / track.clientWidth); if (i !== cur_) { cur_ = i; show(); } }, { passive: true });
   const close = (fromHistory) => { if (fromHistory !== true) ovClosed(); d.classList.add("out"); setTimeout(() => d.remove(), 180); };
-  d.addEventListener("click", (e) => { if (e.target.closest("[data-lb=close]") || e.target.classList.contains("lb-slide")) close(); });
+  d.addEventListener("click", (e) => {
+    const m = list[cur_]?.m, r = e.target.closest("[data-r]");
+    if (r && m) { toggleReaction(m, r.dataset.r); rx.hidden = true; return toast(`${r.dataset.r} gesendet`); }
+    const a = e.target.closest("[data-lb]")?.dataset.lb;
+    if (a === "emo") { rx.hidden = !rx.hidden; return; }
+    if (a === "reply" && m) { close(); return setReply(m); }
+    if (a === "fwd" && m) { close(); return forwardPick(m); }
+    if (a === "close" || e.target.classList.contains("lb-slide")) close();
+  });
   let y0 = null, dy = 0;   // nach unten wischen schließt
   d.addEventListener("touchstart", (e) => { y0 = e.touches.length === 1 ? e.touches[0].clientY : null; dy = 0; }, { passive: true });
   d.addEventListener("touchmove", (e) => { if (y0 === null) return; dy = e.touches[0].clientY - y0; if (dy > 0) { track.style.transform = `translateY(${dy}px)`; d.style.setProperty("--lbo", Math.max(.3, 1 - dy / 400)); } }, { passive: true });
@@ -885,7 +897,7 @@ function lightbox(src, items = null, start = 0) {
   track.scrollLeft = start * track.clientWidth; show();
 }
 function gallery(src) {   // alle Bilder des geladenen Chats, beim angetippten anfangen
-  const pics = S.msgs.flatMap((m) => m.deleted ? [] : m.files.filter((f) => f.kind === "image" && !f.sticker && f.src).map((f, n) => ({ src: f.src, url: mediaUrl(f), at: m.at, sub: `foto/${encodeURIComponent(m.id)}${n ? `/${n + 1}` : ""}`, who: m.mine ? "Du" : clean(m.sender) || clean(cur()?.title || "") })));
+  const pics = S.msgs.flatMap((m) => m.deleted ? [] : m.files.filter((f) => f.kind === "image" && !f.sticker && f.src).map((f, n) => ({ src: f.src, url: mediaUrl(f), at: m.at, sub: `foto/${encodeURIComponent(m.id)}${n ? `/${n + 1}` : ""}`, m, name: f.name, who: m.mine ? "Du" : clean(m.sender) || clean(cur()?.title || "") })));
   const i = pics.findIndex((p) => p.src === src);
   if (i < 0) return lightbox(mediaUrl({ src }));
   lightbox(null, pics, i);
@@ -917,6 +929,7 @@ function menu(m) {
     <div class="ctx-msg"></div>
     <div class="ctx-box">
       <button data-c="reply"><span class="ms">reply</span>Antworten</button>
+      ${m.pending ? "" : '<button data-c="info"><span class="ms">info</span>Info</button>'}
       ${m.text ? '<button data-c="copy"><span class="ms">content_copy</span>Text kopieren</button>' : ""}
       ${m.mine && m.text && !m.files.length && !m.pending && !m.deleted ? '<button data-c="edit"><span class="ms">edit</span>Bearbeiten</button>' : ""}
       ${!m.pending && !m.deleted && (m.text || m.files.length) ? '<button data-c="fwd"><span class="ms">forward</span>Weiterleiten</button>' : ""}
@@ -939,6 +952,7 @@ function menu(m) {
     if (e.target.closest(".ctx-msg")) return;
     closeMenu();
     if (c === "reply") setReply(m);
+    if (c === "info") msgInfo(m);
     if (c === "edit") setEdit(m);
     if (c === "fwd") forwardPick(m);
     if (c === "copy") navigator.clipboard?.writeText(m.text).then(() => toast("Kopiert"), () => toast("Kopieren nicht möglich"));
@@ -959,6 +973,26 @@ function menu(m) {
   }
   place();
   buzz(20);
+}
+// Nachrichten-Info: wann gesendet, über welches Netzwerk und wer sie wann gelesen hat (statt "Gelesen von …" im Chat)
+function msgInfo(m) {
+  closeMenu();
+  const at = (iso) => { const d = new Date(iso); return `${fmtDay.format(d)}, ${fmtTime.format(d)}`; };
+  const mc = cur()?.merged, via = mc ? (mc.find((x) => x.id === m.chat) || {}).network : cur()?.network;
+  const row = (av, t, sub, icon = "") => `<div class="fwd-row inf">${av}<span class="fwd-t">${t}<small>${sub}</small></span>${icon}</div>`;
+  const seen = m.read_by || [];
+  const d = document.createElement("div");
+  d.className = "ctx"; d.id = "ctx";
+  d.innerHTML = `<div class="ctx-back"></div><div class="sheet fwd gset"><div class="fwd-top"><b>Nachrichteninfo</b><button class="icon-btn" data-x="close" aria-label="Schließen"><span class="ms">close</span></button></div>
+    <div class="fwd-list">
+      ${row('<span class="av"><span class="ms">' + (m.mine ? "send" : "call_received") + "</span></span>", m.mine ? "Gesendet" : `Von ${esc(clean(m.sender) || "Unbekannt")}`, `${m.at ? esc(at(m.at)) : ""}${via ? ` · ${esc(netName(via))}` : ""}`)}
+      ${m.edited ? row('<span class="av"><span class="ms">edit</span></span>', "Bearbeitet", "") : ""}
+      ${m.mine ? `<div class="gset-h">Gelesen von${seen.length ? ` (${seen.length})` : ""}</div>
+      ${seen.length ? seen.map((r) => row(avatar(clean(r.name) || "?", cid(m), r.id), esc(clean(r.name) || "Jemand"), r.at ? esc(at(r.at)) : "Zeit unbekannt", '<span class="ms inf-ok">done_all</span>')).join("")
+        : `<div class="inf-none">${cur()?.type === "group" ? "Noch hat niemand die Nachricht gelesen." : "Noch nicht gelesen."}</div>`}` : ""}
+    </div></div>`;
+  d.addEventListener("click", (e) => { if (e.target.closest("[data-x=close]") || e.target.classList.contains("ctx-back")) closeMenu(); });
+  document.body.append(d);
 }
 async function toggleReaction(m, key) {
   const had = (m.reactions || []).find((x) => x.key === key && x.mine);
@@ -1163,6 +1197,7 @@ function chatPick({ title, verb, tail = "", skip = new Set(), multi = false, fro
 function setReply(m) {
   if (m && S.edit) setEdit(null);
   S.reply = m || null;
+  if (m?.chat && cur()?.merged?.some((x) => x.id === m.chat) && S.to !== m.chat) { S.to = m.chat; toChip(); }
   const bar = $("#replybar"); if (!bar) return;
   bar.hidden = !m;
   if (m) { bar.innerHTML = `<span class="ms">reply</span><div><b>${esc(m.mine ? "Du" : clean(m.sender))}</b>${esc((m.text || (m.files[0] ? "Anhang" : "")).slice(0, 100))}</div><button class="icon-btn" data-a="cancel" aria-label="Abbrechen"><span class="ms">close</span></button>`; $("#txt").focus(); }

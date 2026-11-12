@@ -21,13 +21,17 @@ Browser (chats.kulbarts.com, Cloudflare Access) ──> chats :8000 ──MCP─
 * **Adressen für Bild und Video:** Ein geöffnetes Bild bekommt `/chat/<id>/foto/<Nachricht>` (bei mehreren Bildern in einer Nachricht `/<Nr>`),
   ein Video `/chat/<id>/video/<Nachricht>`, ein Profilbild `…/bild`. Beim Durchwischen ändert sich die Adresse mit. Zurück (auch die Taste am Handy)
   schließt das Vollbild; Neuladen oder ein Link öffnen es wieder, sofern die Nachricht im geladenen Verlauf liegt, sonst bleibt nur der Chat offen.
+* **Vollbild-Bild:** unten dieselbe Leiste wie im Video-Player (Reagieren, Antworten, Weiterleiten, Herunterladen). Neben Bildern und Videos im Verlauf
+  gibt es keinen Download-Knopf mehr; heruntergeladen wird nur im Vollbild bzw. Video-Player.
+* **Scrollen beim Öffnen:** Der Verlauf springt ans Ende und bleibt dort, solange Bilder, Video-Vorschauen oder Schrift nachladen
+  (ResizeObserver auf die Nachrichten, `overflow-anchor: none`). Wer selbst hochscrollt, bleibt an seiner Stelle.
 * **Profilbilder:** kommen aus der REST-API von Beeper Desktop (gleiche Adresse ohne `/v0/mcp`, gleicher Token; abweichend über
   `BEEPER_API_URL`): `GET /v1/chats/{id}` liefert `imgURL` von Chat und Teilnehmern (als `file:///…` oder Windows-Pfad), die Bilder holt
   `GET /v1/assets/serve?url=…`. Der Dienst gibt sie unter `/api/v1/avatar/{chat}` (Gruppenbild bzw. andere Person) und
   `/api/v1/avatar/{chat}?user={id}` (Gruppenmitglied) aus, zwischengespeichert; ohne Bild (404) bleibt der farbige Anfangsbuchstabe.
   In Gruppen steht das Bild an der letzten Nachricht einer Folge vom selben Absender.
 * **Lesebestätigung:** Beeper liefert pro Nachricht `seen` ({Nutzer: Zeitpunkt}); die App zeigt bei eigenen Nachrichten ein Häkchen
-  (gesendet) oder zwei mintfarbene (gelesen), in Gruppen „Gelesen von …“ unter der letzten gelesenen Nachricht. Der offene Chat wird alle 4 s neu geholt.
+  (gesendet) oder zwei mintfarbene (gelesen). Wer wann gelesen hat, zeigt langes Drücken → „Info“ (nicht mehr im Verlauf). Der offene Chat wird alle 4 s neu geholt.
 * **Senden von Dateien und Sprachnachrichten:** „+“ öffnet Fotos & Videos, Kamera, Datei (auch Einfügen und Ziehen am PC); vor dem Senden
   eine Vorschau mit Bildunterschrift, bis 10 Dateien, je höchstens 95 MB (Cloudflare-Grenze). Bei leerem Feld wird aus Senden ein Mikrofon:
   Antippen nimmt auf (Wellenform, Zeit, Pause, Verwerfen, höchstens 15 Minuten). `POST /api/v1/chats/{id}/upload` lädt die Datei per
@@ -51,7 +55,7 @@ Browser (chats.kulbarts.com, Cloudflare Access) ──> chats :8000 ──MCP─
 * **Zusammenführen:** Langes Drücken auf einen Chat → „Mit anderem Chat zusammenführen“. Das passiert nur in IDA Chats (Tabelle `merges` in
   `chats.db`), Beeper bleibt unberührt. Die Gruppe heißt nach dem ersten Chat, ihre ID ist dessen ID. `GET /api/v1/chats/{gruppe}/messages` liefert
   alle Chats als einen Verlauf; jede Nachricht hat `chat` und `mid` (echte ID), `id` ist `chat~mid`, der Cursor merkt sich pro Chat den Stand.
-  Gesendet wird über den Chip im Eingabefeld (Standard: Chat der letzten eingehenden Nachricht), Antworten gehen in den Chat der zitierten Nachricht.
+  Gesendet wird über den Chip im Eingabefeld (Standard: Chat der letzten eingehenden Nachricht), Antworten gehen in den Chat der zitierten Nachricht – der Chip springt dabei auf dessen Netzwerk.
   `POST /api/v1/merges`, `DELETE /api/v1/merges/{gruppe}[?chat=…]` (ganze Gruppe bzw. einen Chat herausnehmen).
 * **Farben:** Eigene Nachrichten in der Farbe des Netzwerks; eingehende behalten die Blase, nur Akzente (Name, Zitat, Links, Sprachnachricht,
   Antwortleiste) bekommen die Netzwerkfarbe. Mehrere Konten pro Netzwerk (z. B. ein zweites, lokal verbundenes Signal) erkennt die App am Kontonamen.

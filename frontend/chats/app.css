@@ -46,7 +46,7 @@ button { cursor: pointer; font: inherit; }
 .chead .t { flex: 1; min-width: 0; }
 .chead .t b { display: block; font-weight: 500; font-size: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .chead .t small { color: var(--muted); font-size: 12px; text-transform: capitalize; }
-.msgs { flex: 1; overflow-y: auto; overflow-x: hidden; touch-action: pan-y; overscroll-behavior: contain; padding: 12px 16px; display: flex; flex-direction: column; gap: 3px; }
+.msgs { flex: 1; overflow-anchor: none; overflow-y: auto; overflow-x: hidden; touch-action: pan-y; overscroll-behavior: contain; padding: 12px 16px; display: flex; flex-direction: column; gap: 3px; }
 .day { align-self: center; font-size: 12px; color: var(--muted); background: var(--surface-high); border-radius: 12px; padding: 3px 12px; margin: 10px 0 6px; }
 .bw { display: flex; align-items: center; gap: 4px; align-self: flex-start; max-width: min(84%, 600px); }
 .bw.me { align-self: flex-end; flex-direction: row-reverse; }
@@ -177,8 +177,6 @@ a.file small { color: var(--muted); }
 .b .tm .tick { font-size: 15px; vertical-align: -3px; margin-left: 4px; opacity: .8; }
 .b .tm .tick.read { color: var(--accent); opacity: 1; }
 .b.me .tm .tick.read { color: #7dffd0; }
-.readline { display: flex; align-items: center; justify-content: flex-end; gap: 4px; margin-top: 2px; font-size: 11px; color: var(--muted); }
-.readline .ms { font-size: 14px; color: var(--accent); }
 
 /* Profilbilder */
 .av { position: relative; overflow: hidden; }
@@ -512,13 +510,16 @@ body.kb .dock .recbar { margin-bottom: 8px; }
 .lightbox { display: block; padding: 0; background: rgba(0,0,0,var(--lbo, .96)); animation: fade .18s ease-out; }
 .lightbox.out { animation: infoout .18s ease-in forwards; }
 .lb-top { position: absolute; top: 0; left: 0; right: 0; z-index: 2; display: flex; align-items: center; gap: 8px; padding: calc(env(safe-area-inset-top) + 8px) 8px 8px; background: linear-gradient(rgba(0,0,0,.6), transparent); }
+.lb-bot { position: absolute; left: 0; right: 0; bottom: 0; z-index: 2; background: linear-gradient(transparent, rgba(0,0,0,.7)); }
+.lightbox .lb-bot button, .lightbox .lb-bot a { position: static; }
+.lightbox .vp-acts [hidden] { display: none; }
 .lightbox .lb-top button, .lightbox .lb-top a { position: static; color: #fff; width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center; background: rgba(255,255,255,.12); }
 .lb-info { flex: 1; min-width: 0; display: flex; flex-direction: column; color: #fff; }
 .lb-info b { font-weight: 500; font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .lb-info small { font-size: 12px; opacity: .7; }
 .lb-track { position: absolute; inset: 0; display: flex; overflow-x: auto; scroll-snap-type: x mandatory; scrollbar-width: none; overscroll-behavior: contain; transition: transform .2s ease; }
 .lb-track::-webkit-scrollbar { display: none; }
-.lb-slide { flex: 0 0 100%; height: 100%; scroll-snap-align: center; scroll-snap-stop: always; display: grid; place-items: center; padding: 64px 8px 24px; }
+.lb-slide { flex: 0 0 100%; height: 100%; scroll-snap-align: center; scroll-snap-stop: always; display: grid; place-items: center; padding: 64px 8px calc(env(safe-area-inset-bottom) + 96px); }
 .lb-slide img { max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 12px; animation: pop .22s var(--ease-out, ease); }
 
 /* ---------------- Liste: neueste Nachricht unter dem Namen ---------------- */
@@ -555,6 +556,17 @@ body.kb .dock .recbar { margin-bottom: 8px; }
 .rqrow.me.l .rqline { width: 30px; }
 .bw.isrep { margin-top: 0; }
 [data-net]:not([data-net=""]) .rqrow .rq-b { border-color: var(--acc); color: var(--acc); }
+/* zitiertes Bild/Video: kleines Vorschaubild statt "📷 Foto" / "🎬 Video" */
+.rqrow .rq-b.th { position: relative; padding: 3px; border-radius: 16px; line-height: 0; }
+.rq-th { display: block; width: 64px; height: 64px; object-fit: cover; border-radius: 12px; background: #111; opacity: .75; }
+.rq-b.th .ms { position: absolute; inset: 0; display: grid; place-items: center; font-size: 26px; color: #fff; text-shadow: 0 1px 6px rgba(0,0,0,.7); pointer-events: none; }
+/* Bilder/Videos in Gruppen: ohne Kasten, der Name steht frei darüber */
+.b.media .who { padding: 0 6px 2px; }
+/* Nachrichteninfo (Halte-Menü → Info) */
+.sheet .fwd-row.inf { display: flex; align-items: center; gap: 14px; cursor: default; }
+.sheet .fwd-row.inf .av .ms { font-size: 20px; }
+.inf-ok { color: var(--accent); font-size: 20px !important; }
+.inf-none { padding: 6px 10px 12px; color: var(--muted); font-size: 14px; }
 
 /* ---------------- Bilder-Stapel (Album) ---------------- */
 .stackw { display: flex; align-items: center; gap: 14px; }
