@@ -541,6 +541,8 @@ body.kb .dock .recbar { margin-bottom: 8px; }
 /* Uhrzeit nur beim Wischen (bzw. am PC beim Drüberfahren), sonst unsichtbar und außerhalb */
 .bw .st { opacity: 0; left: calc(100cqw + 22px); transition: opacity .15s, translate .28s var(--ease-spring, ease); }
 .bw:not(.me) .st { translate: calc(var(--sx, 0px) * -1) -50%; }
+/* Fremde Blasen enden vor der Uhrzeit-Spalte (TS_MAX 64px − 22px Abstand + ~34px Uhrzeit), damit die eingeblendete Zeit nie verdeckt wird */
+.bw:not(.me) { max-width: min(84%, 600px, calc(100% - 52px)); }
 .bw.me .st { left: calc(100% + 22px); }
 .msgs.ts .bw .st, .msgs.tsopen .bw .st { opacity: 1; }
 @media (hover: hover) and (pointer: fine) { .bw:hover .st { opacity: 1; left: calc(100% + 8px); } .bw.me:hover .st { left: auto; right: calc(100% + 8px); } }
