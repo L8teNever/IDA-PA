@@ -328,7 +328,7 @@ body.kb .composer, body.kb .recbar { padding-bottom: 8px; }
 .gset .search { margin: 0 4px 4px; }
 .gset .av .ms { font-size: 20px; }
 .gset .netdot { flex: none; width: 40px; height: 40px; border-radius: 50%; background: var(--nb, var(--surface-high)); }
-.chead .t[data-a=gset] { cursor: pointer; }
+
 
 /* ---------------- Zusammengeführte Chats: "Senden an …" wie in Beeper ---------------- */
 .inwrap { flex: 1; min-width: 0; display: flex; align-items: flex-end; background: var(--surface-high); border-radius: 24px; }
@@ -354,3 +354,74 @@ body.kb .composer, body.kb .recbar { padding-bottom: 8px; }
 .to-ok { color: var(--accent); font-size: 28px; font-variation-settings: "FILL" 1; animation: pop .18s ease-out; }
 .to-set { align-self: center; border: 0; background: none; color: var(--muted); font: inherit; font-size: 13px; display: flex; align-items: center; gap: 6px; padding: 6px 10px; border-radius: 14px; cursor: pointer; }
 .to-set .ms { font-size: 18px; }
+
+/* ---------------- Info-Seite (Tipp auf den Chat-Kopf) ---------------- */
+.chead .cinfo { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; cursor: pointer; border-radius: 22px; padding: 2px 6px 2px 2px; margin-left: -2px; transition: background-color .15s; }
+.chead .cinfo:active { background: var(--surface-high); }
+.conv { position: relative; }
+.info { position: absolute; inset: 0; z-index: 20; display: flex; flex-direction: column; background: var(--surface, #000); animation: pagein .26s var(--ease-out, ease); }
+.info.out { animation: infoout .2s ease-in forwards; }
+@keyframes infoout { to { opacity: 0; transform: translateX(28px); } }
+.ihead { display: flex; align-items: center; gap: 8px; padding: calc(env(safe-area-inset-top) + 10px) 12px 8px 8px; }
+.ihead b { font-weight: 500; font-size: 18px; }
+.ibody { flex: 1; overflow-y: auto; overscroll-behavior: contain; padding: 0 12px calc(env(safe-area-inset-bottom) + 24px); display: flex; flex-direction: column; gap: 12px; max-width: 640px; width: 100%; margin: 0 auto; }
+.ihero { display: flex; flex-direction: column; align-items: center; text-align: center; padding: 8px 0 4px; }
+.ihero > .av { width: 120px; height: 120px; font-size: 44px; animation: pop .3s var(--ease-spring, ease-out); }
+.ihero h2 { margin: 14px 0 2px; font-size: 24px; font-weight: 500; }
+.ihero p { margin: 0; color: var(--muted); font-size: 15px; }
+.iacts { display: flex; gap: 10px; margin-top: 18px; width: 100%; justify-content: center; }
+.iacts > * { flex: 1; max-width: 104px; display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 12px 6px; border: 1px solid var(--line); border-radius: 18px; background: none;
+  color: var(--accent); font: inherit; font-size: 13px; text-decoration: none; cursor: pointer; transition: background-color .15s, transform .12s var(--ease-out, ease); }
+.iacts > *:active { transform: scale(.95); background: var(--surface-high); }
+.iacts .ms { font-size: 24px; }
+.icard { background: var(--surface-high); border-radius: 22px; padding: 12px 8px; display: flex; flex-direction: column; gap: 2px; animation: slideup .28s var(--ease-out, ease) both; }
+.icard > small, .ich small { color: var(--muted); font-size: 13px; padding: 0 8px 6px; }
+.ich { display: flex; justify-content: space-between; }
+.idesc { padding: 0 8px; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.4; }
+.ierr { flex-direction: row; align-items: center; gap: 10px; padding: 14px 16px; color: var(--muted); }
+.igrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; padding: 0 4px; }
+.ithumb { position: relative; aspect-ratio: 1; border: 0; padding: 0; border-radius: 12px; overflow: hidden; background: var(--surface-highest); cursor: pointer; }
+.ithumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.ithumb .ms { position: absolute; inset: 0; margin: auto; width: max-content; height: max-content; color: #fff; font-size: 30px; text-shadow: 0 1px 6px rgba(0,0,0,.6); }
+.ihint { margin: 6px 8px 0; font-size: 12px; color: var(--muted); }
+.irow, .iperson { display: flex; align-items: center; gap: 16px; width: 100%; min-height: 56px; padding: 6px 8px; border: 0; border-radius: 16px; background: none; color: var(--on-surface); font: inherit; text-align: left; }
+.irow { cursor: pointer; transition: background-color .12s; }
+.irow:hover, .irow:active { background: var(--surface-highest); }
+.irow > .ms { width: 40px; text-align: center; color: var(--muted); font-size: 24px; }
+.irow.danger, .irow.danger > .ms { color: #ff6b6b; }
+.it { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.it b { font-weight: 400; font-size: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.it small { color: var(--muted); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.iperson > .av { width: 44px; height: 44px; }
+.iadm { flex: none; font-size: 12px; color: var(--accent); border: 1px solid color-mix(in srgb, var(--accent) 50%, transparent); border-radius: 10px; padding: 2px 8px; }
+
+/* ---------------- Schwebender Kopf und schwebende Eingabe: der Chat läuft dahinter durch ---------------- */
+.conv .float, .conv .composer .attach, .conv .composer .inwrap, .conv .composer .send.mic, .conv .recbar {
+  background: color-mix(in srgb, var(--surface-high) 82%, transparent); -webkit-backdrop-filter: blur(16px) saturate(1.2); backdrop-filter: blur(16px) saturate(1.2);
+  box-shadow: 0 4px 18px rgba(0,0,0,.35), inset 0 0 0 1px color-mix(in srgb, var(--on-surface) 7%, transparent); }
+.chead { position: absolute; top: 0; left: 0; right: 0; z-index: 5; border-bottom: 0; padding: calc(env(safe-area-inset-top) + 8px) 10px 8px; gap: 8px; pointer-events: none;
+  background: linear-gradient(to bottom, color-mix(in srgb, var(--surface) 70%, transparent), transparent); }
+.chead > * { pointer-events: auto; }
+.chead .back.float { width: 48px; height: 48px; border-radius: 50%; flex: none; }
+.chead .cinfo.float { flex: 0 1 auto; max-width: calc(100% - 60px); height: 48px; border-radius: 24px; padding: 4px 18px 4px 4px; margin: 0; gap: 10px; }
+.chead .cinfo .av { width: 40px; height: 40px; }
+.chead .cinfo .t { flex: 0 1 auto; min-width: 0; }
+.chead .cinfo .t b { line-height: 1.2; }
+.chead .cinfo .t small { display: block; line-height: 1.2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.readbar { position: absolute; z-index: 4; top: calc(env(safe-area-inset-top) + 66px); left: 50%; transform: translateX(-50%); width: max-content; max-width: calc(100% - 24px);
+  border: 0; border-radius: 999px; padding: 6px 6px 6px 14px; background: color-mix(in srgb, var(--surface-high) 82%, transparent); -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px);
+  box-shadow: 0 4px 18px rgba(0,0,0,.35); animation: slideup .22s var(--ease-out, ease); }
+.msgs { padding-top: calc(env(safe-area-inset-top) + 72px); padding-bottom: calc(var(--dockh, 76px) + 8px); }
+.dock { position: absolute; left: 0; right: 0; bottom: 0; z-index: 5; pointer-events: none; display: flex; flex-direction: column; gap: 6px;
+  background: linear-gradient(to top, color-mix(in srgb, var(--surface) 60%, transparent), transparent); }
+.dock > * { pointer-events: auto; }
+.dock .composer { border-top: 0; padding: 4px 10px calc(env(safe-area-inset-bottom) + 10px); align-items: flex-end; }
+.conv .composer .attach { width: 48px; height: 48px; border-radius: 50%; }
+.conv .composer .inwrap { border-radius: 24px; min-height: 48px; }
+.dock .replybar { margin: 0 10px; border: 0; border-radius: 20px; padding: 8px 8px 8px 14px; }
+.dock .recbar { margin: 0 10px calc(env(safe-area-inset-bottom) + 10px); border: 0; border-radius: 26px; padding: 6px 6px 6px 10px; }
+body.kb .dock .composer { padding-bottom: 8px; }
+body.kb .dock .recbar { margin-bottom: 8px; }
+.dock .topanel { padding: 4px 10px 0; }
+.dock .to-h { color: var(--on-surface); text-shadow: 0 1px 4px rgba(0,0,0,.6); }
+.dock .to-card { box-shadow: 0 4px 18px rgba(0,0,0,.35); }

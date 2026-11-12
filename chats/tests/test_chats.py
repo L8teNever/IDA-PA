@@ -222,3 +222,20 @@ def test_merge_combines_chats(client, monkeypatch):
     assert (g["name"], g["avatar"], g["send"]) == ("Arne", "b", "b")
     client.delete("/api/v1/merges/a", params={"chat": "b"})
     assert store.groups() == {}
+
+
+def test_about(client, monkeypatch):
+    from app import api
+
+    class R:
+        status_code = 200
+        def json(self):
+            return {"title": "Luka", "network": "WhatsApp", "description": "<p>Hey</p>", "type": "single", "isMuted": True,
+                    "participants": {"items": [{"id": "u1", "fullName": "Luka", "phoneNumber": "+49 1", "imgURL": "file:///x"}, {"id": "me", "isSelf": True}], "total": 2}}
+
+    async def fake(path, **kw):
+        return R()
+    monkeypatch.setattr(api, "rest_get", fake)
+    d = client.get("/api/v1/chats/7/about").json()["chats"][0]
+    assert (d["description"], d["muted"], d["total"]) == ("Hey", True, 2)
+    assert d["people"][0]["phone"] == "+49 1" and "img" not in d["people"][0]

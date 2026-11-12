@@ -791,6 +791,33 @@ async def forward(chat_id: str, body: Forward):
     return {"ok": True}
 
 
+# ---------------- Info-Seite (wie "Kontaktinfo" bei WhatsApp) ----------------
+async def about_one(chat_id: str) -> dict:
+    r = await rest_get(f"/v1/chats/{quote(chat_id, safe='')}")
+    if r.status_code != 200:
+        raise HTTPException(404 if r.status_code == 404 else 502, "Chat nicht gefunden")
+    d = r.json()
+    people = [{"id": p["id"], "name": (p.get("fullName") or "").strip(), "phone": p.get("phoneNumber") or "", "username": p.get("username") or "",
+               "email": p.get("email") or "", "admin": bool(p.get("isAdmin")), "self": bool(p.get("isSelf")), "bot": bool(p.get("isNetworkBot"))}
+              for p in (d.get("participants") or {}).get("items", []) if isinstance(p, dict) and p.get("id")]
+    return {"id": chat_id, "title": (d.get("title") or "").strip(), "network": d.get("network") or d.get("accountID") or "",
+            "description": plain(d.get("description") or "")[:2000], "type": d.get("type") or "", "muted": bool(d.get("isMuted")),
+            "archived": bool(d.get("isArchived")), "pinned": bool(d.get("isPinned")), "expiry": d.get("messageExpirySeconds") or 0,
+            "total": int((d.get("participants") or {}).get("total") or len(people)), "people": people[:300]}
+
+
+@router.get("/chats/{chat_id}/about")
+async def about(chat_id: str):
+    """Kontakt- bzw. Gruppeninfo; bei zusammengeführten Chats eine Info pro Chat."""
+    check_ids(chat_id)
+    ids = group_members(chat_id) or [chat_id]
+    got = await asyncio.gather(*(about_one(c) for c in ids), return_exceptions=True)
+    chats = [g for g in got if isinstance(g, dict)]
+    if not chats:
+        raise HTTPException(502, "Beeper: Info nicht lesbar")
+    return {"chats": chats}
+
+
 @router.get("/avatar/{chat_id}")
 async def avatar(chat_id: str, user: str = ""):
     """Profilbild eines Chats (Gruppenbild bzw. Bild der anderen Person) oder – mit user – eines Gruppenmitglieds."""

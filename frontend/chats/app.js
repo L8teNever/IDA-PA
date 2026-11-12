@@ -257,6 +257,81 @@ function groupSettings(c) {
   });
   document.body.append(d);
 }
+// ---------------- Info-Seite: Tipp auf den Chat-Kopf (wie "Kontaktinfo" bei WhatsApp) ----------------
+const ABOUT = new Map();   // pro Chat kurz gemerkt, damit die Seite beim zweiten Öffnen sofort da ist
+function closeInfo() {
+  const el = $("#info"); if (!el) return;
+  el.classList.add("out"); setTimeout(() => el.remove(), 200);
+}
+async function openInfo() {
+  const c = cur(); if (!c || $("#info")) return;
+  const el = document.createElement("div");
+  el.className = "info"; el.id = "info";
+  $("#conv").append(el);
+  const draw = (d) => { if (el.isConnected) el.innerHTML = infoHtml(c, d); };
+  const hit = ABOUT.get(c.id);
+  draw(hit?.d || null);
+  if (hit && Date.now() - hit.t < 60000) return;
+  try { const d = await api(`/chats/${encodeURIComponent(c.id)}/about`); ABOUT.set(c.id, { t: Date.now(), d }); draw(d); }
+  catch (e) { if (!hit) draw({ error: e.message }); }
+}
+function infoHtml(c, d) {
+  const title = clean(c.title || "Chat"), chats = d?.chats || [], one = chats[0];
+  const other = (x) => (x?.people || []).find((p) => !p.self && !p.bot);
+  const isGroup = c.type === "group";
+  const phone = !isGroup && !c.merged ? other(one)?.phone : "";
+  const media = S.msgs.flatMap((m) => m.deleted ? [] : m.files.filter((f) => f.kind === "image" || f.kind === "video")).slice(-60).reverse();
+  const nLinks = S.msgs.reduce((a, m) => a + (m.deleted ? 0 : (m.links?.length || (/https?:\/\//.test(m.text || "") ? 1 : 0))), 0);
+  const nFiles = S.msgs.reduce((a, m) => a + (m.deleted ? 0 : m.files.filter((f) => f.kind === "file" || f.kind === "audio").length), 0);
+  const pinned = PINS.some((p) => p.id === c.id);
+  const sub = c.merged ? c.merged.map((x) => netName(x.network)).join(" · ") : isGroup ? `Gruppe · ${one ? one.total : "…"} Mitglieder` : phone || netName(c.network);
+  const row = (icon, main, small = "", attrs = "") => `<button class="irow" ${attrs}><span class="ms">${icon}</span><span class="it"><b>${main}</b>${small ? `<small>${small}</small>` : ""}</span></button>`;
+  const desc = chats.map((x) => x.description).find(Boolean);
+  const expiry = chats.map((x) => x.expiry).find(Boolean);
+  const per = (sec) => sec >= 86400 ? `${Math.round(sec / 86400)} Tag${sec >= 172800 ? "e" : ""}` : sec >= 3600 ? `${Math.round(sec / 3600)} Std.` : `${Math.round(sec / 60)} Min.`;
+  return `<div class="ihead"><button class="icon-btn" data-i="close" aria-label="Zurück"><span class="ms">arrow_back</span></button><b>${isGroup ? "Gruppeninfo" : "Kontaktinfo"}</b></div>
+  <div class="ibody">
+    <div class="ihero">${avatar(title, c.av || c.id)}<h2>${esc(title)}</h2><p>${esc(sub)}</p>
+      <div class="iacts">
+        <button data-i="chat"><span class="ms">chat</span>Chat</button>
+        <button data-i="pin"><span class="ms">push_pin</span>${pinned ? "Gelöst" : "Anpinnen"}</button>
+        <button data-i="search"><span class="ms">search</span>Suchen</button>
+        ${phone ? `<a href="tel:${esc(phone.replace(/[^\d+]/g, ""))}"><span class="ms">call</span>Anrufen</a>` : ""}
+      </div></div>
+    ${d?.error ? `<div class="icard ierr"><span class="ms">cloud_off</span>${esc(d.error)}</div>` : ""}
+    ${desc ? `<div class="icard"><small>${isGroup ? "Beschreibung" : "Info"}</small><div class="idesc">${autolink(esc(desc))}</div></div>` : ""}
+    ${media.length || nLinks || nFiles ? `<div class="icard"><div class="ich"><small>Medien, Links und Dateien</small><small>${media.length} · ${nLinks} · ${nFiles}</small></div>
+      ${media.length ? `<div class="igrid">${media.slice(0, 9).map((f) => `<button class="ithumb" data-i="media" data-src="${esc(f.src || "")}" data-kind="${f.kind}">${f.kind === "image" ? `<img loading="lazy" alt="" src="${mediaUrl(f)}">` : f.poster ? `<img loading="lazy" alt="" src="${mediaUrl({ src: f.poster })}">` : ""}${f.kind === "video" ? '<span class="ms">play_circle</span>' : ""}</button>`).join("")}</div>` : ""}
+      <p class="ihint">Aus den geladenen Nachrichten</p></div>` : ""}
+    ${c.merged ? `<div class="icard"><small>Zusammengeführte Chats</small>${c.merged.map((x) => { const a = chats.find((y) => y.id === x.id), p = other(a);
+        return `<div class="iperson">${netAv(x, true)}<span class="it"><b>${esc(clean(x.title))}</b><small>${esc([netName(x.network), p?.phone, p?.username && "@" + p.username].filter(Boolean).join(" · "))}</small></span></div>`; }).join("")}
+      ${row("tune", "Name, Profilbild, Standard", "", 'data-i="gset"')}</div>` : ""}
+    ${isGroup && one ? `<div class="icard"><div class="ich"><small>${one.total} Mitglieder</small></div>${one.people.filter((p) => !p.bot).sort((a, b) => (b.self - a.self) || (b.admin - a.admin) || a.name.localeCompare(b.name)).map((p) =>
+        `<div class="iperson">${avatar(clean(p.name), c.id, p.id)}<span class="it"><b>${p.self ? "Du" : esc(clean(p.name) || "Unbekannt")}</b><small>${esc([p.phone, p.username && "@" + p.username].filter(Boolean).join(" · "))}</small></span>${p.admin ? '<span class="iadm">Admin</span>' : ""}</div>`).join("")}</div>` : ""}
+    ${!isGroup && !c.merged && other(one) && (other(one).username || other(one).email) ? `<div class="icard">${other(one).username ? row("alternate_email", esc(other(one).username), "Benutzername") : ""}${other(one).email ? row("mail", esc(other(one).email), "E-Mail") : ""}</div>` : ""}
+    <div class="icard">
+      ${expiry ? row("timer", "Selbstlöschende Nachrichten", `Nach ${per(expiry)}`) : ""}
+      ${chats.some((x) => x.muted) ? row("notifications_off", "Stummgeschaltet", "In Beeper") : ""}
+      ${left(c) ? row("done_all", "Als gelesen markieren", "", 'data-i="read"') : row("mark_chat_unread", "Als ungelesen markieren", "", 'data-i="unread"')}
+      ${row("call_merge", "Mit anderem Chat zusammenführen", "", 'data-i="merge"')}
+      ${c.merged ? `<button class="irow danger" data-i="split"><span class="ms">call_split</span><span class="it"><b>Zusammenführung aufheben</b></span></button>` : ""}
+    </div>
+  </div>`;
+}
+document.addEventListener("click", (e) => {
+  const a = e.target.closest("#info [data-i]")?.dataset.i; if (!a) return;
+  const c = cur(); if (!c) return;
+  if (a === "close" || a === "chat") return closeInfo();
+  if (a === "pin") { togglePin(c); setTimeout(() => { const el = $("#info"); if (el) el.innerHTML = infoHtml(cur(), ABOUT.get(c.id)?.d); }, 50); return; }
+  if (a === "search") { closeInfo(); return toast("Suche im Chat gibt es noch nicht"); }
+  if (a === "media") { const t = e.target.closest("[data-src]"); if (t.dataset.kind === "image") return lightbox(mediaUrl({ src: t.dataset.src })); closeInfo(); const el = [...document.querySelectorAll("#msgs .vid")].find((v) => v.dataset.src === t.dataset.src); el?.scrollIntoView({ block: "center" }); return; }
+  if (a === "gset") return groupSettings(c);
+  if (a === "read") { markRead(c); return closeInfo(); }
+  if (a === "unread") { markUnread(c); return closeInfo(); }
+  if (a === "merge") return chatPick({ title: `${clean(c.title)} zusammenführen mit`, verb: "Zusammenführen", multi: true, skip: new Set((c.merged || [c]).map((x) => x.id)) }, (to) => { closeInfo(); doMerge(c, to); });
+  if (a === "split") { closeInfo(); return unMerge(grpOf(c.id)); }
+});
+document.addEventListener("keydown", (e) => { if (e.key === "Escape" && $("#info") && !$("#ctx")) closeInfo(); });
 function rowMenu(c) {
   closeMenu();
   const on = PINS.some((p) => p.id === c.id), d = document.createElement("div");
@@ -379,9 +454,8 @@ function toMenu() {
 document.addEventListener("pointerdown", (e) => { if ($("#topanel") && !e.target.closest("#topanel, #toBtn")) closeTo(); }, true);
 function head() {
   const c = cur(), title = clean(c?.title || "Chat");
-  return `<div class="chead"><button class="icon-btn back" data-a="back" aria-label="Zurück"><span class="ms">arrow_back</span></button>${avatar(title, c?.av || S.id)}
-    <div class="t"${c?.merged ? ' data-a="gset" role="button" title="Name, Profilbild, Standard"' : ""}><b>${esc(title)}</b><small>${esc(c?.network || "")}${c?.type === "group" ? " · Gruppe" : ""}</small></div>
-    <button class="icon-btn" id="unseenBtn" data-a="unseen" aria-label="Als ungelesen markieren" title="Als ungelesen markieren"${left(c) ? " hidden" : ""}><span class="ms">mark_chat_unread</span></button></div>`;
+  return `<div class="chead"><button class="icon-btn back float" data-a="back" aria-label="Zurück"><span class="ms">arrow_back</span></button><div class="cinfo float" data-a="info" role="button" title="Info anzeigen">${avatar(title, c?.av || S.id)}
+    <div class="t"><b>${esc(title)}</b><small>${esc(c?.network || "")}${c?.type === "group" ? " · Gruppe" : ""}</small></div></div></div>`;
 }
 function readBar(c) {
   return left(c) ? `<div class="readbar" id="readbar"><span class="ms">visibility_off</span><div>${c.unread} ungelesen</div><button class="chip" data-a="seen">Als gelesen markieren</button></div>` : "";
@@ -394,7 +468,7 @@ function refreshReadBar() {
 }
 async function openChat() {
   $("#conv").innerHTML = `${head()}${readBar(cur())}<div class="msgs" id="msgs"><div class="skel"></div><div class="skel"></div></div>
-    <div class="replybar" id="replybar" hidden></div><form class="composer" id="form">
+    <div class="dock" id="dock"><div class="replybar float" id="replybar" hidden></div><form class="composer" id="form">
     <button class="icon-btn attach" id="attachBtn" type="button" aria-label="Anhängen" title="Foto, Video oder Datei"><span class="ms">add</span></button>
     <div class="inwrap"><button class="tochip" id="toBtn" type="button" aria-label="Senden an …" hidden></button>
     <textarea id="txt" rows="1" placeholder="Nachricht" enterkeyhint="send"></textarea></div>
@@ -402,7 +476,10 @@ async function openChat() {
     <div class="recbar" id="recbar" hidden><button class="icon-btn" type="button" data-rec="cancel" aria-label="Verwerfen"><span class="ms">delete</span></button>
       <span class="recdot"></span><span class="rectime" id="rectime">0:00</span><div class="recwave" id="recwave"></div>
       <button class="icon-btn" type="button" data-rec="pause" aria-label="Pause"><span class="ms">pause</span></button>
-      <button class="send" type="button" data-rec="send" aria-label="Sprachnachricht senden"><span class="ms">send</span></button></div>`;
+      <button class="send" type="button" data-rec="send" aria-label="Sprachnachricht senden"><span class="ms">send</span></button></div></div>`;
+  // Kopf und Eingabe schweben über dem Verlauf: der Verlauf bekommt oben/unten so viel Platz, wie sie gerade hoch sind
+  const ro = new ResizeObserver(() => { const cv = $("#conv"), d = $("#dock"); if (cv && d) { cv.style.setProperty("--dockh", `${d.offsetHeight}px`); const b = $("#msgs"); if (b && atBottom) b.scrollTop = b.scrollHeight; } });
+  ro.observe($("#dock"));
   const ta = $("#txt");
   ta.addEventListener("input", () => { ta.style.height = "auto"; ta.style.height = `${Math.min(ta.scrollHeight, 140)}px`; sendMode(); });
   ta.addEventListener("paste", (e) => { const f = [...(e.clipboardData?.files || [])]; if (f.length) { e.preventDefault(); pickFiles(f); } });
@@ -540,6 +617,7 @@ $("#conv").addEventListener("click", (e) => {
   if (!a) return;
   if (a.dataset.a === "back") return back();
   if (a.dataset.a === "gset") return groupSettings(cur());
+  if (a.dataset.a === "info") return openInfo();
   if (a.dataset.a === "older") return loadMsgs({ older: true });
   if (a.dataset.a === "reply") return setReply(S.msgs.find((m) => m.id === a.dataset.id));
   if (a.dataset.a === "seen") return markRead(cur());
