@@ -553,7 +553,6 @@ function drawList() {
   const pinGrp = new Set(pinned.map((c) => c.id));
   const rest = collapse(showPins ? S.chats.filter((c) => !pinIds.has(c.id)) : S.chats).filter((c) => !pinGrp.has(c.id));
   const n = [...pinned, ...rest].reduce((a, c) => a + left(c), 0);
-  $("#sub").textContent = n ? `${n} ungelesen` : "aus Beeper";
   document.title = n ? `(${n}) Chats` : "Chats";
   if (navigator.setAppBadge) (n ? navigator.setAppBadge(n) : navigator.clearAppBadge()).catch(() => {});
   if (!S.chats.length && !pinned.length) { $("#list").innerHTML = `<div class="empty"><span class="ms">${S.q ? "search_off" : "forum"}</span>${S.q ? "Nichts gefunden." : "Keine Chats."}</div>`; return; }
