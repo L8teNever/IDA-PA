@@ -1,6 +1,7 @@
 """Schnittstelle der Chats-App: übersetzt die Beeper-Tools (MCP) für die Oberfläche."""
 import asyncio
 import base64
+import difflib
 import html
 import json
 import re
@@ -398,25 +399,83 @@ class Fix(BaseModel):
 
 
 _fix: httpx.AsyncClient | None = None
+_engine = {"v": "haiku", "t": 0.0}
+
+
+async def fix_engine() -> str:
+    """Welche Engine zuerst fragt (Einstellung in IDA: haiku oder t5); 30 s gemerkt."""
+    url = get_settings().ida_url.rstrip("/")
+    if not url:
+        return "t5"
+    if time.time() - _engine["t"] > 30:
+        _engine["t"] = time.time()
+        try:
+            r = await _fix.get(f"{url}/api/v1/korrektur/settings", timeout=5)
+            if r.status_code == 200:
+                _engine["v"] = r.json().get("engine", "haiku")
+        except httpx.HTTPError:
+            pass
+    return _engine["v"]
+
+
+def word_parts(old: str, new: str) -> list[dict]:
+    """Geänderte Wörter markieren (wie der T5-Dienst: [{t, neu}])."""
+    a, b = re.split(r"(\s+)", old), re.split(r"(\s+)", new)
+    out: list[dict] = []
+    for op, i1, i2, j1, j2 in difflib.SequenceMatcher(None, a, b, autojunk=False).get_opcodes():
+        t, neu = "".join(b[j1:j2]), op != "equal"
+        if t:
+            out.append({"t": t, "neu": neu})
+    return out
+
+
+async def fix_haiku(text: str) -> dict | None:
+    url = get_settings().ida_url.rstrip("/")
+    if not url:
+        return None
+    try:
+        r = await _fix.post(f"{url}/api/v1/korrektur/haiku", json={"text": text}, timeout=30)
+        d = r.json() if r.status_code == 200 else {}
+    except (httpx.HTTPError, ValueError):
+        return None
+    new = (d.get("text") or "").strip()
+    # Nur Tippfehler: ändert Haiku den Text stark (anderes Wort, Satz umgebaut), geht kein Vorschlag raus
+    if not d.get("ok") or not new or difflib.SequenceMatcher(None, text, new, autojunk=False).ratio() < 0.75:
+        return None
+    return {"changed": new != text, "text": new, "parts": word_parts(text, new), "engine": "haiku"}
+
+
+async def fix_t5(text: str) -> dict | None:
+    url = get_settings().korrektur_url.rstrip("/")
+    if not url:
+        return None
+    try:
+        r = await _fix.post(f"{url}/api/v1/korrigieren", json={"text": text})
+    except httpx.HTTPError:
+        return None
+    if r.status_code != 200:
+        return None
+    d = r.json()
+    return {"changed": bool(d.get("changed")), "text": d.get("text", ""), "parts": d.get("parts", []), "engine": "t5"}
 
 
 @router.post("/korrektur")
 async def korrektur(body: Fix):
-    """Tippfehler-Vorschlag vom Dienst "korrektur". Ist er aus, nicht erreichbar oder lädt noch: einfach kein Vorschlag."""
+    """Tippfehler-Vorschlag: die in IDA gewählte Engine zuerst (Haiku oder lokales T5), bei Fehler/Limit die andere. Nichts erreichbar: kein Vorschlag."""
     global _fix
-    url = get_settings().korrektur_url.rstrip("/")
-    if not url or not body.text.strip():
+    if not body.text.strip():
         return {"changed": False}
     if _fix is None:
         _fix = httpx.AsyncClient(timeout=20)
-    try:
-        r = await _fix.post(f"{url}/api/v1/korrigieren", json={"text": body.text})
-    except httpx.HTTPError:
+    eng = await fix_engine()
+    if eng == "aus":
         return {"changed": False}
-    if r.status_code != 200:
-        return {"changed": False}
-    d = r.json()
-    return {"changed": bool(d.get("changed")), "text": d.get("text", ""), "parts": d.get("parts", [])}
+    order = (fix_haiku, fix_t5) if eng == "haiku" else (fix_t5, fix_haiku)
+    for f in order:
+        d = await f(body.text)
+        if d is not None:
+            return d
+    return {"changed": False}
 
 
 def is_local(src: str) -> bool:

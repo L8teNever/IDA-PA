@@ -22,3 +22,9 @@ nichts geht nach außen (nur beim ersten Start lädt er das Modell von Hugging F
 ## Einstellungen
 
 `KORREKTUR_THREADS` (Standard 4), `KORREKTUR_MEM` (Speichergrenze, Standard 3g), `KORREKTUR_MAX_CHARS` (1500), `KORREKTUR_MODEL`.
+
+## Engine wählen: Claude Haiku oder lokales T5
+
+Einstellungen → **Tippfehler** in IDA. Standard ist Claude Haiku (`CHEAP_MODEL`, über die Claude-Accounts; ist einer am Limit, kommt der nächste dran).
+`chats` fragt IDA intern (`IDA_URL`, im Compose `http://app:8000`) und nimmt bei Fehler oder Limit aller Accounts das T5-Modell (und umgekehrt, wenn T5 gewählt ist).
+„Aus“ schaltet die Vorschläge ganz ab. Haiku-Vorschläge werden verworfen, wenn sie den Text stark umbauen (Ähnlichkeit unter 75 %). Haiku läuft über die Claude-CLI und braucht einige Sekunden.
