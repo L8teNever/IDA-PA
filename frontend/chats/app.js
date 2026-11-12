@@ -1149,9 +1149,17 @@ function menu(m) {
   document.body.append(d);
   src.closest(".bw").classList.add("lifted");
   const stack = d.querySelector(".ctx-stack");
+  const box = stack.querySelector(".ctx-msg");
+  // Lange Nachrichten: die Blase bekommt so viel Höhe wie neben Reaktionen und Aktionen frei ist und scrollt darin
+  const fade = () => box.classList.toggle("more", box.scrollHeight - box.scrollTop - box.clientHeight > 4);
+  box.addEventListener("scroll", fade, { passive: true });
   function place() {   // so nah wie möglich an der echten Stelle, aber ganz im Bild
+    const sat = parseFloat(getComputedStyle(document.body).getPropertyValue("--sat")) || 0;
+    box.style.maxHeight = "none";
+    box.style.maxHeight = `${Math.max(140, innerHeight - 24 - sat - (stack.offsetHeight - box.offsetHeight) - 8)}px`;
+    fade();
     const h = stack.offsetHeight, w = stack.offsetWidth, top0 = r.top - (stack.querySelector(".ctx-msg").offsetTop);
-    const top = Math.max(12 + (parseFloat(getComputedStyle(document.body).getPropertyValue("--sat")) || 0), Math.min(top0, innerHeight - h - 12));
+    const top = Math.max(12 + sat, Math.min(top0, innerHeight - h - 12));
     const left = m.mine ? Math.min(r.right, innerWidth - 8) - w : Math.max(8, r.left);
     stack.style.top = `${top}px`; stack.style.left = `${Math.max(8, Math.min(left, innerWidth - w - 8))}px`;
   }
