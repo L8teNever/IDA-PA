@@ -88,8 +88,18 @@ def reactions(m: dict) -> list[dict]:
     return list(out.values())
 
 
-def message(m: dict) -> dict:
+def seen_by(m: dict, me: set[str], names: dict[str, str]) -> list[dict]:
+    """Wer hat meine Nachricht gelesen? Beeper liefert pro Nachricht {Nutzer-ID: Zeitpunkt} (ohne mich selbst)."""
+    s = m.get("seen")
+    if not m.get("isSender") or not isinstance(s, dict):
+        return []
+    return sorted(({"id": u, "name": names.get(u, ""), "at": t if isinstance(t, str) else None}
+                   for u, t in s.items() if u not in me and t), key=lambda x: x["at"] or "")
+
+
+def message(m: dict, me: set[str] | None = None, names: dict[str, str] | None = None) -> dict:
     return {
+        "read_by": seen_by(m, me or set(), names or {}),
         "id": m.get("id"), "at": m.get("timestamp"), "mine": bool(m.get("isSender")), "sender": m.get("senderName") or "",
         "type": (m.get("type") or "TEXT").upper(), "text": m.get("text") or "", "deleted": bool(m.get("isDeleted")),
         "reply_to": m.get("linkedMessageID") or None, "reactions": reactions(m),
@@ -125,7 +135,10 @@ async def messages(chat_id: str, cursor: str = "", direction: str = "before"):
         d = json.loads(await call(beeper().text, "list_messages", args))
     except ValueError as e:
         raise HTTPException(502, "Beeper: unerwartete Antwort") from e
-    items = [message(m) for m in d.get("items", [])]
+    raw = d.get("items", [])
+    me = {m["senderID"] for m in raw if m.get("isSender") and m.get("senderID")}
+    names = {m["senderID"]: m["senderName"] for m in raw if m.get("senderID") and m.get("senderName") and not m.get("isSender")}
+    items = [message(m, me, names) for m in raw]
     items.reverse()   # Beeper liefert neueste zuerst; die Seite will alt → neu
     return {"items": items, "more": bool(d.get("hasMore")), "oldest": d.get("oldestCursor"), "newest": d.get("newestCursor")}
 

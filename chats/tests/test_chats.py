@@ -22,6 +22,9 @@ def test_nachrichten(client, fake):
     assert v["files"][0]["transcript"] == "Hallo Mama" and "encryptedFileInfoJSON" in v["files"][0]["src"]
     assert v["reactions"] == [{"key": "👍", "n": 2, "mine": True}]
     assert d["items"][0]["files"][0]["kind"] == "image"
+    # Lesebestätigung: nur bei meinen Nachrichten, ohne mich selbst, mit Namen wo bekannt
+    assert d["items"][0]["read_by"] == [{"id": "@luka:x", "name": "Luka", "at": "2026-11-12T10:39:30Z"}, {"id": "@anna:x", "name": "", "at": "2026-11-12T10:39:45Z"}]
+    assert d["items"][1]["read_by"] == []
     client.get(f"{API}/chats/1/messages", params={"cursor": "8"})
     assert fake.last("list_messages") == {"chatID": "1", "cursor": "8", "direction": "before"}
 

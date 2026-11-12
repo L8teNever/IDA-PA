@@ -148,8 +148,11 @@ async function loadMsgs({ first = false, quiet = false, older = false } = {}) {
     const box = $("#msgs"), atEnd = !box || box.scrollHeight - box.scrollTop - box.clientHeight < 120;
     const keep = new Map(S.msgs.map((m) => [m.id, m]));
     for (const m of d.items) keep.set(m.id, m);
+    const sig = (l) => l.map((m) => `${m.id}|${(m.read_by || []).length}|${(m.reactions || []).map((r) => r.key + r.n).join()}|${m.deleted}|${m.pending ? 1 : 0}`).join(";");
+    const before = sig(S.msgs);
     S.msgs = [...keep.values()].filter((m) => !m.pending || !d.items.some((x) => x.mine && x.text === m.text)).sort((a, b) => (a.at || "").localeCompare(b.at || ""));
     if (!older) { S.more = d.more; S.oldest = d.oldest; } else { S.more = d.more; S.oldest = d.oldest; }
+    if (quiet && !first && !older && before === sig(S.msgs) && $("#msgs")?.children.length) return;   // nichts Neues: nicht neu zeichnen (Scrollstand, Player)
     drawMsgs({ stick: first || atEnd, keepTop: older });
   } catch (e) {
     if (!quiet && id === S.id) { const b = $("#msgs"); if (b) b.innerHTML = errBox(e); }
@@ -181,6 +184,17 @@ function fileHtml(f) {
   }
   return `<a class="file" href="${mediaUrl(f)}" download="${esc(f.name || "Datei")}"><span class="ms">attach_file</span><span>${esc(f.name || "Datei")}${f.size ? ` <small>${f.size > 1e6 ? (f.size / 1e6).toFixed(1) + " MB" : Math.round(f.size / 1e3) + " KB"}</small>` : ""}</span></a>`;
 }
+// Lesebestätigung wie in Beeper: ein Häkchen = gesendet, zwei (mint) = gelesen. In Gruppen steht unter der letzten gelesenen Nachricht, wer sie gelesen hat.
+const ticks = (m) => !m.mine || m.deleted ? "" : m.pending ? '<span class="ms tick">schedule</span>'
+  : m.read_by?.length ? '<span class="ms tick read" title="Gelesen">done_all</span>' : '<span class="ms tick" title="Gesendet">check</span>';
+function readLine(m) {
+  if (!m.mine || !m.read_by?.length || cur()?.type !== "group") return "";
+  const last = [...S.msgs].reverse().find((x) => x.mine && x.read_by?.length);
+  if (last !== m) return "";
+  const t = (r) => clean(r.name) || "Jemand";
+  const names = m.read_by.map(t), shown = names.slice(0, 3).join(", ") + (names.length > 3 ? ` und ${names.length - 3} weitere` : "");
+  return `<div class="readline" title="${esc(m.read_by.map((r) => `${t(r)} ${r.at ? fmtTime.format(new Date(r.at)) : ""}`).join("\n"))}"><span class="ms">done_all</span>Gelesen von ${esc(shown)}</div>`;
+}
 function bubble(m) {
   const files = m.files.map((f) => fileHtml(f)).join("");
   const body = m.deleted ? "Nachricht gelöscht" : m.text ? `<span class="tx">${autolink(esc(m.text))}</span>` : "";
@@ -189,7 +203,7 @@ function bubble(m) {
   const quote = m.reply_to ? `<div class="quote" data-a="jump" data-id="${esc(m.reply_to)}"><b>${esc(q ? (q.mine ? "Du" : clean(q.sender)) : "Antwort")}</b>${esc(q ? (q.text || (q.files[0] ? "Anhang" : "")).slice(0, 120) : "Nachricht")}</div>` : "";
   const rx = m.reactions?.length ? `<div class="rx">${m.reactions.map((r) => `<span class="${r.mine ? "mine" : ""}">${esc(r.key)}${r.n > 1 ? ` ${r.n}` : ""}</span>`).join("")}</div>` : "";
   const tools = m.pending || m.deleted ? "" : `<button class="rep" data-a="reply" data-id="${esc(m.id)}" aria-label="Antworten" title="Antworten"><span class="ms">reply</span></button>`;
-  return `<div class="bw ${m.mine ? "me" : ""}" id="m-${esc(m.id)}" data-id="${esc(m.id)}"><span class="swipe ms">reply</span>${tools}<div class="b ${m.mine ? "me" : ""} ${m.pending ? "pending" : ""} ${m.deleted ? "del" : ""}">${group}${quote}${files}${body}${rx}<span class="tm">${m.at ? fmtTime.format(new Date(m.at)) : "…"}</span></div></div>`;
+  return `<div class="bw ${m.mine ? "me" : ""}" id="m-${esc(m.id)}" data-id="${esc(m.id)}"><span class="swipe ms">reply</span>${tools}<div class="b ${m.mine ? "me" : ""} ${m.pending ? "pending" : ""} ${m.deleted ? "del" : ""}">${group}${quote}${files}${body}${rx}<span class="tm">${m.at ? fmtTime.format(new Date(m.at)) : "…"}${ticks(m)}</span></div>${readLine(m)}</div>`;
 }
 function drawMsgs({ stick = false, keepTop = false } = {}) {
   const box = $("#msgs"); if (!box) return;
@@ -394,6 +408,8 @@ function live(on) {
     rT = setTimeout(() => { loadChats({ quiet: true }); if (S.id && (!d.id || d.id === S.id)) loadMsgs({ quiet: true }); }, 250);
   };
 }
+// Gelesen-Häkchen und Reaktionen im offenen Chat: ändern den Chat in der Liste nicht, darum fragt die Seite den offenen Chat alle paar Sekunden
+setInterval(() => { if (S.id && !document.hidden && !S.sending) loadMsgs({ quiet: true }); }, 4000);
 document.addEventListener("visibilitychange", () => {
   if (document.hidden) return live(false);
   loadChats({ quiet: true }); if (S.id) loadMsgs({ quiet: true });

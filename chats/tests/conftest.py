@@ -24,10 +24,11 @@ Chat on Beeper (Matrix) (matrix) with me. It has 4 unread messages.
 This chat is muted.
 """
 MSGS = {"items": [
-    {"id": "9", "timestamp": "2026-11-12T10:40:00Z", "senderName": "Luka", "type": "VOICE", "text": "", "isSender": False, "linkedMessageID": "8",
+    {"id": "9", "timestamp": "2026-11-12T10:40:00Z", "senderID": "@luka:x", "senderName": "Luka", "type": "VOICE", "text": "", "isSender": False, "linkedMessageID": "8",
      "attachments": [{"srcURL": "mxc://x/voice?encryptedFileInfoJSON=abc", "type": "audio", "mimeType": "audio/ogg", "isVoiceNote": True, "duration": 12, "transcription": {"transcription": " Hallo Mama "}}],
      "reactions": [{"reactionKey": "👍", "isSender": True}, {"reactionKey": "👍"}]},
-    {"id": "8", "timestamp": "2026-11-12T10:38:00Z", "senderName": "me", "type": "TEXT", "text": "Hi", "isSender": True,
+    {"id": "8", "timestamp": "2026-11-12T10:38:00Z", "senderID": "@me:x", "senderName": "me", "type": "TEXT", "text": "Hi", "isSender": True,
+     "seen": {"@me:x": "2026-11-12T10:38:01Z", "@luka:x": "2026-11-12T10:39:30Z", "@anna:x": "2026-11-12T10:39:45Z"},
      "attachments": [{"srcURL": "mxc://x/img", "type": "img", "mimeType": "image/jpeg"}]}], "hasMore": True, "oldestCursor": "8", "newestCursor": "9"}
 PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgYGD4DwABBAEAH5H4tQAAAABJRU5ErkJggg=="
 
