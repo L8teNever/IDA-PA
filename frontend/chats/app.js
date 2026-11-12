@@ -225,6 +225,10 @@ function bubble(m, tail = true) {
   const prog = m.pendingFile ? `<div class="prog"><i style="width:${Math.round((m.progress || 0) * 100)}%"></i></div>` : "";
   return `<div class="bw ${m.mine ? "me" : ""} ${face ? "grp" : ""}" id="m-${esc(m.id)}" data-id="${esc(m.id)}"><span class="swipe ms">reply</span>${face}${tools}<div class="b ${m.mine ? "me" : ""} ${m.pending ? "pending" : ""} ${m.deleted ? "del" : ""}">${group}${quote}${files}${prog}${body}${rx}<span class="tm">${m.at ? fmtTime.format(new Date(m.at)) : "…"}${ticks(m)}</span></div>${readLine(m)}</div>`;
 }
+const NETS = [["snapchat", "snapchat"], ["instagram", "instagram"], ["whatsapp", "whatsapp"], ["signal", "signal"], ["telegram", "telegram"], ["discord", "discord"],
+  ["messenger", "messenger"], ["facebook", "messenger"], ["gmessages", "gmessages"], ["google messages", "gmessages"], ["googlechat", "googlechat"], ["google chat", "googlechat"],
+  ["slack", "slack"], ["linkedin", "linkedin"], ["twitter", "x"], ["imessage", "imessage"], ["sms", "gmessages"]];
+const netKey = (n) => { n = String(n || "").toLowerCase(); return (NETS.find(([k]) => n.includes(k)) || [, ""])[1]; };
 function drawMsgs({ stick = false, keepTop = false } = {}) {
   const box = $("#msgs"); if (!box) return;
   const prevH = box.scrollHeight, prevTop = box.scrollTop;
@@ -237,6 +241,7 @@ function drawMsgs({ stick = false, keepTop = false } = {}) {
     html += bubble(m, !n || n.mine || n.sender_id !== m.sender_id || (n.at && dayKey(n.at) !== k));
   });
   box.innerHTML = html;
+  box.dataset.net = netKey(cur()?.network);   // eingehende Nachrichten in der Farbe des Netzwerks (Snapchat gelb, Instagram lila-rosa)
   paint();
   if (keepTop) box.scrollTop = box.scrollHeight - prevH + prevTop;
   else if (stick) { box.scrollTop = box.scrollHeight; box.querySelectorAll("img").forEach((i) => i.addEventListener("load", () => { box.scrollTop = box.scrollHeight; }, { once: true })); }
@@ -351,6 +356,7 @@ function menu(m) {
   clone.removeAttribute("id"); clone.querySelectorAll("[id]").forEach((x) => x.removeAttribute("id"));
   clone.style.width = `${r.width}px`;
   d.querySelector(".ctx-msg").append(clone);
+  d.querySelector(".ctx-msg").dataset.net = netKey(cur()?.network);
   d.addEventListener("click", (e) => {
     const rb = e.target.closest("[data-r]");
     if (rb) { closeMenu(); return toggleReaction(m, rb.dataset.r); }
