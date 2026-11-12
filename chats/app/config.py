@@ -18,7 +18,7 @@ class Settings(BaseSettings):
     page_size: int = 40
     data_dir: Path = Path("/data")  # chats.db: gemerkte Nachrichten (damit Gelöschtes lesbar bleibt)
     korrektur_url: str = ""         # Dienst "korrektur" (Tippfehler-Vorschläge beim Tippen); leer = aus
-    ida_url: str = ""               # IDA (intern, z. B. http://app:8000): Tippfehler per Claude Haiku + Engine-Einstellung; leer = nur T5
+    ida_url: str = "http://app:8000"  # IDA (intern): Tippfehler per Claude Haiku + Engine-Einstellung; leer = nur T5
     archive_poll_s: float = 60.0    # so oft merkt sich der Dienst neue Nachrichten, auch wenn die App zu ist; 0 = aus
 
 
