@@ -199,3 +199,22 @@ def test_geloeschtes_bleibt_lesbar_und_loeschen(client, fake):
     assert keep_deleted("c9", [dict(m)]) == []
     client.delete(f"{API}/chats/c9/messages/a2", params={"everyone": "true"})
     assert fake.rest[-1][1].endswith("forEveryone=true")
+
+
+def test_merge_combines_chats(client, monkeypatch):
+    from app import api, store
+    pages = {"a": {"items": [{"id": "1", "timestamp": "2026-11-12T10:00:00Z", "text": "von A"}], "hasMore": True, "oldestCursor": "ca"},
+             "b": {"items": [{"id": "1", "timestamp": "2026-11-12T11:00:00Z", "text": "von B", "linkedMessageID": "0"}], "hasMore": False}}
+
+    async def fake(chat_id, cursor, direction):
+        return pages[chat_id] if not cursor else {"items": [], "hasMore": False}
+    monkeypatch.setattr(api, "fetch_messages", fake)
+    r = client.post("/api/v1/merges", json={"chats": [{"id": "a", "title": "Arne", "network": "whatsapp"}, {"id": "b", "network": "signal"}]})
+    assert r.json()["id"] == "a"
+    assert client.get("/api/v1/merges").json()["items"][0]["chats"][1]["network"] == "signal"
+    d = client.get("/api/v1/chats/a/messages").json()
+    assert [(m["chat"], m["mid"], m["id"]) for m in d["items"]] == [("a", "1", "a~1"), ("b", "1", "b~1")]
+    assert d["items"][1]["reply_to"] == "b~0" and d["more"]
+    assert client.get("/api/v1/chats/a/messages", params={"cursor": d["oldest"]}).json()["items"] == []
+    client.delete("/api/v1/merges/a", params={"chat": "b"})
+    assert store.groups() == {}

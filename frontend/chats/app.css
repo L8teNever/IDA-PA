@@ -189,6 +189,8 @@ a.file small { color: var(--muted); }
 /* ---------- Eingabe: Anhängen, Mikrofon, Aufnahme ---------- */
 .composer .attach { flex: none; width: 44px; height: 48px; color: var(--on-surface-variant, var(--muted)); }
 .composer .attach .ms { font-size: 26px; }
+.composer .tochip { flex: none; height: 32px; margin-bottom: 8px; max-width: 96px; padding: 0 10px; border: 1px solid var(--line); border-radius: 16px; background: var(--surface-high); color: var(--on-surface); font: inherit; font-size: 12px; text-transform: capitalize; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+.composer .tochip[hidden] { display: none; }
 .send.mic { background: var(--surface-high); color: var(--accent); }
 .composer[hidden], .recbar[hidden] { display: none; }
 .recbar { display: flex; align-items: center; gap: 8px; padding: 8px 12px calc(env(safe-area-inset-bottom) + 10px); border-top: 1px solid var(--line); animation: fade .15s ease-out; }
@@ -293,3 +295,33 @@ body.kb .composer, body.kb .recbar { padding-bottom: 8px; }
 .rtitle { min-width: 0; flex: 1; }
 .rtime { flex: none; }
 @media (max-width: 860px) { .shell { grid-template-columns: minmax(0, 1fr); } }
+
+/* ---------------- Bewegung: kurz, weich, nur transform/opacity (läuft auf der GPU, kostet kaum Akku) ---------------- */
+:root { --ease-out: cubic-bezier(.2, .9, .3, 1); --ease-spring: cubic-bezier(.2, .9, .3, 1.15); }
+.bw.in { animation: rise .26s var(--ease-spring) both; }
+.bw.me.in { transform-origin: 100% 100%; }
+.bw.in:not(.me) { transform-origin: 0 100%; }
+@keyframes rise { from { opacity: 0; transform: translateY(10px) scale(.96); } }
+.toast:not([hidden]) { animation: toast .24s var(--ease-out); }
+@keyframes toast { from { opacity: 0; transform: translate(-50%, 12px) scale(.96); } }
+.row { transition: background-color .15s, transform .12s var(--ease-out); }
+.row:active { transform: scale(.985); }
+.tab, .chip, .btn, .icon-btn, .send, .tochip { transition: background-color .15s, color .15s, transform .12s var(--ease-out); }
+.tab:active, .chip:active, .btn:active, .icon-btn:active, .send:active, .tochip:active { transform: scale(.94); }
+.replybar:not([hidden]) { animation: slideup .2s var(--ease-out); }
+@keyframes slideup { from { opacity: 0; transform: translateY(8px); } }
+.conv-empty, .empty { animation: fade .25s ease-out; }
+.ctx-box button, .sheet button { transition: background-color .12s; }
+@media (max-width: 860px) {
+  body.reading .conv { animation: pagein .26s var(--ease-out); }
+  body:not(.reading) .side { animation: pageback .22s var(--ease-out); }
+}
+@keyframes pagein { from { opacity: 0; transform: translateX(28px); } }
+@keyframes pageback { from { opacity: .4; transform: translateX(-16px); } }
+
+/* Sparsam zeichnen: Chat-Zeilen außerhalb des Bildschirms rechnet der Browser nicht durch */
+.row { content-visibility: auto; contain-intrinsic-size: auto 68px; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+}

@@ -71,11 +71,12 @@ function back() {
 }
 window.addEventListener("popstate", route);
 function route() {
-  const id = readUrl();
+  let id = readUrl();
+  const g = id && grpOf(id); if (g && g.id !== id) { history.replaceState(history.state, "", urlFor(g.id)); id = g.id; }
   document.body.classList.toggle("reading", !!id);
   if (id === S.id) return drawList();
   const c = id && MC.get(id);
-  S.id = id; S.msgs = c ? c.msgs.slice() : []; S.more = c ? c.more : false; S.oldest = c ? c.oldest : null; S.reply = null; S.edit = null;
+  S.id = id; S.msgs = c ? c.msgs.slice() : []; S.more = c ? c.more : false; S.oldest = c ? c.oldest : null; S.reply = null; S.edit = null; S.to = null;
   document.querySelectorAll("#list .row").forEach((r) => r.classList.toggle("sel", r.dataset.id === id));
   if (!$("#list .row")) drawList();
   if (id) openChat(); else $("#conv").innerHTML = `<div class="conv-empty"><span class="ms">forum</span><p>Wähle einen Chat aus.</p></div>`;
@@ -135,11 +136,11 @@ function markSeen(c) {
 }
 async function markRead(c) {
   if (!c) return;
-  const id = c.id, before = c.unread;
-  markSeen(c); refreshReadBar(); drawList();
+  const id = c.id, before = c.unread, mem = (c.merged || []).map((x) => known(x.id)).filter(Boolean);
+  mem.forEach(markSeen); markSeen(c); refreshReadBar(); drawList();
   try {
     await api(`/chats/${encodeURIComponent(id)}/read`, { method: "POST", body: "{}" });
-    c.unread = 0; markSeen(c); drawList();
+    c.unread = 0; markSeen(c); mem.forEach((x) => { x.unread = 0; markSeen(x); }); drawList();
   } catch (e) {
     delete seen[id]; try { localStorage.setItem(SEEN_KEY, JSON.stringify(seen)); } catch {}
     c.unread = before; refreshReadBar(); drawList(); toast(`Als gelesen markieren ging nicht: ${e.message}`);
@@ -176,12 +177,57 @@ async function togglePin(c) {
   try { await api(`/chats/${encodeURIComponent(c.id)}/pin`, { method: "POST", body: JSON.stringify({ pinned: on }) }); loadPins(); }
   catch (e) { PINS = before; drawList(); toast(`${on ? "Anpinnen" : "Lösen"} ging nicht: ${e.message}`); }
 }
+// ---------------- Zusammengeführte Chats (nur hier, Beeper bleibt unberührt) ----------------
+// Eine Gruppe heißt nach ihrem ersten Chat; ihre ID ist dessen ID. In der Liste steht sie als eine Zeile, im Chat als ein gemeinsamer Verlauf.
+let MERGES = (() => { try { return JSON.parse(localStorage.getItem("chats-merges") || "[]"); } catch { return []; } })();
+const grpOf = (id) => MERGES.find((g) => g.chats.some((c) => c.id === id));
+const isGrp = (id) => MERGES.some((g) => g.id === id);
+async function loadMerges() {
+  try {
+    MERGES = (await api("/merges")).items;
+    try { localStorage.setItem("chats-merges", JSON.stringify(MERGES)); } catch {}
+    drawList();
+  } catch { /* letzter Stand bleibt */ }
+}
+const known = (id) => S.chats.find((x) => x.id === id) || PINS.find((x) => x.id === id);
+function grpRow(g) {   // Gruppe als eine Zeile: Titel vom ersten Chat, neueste Zeit, Ungelesene zusammengezählt
+  const live = g.chats.map((m) => ({ ...m, ...(known(m.id) || {}) })), head = live[0];
+  return { ...head, id: g.id, title: head.title || g.chats[0].title, at: live.map((c) => c.at || "").sort().at(-1), unread: live.reduce((a, c) => a + (left(c) ? c.unread : 0), 0),
+    network: [...new Set(live.map((c) => c.network).filter(Boolean))].join(" + "), type: live.length && live.every((c) => c.type === "group") ? "group" : "single", merged: live };
+}
+function collapse(list) {   // Mitglieder einer Gruppe verschwinden hinter der Gruppenzeile (an der Stelle des neuesten Mitglieds)
+  const done = new Set(), out = [];
+  for (const c of list) {
+    const g = grpOf(c.id);
+    if (!g) { out.push(c); continue; }
+    if (done.has(g.id)) continue;
+    done.add(g.id); out.push(grpRow(g));
+  }
+  return out;
+}
+async function doMerge(a, b) {
+  const one = (c) => (c.merged ? c.merged : [c]).map((x) => ({ id: x.id, title: clean(x.title || ""), network: x.network || "" }));
+  try {
+    await api("/merges", { method: "POST", body: JSON.stringify({ chats: [...one(a), ...one(b)] }) });
+    await loadMerges(); toast(`${clean(a.title)} und ${clean(b.title)} zusammengeführt`);
+    const g = grpOf(a.id); if (S.id && g && g.chats.some((c) => c.id === S.id)) go(g.id, false);
+  } catch (e) { toast(`Zusammenführen ging nicht: ${e.message}`); }
+}
+async function unMerge(g, chat = "") {
+  try {
+    await api(`/merges/${encodeURIComponent(g.id)}${chat ? `?chat=${encodeURIComponent(chat)}` : ""}`, { method: "DELETE" });
+    await loadMerges(); toast(chat ? "Chat herausgenommen" : "Zusammenführung aufgehoben");
+    if (S.id === g.id) { MC.delete(g.id); S.id = null; route(); }
+  } catch (e) { toast(`Ging nicht: ${e.message}`); }
+}
 function rowMenu(c) {
   closeMenu();
   const on = PINS.some((p) => p.id === c.id), d = document.createElement("div");
   d.className = "ctx"; d.id = "ctx";
   d.innerHTML = `<div class="ctx-back"></div><div class="sheet">
     <button data-p="pin"><span class="ms">push_pin</span>${on ? "Nicht mehr anpinnen" : "Anpinnen"}</button>
+    <button data-p="merge"><span class="ms">call_merge</span>Mit anderem Chat zusammenführen</button>
+    ${c.merged ? '<button data-p="split"><span class="ms">call_split</span>Zusammenführung aufheben</button>' : ""}
     ${left(c) ? '<button data-p="read"><span class="ms">done_all</span>Als gelesen markieren</button>' : '<button data-p="unread"><span class="ms">mark_chat_unread</span>Als ungelesen markieren</button>'}</div>`;
   d.addEventListener("click", (e) => {
     const p = e.target.closest("[data-p]")?.dataset.p;
@@ -189,10 +235,12 @@ function rowMenu(c) {
     if (p === "pin") togglePin(c);
     if (p === "read") markRead(c);
     if (p === "unread") markUnread(c);
+    if (p === "merge") chatPick({ title: `${clean(c.title)} zusammenführen mit`, verb: "Zusammenführen mit", skip: new Set((c.merged || [c]).map((x) => x.id)) }, (to) => doMerge(c, to));
+    if (p === "split") unMerge(grpOf(c.id));
   });
   document.body.append(d);
 }
-const rowChat = (id) => S.chats.find((x) => x.id === id) || PINS.find((x) => x.id === id);
+const rowChat = (id) => { const g = MERGES.find((x) => x.id === id); return g ? grpRow(g) : known(id); };
 let rowT, rowHeld = false;
 $("#list").addEventListener("pointerdown", (e) => {
   const r = e.target.closest(".row"); rowHeld = false;
@@ -210,8 +258,9 @@ $("#list").addEventListener("contextmenu", (e) => {
 });
 function drawList() {
   const pinIds = new Set(PINS.map((p) => p.id)), showPins = S.f === "all" && !S.q;
-  const pinned = showPins ? PINS.map((p) => { const c = S.chats.find((x) => x.id === p.id); if (c) c.pinned = true; return c || p; }) : [];
-  const rest = showPins ? S.chats.filter((c) => !pinIds.has(c.id)) : S.chats;
+  const pinned = showPins ? collapse(PINS.map((p) => { const c = S.chats.find((x) => x.id === p.id); if (c) c.pinned = true; return c || p; })) : [];
+  const pinGrp = new Set(pinned.map((c) => c.id));
+  const rest = collapse(showPins ? S.chats.filter((c) => !pinIds.has(c.id)) : S.chats).filter((c) => !pinGrp.has(c.id));
   const n = [...pinned, ...rest].reduce((a, c) => a + left(c), 0);
   $("#sub").textContent = n ? `${n} ungelesen` : "aus Beeper";
   document.title = n ? `(${n}) Chats` : "Chats";
@@ -219,7 +268,7 @@ function drawList() {
   if (!S.chats.length && !pinned.length) { $("#list").innerHTML = `<div class="empty"><span class="ms">${S.q ? "search_off" : "forum"}</span>${S.q ? "Nichts gefunden." : "Keine Chats."}</div>`; return; }
   const row = (c, pin) => `<div class="row ${left(c) ? "unread" : ""} ${c.id === S.id ? "sel" : ""}" data-id="${esc(c.id)}">
       ${avatar(clean(c.title), c.id)}<div class="rmain"><div class="rtop"><span class="rtitle">${esc(clean(c.title))}</span><span class="rtime">${when(c.at)}</span></div>
-      <div class="rsub">${c.network ? `<span class="net">${esc(c.network)}</span>` : ""}${c.type === "group" ? '<span class="ms" style="font-size:16px">group</span>' : ""}${pin ? '<span class="ms pin">push_pin</span>' : ""}${left(c) ? `<span class="cnt">${c.unread}</span>` : ""}</div></div></div>`;
+      <div class="rsub">${c.network ? `<span class="net">${esc(c.network)}</span>` : ""}${c.type === "group" ? '<span class="ms" style="font-size:16px">group</span>' : ""}${c.merged ? '<span class="ms" style="font-size:16px" title="Zusammengeführt">call_merge</span>' : ""}${pin ? '<span class="ms pin">push_pin</span>' : ""}${left(c) ? `<span class="cnt">${c.unread}</span>` : ""}</div></div></div>`;
   $("#list").innerHTML = pinned.map((c) => row(c, true)).join("") + (pinned.length && rest.length ? '<div class="pinsep"></div>' : "") + rest.map((c) => row(c, false)).join("")
     + (S.next ? '<button class="more" id="more">Mehr laden</button>' : "");
   if (S.id && $(".chead")) refreshReadBar();
@@ -240,7 +289,35 @@ $("#q").addEventListener("input", () => { clearTimeout(qT); qT = setTimeout(() =
 $("#refresh").onclick = () => { loadChats({ quiet: true }); if (S.id) loadMsgs({ quiet: true }); };
 
 // ---------------- Unterhaltung ----------------
-const cur = () => S.chats.find((c) => c.id === S.id) || PINS.find((c) => c.id === S.id);
+const cur = () => S.id && rowChat(S.id);
+// In zusammengeführten Chats: zu welchem echten Chat gehört eine Nachricht, wie heißt sie dort, und wohin geht, was ich schreibe?
+const cid = (m) => m?.chat || S.id, mid = (m) => m?.mid || m?.id;
+function target() {
+  const c = cur(); if (!c?.merged) return S.id;
+  if (S.to && c.merged.some((x) => x.id === S.to)) return S.to;
+  const last = [...S.msgs].reverse().find((m) => m.chat && !m.mine) || [...S.msgs].reverse().find((m) => m.chat);
+  return last?.chat || c.merged[0].id;
+}
+function toChip() {
+  const b = $("#toBtn"), c = cur(); if (!b) return;
+  b.hidden = !c?.merged;
+  if (c?.merged) { const t = c.merged.find((x) => x.id === target()) || c.merged[0]; b.textContent = t.network || clean(t.title) || "Chat"; b.title = `Senden über ${clean(t.title)} (${t.network || ""})`; }
+}
+function toMenu() {
+  const c = cur(); if (!c?.merged) return;
+  closeMenu();
+  const d = document.createElement("div"), on = target();
+  d.className = "ctx"; d.id = "ctx";
+  d.innerHTML = `<div class="ctx-back"></div><div class="sheet">${c.merged.map((x) => `<button data-to="${esc(x.id)}"><span class="ms">${x.id === on ? "radio_button_checked" : "radio_button_unchecked"}</span>${esc(x.network || "Chat")} · ${esc(clean(x.title))}</button>`).join("")}
+    ${c.merged.map((x) => x.id === c.id ? "" : `<button data-out="${esc(x.id)}"><span class="ms">call_split</span>${esc(x.network || clean(x.title))} herausnehmen</button>`).join("")}</div>`;
+  d.addEventListener("click", (e) => {
+    const t = e.target.closest("[data-to]")?.dataset.to, o = e.target.closest("[data-out]")?.dataset.out;
+    closeMenu();
+    if (t) { S.to = t; toChip(); }
+    if (o) unMerge(grpOf(c.id), o);
+  });
+  document.body.append(d);
+}
 function head() {
   const c = cur(), title = clean(c?.title || "Chat");
   return `<div class="chead"><button class="icon-btn back" data-a="back" aria-label="Zurück"><span class="ms">arrow_back</span></button>${avatar(title, S.id)}
@@ -260,6 +337,7 @@ async function openChat() {
   $("#conv").innerHTML = `${head()}${readBar(cur())}<div class="msgs" id="msgs"><div class="skel"></div><div class="skel"></div></div>
     <div class="replybar" id="replybar" hidden></div><form class="composer" id="form">
     <button class="icon-btn attach" id="attachBtn" type="button" aria-label="Anhängen" title="Foto, Video oder Datei"><span class="ms">add</span></button>
+    <button class="tochip" id="toBtn" type="button" hidden></button>
     <textarea id="txt" rows="1" placeholder="Nachricht" enterkeyhint="send"></textarea>
     <button class="send mic" id="sendBtn" type="submit" aria-label="Sprachnachricht aufnehmen"><span class="ms">mic</span></button></form>
     <div class="recbar" id="recbar" hidden><button class="icon-btn" type="button" data-rec="cancel" aria-label="Verwerfen"><span class="ms">delete</span></button>
@@ -270,6 +348,7 @@ async function openChat() {
   ta.addEventListener("input", () => { ta.style.height = "auto"; ta.style.height = `${Math.min(ta.scrollHeight, 140)}px`; sendMode(); });
   ta.addEventListener("paste", (e) => { const f = [...(e.clipboardData?.files || [])]; if (f.length) { e.preventDefault(); pickFiles(f); } });
   $("#attachBtn").onclick = attachMenu;
+  $("#toBtn").onclick = toMenu; toChip();
   $("#recbar").addEventListener("click", (e) => { const a = e.target.closest("[data-rec]")?.dataset.rec; if (a) recAction(a); });
   const conv = $("#conv");
   conv.ondragover = (e) => { if (e.dataTransfer?.types?.includes("Files")) { e.preventDefault(); conv.classList.add("drop"); } };
@@ -309,7 +388,7 @@ async function loadMsgs({ first = false, quiet = false, older = false } = {}) {
     setTimeout(prefetchOlder, 300);
     if (quiet && !first && !older && before === sig(S.msgs) && $("#msgs")?.children.length) return;   // nichts Neues: nicht neu zeichnen (Scrollstand, Player)
     if (first && !older && before === sig(S.msgs) && $("#msgs .bw")) return;   // aus dem Speicher schon richtig gezeichnet
-    drawMsgs({ stick: first || atEnd, keepTop: older });
+    drawMsgs({ stick: first || atEnd, keepTop: older }); toChip();
   } catch (e) {
     if (!quiet && id === S.id) { const b = $("#msgs"); if (b) b.innerHTML = errBox(e); }
   }
@@ -363,9 +442,9 @@ function bubble(m, tail = true) {
   const quote = m.reply_to ? `<div class="quote" data-a="jump" data-id="${esc(m.reply_to)}"><b>${esc(q ? (q.mine ? "Du" : clean(q.sender)) : "Antwort")}</b>${esc(q ? (q.text || (q.files[0] ? "Anhang" : "")).slice(0, 120) : "Nachricht")}</div>` : "";
   const rx = m.reactions?.length ? `<div class="rx">${m.reactions.map((r) => `<span class="${r.mine ? "mine" : ""}" data-a="rx" data-id="${esc(m.id)}" data-k="${esc(r.key)}">${esc(r.key)}${r.n > 1 ? ` ${r.n}` : ""}</span>`).join("")}</div>` : "";
   const tools = m.pending || m.deleted ? "" : `<button class="rep" data-a="reply" data-id="${esc(m.id)}" aria-label="Antworten" title="Antworten"><span class="ms">reply</span></button>`;
-  const face = cur()?.type === "group" && !m.mine ? (tail ? avatar(clean(m.sender), S.id, m.sender_id) : '<span class="av gap"></span>') : "";
+  const face = cur()?.type === "group" && !m.mine ? (tail ? avatar(clean(m.sender), cid(m), m.sender_id) : '<span class="av gap"></span>') : "";
   const prog = m.pendingFile ? `<div class="prog"><i style="width:${Math.round((m.progress || 0) * 100)}%"></i></div>` : "";
-  return `<div class="bw ${m.mine ? "me" : ""} ${face ? "grp" : ""}" id="m-${esc(m.id)}" data-id="${esc(m.id)}"><span class="swipe ms">reply</span>${face}${tools}<div class="b ${m.mine ? "me" : ""} ${m.pending ? "pending" : ""} ${m.deleted ? "del" : ""}">${group}${quote}${files}${prog}${body}${links}${rx}<span class="tm">${m.edited && !m.deleted ? "bearbeitet · " : ""}${m.at ? fmtTime.format(new Date(m.at)) : "…"}${ticks(m)}</span></div>${readLine(m)}</div>`;
+  return `<div class="bw ${m.mine ? "me" : ""} ${face ? "grp" : ""}" id="m-${esc(m.id)}" data-id="${esc(m.id)}"><span class="swipe ms">reply</span>${face}${tools}<div class="b ${m.mine ? "me" : ""} ${m.pending ? "pending" : ""} ${m.deleted ? "del" : ""}">${group}${quote}${files}${prog}${body}${links}${rx}<span class="tm">${m.chat && cur()?.merged ? `${esc((cur().merged.find((x) => x.id === m.chat) || {}).network || "")} · ` : ""}${m.edited && !m.deleted ? "bearbeitet · " : ""}${m.at ? fmtTime.format(new Date(m.at)) : "…"}${ticks(m)}</span></div>${readLine(m)}</div>`;
 }
 const NETS = [["snapchat", "snapchat"], ["instagram", "instagram"], ["whatsapp", "whatsapp"], ["signal", "signal"], ["telegram", "telegram"], ["discord", "discord"],
   ["messenger", "messenger"], ["facebook", "messenger"], ["gmessages", "gmessages"], ["google messages", "gmessages"], ["googlechat", "googlechat"], ["google chat", "googlechat"],
@@ -373,9 +452,11 @@ const NETS = [["snapchat", "snapchat"], ["instagram", "instagram"], ["whatsapp",
 const netKey = (n) => { n = String(n || "").toLowerCase(); return (NETS.find(([k]) => n.includes(k)) || [, ""])[1]; };
 // Steht der Chat am Ende? Nur dann darf nachladendes (Bilder, Tastatur) ans Ende schieben – wer hochgescrollt hat, bleibt dort.
 let atBottom = true;
-document.addEventListener("scroll", (e) => { const b = e.target; if (b.id === "msgs") atBottom = b.scrollHeight - b.scrollTop - b.clientHeight < 150; }, true);
+document.addEventListener("scroll", (e) => { const b = e.target; if (b.id === "msgs") atBottom = b.scrollHeight - b.scrollTop - b.clientHeight < 150; }, { capture: true, passive: true });
+let drawn = { id: null, ids: new Set() };
 function drawMsgs({ stick = false, keepTop = false } = {}) {
   const box = $("#msgs"); if (!box) return;
+  const fresh = drawn.id === S.id && !keepTop ? S.msgs.slice(-6).filter((m) => !drawn.ids.has(m.id)) : [];
   const prevH = box.scrollHeight, prevTop = box.scrollTop;
   let last = "", html = S.more ? '<button class="older" data-a="older">Ältere laden</button>' : "";
   if (!S.msgs.length) html += '<div class="empty">Noch keine Nachrichten.</div>';
@@ -386,6 +467,8 @@ function drawMsgs({ stick = false, keepTop = false } = {}) {
     html += bubble(m, !n || n.mine || n.sender_id !== m.sender_id || (n.at && dayKey(n.at) !== k));
   });
   box.innerHTML = html;
+  drawn = { id: S.id, ids: new Set(S.msgs.map((m) => m.id)) };
+  for (const m of fresh) document.getElementById(`m-${m.id}`)?.classList.add("in");
   $("#conv").dataset.net = netKey(cur()?.network);   // eigene Nachrichten in Netzwerkfarbe, eingehende mit Akzenten in Netzwerkfarbe
   paint();
   if (keepTop) box.scrollTop = box.scrollHeight - prevH + prevTop;
@@ -520,7 +603,7 @@ function menu(m) {
     if (c === "edit") setEdit(m);
     if (c === "fwd") forwardPick(m);
     if (c === "copy") navigator.clipboard?.writeText(m.text).then(() => toast("Kopiert"), () => toast("Kopieren nicht möglich"));
-    if (c === "unread") markUnread(cur(), m.id);
+    if (c === "unread") markUnread(m.chat ? { ...(known(m.chat) || { id: m.chat }), id: m.chat } : cur(), mid(m));
     if (c === "copywas") navigator.clipboard?.writeText(m.was.text).then(() => toast("Kopiert"), () => toast("Kopieren nicht möglich"));
     if (c === "delall") deleteMsg(m, true);
     if (c === "delme") deleteMsg(m, false);
@@ -546,7 +629,7 @@ async function toggleReaction(m, key) {
   else { const e = m.reactions.find((x) => x.key === key); if (e) { e.n += 1; e.mine = true; } else m.reactions.push({ key, n: 1, mine: true }); }
   drawMsgs(); buzz(10);
   try {
-    const path = `/chats/${encodeURIComponent(S.id)}/messages/${encodeURIComponent(m.id)}/react`;
+    const path = `/chats/${encodeURIComponent(cid(m))}/messages/${encodeURIComponent(mid(m))}/react`;
     if (had) await api(`${path}?key=${encodeURIComponent(key)}`, { method: "DELETE" });
     else await api(path, { method: "POST", body: JSON.stringify({ key }) });
     setTimeout(() => loadMsgs({ quiet: true }), 1200);
@@ -558,7 +641,7 @@ async function deleteMsg(m, everyone) {
   if (!confirm(everyone ? "Nachricht für alle löschen? Das lässt sich nicht rückgängig machen." : "Nachricht nur bei dir löschen?")) return;
   const id = S.id;
   try {
-    await api(`/chats/${encodeURIComponent(id)}/messages/${encodeURIComponent(m.id)}${everyone ? "?everyone=true" : ""}`, { method: "DELETE" });
+    await api(`/chats/${encodeURIComponent(cid(m))}/messages/${encodeURIComponent(mid(m))}${everyone ? "?everyone=true" : ""}`, { method: "DELETE" });
     if (id !== S.id) return;
     if (everyone) { if (m.text || m.files.length) m.was = { text: m.text, files: m.files }; m.deleted = true; m.text = ""; m.files = []; m.reactions = []; }
     else S.msgs = S.msgs.filter((x) => x !== m);
@@ -628,7 +711,7 @@ async function saveEdit() {
   S.sending = true;
   m.text = text; m.edited = true; setEdit(null); drawMsgs();
   try {
-    await api(`/chats/${encodeURIComponent(id)}/messages/${encodeURIComponent(m.id)}`, { method: "PUT", body: JSON.stringify({ text }) });
+    await api(`/chats/${encodeURIComponent(cid(m))}/messages/${encodeURIComponent(mid(m))}`, { method: "PUT", body: JSON.stringify({ text }) });
     cacheMsgs();
   } catch (e) {
     m.text = old; m.edited = was;
@@ -639,20 +722,32 @@ async function saveEdit() {
 }
 // Weiterleiten: Chat aussuchen, dann schickt der Server Text und Anhänge dorthin (Beeper hat kein echtes Weiterleiten – es kommt als neue Nachricht an)
 function forwardPick(m) {
+  chatPick({ title: "Weiterleiten an", verb: "An", tail: " senden" }, async (to) => {
+    toast(`Wird an ${clean(to.title)} weitergeleitet …`);
+    try {
+      await api(`/chats/${encodeURIComponent(to.merged ? to.merged[0].id : to.id)}/forward`, { method: "POST", body: JSON.stringify({ text: m.text || "",
+        files: m.files.filter((f) => f.src).map((f) => ({ src: f.src, mime: f.mime || "", name: f.name || "", kind: f.kind, duration: f.duration || 0, sticker: !!f.sticker, gif: !!f.gif })) }) });
+      toast(`Weitergeleitet an ${clean(to.title)}`, () => go(to.id));
+      loadChats({ quiet: true }); if (S.id === to.id) loadMsgs({ quiet: true });
+    } catch (err) { toast(`Weiterleiten ging nicht: ${err.message}`); }
+  });
+}
+function chatPick({ title, verb, tail = "", skip = new Set() }, done) {
   closeMenu();
   const d = document.createElement("div");
   d.className = "ctx"; d.id = "ctx";
-  d.innerHTML = `<div class="ctx-back"></div><div class="sheet fwd"><div class="fwd-top"><b>Weiterleiten an</b><button class="icon-btn" data-x="close" aria-label="Abbrechen"><span class="ms">close</span></button></div>
+  d.innerHTML = `<div class="ctx-back"></div><div class="sheet fwd"><div class="fwd-top"><b>${esc(title)}</b><button class="icon-btn" data-x="close" aria-label="Abbrechen"><span class="ms">close</span></button></div>
     <label class="search"><span class="ms">search</span><input type="search" placeholder="Chat suchen" autocomplete="off"></label><div class="fwd-list"></div>
-    <button class="btn fwd-go" disabled>Senden</button></div>`;
+    <button class="btn fwd-go" disabled>${esc(verb)}</button></div>`;
   const list = d.querySelector(".fwd-list"), inp = d.querySelector("input"), goBtn = d.querySelector(".fwd-go");
   let items = [], pick = null, t, seq = 0;
-  const base = () => { const ids = new Set(PINS.map((p) => p.id)); return [...PINS, ...S.chats.filter((c) => !ids.has(c.id))]; };
+  const keep = (l) => collapse(l).filter((c) => !skip.has(c.id) && !(c.merged || []).some((x) => skip.has(x.id)));
+  const base = () => { const ids = new Set(PINS.map((p) => p.id)); return keep([...PINS, ...S.chats.filter((c) => !ids.has(c.id))]); };
   const draw = () => {
     list.innerHTML = items.length ? items.map((c) => `<button class="fwd-row ${pick?.id === c.id ? "on" : ""}" data-id="${esc(c.id)}">${avatar(clean(c.title), c.id)}
       <span class="fwd-t">${esc(clean(c.title))}<small>${esc(c.network || "")}</small></span><span class="ms">${pick?.id === c.id ? "check_circle" : "radio_button_unchecked"}</span></button>`).join("")
       : '<div class="empty">Nichts gefunden.</div>';
-    goBtn.disabled = !pick; goBtn.textContent = pick ? `An ${clean(pick.title)} senden` : "Senden";
+    goBtn.disabled = !pick; goBtn.textContent = pick ? `${verb} ${clean(pick.title)}${tail}` : verb;
   };
   items = base(); draw();
   inp.addEventListener("input", () => {
@@ -660,7 +755,7 @@ function forwardPick(m) {
     const q = inp.value.trim(), lq = q.toLowerCase(), n = ++seq;
     items = q ? base().filter((c) => clean(c.title).toLowerCase().includes(lq)) : base(); draw();
     if (q) t = setTimeout(async () => {   // auch Chats finden, die gerade nicht in der Liste stehen
-      try { const r = await api(`/chats?${new URLSearchParams({ q, inbox: "" })}`); if (n === seq && $("#ctx") === d) { items = r.items; draw(); } } catch { /* dann bleibt der lokale Treffer */ }
+      try { const r = await api(`/chats?${new URLSearchParams({ q, inbox: "" })}`); if (n === seq && $("#ctx") === d) { items = keep(r.items); draw(); } } catch { /* dann bleibt der lokale Treffer */ }
     }, 350);
   });
   d.addEventListener("click", async (e) => {
@@ -669,13 +764,7 @@ function forwardPick(m) {
     if (r) { pick = items.find((c) => c.id === r.dataset.id) || null; return draw(); }
     if (!e.target.closest(".fwd-go") || !pick) return;
     const to = pick;
-    closeMenu(); toast(`Wird an ${clean(to.title)} weitergeleitet …`);
-    try {
-      await api(`/chats/${encodeURIComponent(to.id)}/forward`, { method: "POST", body: JSON.stringify({ text: m.text || "",
-        files: m.files.filter((f) => f.src).map((f) => ({ src: f.src, mime: f.mime || "", name: f.name || "", kind: f.kind, duration: f.duration || 0, sticker: !!f.sticker, gif: !!f.gif })) }) });
-      toast(`Weitergeleitet an ${clean(to.title)}`, () => go(to.id));
-      loadChats({ quiet: true }); if (S.id === to.id) loadMsgs({ quiet: true });
-    } catch (err) { toast(`Weiterleiten ging nicht: ${err.message}`); }
+    closeMenu(); done(to);
   });
   document.body.append(d);
   if (matchMedia("(pointer: fine)").matches) inp.focus();
@@ -697,7 +786,7 @@ async function send() {
   ta.value = ""; ta.style.height = "auto"; sendMode();
   const rep = S.reply; setReply(null);
   try {
-    await api(`/chats/${encodeURIComponent(S.id)}/send`, { method: "POST", body: JSON.stringify({ text, reply_to: rep?.id || null }) });
+    await api(`/chats/${encodeURIComponent(rep?.chat || target())}/send`, { method: "POST", body: JSON.stringify({ text, reply_to: rep ? mid(rep) : null }) });
     setTimeout(() => loadMsgs({ quiet: true }), 600);
     const c = cur(); if (c) { c.at = new Date().toISOString(); c.unread = 0; markSeen(c); refreshReadBar(); drawList(); }
     loadChats({ quiet: true });
@@ -781,11 +870,12 @@ function sendFile(file, { text = "", voice = false, duration = 0 } = {}) {
   const fd = new FormData();
   fd.append("file", file, file.name || (voice ? "Sprachnachricht.webm" : "datei"));
   if (text) fd.append("text", text);
-  if (rep?.id) fd.append("reply_to", rep.id);
+  if (rep?.id) fd.append("reply_to", mid(rep));
+  const to = rep?.chat || target();
   if (voice) { fd.append("voice", "true"); fd.append("duration", String(duration)); }
   return new Promise((ok) => {   // XHR statt fetch: so gibt es einen Fortschrittsbalken
     const x = new XMLHttpRequest();
-    x.open("POST", `${API}/chats/${encodeURIComponent(id)}/upload`);
+    x.open("POST", `${API}/chats/${encodeURIComponent(to)}/upload`);
     x.upload.onprogress = (e) => { if (e.lengthComputable) { tmp.progress = e.loaded / e.total; const bar = document.querySelector(`#m-${CSS.escape(tmp.id)} .prog i`); if (bar) bar.style.width = `${Math.round(tmp.progress * 100)}%`; } };
     x.onload = () => {
       if (x.status >= 200 && x.status < 300) {
@@ -880,14 +970,22 @@ function live(on) {
   es.onmessage = (e) => {
     let d = {};
     try { d = JSON.parse(e.data); } catch { return; }
-    if (d.type === "chat" && d.new && d.id !== S.id) toast(`Neue Nachricht von ${clean(d.title)}`, () => go(d.id));
+    const gid = d.id && (grpOf(d.id)?.id || d.id);
+    if (d.type === "chat" && d.new && gid !== S.id) toast(`Neue Nachricht von ${clean(d.title)}`, () => go(gid));
     clearTimeout(rT);
-    rT = setTimeout(() => { loadChats({ quiet: true }); loadPins(); if (S.id && (!d.id || d.id === S.id)) loadMsgs({ quiet: true }); }, 250);
+    rT = setTimeout(() => { loadChats({ quiet: true }); loadPins(); if (S.id && (!d.id || gid === S.id)) loadMsgs({ quiet: true }); }, 250);
   };
 }
 // Gelesen-Häkchen und Reaktionen im offenen Chat: ändern den Chat in der Liste nicht, darum fragt die Seite den offenen Chat alle paar Sekunden
-setInterval(() => { if (S.id && !document.hidden && !S.sending) loadMsgs({ quiet: true }); }, 4000);
+// Im Hintergrund (App zu, Bildschirm aus) läuft nichts: kein Timer, keine offene Verbindung – das spart Akku.
+let pollT = null;
+function poll(on) {
+  clearInterval(pollT); pollT = null;
+  if (on) pollT = setInterval(() => { if (S.id && !S.sending) loadMsgs({ quiet: true }); }, 5000);
+}
+poll(!document.hidden);
 document.addEventListener("visibilitychange", () => {
+  poll(!document.hidden);
   if (document.hidden) return live(false);
   loadChats({ quiet: true }); if (S.id) loadMsgs({ quiet: true });
   live(true);
@@ -913,3 +1011,4 @@ if (window.visualViewport && matchMedia("(pointer: coarse)").matches) {
   vv.addEventListener("resize", fit); vv.addEventListener("scroll", fit);
 }
 loadPins();
+loadMerges();

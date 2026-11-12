@@ -170,6 +170,8 @@ async def chats(q: str = "", unread: bool = False, inbox: str = "primary", curso
 
 @router.get("/chats/{chat_id}/messages")
 async def messages(chat_id: str, cursor: str = "", direction: str = "before"):
+    if (members := group_members(chat_id)):
+        return await group_messages(members, cursor if direction == "before" else "")
     direction = "after" if direction == "after" else "before"
     key = (chat_id, cursor[:300]) if cursor and direction == "before" else None
     if key and (hit := _older.get(key)) and time.monotonic() - hit[0] < OLDER_TTL:
@@ -232,6 +234,84 @@ def keep_deleted(chat_id: str, items: list[dict]) -> list[dict]:
             m["text"], m["files"] = "", []
         out.append(m)
     return out
+
+
+# ---------------- Zusammengeführte Chats (nur hier in IDA Chats, Beeper weiß davon nichts) ----------------
+def group_members(chat_id: str) -> list[str]:
+    try:
+        g = store.groups().get(chat_id)
+    except Exception:  # noqa: BLE001
+        return []
+    return [m["id"] for m in g] if g else []
+
+
+def _enc(d: dict) -> str:
+    return base64.urlsafe_b64encode(json.dumps(d, separators=(",", ":")).encode()).decode()
+
+
+def _dec(c: str) -> dict:
+    try:
+        d = json.loads(base64.urlsafe_b64decode(c.encode()))
+        return {str(k): str(v) for k, v in d.items()} if isinstance(d, dict) else {}
+    except (ValueError, TypeError):
+        return {}
+
+
+async def group_messages(members: list[str], cursor: str) -> dict:
+    """Alle Chats der Gruppe als ein Verlauf. Jede Nachricht trägt ihren Chat ("chat") und die echte ID ("mid");
+    "id" ist chat~id, weil IDs nur pro Chat eindeutig sind. Der Cursor merkt sich pro Chat, wie weit zurück geladen ist."""
+    cur = _dec(cursor[:8000]) if cursor else {c: "" for c in members}
+    todo = [c for c in members if c in cur]
+
+    async def one(c: str):
+        try:
+            return c, shape_messages(await fetch_messages(c, cur[c][:300], "before"), c)
+        except HTTPException:
+            return c, None
+    pages = await asyncio.gather(*(one(c) for c in todo))
+    if all(p is None for _, p in pages) and pages:
+        raise HTTPException(502, "Beeper: Chats nicht lesbar")
+    items, nxt = [], {}
+    for c, p in pages:
+        if not p:
+            continue
+        for m in p["items"]:
+            m["chat"], m["mid"], m["id"] = c, m["id"], f"{c}~{m['id']}"
+            if m.get("reply_to"):
+                m["reply_to"] = f"{c}~{m['reply_to']}"
+        items += p["items"]
+        if p["more"] and p["oldest"]:
+            nxt[c] = p["oldest"]
+    items.sort(key=lambda m: m.get("at") or "")
+    return {"items": items, "more": bool(nxt), "oldest": _enc(nxt) if nxt else None, "newest": None}
+
+
+class MergeChat(BaseModel):
+    id: str = Field(min_length=1, max_length=300)
+    title: str = Field("", max_length=300)
+    network: str = Field("", max_length=100)
+
+
+class Merge(BaseModel):
+    chats: list[MergeChat] = Field(min_length=2, max_length=10)
+
+
+@router.get("/merges")
+async def merges():
+    return {"items": [{"id": g, "chats": m} for g, m in store.groups().items()]}
+
+
+@router.post("/merges")
+async def merge(body: Merge):
+    check_ids(*[c.id for c in body.chats])
+    return {"ok": True, "id": store.merge([c.model_dump() for c in body.chats])}
+
+
+@router.delete("/merges/{grp}")
+async def unmerge(grp: str, chat: str = ""):
+    check_ids(grp, *([chat] if chat else []))
+    store.split(grp, chat or None)
+    return {"ok": True}
 
 
 async def archive(chat_id: str) -> None:
@@ -492,7 +572,8 @@ async def unreact(chat_id: str, msg_id: str, key: str):
 async def mark_read(chat_id: str):
     """Chat in Beeper als gelesen markieren – damit auch in Beeper und (je nach Netzwerk) beim Absender."""
     check_ids(chat_id)
-    await rest_call("POST", f"/v1/chats/{quote(chat_id, safe='')}/read", {})
+    for c in group_members(chat_id) or [chat_id]:   # zusammengeführt: alle Chats der Gruppe
+        await rest_call("POST", f"/v1/chats/{quote(c, safe='')}/read", {})
     return {"ok": True}
 
 
