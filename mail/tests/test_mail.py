@@ -153,4 +153,4 @@ def test_adressvorschlaege(client):
     mails = {c["email"]: c for c in r.json()}
     assert mails["p@x.de"]["name"] == "Paul" and mails["lena@x.de"]["name"] == "Lena Müller"
     assert all(c["email"].lower() != "simon@example.com" for c in r.json())   # eigene Adresse nicht vorschlagen
-    assert client.get("/t/abc").status_code == 200 and client.get("/l/INBOX").status_code == 200   # Pfade laden die App
+    assert client.get("/t/abc").status_code == 200 and client.get("/l/INBOX").status_code == 200 and client.get("/compose").status_code == 200   # Pfade laden die App

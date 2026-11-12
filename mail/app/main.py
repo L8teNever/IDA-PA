@@ -78,7 +78,7 @@ def create_app() -> FastAPI:
                 {"src": f"{icon}/maskable-192.png{rev}", "sizes": "192x192", "type": "image/png", "purpose": "maskable"},
                 {"src": f"{icon}/maskable-512.png{rev}", "sizes": "512x512", "type": "image/png", "purpose": "maskable"},
             ],
-            "shortcuts": [{"name": "Neue Mail", "url": "/?neu=1", "icons": [{"src": f"{icon}/icon-192.png{rev}", "sizes": "192x192"}]}],
+            "shortcuts": [{"name": "Neue Mail", "url": "/compose", "icons": [{"src": f"{icon}/icon-192.png{rev}", "sizes": "192x192"}]}],
         }, media_type="application/manifest+json", headers={"cache-control": "no-cache"})
 
     @app.get("/sw.js", include_in_schema=False)

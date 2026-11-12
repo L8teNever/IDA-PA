@@ -75,6 +75,15 @@ window.addEventListener("popstate", route);
 
 let lastList = "";
 function route() {
+  const composing = document.body.classList.contains("composing");
+  if (location.pathname === "/compose") {   // "Neue Mail" hat eine eigene Adresse
+    if (!composing) { const q = new URLSearchParams(location.search); compose("new", null, { to: q.get("to") || "", subject: q.get("subject") || "" }); }
+    return;
+  }
+  if (composing) {   // Zurück-Taste o. Ä.: angefangene Mail als Entwurf sichern, dann schließen
+    if (C.dirty && ($("cText").value.trim() || $("cTo").value.trim())) submit(true);
+    document.body.classList.remove("composing"); C.pushed = false;
+  }
   if (location.hash.length > 1) {   // alte Adresse mit #: auf den neuen Pfad umstellen
     const h = new URLSearchParams(location.hash.slice(1));
     history.replaceState(null, "", pathFor({ label: h.get("l") || "INBOX", q: h.get("q") || "", t: h.get("t") }));
@@ -365,6 +374,7 @@ function compose(mode = "new", m = null, prefill = {}) {
       <button type="button" class="icon-btn" data-c="discard" title="Verwerfen" aria-label="Verwerfen"><span class="ms">delete</span></button></div>`;
   drawFiles();
   document.body.classList.add("composing");
+  if (mode === "new" && location.pathname !== "/compose") { history.pushState(null, "", "/compose"); C.pushed = true; }
   const ta = $("cText");
   setTimeout(() => {
     if (!to) $("cTo").focus();
@@ -434,7 +444,12 @@ $("compose").addEventListener("keydown", (e) => {
 }, true);
 $("compose").addEventListener("pointerdown", (e) => { const i = e.target.closest(".sug-i"); if (i) { e.preventDefault(); pick(i.dataset.v); } });
 
-function closeCompose() { document.body.classList.remove("composing"); }
+function closeCompose() {
+  document.body.classList.remove("composing");
+  if (location.pathname !== "/compose") return;
+  if (C.pushed) { C.pushed = false; history.back(); }   // zurück zur Seite davor (popstate lädt sie)
+  else { history.replaceState(null, "", "/"); route(); }
+}
 function formData(draft) {
   const fd = new FormData();
   const v = (id) => $(id)?.value.trim() || "";
@@ -536,6 +551,6 @@ async function boot() {
   route();
   live(!document.hidden);
   const p = new URLSearchParams(location.search);
-  if (p.has("neu") || p.has("to")) compose("new", null, { to: p.get("to") || "", subject: p.get("subject") || "" });
+  if (p.has("neu") || p.has("to")) compose("new", null, { to: p.get("to") || "", subject: p.get("subject") || "" });   // alte Adresse /?neu=1
 }
 boot();
