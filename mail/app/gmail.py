@@ -122,6 +122,41 @@ class Gmail:
                     for x in d.get("sendAs", []) if x.get("verificationStatus", "accepted") == "accepted" or x.get("isPrimary")]
         return await self.cached("sendas", 600, load)
 
+    # ---------------- Adressen ----------------
+    async def contacts(self) -> list[dict]:
+        """Wer schreibt dir / wem schreibst du: aus Kopfzeilen der letzten gesendeten und empfangenen Mails, nach Häufigkeit."""
+        async def load():
+            me = ((await self.profile()).get("emailAddress") or "").lower()
+            ids: list[tuple[str, bool]] = []
+            for label, n in (("SENT", 120), ("INBOX", 80)):
+                try:
+                    ids += [(m["id"], label == "SENT") for m in (await self.get("/messages", labelIds=label, maxResults=n)).get("messages", [])]
+                except GmailError:
+                    pass
+            sem = asyncio.Semaphore(8)
+
+            async def one(i):
+                async with sem:
+                    try:
+                        return await self.get(f"/messages/{i}", format="metadata", metadataHeaders=["From", "To", "Cc"])
+                    except GmailError:
+                        return {}
+            found: dict[str, dict] = {}
+            for n, m in enumerate(await asyncio.gather(*(one(i) for i, _ in ids))):
+                sent = ids[n][1]
+                hs = m.get("payload", {}).get("headers", [])
+                for name in (("To", "Cc") if sent else ("From",)):
+                    for p in people(header(hs, name)):
+                        a = p["email"].lower()
+                        if not a or a == me or "noreply" in a or "no-reply" in a:
+                            continue
+                        c = found.setdefault(a, {"email": p["email"], "name": "", "n": 0})
+                        c["n"] += 3 if sent else 1
+                        if p["name"] and "@" not in p["name"] and p["name"] != a.split("@")[0]:
+                            c["name"] = p["name"]
+            return sorted(found.values(), key=lambda c: -c["n"])[:400]
+        return await self.cached("contacts", 1800, load)
+
     # ---------------- Ordner (Labels) ----------------
     async def labels(self) -> list[dict]:
         async def load():

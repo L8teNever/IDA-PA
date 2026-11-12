@@ -91,6 +91,8 @@ class FakeGmail:
                     return self._json(THREAD)
                 if p.endswith("/modify") or p.endswith("/trash") or p.endswith("/untrash"):
                     return self._json({"id": p.split("/")[2]})
+                if p == "/messages" and self.command == "GET":
+                    return self._json({"messages": [{"id": "m1"}, {"id": "mx"}]})
                 if p == "/messages/m2/attachments/abig":
                     return self._json({"data": b64(BIG_TEXT)})
                 if p == "/messages/m1/attachments/apdf":
@@ -98,7 +100,7 @@ class FakeGmail:
                 if p == "/messages/m1":
                     return self._json(THREAD["messages"][0])
                 if p.startswith("/messages/") and q.get("format") == "metadata":
-                    return self._json({"id": p.split("/")[2], "payload": {"headers": hdrs(From="Paul <p@x.de>", Subject="Neu!")}})
+                    return self._json({"id": p.split("/")[2], "payload": {"headers": hdrs(From="Paul <p@x.de>", To="Simon <" + ME + ">, Lena Müller <lena@x.de>", Subject="Neu!")}})
                 if p == "/messages/send":
                     return self._json({"id": "sent1", "threadId": body.get("threadId") or "tnew"})
                 if p == "/drafts" and self.command == "POST":

@@ -145,3 +145,12 @@ def test_oberflaeche(client):
     assert m["name"] == "IDA Mail" and all(client.get(i["src"]).status_code == 200 for i in m["icons"])
     assert client.get("/sw.js").headers["content-type"].startswith("text/javascript")
     assert client.get("/api/v1/gibtsnicht").status_code == 404
+
+
+def test_adressvorschlaege(client):
+    r = client.get(f"{API}/contacts")
+    assert r.status_code == 200
+    mails = {c["email"]: c for c in r.json()}
+    assert mails["p@x.de"]["name"] == "Paul" and mails["lena@x.de"]["name"] == "Lena Müller"
+    assert all(c["email"].lower() != "simon@example.com" for c in r.json())   # eigene Adresse nicht vorschlagen
+    assert client.get("/t/abc").status_code == 200 and client.get("/l/INBOX").status_code == 200   # Pfade laden die App

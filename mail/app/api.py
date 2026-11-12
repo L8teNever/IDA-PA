@@ -52,6 +52,11 @@ async def me():
     return {"email": p.get("emailAddress"), "send_as": await run(g.send_as())}
 
 
+@router.get("/contacts")
+async def contacts():
+    return await run(gmail().contacts())
+
+
 @router.get("/labels")
 async def labels():
     return await run(gmail().labels())

@@ -3,7 +3,7 @@ import { esc, autolink } from "./shared/js/dom.js";
 
 const API = "/api/v1";
 const $ = (id) => document.getElementById(id);
-const S = { me: "", sendAs: [], labels: [], label: "INBOX", q: "", items: [], next: null, thread: null, tid: null, images: new Set(), people: new Set() };
+const S = { me: "", sendAs: [], labels: [], label: "INBOX", q: "", items: [], next: null, thread: null, tid: null, images: new Set(), contacts: [] };
 const COLORS = ["rot", "orange", "gelb", "salbei", "gruen", "tuerkis", "blau", "lavendel", "lila", "koralle"];
 
 // ---------------- Hilfen ----------------
@@ -50,23 +50,35 @@ const fileIcon = (t) => (t.startsWith("image/") ? "image" : t === "application/p
 const addr = (p) => (p.name && p.name !== p.email.split("@")[0] ? `${p.name} <${p.email}>` : p.email);
 
 // ---------------- Adresse (Ordner, Suche, offene Mail) ----------------
+// Pfade: "/" Posteingang, "/l/<Ordner>", "/t/<Mail>", Suche als "?q=" (bei offener Mail zusätzlich "?l=<Ordner>")
+const pathFor = ({ label, q, t }) => {
+  const h = new URLSearchParams();
+  if (q) h.set("q", q);
+  if (t && label !== "INBOX") h.set("l", label);
+  const base = t ? `/t/${encodeURIComponent(t)}` : label !== "INBOX" ? `/l/${encodeURIComponent(label)}` : "/";
+  return base + (h.size ? `?${h}` : "");
+};
 function readHash() {
-  const h = new URLSearchParams(location.hash.slice(1));
-  S.label = h.get("l") || "INBOX"; S.q = h.get("q") || ""; S.tid = h.get("t") || null;
+  const p = location.pathname, h = new URLSearchParams(location.search);
+  const dec = (x) => { try { return decodeURIComponent(x); } catch { return x; } };
+  let m;
+  S.q = h.get("q") || ""; S.tid = null; S.label = "INBOX";
+  if ((m = /^\/t\/([^/]+)/.exec(p))) { S.tid = dec(m[1]); S.label = h.get("l") || "INBOX"; }
+  else if ((m = /^\/l\/([^/]+)/.exec(p))) S.label = dec(m[1]);
 }
 function setHash({ label = S.label, q = S.q, t = null } = {}, push = true) {
-  const h = new URLSearchParams();
-  if (label !== "INBOX") h.set("l", label);
-  if (q) h.set("q", q);
-  if (t) h.set("t", t);
-  const url = "#" + h.toString();
-  if (url !== location.hash) history[push ? "pushState" : "replaceState"](null, "", url || "#");
+  const url = pathFor({ label, q, t });
+  if (url !== location.pathname + location.search) history[push ? "pushState" : "replaceState"](null, "", url);
   route();
 }
 window.addEventListener("popstate", route);
 
 let lastList = "";
 function route() {
+  if (location.hash.length > 1) {   // alte Adresse mit #: auf den neuen Pfad umstellen
+    const h = new URLSearchParams(location.hash.slice(1));
+    history.replaceState(null, "", pathFor({ label: h.get("l") || "INBOX", q: h.get("q") || "", t: h.get("t") }));
+  }
   const before = lastList;
   readHash();
   $("q").value = S.q;
@@ -88,7 +100,7 @@ async function loadLabels() {
 }
 function drawLabels() {
   const sys = S.labels.filter((l) => l.system), own = S.labels.filter((l) => !l.system);
-  const a = (l, extra = "") => `<a href="#${l.id === "INBOX" ? "" : "l=" + encodeURIComponent(l.id)}" class="${S.label === l.id && !S.q ? "on" : ""}" data-l="${esc(l.id)}">
+  const a = (l, extra = "") => `<a href="${pathFor({ label: l.id, q: "", t: null })}" class="${S.label === l.id && !S.q ? "on" : ""}" data-l="${esc(l.id)}">
     ${extra || `<span class="ms">${l.icon}</span>`}<span class="n">${esc(l.name)}</span>${l.unread && !["SENT", "TRASH", "DRAFT"].includes(l.id) ? `<b>${l.unread}</b>` : l.id === "DRAFT" && l.total ? `<b>${l.total}</b>` : ""}</a>`;
   $("labels").innerHTML = sys.map((l) => a(l)).join("") + a({ id: "ALL", name: "Alle Mails", icon: "all_inbox" })
     + (own.length ? `<div class="sep">Labels</div>` + own.map((l) => a(l, `<span class="dotc" style="background:${esc(l.color || "#8e9099")}"></span>`)).join("") : "");
@@ -171,8 +183,6 @@ async function openThread(tid, { quiet = false } = {}) {
     const same = quiet && S.thread?.id === t.id && S.thread.messages.map((m) => m.id).join() === t.messages.map((m) => m.id).join();
     S.thread = t;
     if (same) return;
-    for (const m of t.messages) for (const p of [m.from, ...m.to, ...m.cc]) if (p.email && p.email.toLowerCase() !== S.me) S.people.add(addr(p));
-    $("people").innerHTML = [...S.people].slice(-300).map((p) => `<option value="${esc(p)}">`).join("");
     drawThread();
     if (t.unread) {   // geöffnet = gelesen
       post(`/threads/${tid}/modify`, { remove: ["UNREAD"] }).then(() => { const i = S.items.find((x) => x.id === tid); if (i) { i.unread = false; drawList(); } loadLabels(); }).catch(() => {});
@@ -335,12 +345,16 @@ function compose(mode = "new", m = null, prefill = {}) {
     to = m.to.map(addr).join(", "); cc = m.cc.map(addr).join(", "); subject = m.subject; text = m.text || htmlToText(m.html); title = "Entwurf";
     Object.assign(C, { draftId: m.draft_id, threadId: S.thread?.messages.length > 1 ? m.thread_id : "" });
   }
-  const from = S.sendAs.length > 1 ? `<div class="cf"><label for="cFrom">Von</label><select id="cFrom">${S.sendAs.map((a) => `<option value="${esc(a.name ? `${a.name} <${a.email}>` : a.email)}" ${a.default ? "selected" : ""}>${esc(a.name ? `${a.name} <${a.email}>` : a.email)}</option>`).join("")}</select></div>` : "";
-  $("compose").innerHTML = `<div class="chead"><h2>${title}</h2><button type="button" class="icon-btn" data-c="close" aria-label="Schließen"><span class="ms">close</span></button></div>
+  const lbl = (a) => (a.name ? `${a.name} <${a.email}>` : a.email);
+  const def = S.sendAs.find((a) => a.default) || S.sendAs[0];
+  const from = S.sendAs.length > 1 ? `<div class="cf"><label>Von</label><div class="dd" id="cFromDd"><input type="hidden" id="cFrom" value="${esc(lbl(def))}">
+      <button type="button" class="dd-btn" aria-haspopup="listbox" aria-expanded="false"><span class="dd-val">${esc(lbl(def))}</span><span class="ms">expand_more</span></button>
+      <div class="dd-menu" role="listbox" hidden>${S.sendAs.map((a) => `<button type="button" role="option" class="dd-opt ${a === def ? "on" : ""}" data-v="${esc(lbl(a))}"><span class="dd-t"><b>${esc(a.name || a.email.split("@")[0])}</b><small>${esc(a.email)}</small></span><span class="ms">${a === def ? "check" : ""}</span></button>`).join("")}</div></div></div>` : "";
+  $("compose").innerHTML = `<div class="sug" id="sug" hidden></div><div class="chead"><h2>${title}</h2><button type="button" class="icon-btn" data-c="close" aria-label="Schließen"><span class="ms">close</span></button></div>
     <div class="cfields">${from}
-      <div class="cf"><label for="cTo">An</label><input id="cTo" list="people" value="${esc(to)}" autocomplete="off" inputmode="email"><button type="button" class="tog" data-c="cc">Cc/Bcc</button></div>
-      <div class="cf" id="cCcRow" ${cc ? "" : "hidden"}><label for="cCc">Cc</label><input id="cCc" list="people" value="${esc(cc)}" autocomplete="off"></div>
-      <div class="cf" id="cBccRow" hidden><label for="cBcc">Bcc</label><input id="cBcc" list="people" autocomplete="off"></div>
+      <div class="cf"><label for="cTo">An</label><input id="cTo" data-ppl value="${esc(to)}" autocomplete="off" inputmode="email"><button type="button" class="tog" data-c="cc">Cc/Bcc</button></div>
+      <div class="cf" id="cCcRow" ${cc ? "" : "hidden"}><label for="cCc">Cc</label><input id="cCc" data-ppl value="${esc(cc)}" autocomplete="off"></div>
+      <div class="cf" id="cBccRow" hidden><label for="cBcc">Bcc</label><input id="cBcc" data-ppl autocomplete="off"></div>
       <div class="cf"><label for="cSub">Betreff</label><input id="cSub" value="${esc(subject)}"></div></div>
     <textarea id="cText" placeholder="Nachricht">${esc(text)}</textarea>
     <div class="cfiles" id="cFiles"></div>
@@ -362,6 +376,64 @@ function drawFiles() {
   const fwd = C.fwd.map((a) => `<span class="att ${C.skip.has(a.id) ? "off" : ""}"><span class="ms">${fileIcon(a.type)}</span><span>${esc(a.name)}</span><small>${size(a.size)}</small><button type="button" data-fw="${esc(a.id)}" aria-label="An/aus"><span class="ms">${C.skip.has(a.id) ? "undo" : "close"}</span></button></span>`);
   $("cFiles").innerHTML = own.concat(fwd).join("");
 }
+// ---------------- Eigenes Dropdown (Von) ----------------
+document.addEventListener("click", (e) => {
+  const dd = e.target.closest(".dd");
+  document.querySelectorAll(".dd.open").forEach((d) => { if (d !== dd) { d.classList.remove("open"); d.querySelector(".dd-menu").hidden = true; d.querySelector(".dd-btn").setAttribute("aria-expanded", "false"); } });
+  if (!dd) return;
+  const opt = e.target.closest(".dd-opt");
+  if (opt) {
+    dd.querySelector("input").value = opt.dataset.v;
+    dd.querySelector(".dd-val").textContent = opt.dataset.v;
+    dd.querySelectorAll(".dd-opt").forEach((o) => { o.classList.toggle("on", o === opt); o.querySelector(".ms").textContent = o === opt ? "check" : ""; });
+    C.dirty = true;
+  } else if (!e.target.closest(".dd-btn")) return;
+  const open = !opt && !dd.classList.contains("open");
+  dd.classList.toggle("open", open);
+  dd.querySelector(".dd-menu").hidden = !open;
+  dd.querySelector(".dd-btn").setAttribute("aria-expanded", String(open));
+});
+
+// ---------------- Adressvorschläge ----------------
+let contactsP = null, sugIdx = -1;
+const loadContacts = () => (contactsP ||= api("/contacts").then((l) => { S.contacts = l; return l; }).catch(() => { contactsP = null; return []; }));
+const norm = (x) => x.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+function suggest(input) {
+  const box = $("sug");
+  const parts = input.value.split(","), cur = parts[parts.length - 1].trim();
+  if (!cur || cur.includes("<")) return hideSug();
+  const q = norm(cur);
+  const hits = (S.contacts || []).filter((c) => norm(`${c.name} ${c.email}`).includes(q)).slice(0, 6);
+  if (!hits.length) return hideSug();
+  sugIdx = 0;
+  box.innerHTML = hits.map((c, i) => `<button type="button" class="sug-i ${i ? "" : "on"}" data-v="${esc(addr(c))}">${avatar(c.name || c.email, c.email)}<span class="dd-t"><b>${esc(c.name || c.email)}</b>${c.name ? `<small>${esc(c.email)}</small>` : ""}</span></button>`).join("");
+  const r = input.getBoundingClientRect(), host = $("compose").getBoundingClientRect();
+  box.style.top = `${r.bottom - host.top}px`;
+  box.hidden = false; box.target = input;
+}
+function hideSug() { const b = $("sug"); if (b) { b.hidden = true; b.target = null; } sugIdx = -1; }
+function pick(v) {
+  const input = $("sug").target; if (!input) return;
+  const parts = input.value.split(",").slice(0, -1).map((x) => x.trim()).filter(Boolean);
+  input.value = [...parts, v].join(", ") + ", ";
+  hideSug(); C.dirty = true; input.focus();
+}
+$("compose").addEventListener("input", (e) => { if (e.target.matches("[data-ppl]")) { loadContacts().then(() => e.target === document.activeElement && suggest(e.target)); } });
+$("compose").addEventListener("focusin", (e) => { if (e.target.matches("[data-ppl]")) loadContacts(); });
+$("compose").addEventListener("focusout", (e) => { if (e.target.matches("[data-ppl]")) setTimeout(() => { if (!document.activeElement?.closest?.("#sug")) hideSug(); }, 150); });
+$("compose").addEventListener("keydown", (e) => {
+  const box = $("sug");
+  if (box.hidden || !e.target.matches("[data-ppl]")) return;
+  const items = [...box.children];
+  if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+    e.preventDefault();
+    sugIdx = (sugIdx + (e.key === "ArrowDown" ? 1 : -1) + items.length) % items.length;
+    items.forEach((x, i) => x.classList.toggle("on", i === sugIdx));
+  } else if (e.key === "Enter" || e.key === "Tab") { e.preventDefault(); pick(items[sugIdx]?.dataset.v || items[0].dataset.v); }
+  else if (e.key === "Escape") { e.stopPropagation(); hideSug(); }
+}, true);
+$("compose").addEventListener("pointerdown", (e) => { const i = e.target.closest(".sug-i"); if (i) { e.preventDefault(); pick(i.dataset.v); } });
+
 function closeCompose() { document.body.classList.remove("composing"); }
 function formData(draft) {
   const fd = new FormData();

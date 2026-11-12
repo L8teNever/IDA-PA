@@ -159,3 +159,21 @@ body.composing .ev-scrim { opacity: 1; pointer-events: auto; }
 }
 .toast { display: flex; align-items: center; gap: 12px; max-width: calc(100% - 32px); }
 .toast-act { border: 0; background: none; color: var(--accent); font: inherit; font-weight: 600; padding: 4px 2px; }
+
+/* Eigenes Dropdown (Von) und Adressvorschläge */
+.compose { position: fixed; }
+.dd { position: relative; flex: 1; min-width: 0; }
+.dd-btn { width: 100%; height: 44px; display: flex; align-items: center; gap: 8px; border: 0; background: none; color: var(--on-surface); font: inherit; font-size: 15px; text-align: left; padding: 0; }
+.dd-val { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dd-btn .ms { color: var(--muted); transition: transform .2s var(--emph); }
+.dd.open .dd-btn .ms { transform: rotate(180deg); }
+.dd-menu, .sug { z-index: 5; background: var(--surface-highest); border-radius: 18px; box-shadow: 0 8px 28px rgba(0,0,0,.55); overflow: auto; padding: 6px; max-height: 280px; }
+.dd-menu { position: absolute; left: -6px; right: -6px; top: 46px; }
+.sug { position: absolute; left: 16px; right: 16px; }
+.dd-opt, .sug-i { width: 100%; display: flex; align-items: center; gap: 12px; min-height: 48px; padding: 6px 12px; border: 0; border-radius: 12px; background: none; color: var(--on-surface); font: inherit; text-align: left; cursor: pointer; }
+.dd-opt:hover, .dd-opt.on, .sug-i:hover, .sug-i.on { background: var(--surface-high); }
+.dd-t { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.dd-t b { font-weight: 500; font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dd-t small { color: var(--muted); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dd-opt .ms { color: var(--accent, #ff9f7a); width: 24px; }
+.sug-i .av { width: 32px; height: 32px; font-size: 14px; flex: none; }
