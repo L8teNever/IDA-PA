@@ -9,6 +9,7 @@
 * POST /api/v1/tools/{name}              eine Funktion ausfuehren, Body = JSON mit den Parametern
 * GET/POST /api/v1/sync/calendar         Stand / jetzt abgleichen (?dry_run=1 = nur anzeigen, was passieren wuerde)
 * GET/POST /api/v1/backup/docs           Stand / Docs-Sicherung jetzt nach Drive legen
+* POST /api/v1/token/gmail               kurzlebiger Gmail-Zugang (nur Gmail-Scopes) fuer den Dienst "mail" (IDA Mail)
 Ist GOOGLE_API_TOKEN gesetzt, ist es als Bearer-Token noetig.
 """
 from __future__ import annotations
@@ -137,6 +138,15 @@ def build_internal_app(settings, mcp, google, runner: Runner, services: dict | N
         dry = request.query_params.get("dry_run", "").lower() in ("1", "true", "ja")
         return JSONResponse(await runner.run_calendar(dry_run=dry))
 
+    async def gmail_token(request: Request):
+        """Fuer IDA Mail: ein Access-Token, eingeschraenkt auf die Gmail-Scopes (nie der Refresh-Token)."""
+        from app.services.gmail import SCOPES as GMAIL_SCOPES
+        try:
+            token = await asyncio.to_thread(google.get_access_token, GMAIL_SCOPES)
+        except GoogleAuthError as exc:
+            return JSONResponse({"detail": str(exc)}, status_code=409)
+        return JSONResponse({"access_token": token, "expires_in": 3000}, headers={"cache-control": "no-store"})
+
     async def backup_get(request: Request):
         return JSONResponse(runner.backup_status())
 
@@ -156,4 +166,5 @@ def build_internal_app(settings, mcp, google, runner: Runner, services: dict | N
         Route("/api/v1/sync/calendar", guarded(calendar_run), methods=["POST"]),
         Route("/api/v1/backup/docs", guarded(backup_get), methods=["GET"]),
         Route("/api/v1/backup/docs", guarded(backup_run), methods=["POST"]),
+        Route("/api/v1/token/gmail", guarded(gmail_token), methods=["POST"]),
     ])

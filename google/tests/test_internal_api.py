@@ -22,8 +22,14 @@ class FakeRunner:
 
 
 class FakeGoogle:
+    scopes = None
+
     def is_connected(self):
         return True
+
+    def get_access_token(self, scopes=None):
+        FakeGoogle.scopes = scopes
+        return "ya29.kurz"
 
 
 class Settings:
@@ -63,6 +69,12 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(r.json(), {"ergebnis": [{"a": 5}]})
         self.assertEqual(self.c.post("/api/v1/tools/gibt_es_nicht", headers=self.h, json={}).status_code, 404)
         self.assertEqual(self.c.post("/api/v1/tools/google_demo", headers=self.h, json={"fehler": 1}).status_code, 400)
+
+    def test_gmail_token_nur_mit_gmail_scopes(self):
+        self.assertEqual(self.c.post("/api/v1/token/gmail").status_code, 401)
+        r = self.c.post("/api/v1/token/gmail", headers=self.h).json()
+        self.assertEqual(r["access_token"], "ya29.kurz")
+        self.assertTrue(FakeGoogle.scopes and all("gmail" in x for x in FakeGoogle.scopes))
 
     def test_abgleich_probelauf(self):
         self.assertEqual(self.c.post("/api/v1/sync/calendar?dry_run=1", headers=self.h).json(), {"ok": True, "dry_run": True})

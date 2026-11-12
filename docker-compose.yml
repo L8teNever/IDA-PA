@@ -119,6 +119,22 @@ services:
     labels:
       com.centurylinklabs.watchtower.enable: "true"
 
+  # IDA Mail – Gmail im IDA-Stil (Ordner, Lesen, Schreiben, Antworten, live). Kein eigener Speicher: alles liegt in Gmail; den Zugang
+  # (kurzlebiger Token, nur Gmail-Scopes) holt der Dienst beim Dienst "google" – dort ist die Anmeldung (IDA → Einstellungen → Google).
+  # Davor gehört Cloudflare Access (z. B. mail.kulbarts.com). Siehe docs/MAIL.md
+  mail:
+    image: ${MAIL_IMAGE:-ghcr.io/l8tenever/ida-mail:latest}
+    pull_policy: always
+    restart: unless-stopped
+    environment:
+      GOOGLE_API_URL: http://google:4571
+      GOOGLE_API_TOKEN: ${GOOGLE_API_TOKEN:-}
+      MAIL_PUBLIC_URL: ${MAIL_PUBLIC_URL:-}
+    ports:
+      - "${MAIL_PORT:-8094}:8000"
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"
+
   # Tasks – eigene Aufgaben-App (eigener Port, eigene PWA, SQLite im Volume tasks-data). Ida und Stella bedienen sie über die
   # tasks_*-Tools; „Sprechen“ in der App startet Stella im Aufgaben-Modus (Ticket mit VOICE_SECRET, wie die Live-App). Siehe docs/TASKS.md
   # Davor gehört Cloudflare Access: ohne Token gilt jeder Aufruf als du selbst.

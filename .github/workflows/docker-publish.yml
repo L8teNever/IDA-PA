@@ -1,5 +1,5 @@
 # Tests (IDA: SQLite + PostgreSQL, Kalender/Wiki: SQLite, Code), dann Images bauen und nach GHCR pushen
-# (ghcr.io/<owner>/<repo>:latest, ida-kalender:latest, ida-wiki:latest, ida-code:latest, ida-dashboard:latest, ida-tasks:latest, ida-html:latest, ida-docs:latest, ida-launcher:latest, ida-google-stack:latest).
+# (ghcr.io/<owner>/<repo>:latest, ida-kalender:latest, ida-wiki:latest, ida-code:latest, ida-dashboard:latest, ida-tasks:latest, ida-html:latest, ida-docs:latest, ida-launcher:latest, ida-google-stack:latest, ida-mail:latest).
 name: Test & Docker-Image
 
 on:
@@ -176,8 +176,21 @@ jobs:
       - name: pytest
         run: python -m pytest
 
+  mail-test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mail
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12", cache: pip, cache-dependency-path: mail/requirements*.txt }
+      - run: pip install -r requirements-dev.txt
+      - name: pytest
+        run: python -m pytest
+
   image:
-    needs: [test, kalender-test, kalender-frontend-test, wiki-test, code-test, dashboard-test, tasks-test, docs-test, google-test, launcher-test]
+    needs: [test, kalender-test, kalender-frontend-test, wiki-test, code-test, dashboard-test, tasks-test, docs-test, google-test, launcher-test, mail-test]
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     strategy:
@@ -193,6 +206,7 @@ jobs:
           - { name: docs, dockerfile: dokumente/Dockerfile, image: "ghcr.io/${{ github.repository_owner }}/ida-docs" }
           - { name: launcher, dockerfile: launcher/Dockerfile, image: "ghcr.io/${{ github.repository_owner }}/ida-launcher" }
           - { name: google, dockerfile: google/Dockerfile, image: "ghcr.io/${{ github.repository_owner }}/ida-google-stack" }
+          - { name: mail, dockerfile: mail/Dockerfile, image: "ghcr.io/${{ github.repository_owner }}/ida-mail" }
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3

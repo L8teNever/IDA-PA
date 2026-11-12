@@ -40,6 +40,7 @@ Stacks (z. B. Veldora, Stella) ihn erreichen, die interne Adresse des Servers ei
 | `GET /api/v1/sync/calendar` | Stand des letzten Kalender-Abgleichs |
 | `POST /api/v1/sync/calendar?dry_run=1` | Abgleich jetzt (mit `dry_run`: nur anzeigen, was passieren würde) |
 | `GET/POST /api/v1/backup/docs` | Stand / Docs-Sicherung jetzt nach Drive legen |
+| `POST /api/v1/token/gmail` | kurzlebiger Access-Token nur mit Gmail-Scopes, für IDA Mail (docs/MAIL.md) |
 
 Port 4571 wird nie veröffentlicht. Ist `GOOGLE_API_TOKEN` gesetzt, braucht jeder Aufruf `Authorization: Bearer <token>`.
 

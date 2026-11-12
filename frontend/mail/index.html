@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#000000">
+<meta name="color-scheme" content="dark">
+<title>Mail</title>
+<link rel="manifest" href="/manifest.webmanifest" crossorigin="use-credentials">
+<link rel="icon" href="/icons/favicon-64.png">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+<link rel="preload" href="/static/shared/fonts/GoogleSansFlex-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/static/shared/css/tokens.css">
+<link rel="stylesheet" href="/static/shared/css/components.css">
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<div class="shell" id="shell">
+  <aside class="nav" id="nav">
+    <div class="nav-top">
+      <span class="ida-mini"><i></i><i></i></span>
+      <div class="nav-ttl"><div class="nav-name">Mail</div><div class="nav-sub" id="account">…</div></div>
+    </div>
+    <button class="compose-btn" id="composeBtn"><span class="ms">edit</span>Schreiben</button>
+    <nav id="labels" class="labels"></nav>
+  </aside>
+  <div class="scrim" id="scrim"></div>
+  <section class="list-pane" id="listPane">
+    <header class="bar">
+      <button class="icon-btn menu-btn" id="menuBtn" aria-label="Ordner"><span class="ms">menu</span></button>
+      <label class="search"><span class="ms">search</span><input id="q" type="search" placeholder="In Mails suchen" autocomplete="off" enterkeyhint="search"></label>
+      <button class="icon-btn" id="refreshBtn" title="Neu laden" aria-label="Neu laden"><span class="ms">refresh</span></button>
+    </header>
+    <div class="list-head"><h1 id="labelName">Posteingang</h1><span class="live-dot" id="liveDot" title="Live verbunden"></span></div>
+    <div class="list" id="list"></div>
+  </section>
+  <section class="reader" id="reader">
+    <div class="reader-empty"><span class="ms">mail</span><p>Wähle eine Mail aus.</p></div>
+  </section>
+</div>
+<button class="fab" id="fab" aria-label="Schreiben"><span class="ms">edit</span><span class="fab-t">Schreiben</span></button>
+<div class="ev-scrim" id="sheetScrim"></div>
+<form class="compose" id="compose" autocomplete="off"></form>
+<datalist id="people"></datalist>
+<script type="module" src="/static/app.js"></script>
+</body>
+</html>
