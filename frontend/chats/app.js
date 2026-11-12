@@ -5,7 +5,7 @@ const API = "/api/v1";
 const $ = (s) => document.querySelector(s);
 const BASE = "/";
 const COLORS = ["rot", "orange", "gelb", "salbei", "gruen", "tuerkis", "blau", "lavendel", "lila", "koralle"];
-const S = { chats: [], next: null, q: "", f: "all", id: null, msgs: [], more: false, oldest: null, seq: 0, sending: false, reply: null, voice: {} };
+const S = { chats: [], next: null, q: "", f: "all", id: null, msgs: [], more: false, oldest: null, seq: 0, sending: false, reply: null, voice: {}, vopen: {} };
 
 const fmtDay = new Intl.DateTimeFormat("de-DE", { weekday: "long", day: "2-digit", month: "long" });
 const fmtShort = new Intl.DateTimeFormat("de-DE", { day: "2-digit", month: "2-digit" });
@@ -139,25 +139,40 @@ async function loadMsgs({ first = false, quiet = false, older = false } = {}) {
   }
 }
 const mmss = (s) => `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, "0")}`;
-function fileHtml(f, m) {
-  const src = encodeURIComponent(f.src || "");
-  if (f.kind === "image") return `<img loading="lazy" alt="${esc(f.name || "Bild")}" src="${API}/image?src=${src}">`;
-  if (f.kind === "audio") {
-    const t = S.voice[f.src];
-    return `<div class="voice"><span class="ms">mic</span><div class="vt"><b>Sprachnachricht${f.duration ? ` · ${mmss(f.duration)}` : ""}</b>${t ? `<span class="vtext">${esc(t)}</span>` : `<button class="mini" data-a="voice" data-src="${esc(f.src)}">Als Text anzeigen</button>`}</div></div>`;
+const mediaUrl = (f) => `${API}/media?src=${encodeURIComponent(f.src || "")}${f.mime ? `&mime=${encodeURIComponent(f.mime)}` : ""}`;
+function bars(key) {   // Wellenform: aus der Adresse abgeleitet, damit sie pro Nachricht gleich bleibt
+  let h = 7;
+  for (const c of String(key)) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+  return Array.from({ length: 34 }, (_, i) => { h = (h * 1103515245 + 12345) >>> 0; return 18 + ((h >>> 16) % 70) * (0.55 + 0.45 * Math.sin((i / 34) * Math.PI)); });
+}
+function fileHtml(f) {
+  const src = esc(f.src || "");
+  if (f.kind === "image") {
+    const r = f.w && f.h ? ` style="aspect-ratio:${f.w}/${f.h}"` : "";
+    return `<img class="pic ${f.sticker ? "stk" : ""}" loading="lazy" data-a="zoom" data-src="${src}" alt="${esc(f.name || "Bild")}"${r} src="${mediaUrl(f)}">`;
   }
-  if (f.kind === "video") return `<div class="file"><span class="ms">${f.gif ? "gif_box" : "videocam"}</span>${f.gif ? "GIF" : "Video"}${f.duration ? ` · ${mmss(f.duration)}` : ""} <small>(in Beeper ansehen)</small></div>`;
-  return `<div class="file"><span class="ms">attach_file</span>${esc(f.name || "Datei")}</div>`;
+  if (f.kind === "audio") {
+    const t = f.transcript || S.voice[f.src];
+    return `<div class="voice" data-src="${src}" data-mime="${esc(f.mime)}" data-dur="${f.duration || 0}"><button class="play" data-a="play" aria-label="Abspielen"><span class="ms">play_arrow</span></button>
+      <div class="wave" data-a="seek">${bars(f.src).map((h) => `<i style="height:${h.toFixed(0)}%"></i>`).join("")}</div>
+      <span class="dur">${f.duration ? mmss(f.duration) : ""}</span><button class="spd" data-a="speed" aria-label="Tempo">1×</button>
+      <button class="vtbtn ${t ? "has" : ""}" data-a="vtext" data-src="${src}" aria-label="Als Text" title="Als Text anzeigen"><span class="ms">notes</span></button></div>${S.vopen[f.src] && t ? `<div class="vtext">${esc(t)}</div>` : ""}`;
+  }
+  if (f.kind === "video") {
+    const r = f.w && f.h ? ` style="aspect-ratio:${f.w}/${f.h}"` : "";
+    return `<div class="vid"${r} data-a="video" data-src="${src}" data-mime="${esc(f.mime)}"><span class="ms">play_circle</span>${f.duration ? `<small>${mmss(f.duration)}</small>` : ""}</div>`;
+  }
+  return `<a class="file" href="${mediaUrl(f)}" download="${esc(f.name || "Datei")}"><span class="ms">attach_file</span><span>${esc(f.name || "Datei")}${f.size ? ` <small>${f.size > 1e6 ? (f.size / 1e6).toFixed(1) + " MB" : Math.round(f.size / 1e3) + " KB"}</small>` : ""}</span></a>`;
 }
 function bubble(m) {
-  const files = m.files.map((f) => fileHtml(f, m)).join("");
+  const files = m.files.map((f) => fileHtml(f)).join("");
   const body = m.deleted ? "Nachricht gelöscht" : m.text ? `<span class="tx">${autolink(esc(m.text))}</span>` : "";
   const group = cur()?.type === "group" && !m.mine ? `<span class="who">${esc(clean(m.sender))}</span>` : "";
   const q = m.reply_to && S.msgs.find((x) => x.id === m.reply_to);
   const quote = m.reply_to ? `<div class="quote" data-a="jump" data-id="${esc(m.reply_to)}"><b>${esc(q ? (q.mine ? "Du" : clean(q.sender)) : "Antwort")}</b>${esc(q ? (q.text || (q.files[0] ? "Anhang" : "")).slice(0, 120) : "Nachricht")}</div>` : "";
   const rx = m.reactions?.length ? `<div class="rx">${m.reactions.map((r) => `<span class="${r.mine ? "mine" : ""}">${esc(r.key)}${r.n > 1 ? ` ${r.n}` : ""}</span>`).join("")}</div>` : "";
   const tools = m.pending || m.deleted ? "" : `<button class="rep" data-a="reply" data-id="${esc(m.id)}" aria-label="Antworten" title="Antworten"><span class="ms">reply</span></button>`;
-  return `<div class="bw ${m.mine ? "me" : ""}" id="m-${esc(m.id)}">${tools}<div class="b ${m.mine ? "me" : ""} ${m.pending ? "pending" : ""} ${m.deleted ? "del" : ""}">${group}${quote}${files}${body}${rx}<span class="tm">${m.at ? fmtTime.format(new Date(m.at)) : "…"}</span></div></div>`;
+  return `<div class="bw ${m.mine ? "me" : ""}" id="m-${esc(m.id)}" data-id="${esc(m.id)}"><span class="swipe ms">reply</span>${tools}<div class="b ${m.mine ? "me" : ""} ${m.pending ? "pending" : ""} ${m.deleted ? "del" : ""}">${group}${quote}${files}${body}${rx}<span class="tm">${m.at ? fmtTime.format(new Date(m.at)) : "…"}</span></div></div>`;
 }
 function drawMsgs({ stick = false, keepTop = false } = {}) {
   const box = $("#msgs"); if (!box) return;
@@ -170,6 +185,7 @@ function drawMsgs({ stick = false, keepTop = false } = {}) {
     html += bubble(m);
   }
   box.innerHTML = html;
+  paint();
   if (keepTop) box.scrollTop = box.scrollHeight - prevH + prevTop;
   else if (stick) { box.scrollTop = box.scrollHeight; box.querySelectorAll("img").forEach((i) => i.addEventListener("load", () => { box.scrollTop = box.scrollHeight; }, { once: true })); }
   else box.scrollTop = prevTop;
@@ -182,11 +198,144 @@ $("#conv").addEventListener("click", (e) => {
   if (a.dataset.a === "reply") return setReply(S.msgs.find((m) => m.id === a.dataset.id));
   if (a.dataset.a === "cancel") return setReply(null);
   if (a.dataset.a === "jump") { const el = document.getElementById(`m-${a.dataset.id}`); if (el) { el.scrollIntoView({ block: "center", behavior: "smooth" }); el.classList.add("flash"); setTimeout(() => el.classList.remove("flash"), 1200); } return; }
-  if (a.dataset.a === "voice") {
-    a.disabled = true; a.textContent = "Wird umgewandelt …";
-    return api(`/transcript?src=${encodeURIComponent(a.dataset.src)}`).then((d) => { S.voice[a.dataset.src] = d.text || "(kein Text erkannt)"; drawMsgs(); }, (e) => { a.disabled = false; a.textContent = "Als Text anzeigen"; toast(e.message); });
-  }
+  if (a.dataset.a === "play") return togglePlay(a.closest(".voice"));
+  if (a.dataset.a === "speed") return cycleSpeed(a);
+  if (a.dataset.a === "seek") return seek(a.closest(".voice"), e);
+  if (a.dataset.a === "vtext") return voiceText(a);
+  if (a.dataset.a === "zoom") return lightbox(a.src);
+  if (a.dataset.a === "video") return playVideo(a);
 });
+// ---------------- Sprachnachrichten ----------------
+const audio = new Audio();
+audio.preload = "none";
+let cur$ = null, speed = 1;   // cur$ = Adresse der laufenden Nachricht
+const voiceEl = (src) => [...document.querySelectorAll(".voice")].find((v) => v.dataset.src === src);
+function paint() {   // Zustand der Player nach jedem Neuzeichnen und bei jedem Tick
+  document.querySelectorAll(".voice").forEach((v) => {
+    const on = v.dataset.src === cur$, d = on && isFinite(audio.duration) ? audio.duration : +v.dataset.dur || 0;
+    const p = on && d ? audio.currentTime / d : 0;
+    v.classList.toggle("playing", on && !audio.paused);
+    v.querySelector(".play .ms").textContent = on && !audio.paused ? "pause" : "play_arrow";
+    v.querySelectorAll(".wave i").forEach((b, i, all) => b.classList.toggle("on", i / all.length < p));
+    v.querySelector(".dur").textContent = d ? mmss(on && audio.currentTime > 0 ? audio.currentTime : d) : "";
+    v.querySelector(".spd").textContent = `${speed}×`.replace("1.5", "1,5");
+  });
+}
+audio.addEventListener("timeupdate", paint);
+audio.addEventListener("play", paint);
+audio.addEventListener("pause", paint);
+audio.addEventListener("ended", () => { audio.currentTime = 0; paint(); });
+audio.addEventListener("error", () => { toast("Sprachnachricht konnte nicht geladen werden"); paint(); });
+function togglePlay(v) {
+  const src = v.dataset.src;
+  if (cur$ !== src) {
+    audio.pause(); cur$ = src;
+    audio.src = `${API}/media?src=${encodeURIComponent(src)}${v.dataset.mime ? `&mime=${encodeURIComponent(v.dataset.mime)}` : ""}`;
+    audio.playbackRate = speed;
+  }
+  if (audio.paused) audio.play().catch(() => {}); else audio.pause();
+  paint();
+}
+function cycleSpeed(btn) {
+  speed = speed === 1 ? 1.5 : speed === 1.5 ? 2 : 1;
+  audio.playbackRate = speed; paint();
+}
+function seek(v, e) {
+  if (v.dataset.src !== cur$) togglePlay(v);
+  const r = v.querySelector(".wave").getBoundingClientRect(), p = Math.min(1, Math.max(0, (e.clientX - r.left) / r.width));
+  const go = () => { if (isFinite(audio.duration)) audio.currentTime = audio.duration * p; };
+  isFinite(audio.duration) ? go() : audio.addEventListener("loadedmetadata", go, { once: true });
+}
+async function voiceText(btn) {
+  const src = btn.dataset.src, f = S.msgs.flatMap((m) => m.files).find((x) => x.src === src);
+  S.vopen[src] = !S.vopen[src];
+  if (S.vopen[src] && !(f?.transcript || S.voice[src])) {
+    btn.disabled = true;
+    try { S.voice[src] = (await api(`/transcript?src=${encodeURIComponent(src)}`)).text || "(kein Text erkannt)"; } catch (e) { S.vopen[src] = false; toast(e.message); }
+  }
+  drawMsgs();
+}
+function playVideo(el) {
+  const v = document.createElement("video");
+  v.controls = true; v.autoplay = true; v.playsInline = true; v.className = "vplay";
+  v.src = `${API}/media?src=${encodeURIComponent(el.dataset.src)}${el.dataset.mime ? `&mime=${encodeURIComponent(el.dataset.mime)}` : ""}`;
+  v.addEventListener("error", () => toast("Video konnte nicht geladen werden"));
+  el.replaceWith(v);
+}
+function lightbox(src) {
+  const d = document.createElement("div");
+  d.className = "lightbox"; d.innerHTML = `<img alt="" src="${src}"><button class="icon-btn" aria-label="Schließen"><span class="ms">close</span></button>`;
+  d.onclick = () => d.remove();
+  document.body.append(d);
+}
+
+// ---------------- Wischen, langes Drücken, Menü ----------------
+const buzz = (ms = 12) => navigator.vibrate?.(ms);
+function bubbleMsg(el) { const w = el.closest(".bw"); return w ? S.msgs.find((m) => m.id === w.dataset.id) : null; }
+function menu(m, x, y) {
+  closeMenu();
+  const d = document.createElement("div");
+  d.className = "ctx"; d.id = "ctx";
+  d.innerHTML = `<div class="ctx-back"></div><div class="ctx-box" style="--x:${x}px;--y:${y}px">
+    <button data-c="reply"><span class="ms">reply</span>Antworten</button>
+    ${m.text ? '<button data-c="copy"><span class="ms">content_copy</span>Text kopieren</button>' : ""}
+    ${m.files[0] ? `<button data-c="open"><span class="ms">download</span>Datei öffnen</button>` : ""}</div>`;
+  d.addEventListener("click", (e) => {
+    const c = e.target.closest("[data-c]")?.dataset.c;
+    closeMenu();
+    if (c === "reply") setReply(m);
+    if (c === "copy") navigator.clipboard?.writeText(m.text).then(() => toast("Kopiert"), () => toast("Kopieren nicht möglich"));
+    if (c === "open") window.open(mediaUrl(m.files[0]), "_blank", "noopener");
+  });
+  document.body.append(d);
+  const box = d.querySelector(".ctx-box"), r = box.getBoundingClientRect();
+  box.style.left = `${Math.max(8, Math.min(x, innerWidth - r.width - 8))}px`;
+  box.style.top = `${Math.max(8, Math.min(y, innerHeight - r.height - 8))}px`;
+  buzz(20);
+}
+const closeMenu = () => document.getElementById("ctx")?.remove();
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeMenu(); });
+const gest = { w: null, x: 0, y: 0, dx: 0, t: 0, lock: false, armed: false };
+function gestEnd() {
+  clearTimeout(gest.t);
+  if (gest.w) { gest.w.style.transform = ""; gest.w.classList.remove("armed", "drag"); }
+  gest.w = null;
+}
+const msgsEl = () => document.getElementById("msgs");
+document.addEventListener("touchstart", (e) => {
+  const w = e.target.closest?.("#msgs .bw");
+  if (!w || e.touches.length !== 1 || e.target.closest(".voice,video,.vid,a")) return;
+  const t = e.touches[0];
+  Object.assign(gest, { w, x: t.clientX, y: t.clientY, dx: 0, lock: false, armed: false });
+  gest.t = setTimeout(() => { const m = bubbleMsg(w); if (m && !gest.lock) { gest.w = null; menu(m, gest.x, gest.y); } }, 450);
+}, { passive: true });
+document.addEventListener("touchmove", (e) => {
+  if (!gest.w) return;
+  const t = e.touches[0], dx = t.clientX - gest.x, dy = t.clientY - gest.y;
+  if (!gest.lock && (Math.abs(dy) > 10 || Math.abs(dx) > 10)) {
+    clearTimeout(gest.t);
+    if (Math.abs(dx) > Math.abs(dy) * 1.4 && dx > 0) gest.lock = true; else return gestEnd();
+  }
+  if (!gest.lock) return;
+  gest.dx = Math.min(dx, 90);
+  gest.w.classList.add("drag");
+  gest.w.style.transform = `translateX(${gest.dx * 0.8}px)`;
+  const armed = gest.dx > 60;
+  if (armed && !gest.armed) buzz(15);
+  gest.armed = armed; gest.w.classList.toggle("armed", armed);
+}, { passive: true });
+document.addEventListener("touchend", () => {
+  if (gest.w && gest.armed) { const m = bubbleMsg(gest.w); if (m && !m.pending) setReply(m); }
+  gestEnd();
+});
+document.addEventListener("touchcancel", gestEnd);
+document.addEventListener("contextmenu", (e) => {   // Rechtsklick am PC, langes Drücken am Handy (falls der Browser es meldet)
+  const w = e.target.closest?.("#msgs .bw");
+  if (!w || e.target.closest("video")) return;
+  const m = bubbleMsg(w);
+  if (m && !m.pending) { e.preventDefault(); menu(m, e.clientX, e.clientY); }
+});
+
 function setReply(m) {
   S.reply = m || null;
   const bar = $("#replybar"); if (!bar) return;

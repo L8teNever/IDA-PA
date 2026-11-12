@@ -18,7 +18,7 @@ HEAD = re.compile(r"^## (?P<title>.*) \(chatID: (?P<id>[^)]+)\)\s*$")
 NEXT = re.compile(r"Next page \(older\): cursor='([^']+)'")
 NET = re.compile(r"^Chat on (?P<net>.+?) \((?P<acc>[^()]+)\) (?:with|in|called)\b|^Chat on (?P<net2>[\w.-]+) (?:with|in|called)\b")
 UNREAD = re.compile(r"It has (\d+) unread")
-SRC = re.compile(r"^(mxc|localmxc|beeper-mcp)://[\w./:%@!~+=-]+$")
+SRC = re.compile(r"^(mxc|localmxc|beeper-mcp)://[\w./:%@!~+=?&-]{1,4000}$")
 
 _beeper: Beeper | None = None
 _voice: dict[str, str] = {}
@@ -94,7 +94,8 @@ def message(m: dict) -> dict:
         "type": (m.get("type") or "TEXT").upper(), "text": m.get("text") or "", "deleted": bool(m.get("isDeleted")),
         "reply_to": m.get("linkedMessageID") or None, "reactions": reactions(m),
         "files": [{"src": a.get("srcURL") or a.get("id"), "kind": kind(a), "mime": a.get("mimeType") or "", "name": a.get("fileName") or "",
-                   "size": a.get("fileSize") or 0, "duration": a.get("duration") or 0, "sticker": bool(a.get("isSticker")), "gif": bool(a.get("isGif"))}
+                   "size": a.get("fileSize") or 0, "duration": a.get("duration") or 0, "w": (a.get("size") or {}).get("width"), "h": (a.get("size") or {}).get("height"),
+                   "transcript": ((a.get("transcription") or {}).get("transcription") or "").strip(), "sticker": bool(a.get("isSticker")), "gif": bool(a.get("isGif"))}
                   for a in m.get("attachments") or []],
     }
 
@@ -148,15 +149,67 @@ def check_src(src: str) -> None:
         raise HTTPException(400, "Ungültige Adresse")
 
 
-@router.get("/image")
-async def image(src: str):
+MEDIA_MAX = 60 * 1024 * 1024     # größer wird nichts geholt
+MEDIA_CACHE = 120 * 1024 * 1024  # so viel hält der Dienst im Speicher (zuletzt benutzte zuerst raus)
+_media: "dict[str, tuple[bytes, str]]" = {}
+_media_size = 0
+_media_lock = asyncio.Lock()
+
+
+async def media_bytes(src: str, mime: str) -> tuple[bytes, str]:
+    """Holt eine Datei (Bild, Audio, Video) von Beeper; get_attachment_image liefert sie als Binärteil."""
+    global _media_size
+    if src in _media:
+        _media[src] = _media.pop(src)   # als zuletzt benutzt merken
+        return _media[src]
+    async with _media_lock:
+        if src in _media:
+            return _media[src]
+        args = {"srcURL": src, "mimeType": mime if re.match(r"^[\w.+-]+/[\w.+;= -]{1,80}$", mime or "") else None}
+        parts = await call(beeper().content, "get_attachment_image", args)
+        part = next((p for p in parts if p.get("data") and p.get("mimeType")), None)
+        if not part:
+            raise HTTPException(404, "Keine Datei")
+        data = base64.b64decode(part["data"])
+        if len(data) > MEDIA_MAX:
+            raise HTTPException(413, "Datei zu groß")
+        _media[src] = (data, part["mimeType"])
+        _media_size += len(data)
+        while _media_size > MEDIA_CACHE and len(_media) > 1:
+            _, (old, _) = next(iter(_media.items()))
+            _media_size -= len(old)
+            _media.pop(next(iter(_media)))
+        return _media[src]
+
+
+SAFE_MIME = re.compile(r"^(image/(png|jpe?g|gif|webp|avif|heic)|audio/[\w.+-]+|video/[\w.+-]+)(;.*)?$", re.I)
+
+
+@router.get("/media")
+async def media(request: Request, src: str, mime: str = ""):
+    """Bild, Audio oder Video einer Nachricht – mit Range-Unterstützung (Spulen, iPhone-Wiedergabe)."""
     check_src(src)
-    parts = await call(beeper().content, "get_attachment_image", {"srcURL": src})
-    img = next((p for p in parts if p.get("type") == "image" and p.get("data")), None)
-    if not img:
-        raise HTTPException(404, "Kein Bild")
-    return Response(base64.b64decode(img["data"]), media_type=img.get("mimeType") or "image/jpeg",
-                    headers={"cache-control": "private, max-age=86400", "content-security-policy": "default-src 'none'", "x-content-type-options": "nosniff"})
+    data, ctype = await media_bytes(src, mime)
+    if not SAFE_MIME.match(ctype):   # alles andere (HTML, SVG …) nur als Download, nie im Browser ausführen
+        ctype = "application/octet-stream"
+    headers = {"cache-control": "private, max-age=86400", "content-security-policy": "default-src 'none'", "x-content-type-options": "nosniff",
+               "accept-ranges": "bytes"}
+    if ctype == "application/octet-stream":
+        headers["content-disposition"] = "attachment"
+    rng = re.match(r"bytes=(\d*)-(\d*)$", request.headers.get("range", ""))
+    if rng and (rng[1] or rng[2]):
+        n = len(data)
+        start, end = (int(rng[1]), int(rng[2]) if rng[2] else n - 1) if rng[1] else (max(0, n - int(rng[2])), n - 1)
+        end = min(end, n - 1)
+        if start > end:
+            return Response(status_code=416, headers={"content-range": f"bytes */{n}"})
+        return Response(data[start:end + 1], status_code=206, media_type=ctype, headers={**headers, "content-range": f"bytes {start}-{end}/{n}"})
+    return Response(data, media_type=ctype, headers=headers)
+
+
+@router.get("/image", include_in_schema=False)
+async def image(request: Request, src: str):
+    return await media(request, src, "")
 
 
 @router.get("/transcript")

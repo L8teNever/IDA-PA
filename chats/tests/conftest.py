@@ -1,4 +1,5 @@
 """Der echte Chats-Dienst (TestClient) gegen einen Beeper-MCP-Ersatz."""
+import base64
 import json
 import os
 import threading
@@ -24,7 +25,7 @@ This chat is muted.
 """
 MSGS = {"items": [
     {"id": "9", "timestamp": "2026-11-12T10:40:00Z", "senderName": "Luka", "type": "VOICE", "text": "", "isSender": False, "linkedMessageID": "8",
-     "attachments": [{"srcURL": "mxc://x/voice", "type": "audio", "mimeType": "audio/ogg", "isVoiceNote": True, "duration": 12}],
+     "attachments": [{"srcURL": "mxc://x/voice?encryptedFileInfoJSON=abc", "type": "audio", "mimeType": "audio/ogg", "isVoiceNote": True, "duration": 12, "transcription": {"transcription": " Hallo Mama "}}],
      "reactions": [{"reactionKey": "👍", "isSender": True}, {"reactionKey": "👍"}]},
     {"id": "8", "timestamp": "2026-11-12T10:38:00Z", "senderName": "me", "type": "TEXT", "text": "Hi", "isSender": True,
      "attachments": [{"srcURL": "mxc://x/img", "type": "img", "mimeType": "image/jpeg"}]}], "hasMore": True, "oldestCursor": "8", "newestCursor": "9"}
@@ -56,6 +57,10 @@ class FakeBeeper:
                         res = {"content": [{"type": "text", "text": outer.chats}]}
                     elif n == "list_messages":
                         res = {"content": [{"type": "text", "text": json.dumps(MSGS)}]}
+                    elif n == "get_attachment_image" and "voice" in a["srcURL"]:
+                        res = {"content": [{"type": "audio", "data": base64.b64encode(bytes(range(200))).decode(), "mimeType": "audio/ogg"}]}
+                    elif n == "get_attachment_image" and "page" in a["srcURL"]:
+                        res = {"content": [{"type": "resource", "data": base64.b64encode(b"<script>x</script>").decode(), "mimeType": "text/html"}]}
                     elif n == "get_attachment_image":
                         res = {"content": [{"type": "image", "data": PNG, "mimeType": "image/png"}]}
                     elif n == "transcribe_voice_message":

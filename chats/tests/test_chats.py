@@ -19,6 +19,7 @@ def test_nachrichten(client, fake):
     assert [m["id"] for m in d["items"]] == ["8", "9"] and d["more"] and d["oldest"] == "8"   # alt → neu
     v = d["items"][1]
     assert v["reply_to"] == "8" and v["files"][0]["kind"] == "audio" and v["files"][0]["duration"] == 12
+    assert v["files"][0]["transcript"] == "Hallo Mama" and "encryptedFileInfoJSON" in v["files"][0]["src"]
     assert v["reactions"] == [{"key": "👍", "n": 2, "mine": True}]
     assert d["items"][0]["files"][0]["kind"] == "image"
     client.get(f"{API}/chats/1/messages", params={"cursor": "8"})
@@ -35,9 +36,9 @@ def test_bild_und_sprachnachricht(client, fake):
     r = client.get(f"{API}/image", params={"src": "mxc://x/img"})
     assert r.status_code == 200 and r.headers["content-type"] == "image/png" and r.content[:4] == b"\x89PNG"
     assert client.get(f"{API}/image", params={"src": "http://böse"}).status_code == 400
-    assert client.get(f"{API}/transcript", params={"src": "mxc://x/voice"}).json() == {"text": "Hallo Welt"}
+    assert client.get(f"{API}/transcript", params={"src": "mxc://x/voice2"}).json() == {"text": "Hallo Welt"}
     n = len(fake.calls)
-    client.get(f"{API}/transcript", params={"src": "mxc://x/voice"})
+    client.get(f"{API}/transcript", params={"src": "mxc://x/voice2"})
     assert len(fake.calls) == n   # zweites Mal aus dem Speicher
 
 
@@ -68,3 +69,16 @@ def test_oberflaeche(client):
     assert client.get("/sw.js").status_code == 200
     assert client.get("/icons/icon-192.png").status_code == 200
     assert client.get("/api/v1/health").json() == {"ok": True}
+
+
+def test_audio_mit_range_und_unsichere_dateien(client):
+    src = "mxc://x/voice?encryptedFileInfoJSON=abc"
+    r = client.get(f"{API}/media", params={"src": src, "mime": "audio/ogg"})
+    assert r.status_code == 200 and r.headers["content-type"] == "audio/ogg" and len(r.content) == 200 and r.headers["accept-ranges"] == "bytes"
+    r = client.get(f"{API}/media", params={"src": src}, headers={"range": "bytes=10-19"})
+    assert r.status_code == 206 and r.content == bytes(range(10, 20)) and r.headers["content-range"] == "bytes 10-19/200"
+    r = client.get(f"{API}/media", params={"src": src}, headers={"range": "bytes=-5"})
+    assert r.status_code == 206 and r.content == bytes(range(195, 200))
+    assert client.get(f"{API}/media", params={"src": src}, headers={"range": "bytes=500-600"}).status_code == 416
+    r = client.get(f"{API}/media", params={"src": "mxc://x/page"})   # HTML kommt nie als HTML an
+    assert r.headers["content-type"] == "application/octet-stream" and r.headers["content-disposition"] == "attachment"

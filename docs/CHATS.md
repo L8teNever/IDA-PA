@@ -11,10 +11,16 @@ Browser (chats.kulbarts.com, Cloudflare Access) ──> chats :8000 ──MCP─
   dieselbe wie beim Beeper-Anbieter in IDA).
 * **Live, aber sparsam:** Nur solange die App irgendwo offen (und sichtbar) ist, fragt der Dienst alle `LIVE_POLL_S` Sekunden (Standard 5)
   die 30 zuletzt aktiven Chats ab und meldet geänderte per Server-Sent Events (`/api/v1/stream`). Ohne offene App fragt er nichts ab.
-* **Grenzen von Beeper-MCP** (nicht der App): Es gibt nur Text senden (mit Antwort auf eine Nachricht), Bilder holen und Sprachnachrichten
-  in Text umwandeln. Darum gibt es **nicht**: Reaktionen setzen, Umfragen erstellen oder abstimmen, Sprachnachrichten abspielen, Videos
-  abspielen, Dateien/Bilder senden. Vorhandene Reaktionen werden angezeigt, soweit Beeper sie mitliefert. Videos und Dateien erscheinen
-  als Hinweis „in Beeper ansehen“. Dafür bräuchte es Zugang zur Beeper-Desktop-API selbst (Port 23373 mit eigenem Token).
+* **Medien:** Bilder, Sprachnachrichten und Videos holt der Dienst über `get_attachment_image` (liefert die Datei als Binärteil) und reicht
+  sie unter `/api/v1/media` mit Range-Unterstützung (Spulen, iPhone) weiter; bis 60 MB je Datei, im Speicher zwischengehalten (120 MB).
+  Nur Bild-, Audio- und Videotypen werden angezeigt, alles andere (HTML, SVG …) nur als Download.
+* **Sprachnachrichten:** eigener Player (Wellenform, Tempo 1×/1,5×/2×, Spulen). Den Text liefert Beeper oft schon mit; sonst wandelt ihn das
+  lokale Whisper-Modell in Beeper um (`/api/v1/transcript`).
+* **Bedienung:** Nach rechts wischen (oder Pfeil am PC) antwortet auf die Nachricht; langes Drücken am Handy bzw. Rechtsklick am PC öffnet das
+  Menü (Antworten, Text kopieren, Datei öffnen); Tippen aufs Bild öffnet die Vollansicht.
+* **Grenzen von Beeper-MCP** (nicht der App): Es gibt kein Werkzeug zum Reagieren (Emoji-Reaktionen), für Umfragen, zum Senden von Dateien oder
+  Sprachnachrichten und keine Profilbilder (weder für Chats noch für Gruppenmitglieder; die App zeigt farbige Anfangsbuchstaben).
+  Vorhandene Reaktionen werden angezeigt, soweit Beeper sie mitliefert. Das alles bräuchte Zugang zur Beeper-Desktop-API selbst.
 
 ## Einrichten
 
