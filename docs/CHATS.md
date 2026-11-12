@@ -22,6 +22,7 @@ Browser (chats.kulbarts.com, Cloudflare Access) ──> chats :8000 ──MCP─
   ein Video `/chat/<id>/video/<Nachricht>`, ein Profilbild `…/bild`. Beim Durchwischen ändert sich die Adresse mit. Zurück (auch die Taste am Handy)
   schließt das Vollbild; Neuladen oder ein Link öffnen es wieder, sofern die Nachricht im geladenen Verlauf liegt, sonst bleibt nur der Chat offen.
   Die Info-Seite (Tipp auf den Chat-Kopf) hat `/chat/<id>/info`; ein Bild von dort öffnet darüber, Zurück führt Schritt für Schritt zurück.
+  Jedes Menü (Long-Press auf eine Nachricht, Chat-Menü in der Liste, Auswahl-Sheets) hängt `/menue` an die aktuelle Adresse; die Zurück-Taste schließt es, statt die Seite zu verlassen. Öffnet ein Menü-Punkt eine neue Ansicht, ersetzt sie den Menü-Eintrag.
 * **Vollbild-Bild:** unten dieselbe Leiste wie im Video-Player (Reagieren, Antworten, Weiterleiten, Herunterladen). Neben Bildern und Videos im Verlauf
   gibt es keinen Download-Knopf mehr; heruntergeladen wird nur im Vollbild bzw. Video-Player.
 * **Scrollen beim Öffnen:** Der Verlauf springt ans Ende und bleibt dort, solange Bilder, Video-Vorschauen oder Schrift nachladen

@@ -53,6 +53,11 @@ function toast(t, run) {
 const errBox = (e) => `<div class="empty"><span class="ms">${e.login ? "lock" : e.status === 409 ? "link_off" : "cloud_off"}</span>${esc(e.message)}<br><button class="btn" onclick="location.reload()">Nochmal versuchen</button></div>`;
 
 // ---------------- Adresse ----------------
+// Neue Ansicht in den Verlauf. Liegt oben noch der Eintrag eines gerade geschlossenen Menüs, wird der ersetzt statt einen draufzulegen.
+function pushView(state, title, path) {
+  if (history.state?.ctx) { const { ctx, ...rest } = state || {}; history.replaceState(rest, title, path); }
+  else history.pushState(state, title, path);
+}
 const urlFor = (id) => BASE + (id ? `chat/${encodeURIComponent(id)}` : "");
 function readUrl() {
   const m = /^chat\/([^/]+)/.exec(location.pathname.slice(BASE.length));
@@ -63,7 +68,7 @@ function readUrl() {
 function go(id, push = true) {
   if (urlFor(id) !== location.pathname) {
     const fromList = !readUrl();
-    if (id && fromList && push) history.pushState({ fromList: true }, "", urlFor(id));
+    if (id && fromList && push) pushView({ fromList: true }, "", urlFor(id));
     else history.replaceState(id ? history.state : null, "", urlFor(id));
   }
   route();
@@ -73,6 +78,8 @@ function back() {
   else go(null, false);
 }
 window.addEventListener("popstate", () => {
+  if ($("#ctx") && !readMenu()) closeMenu();                 // Zurück-Taste schließt das offene Menü
+  else if (!$("#ctx") && readMenu()) history.replaceState(history.state, "", menuBase());   // Menü-Adresse ohne Menü (Vorwärts)
   if (OV && !readOv()) { const c = OV; OV = null; c(); }   // Zurück-Taste schließt Bild/Video
   if ($("#srch") && !readSrch()) dropSrch();                // … die Suche
   if ($("#info") && !readInfo() && !readSrch()) dropInfo();   // … und die Info-Seite
@@ -91,7 +98,7 @@ function ovOpen(sub, close) {
   OV = close;
   if (was) return history.replaceState(history.state, "", path);   // Vollbild ersetzt Vollbild
   if (location.pathname === path) history.replaceState(history.state, "", ovBase());   // per Link geöffnet: davor liegt der Chat
-  history.pushState({ ...(history.state || {}), ov: true }, "", path);
+  pushView({ ...(history.state || {}), ov: true }, "", path);
 }
 function ovSet(sub) { if (OV) history.replaceState(history.state, "", ovPath(sub)); }
 function ovClosed() {   // über den eigenen Knopf, Wischen oder Esc geschlossen
@@ -320,7 +327,7 @@ async function openInfo() {
   $("#conv").append(el);
   const path = `${urlFor(c.id)}/info`;
   if (location.pathname === path) history.replaceState(history.state, "", urlFor(c.id));   // per Link geöffnet: davor liegt der Chat
-  history.pushState({ ...(history.state || {}), info: true }, "", path);
+  pushView({ ...(history.state || {}), info: true }, "", path);
   const draw = (d) => { if (el.isConnected) el.innerHTML = infoHtml(c, d); };
   const hit = ABOUT.get(c.id);
   draw(hit?.d || null);
@@ -415,7 +422,7 @@ function openSearch() {
   $("#conv").append(el);
   const path = `${urlFor(c.id)}/suche`;
   if (location.pathname === path) history.replaceState(history.state, "", urlFor(c.id));
-  history.pushState({ ...(history.state || {}), srch: true }, "", path);
+  pushView({ ...(history.state || {}), srch: true }, "", path);
   const q = el.querySelector("#sq");
   let t = null;
   q.addEventListener("input", () => { clearTimeout(t); t = setTimeout(() => { SR.q = q.value.trim(); runSearch(); }, 350); });
@@ -591,7 +598,7 @@ function showLsrch(on) {
   clearTimeout(qT); $("#q").blur();
   if ($("#q").value || S.q) { $("#q").value = ""; S.q = ""; S.chats = []; loadChats(); }
 }
-$("#sbtn").onclick = () => { if (!readLsrch()) history.pushState({ lsrch: true }, "", `${BASE}suche`); showLsrch(true); };
+$("#sbtn").onclick = () => { if (!readLsrch()) pushView({ lsrch: true }, "", `${BASE}suche`); showLsrch(true); };
 $("#qback").onclick = () => { if (history.state?.lsrch) history.back(); else { history.replaceState(null, "", BASE); showLsrch(false); } };
 $("#q").addEventListener("keydown", (e) => { if (e.key === "Escape") $("#qback").click(); });
 // Mitte der Leiste: vorerst Platzhalter
@@ -1238,6 +1245,19 @@ async function deleteMsg(m, everyone) {
   } catch (e) { toast(`Löschen ging nicht: ${e.message}`); }
 }
 const closeMenu = () => { document.getElementById("ctx")?.remove(); document.querySelectorAll(".bw.lifted").forEach((x) => x.classList.remove("lifted")); };
+// Jedes Menü/Sheet (#ctx, z. B. das Long-Press-Menü) bekommt eine eigene Adresse (…/menue): die Zurück-Taste am Handy schließt es.
+// Ein Beobachter erledigt das für alle Menüs an einer Stelle; ersetzt ein Menü direkt das nächste, bleibt es bei einem Eintrag.
+const MENU = "menue";
+const readMenu = () => /(?:^|\/)menue$/.test(location.pathname.slice(BASE.length));
+const menuBase = () => { const p = location.pathname.replace(/menue$/, ""); return p === BASE ? p : p.replace(/\/$/, ""); };
+let menuOn = false;
+new MutationObserver(() => {
+  const on = !!document.getElementById("ctx");
+  if (on === menuOn) return;
+  menuOn = on;
+  if (on) { if (!readMenu()) { const b = location.pathname; history.pushState({ ...(history.state || {}), ctx: true }, "", `${b}${b.endsWith("/") ? "" : "/"}${MENU}`); } }
+  else if (readMenu()) { if (history.state?.ctx) history.back(); else history.replaceState(history.state, "", menuBase()); }
+}).observe(document.body, { childList: true });
 document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeMenu(); });
 const gest = { w: null, x: 0, y: 0, dx: 0, t: 0, lock: false, armed: false, dir: 1 };
 function gestEnd() {
@@ -1837,6 +1857,7 @@ function autoReadMenu(c) {
 }
 loadAutoRead();
 loadMutes();
+if (readMenu()) history.replaceState(history.state, "", menuBase());   // Neuladen mit offenem Menü: das Menü ist weg, die Adresse auch
 route();
 if (readLsrch()) showLsrch(true);
 loadChats();
