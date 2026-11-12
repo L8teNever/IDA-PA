@@ -9,6 +9,7 @@ from urllib.parse import parse_qs, urlparse
 class FakeKalender:
     def __init__(self):
         self.requests: list[dict] = []
+        self.extra: list[dict] = []  # weitere Termine für GET /events (z. B. mit Uhrzeit)
         self.mode = "ok"            # ok | drop (Verbindung ohne Antwort schließen = Dienst nicht erreichbar) | error (500)
         outer = self
 
@@ -49,7 +50,7 @@ class FakeKalender:
                 if p == "/events" and self.command == "GET":
                     d = q.get("from", "2026-10-30")
                     return self._json({"events": [{"id": "ev1", "event_id": "ev1", "calendar_id": "c1", "calendar": "Privat", "title": "Fake-Termin", "start": d, "end": d, "all_day": True,
-                                                   "location": "", "color": "blau", "created_by": "user"}]})
+                                                   "location": "", "color": "blau", "created_by": "user"}] + outer.extra})
                 if p == "/events" and self.command == "POST":
                     b = body or {}
                     ev = {"id": "ev9", "event_id": "ev9", "calendar_id": "c1", "calendar": "Privat", "title": b.get("title", ""), "start": b.get("start", ""), "end": b.get("end") or b.get("start", ""),

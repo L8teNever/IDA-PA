@@ -1,5 +1,7 @@
 import json
 import sys
+from datetime import datetime, time
+from zoneinfo import ZoneInfo
 
 import httpx
 import pytest
@@ -663,6 +665,30 @@ def test_tracker_daypart_slot_sorts_into_the_day_plan(client):
     assert not any(x["all_day"] for x in plan) and plan[2]["daypart"] == "Abends"
     for x in (t, c):
         client.delete(f"{API}/trackers/{x['id']}")
+
+
+def test_morning_trackers_go_before_the_first_appointment(client, kalender):
+    """Tablette/Zähneputzen „Morgens“ ohne Uhrzeit stehen direkt vor dem ersten Termin (Schule 8:00), nicht erst um 11 Uhr."""
+    import app.services.kalender_client as kc
+    from app.services.trackers import morning
+    assert morning("Morgens") and morning("früh") and not morning("Abends") and not morning("")
+    tz = ZoneInfo("Europe/Berlin")
+    at = lambda h, m: datetime.combine(datetime.now(tz).date(), time(h, m), tz).isoformat()  # noqa: E731
+    kalender.extra = [{"id": "ev2", "event_id": "ev2", "calendar_id": "c1", "calendar": "Schule", "title": "Schule: InfT", "start": at(8, 0),
+                       "end": at(9, 30), "all_day": False, "location": "", "color": "blau", "created_by": "user"},
+                      {"id": "ev3", "event_id": "ev3", "calendar_id": "c1", "calendar": "Schule", "title": "Schule: TPh", "start": at(9, 55),
+                       "end": at(11, 25), "all_day": False, "location": "", "color": "blau", "created_by": "user"}]
+    kc.invalidate()
+    a = client.post(f"{API}/trackers", json={"name": "ADHS-Tablette", "show_on_home": True, "slots": [{"label": "Morgens"}]}).json()
+    z = client.post(f"{API}/trackers", json={"name": "Zähneputzen", "show_on_home": True, "slots": [{"label": "Morgens"}, {"label": "Abends"}]}).json()
+    try:
+        plan = [x["title"] for x in client.get(f"{API}/home").json()["timeline"] if x["kind"] in ("tracker", "event") and x["title"] != "Fake-Termin"]
+        assert plan == ["ADHS-Tablette", "Zähneputzen · Morgens", "Schule: InfT", "Schule: TPh", "Zähneputzen · Abends"]
+    finally:
+        kalender.extra = []
+        kc.invalidate()
+        for x in (a, z):
+            client.delete(f"{API}/trackers/{x['id']}")
 
 
 def test_tracker_with_duration(client):

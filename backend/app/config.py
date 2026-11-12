@@ -40,6 +40,9 @@ class Settings(BaseSettings):
     github_url: str = "https://github.com"
 
     ida_public_url: str = ""  # öffentliche Adresse von IDA (z. B. https://ida.kulbarts.com) – Rücksprung beim OAuth-Login von MCP-Servern
+    # Nachrichten-App (PWA mit Push, siehe docs/MESSAGES.md): unter diesen Subdomains zeigt IDA nur die Nachrichten an dich
+    messages_subdomains: str = "messages,nachrichten"
+    push_enabled: bool = True  # Web Push an die Geräte aus der Nachrichten-App
 
     # Kalender (eigener Dienst, siehe docs/KALENDER.md): Adresse und gemeinsames Geheimnis; leer = Kalender-Funktionen aus
     kalender_url: str = ""

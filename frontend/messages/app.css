@@ -1,0 +1,26 @@
+/* Bewusst schlicht: reines Schwarz (OLED zieht dafür kaum Strom), keine Animationen, keine Webfonts. */
+:root { color-scheme: dark; --fg: #e3e2e9; --dim: #8e8d96; --line: #1c1c22; --acc: #7fd3ff; --hi: #ff8a80; }
+* { box-sizing: border-box; }
+html, body { margin: 0; background: #000; color: var(--fg); font: 16px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+body { padding: env(safe-area-inset-top) env(safe-area-inset-right) calc(env(safe-area-inset-bottom) + 24px) env(safe-area-inset-left); }
+header { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; gap: 8px; padding: 14px 16px 10px; background: #000; border-bottom: 1px solid var(--line); }
+h1 { flex: 1; margin: 0; font-size: 22px; font-weight: 650; }
+#count { margin-left: 6px; padding: 1px 8px; border-radius: 10px; background: var(--acc); color: #00344a; font-size: 13px; vertical-align: 3px; }
+button { font: inherit; color: var(--fg); background: none; border: 0; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.ghost { height: 36px; padding: 0 12px; border-radius: 18px; color: var(--acc); }
+.icon { width: 40px; height: 40px; border-radius: 20px; font-size: 18px; }
+.icon.off { opacity: .45; }
+.wide { display: block; margin: 16px auto 0; }
+.banner { margin: 12px 16px 0; padding: 12px 14px; border: 1px solid var(--line); border-radius: 14px; color: var(--dim); font-size: 14px; }
+.banner button { display: block; margin-top: 8px; height: 40px; padding: 0 18px; border-radius: 20px; background: var(--acc); color: #00344a; font-weight: 600; }
+main { padding: 0 16px; }
+.msg { padding: 14px 0; border-bottom: 1px solid var(--line); }
+.msg.new .who::before { content: ""; display: inline-block; width: 8px; height: 8px; margin-right: 7px; border-radius: 4px; background: var(--acc); vertical-align: 1px; }
+.msg.high .who::after { content: "dringend"; margin-left: 8px; color: var(--hi); font-size: 12px; }
+.meta { display: flex; gap: 8px; color: var(--dim); font-size: 13px; }
+.who { flex: 1; color: var(--fg); font-weight: 600; }
+.title { margin-top: 2px; font-weight: 600; }
+.text { margin-top: 4px; color: #c9c8d0; white-space: pre-wrap; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 4; line-clamp: 4; overflow: hidden; }
+.msg.open .text { display: block; }
+.text a { color: var(--acc); }
+.empty { padding: 48px 0; text-align: center; color: var(--dim); }

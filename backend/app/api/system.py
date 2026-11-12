@@ -93,6 +93,13 @@ async def home(db: DB):
         got = await home_calendar.fetch(db, cal)
         timeline += got["events"]
         cal_error = got["error"]
+    # Morgens-Sachen ohne Uhrzeit (Tablette, Zähneputzen) gehören vor den ersten Termin: direkt davor statt ans Ende des Morgens
+    first = min((datetime.fromisoformat(x["at"]) for x in timeline if x["kind"] == "event" and not x.get("all_day")), default=None)
+    if first:
+        before = first - timedelta(minutes=1)
+        for x in timeline:
+            if x["kind"] == "tracker" and x.get("daypart") and trackers.morning(x["daypart"]) and datetime.fromisoformat(x["at"]) > before:
+                x["at"] = ser.iso(before.astimezone(timezone.utc))
     timeline.sort(key=lambda x: (not x.get("all_day"), datetime.fromisoformat(x["at"])))
     return {"notices": [ser.message(m) for m in notices], "timeline": timeline,
             "calendar": {"on": bool(cal), "error": cal_error, "local": bool(cal and cal.get("source") == "kalender")}}

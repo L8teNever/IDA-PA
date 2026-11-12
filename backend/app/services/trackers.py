@@ -61,6 +61,12 @@ def daypart(label: str | None) -> tuple[str, str] | None:
     return next((DAYPARTS[w] for w in words if w in DAYPARTS), None)
 
 
+def morning(label: str | None) -> bool:
+    """Named after the morning (früh, morgens, vormittags): in the day plan it goes before the first appointment."""
+    part = daypart(label)
+    return bool(part and part[1] <= "12:00")
+
+
 def slot_text(s: dict) -> str:
     return f"{s['label']} ({s['time']})" if s.get("time") else s["label"]
 

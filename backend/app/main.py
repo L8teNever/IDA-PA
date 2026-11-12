@@ -8,11 +8,11 @@ from pathlib import Path
 from alembic import command
 from alembic.config import Config
 from fastapi import FastAPI, Request
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import db, seed
-from .api import accounts, agents, autoroute, chats, code, connectors, files, github, google, internal_mcp, kalender, memory, messages, reminders, routines, skills, system, trackers, voice
+from .api import accounts, agents, autoroute, chats, code, connectors, files, github, google, internal_mcp, kalender, memory, messages, push, reminders, routines, skills, system, trackers, voice
 from .config import get_settings
 from .services import jobs, scheduler
 from .services.errors import Invalid, NotFound
@@ -33,6 +33,26 @@ class Static(StaticFiles):
         resp = await super().get_response(path, scope)
         resp.headers["cache-control"] = self.cache if resp.status_code == 200 else "no-cache"
         return resp
+
+
+class MessagesHost:
+    """messages.kulbarts.com (and the other names in MESSAGES_SUBDOMAINS) shows only the messages app: its pages are under /m/
+    inside IDA, so every path there except the API and the static files is moved under /m (/ → /m/, /sw.js → /m/sw.js)."""
+
+    KEEP = ("/api/", "/s/", "/static/", "/m/")
+
+    def __init__(self, app, subdomains: str):
+        self.app = app
+        self.subs = {x.strip().lower() for x in subdomains.split(",") if x.strip()}
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "http" and self.subs:
+            h = dict(scope["headers"])
+            host = (h.get(b"x-forwarded-host") or h.get(b"host") or b"").decode("latin-1").split(",")[0].strip().lower()
+            if host.split(".")[0] in self.subs and not scope["path"].startswith(self.KEEP):
+                path = "/m" + scope["path"]
+                scope = {**scope, "path": path, "raw_path": path.encode()}
+        await self.app(scope, receive, send)
 
 
 def frontend_version(front: Path) -> str:
@@ -81,7 +101,7 @@ def create_app() -> FastAPI:
         return JSONResponse({"detail": str(e)}, status_code=404)
 
     app.include_router(trackers.tap_router)
-    for r in (system, agents, autoroute, chats, files, messages, routines, reminders, trackers, code, github, google, connectors, skills, memory, accounts, internal_mcp, kalender, voice):
+    for r in (system, agents, autoroute, chats, files, messages, push, routines, reminders, trackers, code, github, google, connectors, skills, memory, accounts, internal_mcp, kalender, voice):
         app.include_router(r.router)
 
     front = s.frontend_dir
@@ -119,6 +139,38 @@ def create_app() -> FastAPI:
         """Served from the root so it may control every page."""
         return FileResponse(front / "sw.js", media_type="text/javascript", headers={"cache-control": "no-cache"})
 
+    # Nachrichten-App (PWA mit Push): ida…/m/ oder eigene Adresse messages.kulbarts.com (MessagesHost). Siehe docs/MESSAGES.md
+    msg_dir = front / "messages"
+    msg_html = (msg_dir / "index.html").read_text(encoding="utf8").replace('"/static/', f'"/s/{version}/')
+
+    @app.get("/m", include_in_schema=False)
+    async def messages_root():
+        return RedirectResponse("/m/", status_code=308)
+
+    @app.get("/m/sw.js", include_in_schema=False)
+    async def messages_sw():
+        return FileResponse(msg_dir / "sw.js", media_type="text/javascript", headers={"cache-control": "no-cache"})
+
+    @app.get("/m/manifest.webmanifest", include_in_schema=False)
+    async def messages_manifest():
+        icon, rev = "/static/icons", "?v=1"
+        # relative id/start/scope: the same file works under ida…/m/ and at the root of messages.kulbarts.com
+        return JSONResponse({
+            "id": "./", "name": "IDA Nachrichten", "short_name": "Nachrichten", "description": "Was Ida und die anderen dir schicken",
+            "lang": "de", "start_url": "./", "scope": "./", "display": "standalone",
+            "background_color": "#000000", "theme_color": "#000000",
+            "icons": [
+                {"src": f"{icon}/icon-192.png{rev}", "sizes": "192x192", "type": "image/png", "purpose": "any"},
+                {"src": f"{icon}/icon-512.png{rev}", "sizes": "512x512", "type": "image/png", "purpose": "any"},
+                {"src": f"{icon}/maskable-192.png{rev}", "sizes": "192x192", "type": "image/png", "purpose": "maskable"},
+                {"src": f"{icon}/maskable-512.png{rev}", "sizes": "512x512", "type": "image/png", "purpose": "maskable"},
+            ],
+        }, media_type="application/manifest+json", headers={"cache-control": "no-cache"})
+
+    @app.get("/m/{path:path}", include_in_schema=False)
+    async def messages_page(path: str):
+        return HTMLResponse(msg_html, headers={"cache-control": "no-store"})
+
     @app.get("/{path:path}", include_in_schema=False)
     async def spa(path: str):
         """Every page URL (/, /chats, /einstellungen/agents/lea …) gets the app; the browser router shows the page."""
@@ -126,6 +178,7 @@ def create_app() -> FastAPI:
             return JSONResponse({"detail": "Nicht gefunden"}, status_code=404)
         return HTMLResponse(index_html, headers={"cache-control": "no-store"})
 
+    app.add_middleware(MessagesHost, subdomains=s.messages_subdomains)
     return app
 
 

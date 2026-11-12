@@ -97,30 +97,12 @@ export function initShell() {
     const code = document.querySelector('#sideNav [data-nav="code"]');
     if (code) {
       code.hidden = !state.boot?.code_enabled; // the code area is off until switched on in the settings
-      const url = state.boot?.code_url || ""; // eigene Code-App: der Link öffnet sie wie Kalender und Wiki
+      const url = state.boot?.code_url || ""; // eigene Code-App: der Link öffnet sie in einem neuen Tab
       code.href = url || "/code";
       if (url) {
         Object.assign(code, { target: "_blank", rel: "noopener" });
         code.dataset.external = "code";
       }
-    }
-    const kal = $("navKalender");
-    if (kal) {
-      const url = state.boot?.kalender_url || "";
-      kal.hidden = !url;
-      if (url) kal.href = url;
-    }
-    const wiki = $("navWiki");
-    if (wiki) {
-      const url = state.boot?.wiki_url || "";
-      wiki.hidden = !url;
-      if (url) wiki.href = url;
-    }
-    const dash = $("navDashboard");
-    if (dash) {
-      const url = state.boot?.dashboard_url || "";
-      dash.hidden = !url;
-      if (url) dash.href = url;
     }
   });
 }
