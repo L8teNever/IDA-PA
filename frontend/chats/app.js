@@ -83,7 +83,8 @@ window.addEventListener("popstate", () => {
   if (OV && !readOv()) { const c = OV; OV = null; c(); }   // Zurück-Taste schließt Bild/Video
   if ($("#srch") && !readSrch()) dropSrch();                // … die Suche
   if ($("#info") && !readInfo() && !readSrch()) dropInfo();   // … und die Info-Seite
-  if (!$("#tools").hidden !== readLsrch()) showLsrch(readLsrch());   // … und die Chat-Suche in der Übersicht
+  if (!$("#tools").hidden !== readLsrch()) showLsrch(readLsrch());
+  if (!!$("#sett") !== readSett()) { if (readSett()) openSett(false); else dropSett(); }   // … und die Einstellungen   // … und die Chat-Suche in der Übersicht
   route();
   if (!OV) openFromUrl();
 });
@@ -601,11 +602,13 @@ function showLsrch(on) {
 $("#sbtn").onclick = () => { if (!readLsrch()) pushView({ lsrch: true }, "", `${BASE}suche`); showLsrch(true); };
 $("#qback").onclick = () => { if (history.state?.lsrch) history.back(); else { history.replaceState(null, "", BASE); showLsrch(false); } };
 $("#q").addEventListener("keydown", (e) => { if (e.key === "Escape") $("#qback").click(); });
-// Mitte der Leiste: vorerst Platzhalter
-$("#ldock .dbar").onclick = (e) => { const b = e.target.closest("[data-ph]"); if (b) toast(`${b.dataset.ph}: kommt noch`); };
+$("#setbtn").onclick = () => openSett();
 // Leiste beim Runterscrollen ausblenden, beim Hochscrollen wieder zeigen
 { let y = 0; $("#list").addEventListener("scroll", (e) => { const t = e.target.scrollTop; if (Math.abs(t - y) < 8) return; $("#ldock").classList.toggle("away", t > y && t > 80); y = t; }, { passive: true }); }
-$("#refresh").onclick = () => { loadChats({ quiet: true }); if (S.id) loadMsgs({ quiet: true }); };
+$("#refresh").onclick = (e) => {
+  const ic = e.currentTarget.firstElementChild; ic.classList.remove("spin"); void ic.offsetWidth; ic.classList.add("spin");
+  loadChats({ quiet: true }); if (S.id) loadMsgs({ quiet: true });
+};
 
 // ---------------- Unterhaltung ----------------
 const cur = () => S.id && rowChat(S.id);
@@ -1744,14 +1747,6 @@ if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js", { s
 const canPush = "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
 const b64key = (k) => { const s = atob((k + "=".repeat((4 - k.length % 4) % 4)).replace(/-/g, "+").replace(/_/g, "/")); return Uint8Array.from(s, (c) => c.charCodeAt(0)); };
 async function pushSub() { try { return await (await navigator.serviceWorker.ready).pushManager.getSubscription(); } catch { return null; } }
-async function drawBell() {
-  const b = $("#bell"); if (!b || !canPush) return;
-  const on = Notification.permission === "granted" && !!(await pushSub());
-  b.hidden = false; b.classList.toggle("on", on);
-  b.firstElementChild.textContent = on ? "notifications_active" : "notifications_off";
-  b.title = on ? "Benachrichtigungen an" : "Benachrichtigungen einschalten";
-  if (on) { const s = await pushSub(); api("/push/subscribe", { method: "POST", body: JSON.stringify(s.toJSON()) }).catch(() => {}); }   // Abo frisch halten
-}
 async function pushOn() {
   if (Notification.permission === "denied") return toast("Benachrichtigungen sind blockiert – in den Browser-Einstellungen für diese Seite erlauben");
   if (await Notification.requestPermission() !== "granted") return toast("Ohne Erlaubnis keine Benachrichtigungen");
@@ -1762,23 +1757,73 @@ async function pushOn() {
     await api("/push/subscribe", { method: "POST", body: JSON.stringify(sub.toJSON()) });
     toast("Benachrichtigungen an");
   } catch (e) { toast(`Anmelden ging nicht: ${e.message}`); }
-  drawBell();
+  pushState(true);
 }
 async function pushOff() {
   const sub = await pushSub();
   if (sub) { await api("/push/unsubscribe", { method: "POST", body: JSON.stringify({ endpoint: sub.endpoint }) }).catch(() => {}); await sub.unsubscribe().catch(() => {}); }
-  toast("Benachrichtigungen aus"); drawBell();
+  toast("Benachrichtigungen aus"); pushState(true);
 }
-$("#bell")?.addEventListener("click", async () => {
-  if (!$("#bell").classList.contains("on")) return pushOn();
-  closeMenu();
-  const d = document.createElement("div"); d.className = "ctx"; d.id = "ctx";
-  d.innerHTML = `<div class="ctx-back"></div><div class="sheet"><button data-b="info"><span class="ms">notifications_active</span>Benachrichtigungen sind an<small>Stumm pro Chat: Chat-Kopf antippen</small></button>
-    <button data-b="off"><span class="ms">notifications_off</span>Auf diesem Gerät ausschalten</button></div>`;
-  d.addEventListener("click", (e) => { const b = e.target.closest("[data-b]")?.dataset.b; closeMenu(); if (b === "off") pushOff(); });
-  document.body.append(d);
+// Stand auf diesem Gerät: "on" | "off" | "denied" | "none" (Browser kann kein Push). Beim Start einmal: Abo beim Server frisch halten.
+let PUSH = canPush ? "off" : "none";
+async function pushState(redraw) {
+  if (canPush) PUSH = Notification.permission === "denied" ? "denied" : Notification.permission === "granted" && await pushSub() ? "on" : "off";
+  if (redraw) redrawSett();
+  return PUSH;
+}
+pushState().then((st) => { if (st === "on") pushSub().then((s) => s && api("/push/subscribe", { method: "POST", body: JSON.stringify(s.toJSON()) }).catch(() => {})); });
+async function pushTest() {
+  try { (await navigator.serviceWorker.ready).showNotification("Chats", { body: "So sieht eine Benachrichtigung aus.", icon: "/icons/icon-192.png", badge: "/icons/badge-96.png", tag: "test" }); }
+  catch (e) { toast(`Ging nicht: ${e.message}`); }
+}
+
+// ---------------- Einstellungen (Zahnrad in der Leiste unten, eigene Adresse …/einstellungen) ----------------
+const readSett = () => /^einstellungen(?:\/menue)?$/.test(location.pathname.slice(BASE.length));
+function openSett(push = true) {
+  if ($("#sett")) return;
+  if (push && !readSett()) pushView({ sett: true }, "", `${BASE}einstellungen`);
+  const el = document.createElement("div"); el.className = "info sett"; el.id = "sett";
+  $(".side").append(el); document.body.classList.add("setts");
+  redrawSett(); pushState(true);
+}
+function dropSett() {
+  const el = $("#sett"); if (!el) return;
+  document.body.classList.remove("setts");
+  el.id = ""; el.classList.add("out"); setTimeout(() => el.remove(), 200);
+}
+function closeSett() {
+  if (readSett()) { if (history.state?.sett) history.back(); else history.replaceState(null, "", BASE); }
+  dropSett();
+}
+const chatOf = (id) => rowChat(id) || { id, title: "Chat" };
+function redrawSett() {
+  const el = $("#sett"); if (!el) return;
+  const row = (icon, main, small = "", attrs = "", end = "") => `<button class="irow" ${attrs}><span class="ms">${icon}</span><span class="it"><b>${main}</b>${small ? `<small>${small}</small>` : ""}</span>${end}</button>`;
+  const person = (c, small, attrs) => `<button class="irow iperson" ${attrs}>${avatar(clean(c.title || "Chat"), c.av || c.id)}<span class="it"><b>${esc(clean(c.title || "Chat"))}</b><small>${esc(small)}</small></span></button>`;
+  const muted = [...MUTES.keys()].filter(isMuted).map(chatOf);
+  const auto = [...AUTOREAD.keys()].map(chatOf);
+  const pushTxt = { on: "An – neue Nachrichten melden sich auf diesem Gerät", off: "Aus auf diesem Gerät", denied: "Im Browser blockiert – dort für diese Seite erlauben", none: "Dieser Browser kann keine Benachrichtigungen" }[PUSH];
+  el.innerHTML = `<div class="ihead"><button class="icon-btn" data-s="close" aria-label="Zurück"><span class="ms">arrow_back</span></button><b>Einstellungen</b></div>
+  <div class="ibody">
+    <div class="icard"><small>Benachrichtigungen</small>
+      ${row(PUSH === "on" ? "notifications_active" : "notifications_off", "Benachrichtigungen", pushTxt, `data-s="push"${PUSH === "none" ? " disabled" : ""}`, `<span class="sw${PUSH === "on" ? " on" : ""}" aria-hidden="true"></span>`)}
+      ${PUSH === "on" ? row("science", "Probemeldung", "Zeigt eine Benachrichtigung auf diesem Gerät", 'data-s="test"') : ""}
+      <p class="ihint">Kostet keinen Akku: Der Server weckt das Handy nur, wenn eine Nachricht kommt.</p></div>
+    <div class="icard"><small>Stummgeschaltet</small>
+      ${muted.length ? muted.map((c) => person(c, muteText(c.id), `data-s="mute" data-id="${esc(c.id)}"`)).join("") : '<p class="ihint">Kein Chat stumm. Stummschalten: Chat öffnen, oben auf den Namen tippen.</p>'}</div>
+    ${auto.length ? `<div class="icard"><small>Automatisch als gelesen</small>${auto.map((c) => person(c, AR_TEXT[arOf(c.id)], `data-s="auto" data-id="${esc(c.id)}"`)).join("")}</div>` : ""}
+  </div>`;
+}
+document.addEventListener("click", (e) => {
+  const t = e.target.closest("#sett [data-s]"); if (!t) return;
+  const a = t.dataset.s, c = t.dataset.id && chatOf(t.dataset.id);
+  if (a === "close") return closeSett();
+  if (a === "push") return PUSH === "on" ? pushOff() : pushOn();
+  if (a === "test") return pushTest();
+  if (a === "mute") return muteMenu(c);
+  if (a === "auto") return autoReadMenu(c);
 });
-drawBell();
+document.addEventListener("keydown", (e) => { if (e.key === "Escape" && $("#sett") && !$("#ctx")) closeSett(); });
 // Tipp auf eine Meldung bei offener App: den Chat öffnen
 navigator.serviceWorker?.addEventListener("message", (e) => {
   if (e.data?.type !== "open") return;
@@ -1796,9 +1841,9 @@ function muteText(id) {
   const d = new Date(u); return `Bis ${d.toDateString() === new Date().toDateString() ? "" : `${fmtShort.format(d)}, `}${fmtTime.format(d)} Uhr`;
 }
 async function loadMutes() {
-  try { const r = await api("/mutes"); MUTES = new Map(r.items.map((x) => [x.id, x.until * 1000])); drawList(); } catch { /* bleibt */ }
+  try { const r = await api("/mutes"); MUTES = new Map(r.items.map((x) => [x.id, x.until * 1000])); drawList(); redrawSett(); } catch { /* bleibt */ }
 }
-function redrawInfo() { const el = $("#info"), c = cur(); if (el && c) el.innerHTML = infoHtml(c, ABOUT.get(c.id)?.d); }
+function redrawInfo() { const el = $("#info"), c = cur(); if (el && c) el.innerHTML = infoHtml(c, ABOUT.get(c.id)?.d); redrawSett(); }
 async function setMute(c, hours) {
   const was = MUTES.get(c.id);
   if (hours === null) MUTES.delete(c.id); else MUTES.set(c.id, hours ? Date.now() + hours * 36e5 : 0);
@@ -1830,7 +1875,7 @@ const AR_TEXT = { "": "Aus – du markierst selbst", open: "Beim Öffnen des Cha
 const arOf = (id) => AUTOREAD.get(id) || AUTOREAD.get(grpOf(id)?.id) || "";
 function autoRead() { const c = cur(); if (c && arOf(c.id) && left(c) && document.visibilityState === "visible") markRead(c); }
 async function loadAutoRead() {
-  try { const r = await api("/autoread"); AUTOREAD = new Map(r.items.map((x) => [x.id, x.mode])); autoRead(); } catch { /* bleibt */ }
+  try { const r = await api("/autoread"); AUTOREAD = new Map(r.items.map((x) => [x.id, x.mode])); autoRead(); redrawSett(); } catch { /* bleibt */ }
 }
 async function setAutoRead(c, mode) {
   const was = arOf(c.id);
@@ -1860,6 +1905,7 @@ loadMutes();
 if (readMenu()) history.replaceState(history.state, "", menuBase());   // Neuladen mit offenem Menü: das Menü ist weg, die Adresse auch
 route();
 if (readLsrch()) showLsrch(true);
+if (readSett()) openSett(false);
 loadChats();
 live(!document.hidden);
 

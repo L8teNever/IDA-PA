@@ -1,6 +1,6 @@
 # IDA Chats
 
-Deine Beeper-Chats im IDA-Stil als eigene App (Dienst `chats`, Image `ida-chats`, PWA): Chats suchen (schwebende Leiste unten im Material-3-Expressive-Stil: links Filter Alle / Ungelesen / Archiv, Mitte vorerst drei Platzhalter, rechts Suche mit eigener Adresse `/suche`),
+Deine Beeper-Chats im IDA-Stil als eigene App (Dienst `chats`, Image `ida-chats`, PWA): Chats suchen (schwebende Leiste unten im Material-3-Expressive-Stil: links Filter Alle / Ungelesen / Archiv, Mitte Einstellungen (eigene Adresse `/einstellungen`: Benachrichtigungen an/aus mit Probemeldung, stumme und automatisch gelesene Chats) und Neu laden, rechts Suche mit eigener Adresse `/suche`; keine Kopfzeile mehr),
 Unterhaltungen lesen, Nachrichten schreiben, auf Nachrichten antworten, Bilder sehen, Sprachnachrichten als Text anzeigen – und **live**.
 
 ```
@@ -93,7 +93,7 @@ Browser (chats.kulbarts.com, Cloudflare Access) ──> chats :8000 ──MCP─
 
 ## Benachrichtigungen und Stummschalten
 
-- **Einschalten:** Glocke oben in der Liste antippen und erlauben. Das meldet dieses Gerät per Web Push an (`chats/app/push.py`,
+- **Einschalten:** Zahnrad unten in der Leiste → Einstellungen → Schalter „Benachrichtigungen“ und erlauben. Das meldet dieses Gerät per Web Push an (`chats/app/push.py`,
   Bibliothek `pywebpush`). Die Schlüssel (VAPID) erzeugt der Dienst beim ersten Gebrauch selbst, Schlüssel und Abos liegen in `chats.db`.
 - **Akku:** Die App läuft dafür nicht, es gibt keinen Timer und keine offene Verbindung. Der Dienst fragt Beeper alle `PUSH_POLL_S`
   Sekunden (Standard 10, 0 = keine Benachrichtigungen), solange mindestens ein Gerät angemeldet ist. Steigt bei einem Chat die

@@ -5,14 +5,10 @@
 button { cursor: pointer; font: inherit; }
 .shell { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(320px, 400px) 1fr; }
 .side { display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--line); }
-.top { display: flex; align-items: center; gap: 12px; padding: calc(env(safe-area-inset-top) + 12px) 16px 8px; }
-.top-ttl { flex: 1; min-width: 0; }
-.top-name { font-size: 20px; font-weight: 500; color: var(--accent); }
-.top-sub { font-size: 13px; color: var(--muted); }
 .icon-btn { width: 44px; height: 44px; border: 0; background: none; color: var(--on-surface); border-radius: 50%; display: grid; place-items: center; flex: none; }
 .icon-btn:hover { background: var(--surface-high); }
 .icon-btn[hidden] { display: none; }
-.tools { padding: 4px 12px 8px; }
+.tools { padding: calc(env(safe-area-inset-top) + 8px) 12px 8px; }
 .search { height: 48px; display: flex; align-items: center; gap: 10px; padding: 0 16px; border-radius: 24px; background: var(--surface-high); color: var(--muted); }
 .search input { flex: 1; min-width: 0; border: 0; outline: 0; background: none; color: var(--on-surface); font: inherit; font-size: 16px; }
 .search { padding-right: 4px; }
@@ -750,3 +746,14 @@ body.lsrch .ldock { display: none; }
 .dbar button.on { background: rgba(255,255,255,.1); }
 .dbar button:active { border-radius: 14px; }
 @media (max-width: 380px) { .dfab { width: 56px; height: 56px; } .dbar { height: 56px; } .dbar button { width: 52px; } }
+/* Ohne Kopfzeile: die Liste beginnt unter der Statusleiste */
+.list { padding-top: calc(env(safe-area-inset-top) + 8px); }
+body.lsrch .list { padding-top: 4px; }
+.dbar button .ms.spin { animation: spin .6s var(--ease-out, ease); }
+@keyframes spin { to { transform: rotate(360deg); } }
+/* Einstellungen: Seite über der Übersicht, gleiche Bausteine wie die Info-Seite */
+body.setts .ldock { display: none; }
+.sett .irow .sw { margin-left: auto; pointer-events: none; }
+.sett .irow:disabled { opacity: .5; cursor: default; }
+.sett .iperson .av { flex: none; }
+.sett .ihint { margin: 4px 8px 6px; }
