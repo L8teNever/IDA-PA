@@ -108,7 +108,7 @@ function mdTables(s, tables) {
 // Minimal, safe markdown for answers: code blocks, inline code, bold/italic, headings, lists, links.
 export function md(src) {
   const blocks = [], tables = [];
-  let s = esc(src).replace(/```(\w*)\n?([\s\S]*?)```/g, (_, _l, code) => { blocks.push(code); return `\u0000${blocks.length - 1}\u0000`; });
+  let s = esc(src).replace(/```([\w+-]*)[^\n]*\n?([\s\S]*?)```/g, (_, lang, code) => { blocks.push([lang, code.replace(/\n$/, "")]); return `\u0000${blocks.length - 1}\u0000`; });
   s = mdTables(s, tables);
   s = s.replace(/`([^`\n]+)`/g, "<code>$1</code>")
     .replace(/\*\*([^*\n]+)\*\*/g, "<b>$1</b>")
@@ -117,8 +117,23 @@ export function md(src) {
     .replace(/^#{1,3} (.+)$/gm, "<b class=\"md-h\">$1</b>")
     .replace(/^\s*[-*] (.+)$/gm, "<span class=\"md-li\">$1</span>")
     .replace(/^\s*(\d+)\. (.+)$/gm, "<span class=\"md-li num\" data-n=\"$1\">$2</span>");
-  return autolink(s.replace(/\u0001(\d+)\u0001/g, (_, i) => tables[+i]).replace(/\u0000(\d+)\u0000/g, (_, i) => `<pre class="md-pre">${blocks[+i]}</pre>`));
+  return autolink(s.replace(/\u0001(\d+)\u0001/g, (_, i) => tables[+i]).replace(/\u0000(\d+)\u0000/g, (_, i) => {
+    const [lang, code] = blocks[+i];
+    return `<div class="md-code"><div class="md-code-head"><span>${lang || "code"}</span><button type="button" class="md-copy" title="Kopieren"><span class="ms">content_copy</span></button></div><pre class="md-pre">${code}</pre></div>`;
+  }));
 }
+
+// Kopieren-Knopf an Codeblöcken (ein Handler für alle Antworten)
+document.addEventListener("click", async (e) => {
+  const b = e.target.closest?.(".md-copy");
+  if (!b) return;
+  const text = b.closest(".md-code")?.querySelector("pre")?.textContent || "";
+  try { await navigator.clipboard.writeText(text); } catch {
+    const ta = document.createElement("textarea"); ta.value = text; document.body.appendChild(ta); ta.select(); document.execCommand("copy"); ta.remove();
+  }
+  const ic = b.querySelector(".ms"); if (ic) { ic.textContent = "check"; setTimeout(() => { ic.textContent = "content_copy"; }, 1400); }
+  toast("Kopiert");
+});
 
 // Nackte Adressen (https://… oder www.…) anklickbar machen – nur im Text, nicht in Tags, vorhandenen Links oder Code.
 // Erwartet fertiges (escaptes) HTML; Satzzeichen am Ende gehören nicht zur Adresse.

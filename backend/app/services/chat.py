@@ -322,6 +322,11 @@ async def _prepare(*, chat_id, agent_id, text, model, account_id, skill_id, file
         if fs and not chat_id and not text:
             chat.title = fs[0].name[:60]
         meta = {**({"skill": skill_id} if skill_id else {}), **({"files": [file_svc.info(f) for f in fs]} if fs else {}), **(extra_meta or {})}
+        if code:  # Stand des Projekts vor dieser Nachricht: Ziel fürs Zurückspulen
+            try:
+                meta["cp"] = await git.snapshot(code["path"])
+            except Exception:
+                log.warning("Checkpoint fehlgeschlagen", exc_info=True)
         db.add(ChatMessage(chat_id=chat.id, role="user", text=shown if shown is not None else text, meta=meta))
         chat.updated_at = utcnow()
         await db.flush()

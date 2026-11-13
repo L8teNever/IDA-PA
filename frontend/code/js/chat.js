@@ -4,7 +4,7 @@ import { api, followChat, streamChat } from "./api.js";
 import { loadTree, mainAgent, modelInfo, state } from "./store.js";
 import { navigate, urlOf } from "./router.js";
 import { userHtml } from "./quote.js";
-import { $, attempt, esc, fmtDateTime, fmtDur, md, toast } from "./ui.js";
+import { $, attempt, esc, fmtDateTime, fmtDur, md, popMenu, toast } from "./ui.js";
 
 // aktueller Thread: id (null = neu), project, mode (Rechte), busy (Antwort läuft)
 export const ctx = { id: null, project: null, mode: "ask", busy: false, model: null, accountId: null, lastId: null };
@@ -62,7 +62,7 @@ export async function mountThread(project, id) {
   const b = box();
   b.innerHTML = `<div class="chat-day">${esc(c.title)} · ${fmtDateTime(c.created_at)}</div>`;
   for (const m of c.messages) {
-    if (m.role === "user") addUser(m.text, m.meta?.files);
+    if (m.role === "user") addUser(m.text, m.meta?.files, m.id, !!m.meta?.cp);
     else if (m.role === "assistant") renderBot(addBot(), m.parts, m.text, { ...m.meta, id: m.id });
     else addSys(m.text);
   }
@@ -108,9 +108,12 @@ function filesHtml(files) {
     : `<a class="mf-file" href="/api/v1/files/${esc(f.id)}" ${f.kind === "file" ? `download="${esc(f.name)}"` : `target="_blank" rel="noopener"`}><span class="ms">${FILE_ICON[f.kind] || "description"}</span><span>${esc(f.name)}</span></a>`).join("")}</div>`;
 }
 
-function addUser(text, files) {
+function addUser(text, files, id = "", cp = false) {
   const r = row("me");
-  r.innerHTML = filesHtml(files) + (text ? `<div class="msg me">${userHtml(text)}</div>` : "");
+  if (id) r.dataset.mid = id;
+  r.dataset.cp = cp ? "1" : "";
+  r.innerHTML = filesHtml(files) + (text ? `<div class="msg me">${userHtml(text)}</div>` : "")
+    + `<button type="button" class="msg-rewind" data-rewind title="Zurückspulen: ab hier vergessen" aria-label="Zurückspulen"><span class="ms">history</span></button>`;
   r.querySelectorAll("img").forEach((i) => i.addEventListener("load", () => scroll(), { once: true }));
   scroll(true);
 }
@@ -250,6 +253,39 @@ document.addEventListener("click", async (e) => {
   await loadTree().catch(() => {});
   navigate(urlOf({ project: t.project_id, thread: t.id }));
 });
+
+// Zurückspulen: ab einer eigenen Nachricht alles entfernen (die KI vergisst es); wahlweise den Code auf den Stand davor setzen
+document.addEventListener("click", async (e) => {
+  const b = e.target.closest("[data-rewind]");
+  if (!b || !ctx.id || !ctx.project) return;
+  if (ctx.busy) return toast("Die Antwort läuft noch – stoppe sie zuerst");
+  const rowEl = b.closest(".row");
+  const threadId = ctx.id, project = ctx.project;
+  const nth = [...box().querySelectorAll(".row.me")].indexOf(rowEl);
+  const pick = (v) => doRewind(threadId, project, rowEl.dataset.mid, nth, v === "both");
+  popMenu(b, [
+    { head: "Zurückspulen bis vor diese Nachricht" },
+    { value: "chat", icon: "forum", label: "Nur die KI zurücksetzen", sub: "Verlauf ab hier weg, Code bleibt wie er ist" },
+    { value: "both", icon: "history", label: "KI und Code zurücksetzen", sub: rowEl.dataset.cp ? "Dateien auf den Stand vor dieser Nachricht" : "Für diese alte Nachricht gibt es keinen Code-Stand" },
+  ].map((it) => (it.value === "both" && !rowEl.dataset.cp ? { ...it, label: it.label + " (nicht möglich)" } : it)), (v) => {
+    if (v === "both" && !rowEl.dataset.cp) return toast("Für diese Nachricht gibt es keinen Code-Stand");
+    pick(v);
+  }, { align: "right" });
+});
+
+async function doRewind(threadId, project, mid, nth, withCode) {
+  if (!mid) { // gerade erst gesendet: die Nachricht-ID vom Server holen (n-te Nachricht von dir)
+    const c = await api.get(`/chats/${encodeURIComponent(threadId)}`).catch(() => null);
+    mid = c?.messages.filter((m) => m.role === "user")[nth]?.id;
+    if (!mid) return toast("Nachricht nicht gefunden");
+  }
+  const r = await attempt(() => api.post(`/code/threads/${encodeURIComponent(threadId)}/rewind`, { message_id: mid, code: withCode }));
+  if (!r || ctx.id !== threadId) return;
+  await mountThread(project, threadId).catch(() => {});
+  const input = $("input");
+  if (input && r.text && !input.value) { input.value = r.text; input.dispatchEvent(new Event("input", { bubbles: true })); input.focus(); }
+  toast(withCode ? "KI und Code zurückgesetzt" : "KI zurückgesetzt");
+}
 
 // Stopp-Knopf: beendet die laufende Antwort (das Geschriebene bleibt)
 export async function stopAnswer() {

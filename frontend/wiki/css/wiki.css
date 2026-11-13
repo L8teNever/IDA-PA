@@ -1045,7 +1045,11 @@
 @keyframes wkspin { to { transform: rotate(360deg); } }
 
 
-.board-view { flex: 1; min-height: 0; overflow-y: auto; padding: 16px 20px 90px; }
+.board-view { flex: 1; min-height: 0; overflow-y: auto; padding: calc(var(--under-bar) + 4px) 20px 90px; }
+.board-loading { display: flex; align-items: center; justify-content: center; gap: 10px; padding: 80px 0; color: var(--muted); font-size: 14px; }
+.board-loading .ms { font-size: 24px; color: var(--accent); }
+.btn-tonal:disabled { opacity: .6; cursor: default; }
+@media (max-width: 600px) { .boards-stage .topbar-actions .lbl { display: none; } .boards-stage .topbar-actions .btn-primary.sm, .boards-stage .topbar-actions .btn-tonal.sm { padding: 8px 10px; } }
 .board-view.drop { outline: 2px dashed var(--accent); outline-offset: -8px; }
 .board-item .board-st { font-size: 18px; }
 /* Zeile in der Board-Liste: Titel + Bearbeiten/Löschen */

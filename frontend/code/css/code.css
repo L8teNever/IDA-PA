@@ -724,7 +724,9 @@ body.pane-resizing iframe { pointer-events: none; }
 .msg.me, .msg.bot { -webkit-touch-callout: none; }
 .hold { position: fixed; inset: 0; z-index: 600; background: rgba(0, 0, 0, 0); transition: background .16s ease; touch-action: none; }
 .hold.show { background: rgba(0, 0, 0, .62); }
-.hold-copy { position: fixed; overflow: hidden; transform: scale(.98); transition: transform .16s ease; pointer-events: none; }
+.hold-copy { position: fixed; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; touch-action: pan-y; scrollbar-width: none; transform: scale(.98); transition: transform .16s ease; }
+.hold-copy::-webkit-scrollbar { display: none; }
+.hold.selecting .hold-copy, .hold.selecting .hold-copy * { -webkit-user-select: text; user-select: text; -webkit-touch-callout: default; }
 .hold.show .hold-copy { transform: scale(1.02); }
 .hold-copy .row { animation: none; margin: 0; }
 .hold-copy .msg { max-width: 100%; }
@@ -756,3 +758,10 @@ body.pane-resizing iframe { pointer-events: none; }
 .composer { position: relative; }
 .composer .slash-menu { display: none; bottom: calc(100% + 8px); }
 .composer .slash-menu.open { display: block; }
+
+/* Zurückspulen an eigenen Nachrichten: kleiner Knopf unter der Nachricht (am PC beim Drüberfahren, am Handy leise sichtbar) */
+.msg-rewind { align-self: flex-end; margin: -4px 4px 0 0; width: 26px; height: 26px; border: 0; border-radius: 8px; background: none; color: var(--muted); cursor: pointer; display: grid; place-items: center; opacity: 0; transition: opacity .15s; }
+.msg-rewind .ms { font-size: 17px; }
+.msg-rewind:hover { color: var(--accent); background: rgba(255,255,255,.06); }
+.row.me:hover .msg-rewind, .msg-rewind:focus-visible { opacity: 1; }
+@media (hover: none) { .msg-rewind { opacity: .5; } }

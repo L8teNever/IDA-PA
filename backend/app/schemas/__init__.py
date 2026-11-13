@@ -334,6 +334,11 @@ class ThreadUpdate(BaseModel):
     permission_mode: Mode | None = None
 
 
+class ThreadRewind(BaseModel):
+    message_id: str
+    code: bool = False  # auch den Projektordner auf den Stand vor dieser Nachricht zurücksetzen
+
+
 class GitCommit(BaseModel):
     message: str
     push: bool = False

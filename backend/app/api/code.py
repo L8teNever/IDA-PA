@@ -7,9 +7,9 @@ from fastapi import APIRouter
 from fastapi.responses import FileResponse
 from sqlalchemy import select
 
-from ..models import Chat, ChatMessage
+from ..models import Chat, ChatMessage, CodeProject
 from ..db import session_scope, utcnow
-from ..schemas import SandboxRun, ApprovalAnswer, CodeSettings, CommitMessageSuggest, Draft, QueueItem, GitBranch, GitCommit, ProjectCreate, ProjectUpdate, Publish, PullRequest, ThreadUpdate
+from ..schemas import SandboxRun, ApprovalAnswer, CodeSettings, CommitMessageSuggest, Draft, QueueItem, GitBranch, GitCommit, ProjectCreate, ProjectUpdate, Publish, PullRequest, ThreadRewind, ThreadUpdate
 from ..services import chat as chat_service
 from ..services import chat_queue
 from ..services import files as file_svc
@@ -222,6 +222,35 @@ async def update_thread(cid: str, body: ThreadUpdate, db: DB):
     if body.permission_mode:
         c.permission_mode = body.permission_mode
     return ser.chat(c)
+
+
+@router.post("/threads/{cid}/rewind")
+async def rewind_thread(cid: str, body: ThreadRewind, db: DB):
+    """Zurückspulen: ab dieser Nachricht des Nutzers (sie eingeschlossen) alles aus dem Verlauf nehmen – die KI weiß davon
+    dann nichts mehr. Mit code=true wird zusätzlich der Projektordner auf den Stand vor der Nachricht gesetzt."""
+    c = await _thread(db, cid)
+    if chat_service.running(cid):
+        raise Invalid("Hier läuft noch eine Antwort – stoppe sie zuerst")
+    msgs = list((await db.scalars(select(ChatMessage).where(ChatMessage.chat_id == cid).order_by(ChatMessage.at))).all())
+    cut = next((i for i, m in enumerate(msgs) if m.id == body.message_id), None)
+    if cut is None or msgs[cut].role != "user":
+        raise Invalid("Zurückspulen geht nur ab einer Nachricht von dir")
+    target = msgs[cut]
+    if body.code:
+        sha = (target.meta or {}).get("cp")
+        if not sha:
+            raise Invalid("Für diese Nachricht gibt es keinen Code-Stand (sie ist älter als die Funktion)")
+        project = await db.get(CodeProject, c.project_id)
+        if not project:
+            raise NotFound("Projekt nicht gefunden")
+        await git.restore(projects.path_of(project), sha)
+    for m in msgs[cut:]:
+        await db.delete(m)
+    c.session_id = None  # Claudes Sitzung kennt die entfernten Nachrichten noch – die nächste startet frisch aus dem Verlauf
+    c.session_account = None
+    c.updated_at = utcnow()
+    await db.flush()
+    return {"text": target.text, "files": (target.meta or {}).get("files") or [], "code": body.code, "removed": len(msgs) - cut}
 
 
 # ---- drafts: unsent text and files in the input field, kept on the server so every device sees the same ----

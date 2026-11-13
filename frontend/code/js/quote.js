@@ -72,7 +72,7 @@ function place(rect) {
 
 function update() {
   const s = selected();
-  if (!s) { fab.hidden = true; return; }
+  if (!s || held) { fab.hidden = true; return; }
   fab.hidden = false;
   place(s.rect);
 }
@@ -166,7 +166,10 @@ function openHold(msg) {
   } else {
     const natural = copy.scrollHeight;
     const h = Math.min(natural, room);
-    if (natural > room) copy.classList.add("cut");   // lange Nachricht: unten ausgeblendet statt hart abgeschnitten
+    // lange Nachricht: scrollbar; unten ausgeblendet, solange noch mehr kommt
+    const more = () => copy.classList.toggle("cut", copy.scrollTop + copy.clientHeight < copy.scrollHeight - 4);
+    copy.addEventListener("scroll", more, { passive: true });
+    requestAnimationFrame(more);
     // die Nachricht bleibt möglichst, wo sie war
     const top = clamp(r.top, pad, vh - pad - gap - mh - h);
     copy.style.top = `${top}px`;
@@ -179,9 +182,23 @@ function openHold(msg) {
   requestAnimationFrame(() => held?.classList.add("show"));
   held.addEventListener("click", async (e) => {
     const b = e.target.closest("[data-hold]");
-    if (!b) return closeHold();
+    if (!b) { if (held.classList.contains("selecting") && e.target.closest(".hold-copy")) return; return closeHold(); }
     if (b.dataset.hold === "reply") { closeHold(); setQuote(text); return; }
-    if (b.dataset.hold === "select") { closeHold(); getSelection()?.selectAllChildren(msg); return; }
+    if (b.dataset.hold === "select") {   // Auswahl-Modus: Vorschau bleibt, ist scrollbar und der Text lässt sich markieren
+      held.classList.add("selecting");
+      menu.innerHTML = `<button type="button" role="menuitem" data-hold="selcopy"><span class="ms">content_copy</span>Auswahl kopieren</button>
+        ${msg.classList.contains("bot") ? `<button type="button" role="menuitem" data-hold="selask"><span class="ms">format_quote</span>Fragen</button>` : ""}
+        <button type="button" role="menuitem" data-hold="close"><span class="ms">check</span>Fertig</button>`;
+      return;
+    }
+    if (b.dataset.hold === "close") return closeHold();
+    if (b.dataset.hold === "selask") { const t = getSelection()?.toString().trim() || text; closeHold(); getSelection()?.removeAllRanges(); setQuote(t); return; }
+    if (b.dataset.hold === "selcopy") {
+      const ok = await copyText(getSelection()?.toString().trim() || text);
+      b.innerHTML = `<span class="ms">${ok ? "check" : "error"}</span>${ok ? "Kopiert" : "Ging nicht"}`;
+      setTimeout(closeHold, 550);
+      return;
+    }
     const ok = await copyText(text);
     b.innerHTML = `<span class="ms">${ok ? "check" : "error"}</span>${ok ? "Kopiert" : "Ging nicht"}`;
     setTimeout(closeHold, 550);
@@ -207,7 +224,7 @@ function bindHold() {
   for (const ev of ["pointerup", "pointercancel"]) document.addEventListener(ev, cancelHold);
   addEventListener("scroll", cancelHold, true);
   // das Kontextmenü des Handys soll beim Halten nicht dazwischenfunken
-  document.addEventListener("contextmenu", (e) => { if ((holdTimer || held) && e.target.closest?.(".msg, .hold")) e.preventDefault(); });
+  document.addEventListener("contextmenu", (e) => { if ((holdTimer || held) && !held?.classList.contains("selecting") && e.target.closest?.(".msg, .hold")) e.preventDefault(); });
 }
 
 export function initQuote() {

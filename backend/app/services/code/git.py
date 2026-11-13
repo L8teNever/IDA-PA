@@ -186,3 +186,56 @@ async def switch(path: Path, name: str, create: bool) -> None:
     except Invalid:
         raise Invalid(f"„{name}“ ist kein gültiger Branch-Name") from None
     await run(path, "switch", *(["-c", name] if create else [name]))
+
+
+# ---- Checkpoints: Stand des Arbeitsordners vor jeder Nachricht, zum Zurückspulen ----
+# Ein Snapshot ist ein Commit-Objekt (nur unter refs/ida/…, nicht im Branch-Verlauf), gebaut mit einem
+# eigenen temporären Index – der echte Index, HEAD und der Branch bleiben unberührt.
+_SNAP_ENV = {"GIT_AUTHOR_NAME": "IDA", "GIT_AUTHOR_EMAIL": "ida@localhost", "GIT_COMMITTER_NAME": "IDA", "GIT_COMMITTER_EMAIL": "ida@localhost"}
+
+
+async def snapshot(path: Path, ref: str | None = None) -> str:
+    """Hält den aktuellen Stand (auch neue, nicht ignorierte Dateien) fest; Ergebnis ist die Commit-ID."""
+    import tempfile
+    with tempfile.TemporaryDirectory(prefix="ida-idx-") as tmp:
+        env = {**_SNAP_ENV, "GIT_INDEX_FILE": str(Path(tmp) / "index")}
+        await run(path, "add", "-A", env=env)
+        tree = (await run(path, "write-tree", env=env)).strip()
+    args = ["commit-tree", tree, "-m", "ida checkpoint"]
+    if await has_commits(path):
+        args += ["-p", (await run(path, "rev-parse", "HEAD")).strip()]
+    sha = (await run(path, *args, env=_SNAP_ENV)).strip()
+    await run(path, "update-ref", ref or f"refs/ida/cp/{sha[:16]}", sha)  # hält das Objekt am Leben (gc)
+    return sha
+
+
+async def restore(path: Path, sha: str) -> None:
+    """Setzt den Arbeitsordner auf einen Snapshot zurück. Davor wird der aktuelle Stand als refs/ida/undo gesichert."""
+    import tempfile
+    if not re.fullmatch(r"[0-9a-f]{40}", sha or ""):
+        raise Invalid("Ungültiger Checkpoint")
+    await run(path, "cat-file", "-e", f"{sha}^{{commit}}")
+    cur = await snapshot(path, "refs/ida/undo")
+    names = lambda out: {n for n in out.split("\0") if n}  # noqa: E731
+    now = names(await run(path, "ls-tree", "-r", "-z", "--name-only", cur))
+    target = names(await run(path, "ls-tree", "-r", "-z", "--name-only", sha))
+    base = path.resolve()
+    for n in sorted(now - target):
+        f = (base / n)
+        if base not in f.resolve(strict=False).parents and f.resolve(strict=False) != base:
+            continue
+        try:
+            f.unlink()
+        except OSError:
+            continue
+        d = f.parent
+        while d != base:  # leer gewordene Ordner mit aufräumen
+            try:
+                d.rmdir()
+            except OSError:
+                break
+            d = d.parent
+    with tempfile.TemporaryDirectory(prefix="ida-idx-") as tmp:
+        env = {**_SNAP_ENV, "GIT_INDEX_FILE": str(Path(tmp) / "index")}
+        await run(path, "read-tree", sha, env=env)
+        await run(path, "checkout-index", "-a", "-f", env=env)

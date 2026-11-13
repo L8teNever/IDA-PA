@@ -47,3 +47,7 @@
   :root { --ev-lila: #d7aefb; --evc-lila: #493e56; }
   :root { --ev-graphit: #b4b8c0; --evc-graphit: #3f4146; }
   :root { --ev-on: #1b1b1f; }
+
+/* Scroll-Chaining aus: Am Anfang/Ende eines scrollbaren Bereichs scrollt nicht der
+   Hintergrund oder die ganze Seite mit. Wirkt nur auf Elemente, die selbst scrollen. */
+:where(*:not(html)) { overscroll-behavior: contain; }

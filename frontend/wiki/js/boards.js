@@ -5,7 +5,7 @@ import * as api from "./api.js";
 import { esc, renderMarkdown } from "./markdown.js";
 import { openModal } from "./sheets.js";
 
-const bs = { list: [], current: null, sel: localStorage.getItem("wiki.board") || "", models: null, connected: true, timer: 0 };
+const bs = { list: [], cache: new Map(), loading: false, current: null, sel: localStorage.getItem("wiki.board") || "", models: null, connected: true, timer: 0 };
 
 const ago = (iso) => {
   if (!iso) return "noch nie";
@@ -17,6 +17,15 @@ const ago = (iso) => {
 };
 const modelName = (id) => (id ? bs.models?.model_names?.[id] || id : "Standard");
 
+// Knöpfe oben rechts: „Neu laden“ für das gewählte Board und „Neues Board“
+function topActions(b) {
+  const running = b?.status === "running";
+  const refresh = b
+    ? `<button type="button" class="btn-tonal sm board-top-refresh" data-board-refresh ${running ? "disabled" : ""} title="Ida nach Neuem und Geändertem suchen lassen"><span class="ms ${running ? "spin" : ""}">${running ? "progress_activity" : "refresh"}</span><span class="lbl">Neu laden</span></button>`
+    : "";
+  return `${refresh}<button type="button" class="btn-primary sm" data-board-top-new title="Neues Board erstellen"><span class="ms">add</span><span class="lbl">Neues Board</span></button>`;
+}
+
 export function renderBoardsStage() {
   return `
     <main class="wk-stage boards-stage">
@@ -25,9 +34,7 @@ export function renderBoardsStage() {
           <button type="button" class="icon-btn mobile-only" id="wkOpenDrawer"><span class="ms">menu</span></button>
           <h2><span class="ms">dashboard</span> <span class="tb-title">Smart Boards</span></h2>
         </div>
-        <div class="topbar-actions">
-          <button type="button" class="btn-primary sm" id="wkBoardNew" title="Neues Board erstellen"><span class="ms">add</span> Neues Board</button>
-        </div>
+        <div class="topbar-actions" id="wkBoardTop">${topActions(null)}</div>
       </header>
       <div class="board-view" id="wkBoards"><div class="empty-hint">Lade Boards …</div></div>
     </main>`;
@@ -59,7 +66,10 @@ export async function mountBoards(root) {
   const host = root.querySelector("#wkBoards");
   if (!host) return;
   clearTimeout(bs.timer);
-  root.querySelector("#wkBoardNew").onclick = () => openForm(root);
+  root.querySelector("#wkBoardTop").addEventListener("click", (e) => {
+    if (e.target.closest("[data-board-top-new]")) openForm(root);
+    else onClick(e, root);
+  });
   host.addEventListener("click", (e) => onClick(e, root));
   host.addEventListener("change", (e) => onChange(e, root));
   bindDrop(host, root);
@@ -93,22 +103,44 @@ export async function mountBoards(root) {
     return;
   }
   if (!bs.list.some((b) => b.id === bs.sel)) bs.sel = bs.list[0]?.id || "";
-  await select(root, bs.sel);
+  const first = select(root, bs.sel);
+  // Die übrigen Boards schon im Hintergrund laden, damit das Wechseln sofort geht
+  for (const x of bs.list) {
+    if (x.id !== bs.sel && !bs.cache.has(x.id)) {
+      api.get(`/api/v1/boards/${x.id}`).then((b) => { if (!bs.cache.has(b.id)) bs.cache.set(b.id, b); }).catch(() => {});
+    }
+  }
+  await first;
 }
 
+// Board wählen: ein schon geladenes Board erscheint sofort und wird im Hintergrund aufgefrischt;
+// ein noch nicht geladenes zeigt gleich eine Ladeanimation.
 async function select(root, id) {
   bs.sel = id;
   localStorage.setItem("wiki.board", id);
-  bs.current = null;
-  if (id) {
-    try {
-      bs.current = await api.get(`/api/v1/boards/${id}`);
-    } catch {
-      bs.sel = "";
-    }
-  }
+  const cached = id ? bs.cache.get(id) : null;
+  bs.current = cached || null;
+  bs.loading = !!id && !cached;
   draw(root);
   poll(root);
+  if (!id) return;
+  try {
+    const fresh = await api.get(`/api/v1/boards/${id}`);
+    if (bs.sel !== id) return;
+    const changed = !cached || JSON.stringify(cached) !== JSON.stringify(fresh);
+    bs.cache.set(id, fresh);
+    bs.current = fresh;
+    bs.loading = false;
+    if (changed) {
+      draw(root);
+      poll(root);
+    }
+  } catch {
+    if (bs.sel !== id || cached) return;
+    bs.sel = "";
+    bs.loading = false;
+    draw(root);
+  }
 }
 
 // Läuft gerade ein Lauf, fragt die Ansicht alle paar Sekunden nach, bis er fertig ist
@@ -134,7 +166,10 @@ function draw(root) {
   if (!host) return;
   const b = bs.current;
   drawList(root);
-  host.innerHTML = b ? view(b) : `<div class="empty-hint">${bs.list.length ? "Wähle links ein Board." : "Noch kein Board.<br>Lege mit <strong>Neues Board</strong> eins an: Thema eingeben, Modell wählen, Ida erledigt den Rest."}</div>`;
+  if (b) bs.cache.set(b.id, b);
+  const top = root.querySelector("#wkBoardTop");
+  if (top) top.innerHTML = topActions(b);
+  host.innerHTML = b ? view(b) : bs.loading ? `<div class="board-loading"><span class="ms spin">progress_activity</span> Board wird geladen …</div>` : `<div class="empty-hint">${bs.list.length ? "Wähle links ein Board." : "Noch kein Board.<br>Lege mit <strong>Neues Board</strong> eins an: Thema eingeben, Modell wählen, Ida erledigt den Rest."}</div>`;
   if (b) fillBody(host, b);
 }
 
@@ -191,11 +226,9 @@ function view(b) {
     : `<div class="empty-hint">${running ? "Ida sucht gerade alles dazu zusammen. Das kann eine Weile dauern." : "Noch kein Inhalt. Mit „Neu laden“ startest du die Suche."}</div>`;
   return `
     <div class="board-head">
-      <button type="button" class="icon-btn mobile-only" data-board-back title="Zur Liste"><span class="ms">arrow_back</span></button>
       <div class="board-title"><h3>${esc(b.title)}</h3>
         <small>${esc(modelName(b.model))} · aktualisiert ${esc(ago(b.last_run_at))}${running ? " · läuft …" : ""}</small></div>
       <div class="board-actions">
-        <button type="button" class="btn-primary sm" data-board-refresh ${running ? "disabled" : ""} title="Ida nach Neuem und Geändertem suchen lassen"><span class="ms ${running ? "spin" : ""}">${running ? "progress_activity" : "refresh"}</span> Neu laden</button>
         <button type="button" class="icon-btn" data-board-edit title="Thema oder Modell ändern"><span class="ms">edit</span></button>
         <button type="button" class="icon-btn" data-board-del title="Board löschen"><span class="ms">delete</span></button>
       </div>
@@ -324,6 +357,7 @@ async function remove(root, b) {
     return alert(err.message);
   }
   bs.list = bs.list.filter((x) => x.id !== b.id);
+  bs.cache.delete(b.id);
   if (bs.sel === b.id) await select(root, bs.list[0]?.id || "");
   else drawList(root);
 }
