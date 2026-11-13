@@ -1048,6 +1048,13 @@
 .board-view { flex: 1; min-height: 0; overflow-y: auto; padding: 16px 20px 90px; }
 .board-view.drop { outline: 2px dashed var(--accent); outline-offset: -8px; }
 .board-item .board-st { font-size: 18px; }
+/* Zeile in der Board-Liste: Titel + Bearbeiten/Löschen */
+.board-row { display: flex; align-items: center; gap: 2px; border-radius: 11px; }
+.board-row .tree-page { flex: 1; min-width: 0; width: auto; }
+.board-row .board-row-act { flex: none; width: 28px; height: 28px; color: var(--muted); opacity: 0; }
+.board-row .board-row-act .ms { font-size: 17px; }
+.board-row:hover .board-row-act, .board-row.active .board-row-act, .board-row-act:focus-visible { opacity: 1; }
+@media (hover: none) { .board-row .board-row-act { opacity: 1; } }
 /* Zeitungs-Layout: Karten fließen in Spalten, jede Karte bleibt am Stück */
 .board-prose { font-size: 15.5px; line-height: 1.55; }
 .board-prose:not(.single) { position: relative; }

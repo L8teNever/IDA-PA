@@ -37,10 +37,14 @@ export function renderBoardsStage() {
 export function renderBoardList() {
   const items = bs.list.length
     ? bs.list.map((x) => `
-        <button type="button" class="tree-page board-item ${x.id === bs.sel ? "active" : ""}" data-board="${x.id}">
-          <span class="ms page-ic board-st ${x.status}">${x.status === "running" ? "progress_activity" : x.status === "error" ? "error" : "dashboard"}</span>
-          <span class="tree-label">${esc(x.title)}</span>
-        </button>`).join("")
+        <div class="board-row ${x.id === bs.sel ? "active" : ""}">
+          <button type="button" class="tree-page board-item ${x.id === bs.sel ? "active" : ""}" data-board="${x.id}">
+            <span class="ms page-ic board-st ${x.status}">${x.status === "running" ? "progress_activity" : x.status === "error" ? "error" : "dashboard"}</span>
+            <span class="tree-label">${esc(x.title)}</span>
+          </button>
+          <button type="button" class="icon-btn sm board-row-act" data-board-row-edit="${x.id}" title="Board bearbeiten" aria-label="Board bearbeiten"><span class="ms">edit</span></button>
+          <button type="button" class="icon-btn sm board-row-act" data-board-row-del="${x.id}" title="Board löschen" aria-label="Board löschen"><span class="ms">delete</span></button>
+        </div>`).join("")
     : `<div class="empty-hint">Noch kein Board.</div>`;
   return `<div id="wkBoardList"><div class="space-caption">Deine Smart Boards</div>${items}
     <button type="button" class="tree-page board-item" data-board-new><span class="ms page-ic">add</span><span class="tree-label">Neues Board</span></button></div>`;
@@ -67,6 +71,12 @@ export async function mountBoards(root) {
       const side = e.target.closest("#wkBoardList");
       if (!side) return;
       if (e.target.closest("[data-board-new]")) return openForm(root);
+      const act = e.target.closest("[data-board-row-edit], [data-board-row-del]");
+      if (act) {
+        const row = bs.list.find((x) => x.id === (act.dataset.boardRowEdit || act.dataset.boardRowDel));
+        if (!row) return;
+        return act.dataset.boardRowEdit ? openForm(root, row) : remove(root, row);
+      }
       const card = e.target.closest("[data-board]");
       if (card) {
         root.querySelector(".wk-sidebar")?.classList.remove("open");
@@ -302,12 +312,20 @@ async function onClick(e, root) {
       alert(err.message);
     }
   } else if (e.target.closest("[data-board-edit]")) openForm(root, b);
-  else if (e.target.closest("[data-board-del]")) {
-    if (!confirm(`Board „${b.title}“ wirklich löschen?`)) return;
-    await api.del(`/api/v1/boards/${b.id}`).catch((err) => alert(err.message));
-    bs.list = bs.list.filter((x) => x.id !== b.id);
-    await select(root, bs.list[0]?.id || "");
+  else if (e.target.closest("[data-board-del]")) remove(root, b);
+}
+
+// Board löschen (aus der Kopfzeile oder direkt aus der Liste); bleibt bei einem Fehler stehen
+async function remove(root, b) {
+  if (!confirm(`Board „${b.title}“ wirklich löschen?`)) return;
+  try {
+    await api.del(`/api/v1/boards/${b.id}`);
+  } catch (err) {
+    return alert(err.message);
   }
+  bs.list = bs.list.filter((x) => x.id !== b.id);
+  if (bs.sel === b.id) await select(root, bs.list[0]?.id || "");
+  else drawList(root);
 }
 
 async function openForm(root, edit = null) {
@@ -340,7 +358,7 @@ async function openForm(root, edit = null) {
       if (edit) {
         const r = await api.patch(`/api/v1/boards/${edit.id}`, body);
         Object.assign(bs.list.find((x) => x.id === edit.id) || {}, r);
-        Object.assign(bs.current, r);
+        if (bs.current?.id === edit.id) Object.assign(bs.current, r);
         draw(root);
       } else {
         localStorage.setItem("wiki.board.model", body.model || "");
