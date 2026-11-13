@@ -68,4 +68,13 @@ async def pick(db: AsyncSession, preferred_id: str | None, model: str | None) ->
     if not accs:
         name = PROVIDERS[of_model(model)]
         raise Invalid(f"Kein {name}-Account eingerichtet (Einstellungen → Accounts) – nötig für das Modell {model}")
+    if of_model(model) == "antigravity":
+        # Nicht jeder Antigravity-Account kann jedes Modell (Claude z. B. nur mit Pro-Abo): nimm einen, der es wirklich hat
+        mid = (model or "")[len(antigravity.PREFIX):]
+        known = [a for a in accs if antigravity.logged_in(a) and antigravity.status(a).get("models")]
+        has = [a for a in known if any(m["id"] == mid for m in antigravity.status(a)["models"])]
+        if known and not has:
+            raise Invalid(f"Das Modell {mid} gibt es bei keinem eingeloggten Antigravity-Account – bitte ein anderes Modell wählen")
+        if has:
+            accs = has
     return next((a for a in accs if a.id == preferred_id), accs[0])
