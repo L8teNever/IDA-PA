@@ -284,7 +284,7 @@ function frame(m) {
     .replace(/<script[\s\S]*?<\/script>/gi, "")
     .replace(/cid:([^"'\s)>]+)/gi, (all, cid) => (m.inline[cid] ? `${API}/messages/${m.id}/attachments/${m.inline[cid]}?type=image%2Fpng` : all));
   f.srcdoc = `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${csp}"><base target="_blank">
-    <style>html{background:#fff}body{margin:0;padding:16px;color:#1b1b1f;font:15px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;overflow-wrap:anywhere}
+    <style>html{background:#fff;scrollbar-width:thin;scrollbar-color:rgba(0,0,0,.3) transparent}body{margin:0;padding:16px;color:#1b1b1f;font:15px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;overflow-wrap:anywhere}
     img{max-width:100%;height:auto}table{max-width:100%!important}pre{white-space:pre-wrap}a{color:#a33a00}</style></head><body>${html}</body></html>`;
   f.onload = () => {
     const fit = () => { try { f.style.height = `${f.contentDocument.documentElement.scrollHeight + 2}px`; } catch { f.style.height = "70vh"; } };

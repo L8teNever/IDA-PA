@@ -5,7 +5,19 @@
 button { cursor: pointer; }
 .ms.fill0 { font-variation-settings: "FILL" 0; }
 
-.shell { flex: 1; min-height: 0; display: grid; grid-template-columns: 264px minmax(320px, 400px) 1fr; }
+/* Schlanke Scrollleisten im IDA-Stil (wie in Kalender und Code) */
+* { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,.18) transparent; }
+*:hover { scrollbar-color: rgba(255,255,255,.3) transparent; }
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(255,255,255,.18); border-radius: 8px; border: 2px solid transparent; background-clip: padding-box; }
+::-webkit-scrollbar-thumb:hover { background-color: rgba(255,255,255,.32); }
+::-webkit-scrollbar-button { display: none; height: 0; width: 0; }
+::-webkit-scrollbar-corner { background: transparent; }
+
+.shell { flex: 1; min-height: 0; display: grid; grid-template-columns: 264px minmax(320px, 400px) 1fr; grid-template-rows: minmax(0, 1fr); }
+/* Der Abdunkler gehört nur zur ausklappbaren Ordnerleiste; in der breiten Ansicht darf er keine Spalte belegen */
+.scrim { display: none; }
 
 /* ---------- Ordner ---------- */
 .nav { display: flex; flex-direction: column; gap: 6px; padding: calc(env(safe-area-inset-top) + 14px) 12px 16px; overflow-y: auto; background: #000; }
@@ -140,7 +152,7 @@ body.composing .ev-scrim { opacity: 1; pointer-events: auto; }
   .nav { position: fixed; z-index: 30; top: 0; bottom: 0; left: 0; width: 300px; transform: translateX(-105%); transition: transform .35s var(--emph);
     background: var(--surface); border-radius: 0 24px 24px 0; }
   body.nav-open .nav { transform: none; }
-  .scrim { position: fixed; inset: 0; z-index: 29; background: rgba(0,0,0,.55); opacity: 0; pointer-events: none; transition: opacity .3s; }
+  .scrim { display: block; position: fixed; inset: 0; z-index: 29; background: rgba(0,0,0,.55); opacity: 0; pointer-events: none; transition: opacity .3s; }
   body.nav-open .scrim { opacity: 1; pointer-events: auto; }
   .menu-btn { display: grid !important; }
 }
