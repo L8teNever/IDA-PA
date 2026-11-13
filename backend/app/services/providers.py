@@ -73,7 +73,7 @@ async def pick(db: AsyncSession, preferred_id: str | None, model: str | None) ->
         mid = (model or "")[len(antigravity.PREFIX):]
         known = [a for a in accs if antigravity.logged_in(a) and antigravity.status(a).get("models")]
         has = [a for a in known if any(m["id"] == mid for m in antigravity.status(a)["models"])]
-        if known and not has:
+        if known and not has and antigravity._model_family(mid) != "gemini":  # Gemini läuft bei jedem Konto; Claude/GPT nur mit passendem Abo
             raise Invalid(f"Das Modell {mid} gibt es bei keinem eingeloggten Antigravity-Account – bitte ein anderes Modell wählen")
         if has:
             accs = has
