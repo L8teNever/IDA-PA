@@ -33,9 +33,23 @@ höhere Versionsnummer).
 2. Version auf `1.0.<Laufnummer>` setzen – Android erlaubt ein Update nur mit höherer Nummer.
 3. `tauri icon` (aus `frontend/chats/icons/icon-512.png`) und `tauri android init` erzeugen das Android-Projekt (`src-tauri/gen/android`,
    liegt nicht im Repo). `android/scripts/patch-android.py` trägt danach Rechte (Mikrofon, Kamera, Benachrichtigungen), Firebase
-   Messaging und die Brücke zur Seite (`android/kotlin/Push.kt`) ein.
+   Messaging, die Brücke zur Seite (`android/kotlin/Push.kt`), das Öffnen von Links (`android/kotlin/Links.kt`) und das
+   App-Symbol (`android/icons/`) ein.
 4. `tauri android build --apk`, dann `zipalign` und `apksigner`.
 5. Die fertige `ida-chats.apk` wird als Release `android-v1.0.<Laufnummer>` abgelegt.
+
+## Name, Symbol und Links
+
+- Die App heißt auf dem Handy nur **„Chats“** (`productName` in `android/src-tauri/tauri.conf.json`).
+- **Symbol:** Android zeigt bei adaptiven Symbolen nur die Mitte des Vordergrunds (66 von 108 dp, oft rund zugeschnitten).
+  `tauri icon` nimmt das ganze Bild als Vordergrund – dann war die Sprechblase angeschnitten. Deshalb liegen in `android/icons/`
+  eigene Vordergründe (aus `frontend/chats/icons/maskable-512.png`, auf 85 % verkleinert) plus dunkelgrüner Hintergrund
+  (`#153321`); das Skript ersetzt damit die von Tauri erzeugten.
+- **Links** aus den Chats öffnen in der passenden App (Instagram, YouTube …) oder im Browser, nicht in der App selbst
+  (`Links.kt`, eingehängt in `RustWebViewClient.shouldOverrideUrlLoading`). Vorher lud die WebView Instagram selbst, das auf
+  `instagram://` weiterleitete → „ERR_UNKNOWN_URL_SCHEME“. In der App bleiben eigene Seiten (`*.kulbarts.com`), Weiterleitungen
+  und alles ohne Antippen – so läuft die Anmeldung (Cloudflare, Google) weiter in der App. Andere Schemata (`instagram://`,
+  `intent://`, `mailto:`, `tel:`) gehen immer an Android.
 
 ## Benachrichtigungen (FCM)
 
@@ -63,11 +77,16 @@ Android weckt eine geschlossene App nur über Googles Push-Dienst FCM, und der b
 - Vorn in der Meldung steht das Profilbild des Chats statt des App-Symbols (`Push.avatar`): Die App holt es von `/api/v1/avatar/…`
   mit den Cookies der WebView (Cloudflare-Anmeldung), schneidet es rund und merkt es sich einen Tag. Die Meldung ist dafür eine
   Unterhaltung (MessagingStyle + Kurzbefehl pro Chat). Klappt das Laden nicht, bleibt das App-Symbol. Noch nicht am Handy geprüft.
+- Meldung wieder weg: Öffnest du den Chat, nimmt die Seite seine Meldung sofort weg (`IDAChatsNative.dismiss(chat)`, im Browser über
+  den Service Worker). Wird er anderswo gelesen (andere Geräte, Beeper), sieht das der Abgleich (`live.check`, Ungelesen fällt auf 0)
+  bzw. `POST /chats/{id}/read` und schickt `{"type": "dismiss", "chat": …}` mit normaler Priorität (weckt das Handy nicht, kommt
+  spätestens beim Aufwecken an; `push.dismiss`, höchstens einmal pro Minute und Chat). Zusammengeführte Chats erst, wenn keiner der
+  Gruppe mehr ungelesen ist. Im Browser geht das nur beim Öffnen: Web Push muss jedes Mal eine sichtbare Meldung zeigen.
 - Der Schlüssel des Dienstkontos verlässt den Server nie; `GET /fcm` zeigt nur, ob er da ist.
 - API: `GET /fcm` (Stand), `PUT /fcm/client`, `PUT /fcm/account` (Datei als Body), `DELETE /fcm`, `GET /fcm/client`,
   `POST /fcm/register`, `POST /fcm/unregister`, `POST /fcm/test` (jeweils `{"token": …}`). Einstellung `ANDROID_PACKAGE` (Standard
   `com.kulbarts.chats`) wählt die passende App aus der `google-services.json`.
-- Brücke Seite ⇄ App: `window.IDAChatsNative` (`pushState()`, `pushSetup(json)`, `pushOff()`, `pendingChat()`), Antworten als
+- Brücke Seite ⇄ App: `window.IDAChatsNative` (`pushState()`, `pushSetup(json)`, `pushOff()`, `pendingChat()`, `dismiss(chat)`), Antworten als
   Ereignisse `ida-fcm` (`{token, error}`) und `ida-open` (`{chat}`). Die Brücke reagiert nur auf Seiten unter `kulbarts.com`.
 
 ## Signierschlüssel

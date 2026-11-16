@@ -44,10 +44,40 @@ keep = f"-keep class {PKG}.Push** {{ *; }}\n-keep class {PKG}.Bridge {{ *; }}\n"
 if pg.exists() and keep not in pg.read_text():
     pg.write_text(pg.read_text() + "\n" + keep)
 
+# ---- App-Symbol: „tauri icon“ nimmt das ganze Bild als Vordergrund, der Launcher schneidet es dann an (nur die Mitte ist sichtbar).
+# Deshalb eigene Vordergründe mit Rand (android/icons, aus frontend/chats/icons/maskable-512.png auf 85 % verkleinert). ----
+RES = APP / "src/main/res"
+icons = sorted(pathlib.Path("icons").glob("mipmap-*/ic_launcher_foreground.png"))
+if len(icons) != 5:
+    fail("android/icons unvollständig")
+for src in icons:
+    (RES / src.parent.name).mkdir(parents=True, exist_ok=True)
+    shutil.copy(src, RES / src.parent.name / src.name)
+(RES / "values").mkdir(parents=True, exist_ok=True)
+(RES / "values/ida_icon.xml").write_text('<?xml version="1.0" encoding="utf-8"?>\n<resources>\n    <color name="ida_icon_bg">#153321</color>\n</resources>\n')
+adaptive = ('<?xml version="1.0" encoding="utf-8"?>\n<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">\n'
+            '    <background android:drawable="@color/ida_icon_bg" />\n    <foreground android:drawable="@mipmap/ic_launcher_foreground" />\n</adaptive-icon>\n')
+(RES / "mipmap-anydpi-v26").mkdir(parents=True, exist_ok=True)
+(RES / "mipmap-anydpi-v26/ic_launcher.xml").write_text(adaptive)
+if (RES / "mipmap-hdpi/ic_launcher_round.png").exists() or (RES / "mipmap-anydpi-v26/ic_launcher_round.xml").exists():
+    (RES / "mipmap-anydpi-v26/ic_launcher_round.xml").write_text(adaptive)
+
 # ---- Kotlin: Push/Brücke dazulegen, MainActivity erweitern ----
 if not SRC.is_dir():
     fail(f"{SRC} fehlt – anderer Paketname?")
 shutil.copy("kotlin/Push.kt", SRC / "Push.kt")
+shutil.copy("kotlin/Links.kt", SRC / "Links.kt")
+
+# ---- Links: fremde Seiten nicht in der App laden, sondern in der passenden App/im Browser öffnen (Links.kt) ----
+wvc = next(APP.glob("src/main/java/**/RustWebViewClient.kt"), None)
+if wvc is None:
+    fail("RustWebViewClient.kt nicht gefunden")
+w = wvc.read_text()
+if "Links.external" not in w:
+    w, n = re.subn(r"(\n(\s*)return Rust\.shouldOverride\()", r"\n\2if (com.kulbarts.chats.Links.external(view, request)) return true\1", w, count=1)
+    if n != 1:
+        fail("shouldOverrideUrlLoading in RustWebViewClient.kt hat sich geändert")
+    wvc.write_text(w)
 ma = SRC / "MainActivity.kt"
 a = ma.read_text()
 if "IDAChatsNative" not in a:

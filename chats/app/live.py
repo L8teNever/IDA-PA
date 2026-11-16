@@ -36,6 +36,7 @@ async def check(state: dict) -> None:
     if old is None:
         return
     fresh: list[dict] = []
+    gone: list[str] = []
     ar = push.autoreads()
     for c in items:
         before = old.get(c["id"])
@@ -53,6 +54,14 @@ async def check(state: dict) -> None:
             bus.publish({"type": "chat", "id": c["id"], "title": c["title"], "new": more_unread, "unread": c["unread"], "at": c["at"]})
             if more_unread:
                 fresh.append(c)
+            elif before and before[1] > 0 and c["unread"] == 0:
+                gone.append(c["id"])
+    # Gelesen (hier, in Beeper oder auf einem anderen Gerät): Meldung am Handy wegnehmen – bei zusammengeführten Chats erst,
+    # wenn keiner der Gruppe mehr Ungelesenes hat
+    for i in gone:
+        key = push.note_key(i)
+        if key == i or not any(sig.get(m, ("", 0))[1] for m in api.group_members(key)):
+            asyncio.create_task(push.dismiss(key))
     if fresh and push.has_subs():
         await notify(fresh)
 
@@ -100,6 +109,7 @@ async def notify(chats: list[dict]) -> None:
         title = (metas.get(grp, {}).get("name") if grp else "") or c["title"]
         who = (p.get("senderName") or "").strip() if c.get("type") == "group" else ""
         body = _what(p) if p else ("Neue Nachricht" if c["unread"] <= 1 else f"{c['unread']} neue Nachrichten")
+        push.new_note(grp or c["id"])
         try:
             await push.send({"chat": grp or c["id"], "from": c["id"], "title": title[:80], "body": f"{who}: {body}" if who else body,
                              "unread": c["unread"], "at": p.get("timestamp") or c["at"],

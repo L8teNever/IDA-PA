@@ -122,12 +122,21 @@ button { cursor: pointer; font: inherit; }
 .vid[style*="aspect-ratio"] { width: min(260px, 100%); max-height: 460px; }
 .b .vid img.poster { position: absolute; inset: 0; width: 100%; height: 100%; max-height: none; margin: 0; object-fit: cover; border-radius: 0; }
 .vid .ms { position: relative; font-size: 56px; color: #fff; opacity: .95; text-shadow: 0 2px 12px rgba(0,0,0,.6); }
-.b a.lp, .b.me a.lp { display: block; margin: 6px 0 2px; border-radius: 14px; overflow: hidden; background: rgba(255,255,255,.08); color: inherit; text-decoration: none; white-space: normal; max-width: 320px; }
-.b a.lp img { width: 100%; max-height: 260px; object-fit: cover; margin: 0; border-radius: 0; }
-.b a.lp span { display: block; padding: 8px 10px; }
-.b a.lp b { display: block; font-weight: 500; font-size: 14px; line-height: 1.3; }
-.b a.lp i { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; font-style: normal; font-size: 13px; opacity: .75; margin-top: 2px; }
-.b a.lp small { display: block; font-size: 12px; opacity: .6; margin-top: 2px; }
+.b .lp { display: block; margin: 6px 0 2px; border-radius: 14px; overflow: hidden; background: rgba(255,255,255,.08); white-space: normal; max-width: 320px; }
+.b .lp a { color: inherit; text-decoration: none; }
+.b .lp-pic { position: relative; display: block; width: 100%; padding: 0; border: 0; background: #111; cursor: pointer; }
+.b .lp img { display: block; width: 100%; max-height: 260px; object-fit: cover; margin: 0; border-radius: 0; }
+.b .lp-pic > .ms { position: absolute; left: 50%; top: 50%; translate: -50% -50%; width: 56px; height: 56px; border-radius: 50%; display: grid; place-items: center;
+  background: rgba(0,0,0,.6); color: #fff; font-size: 34px; -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); transition: transform .15s; }
+.b .lp-pic:active > .ms { transform: scale(.92); }
+.b .lp-txt { display: block; padding: 8px 10px; }
+.b .lp b { display: block; font-weight: 500; font-size: 14px; line-height: 1.3; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.b .lp i { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; font-style: normal; font-size: 13px; opacity: .75; margin-top: 2px; }
+.b .lp small { display: block; font-size: 12px; opacity: .6; margin-top: 2px; }
+/* Geteilter Beitrag (Instagram & Co.): eine Karte, Bild groß, ohne doppelten Link darüber */
+.b.sharebub { padding: 4px; }
+.b.sharebub .lp { margin: 0; width: min(300px, 70vw); max-width: 100%; }
+.b .lp.share img { max-height: 420px; aspect-ratio: auto; }
 .vid small { position: absolute; right: 10px; bottom: 8px; background: rgba(0,0,0,.6); border-radius: 8px; padding: 1px 6px; font-size: 12px; }
 .vplay { display: block; width: min(320px, 100%); max-height: 420px; border-radius: 14px; background: #000; margin: 2px 0 4px; }
 a.file { text-decoration: none; color: inherit; }
@@ -346,6 +355,10 @@ body.kb .composer, body.kb .recbar { padding-bottom: 8px; }
 .avw { position: relative; display: inline-grid; flex: none; transition: transform .15s var(--ease-out, ease); }
 .nbadge { position: absolute; right: -3px; bottom: -3px; width: 16px; height: 16px; border-radius: 50%; display: grid; place-items: center; font: 700 9px/1 system-ui, sans-serif; font-style: normal;
   background: var(--nb, var(--surface-highest)); color: var(--nf, var(--on-surface)); box-shadow: 0 0 0 2px var(--surface-high); }
+.nbadge svg { width: 68%; height: 68%; display: block; }
+.nbadge.merged { background: var(--primary, #a8c7fa); color: var(--on-primary, #062e6f); }
+.nbadge.merged .ms { font-size: 11px; font-variation-settings: "wght" 600; }
+.avw.big .nbadge.merged .ms { font-size: 15px; }
 .avw.big .av { width: 48px; height: 48px; }
 .avw.big .nbadge { width: 22px; height: 22px; font-size: 11px; right: -2px; bottom: -2px; box-shadow: 0 0 0 3px var(--surface-highest); }
 .topanel { padding: 4px 12px 2px; display: flex; flex-direction: column; gap: 8px; animation: slideup .22s var(--ease-out, ease); }
@@ -765,6 +778,9 @@ body.setts .ldock { display: none; }
 .ptile:hover, .ptile.sel { background: var(--surface-high); }
 .ptile .pav { position: relative; width: min(88px, 100%); aspect-ratio: 1; }
 .ptile .pav .av { width: 100%; height: 100%; font-size: 30px; }
+.ptile .pav .avw { width: 100%; height: 100%; }
+.ptile .pav .nbadge { width: 24px; height: 24px; right: 0; bottom: 0; font-size: 12px; box-shadow: 0 0 0 3px var(--surface, #000); }
+.ptile .pav .nbadge.merged .ms { font-size: 16px; }
 .ptile .pav .cnt { position: absolute; top: 0; right: 0; margin: 0; box-shadow: 0 0 0 3px var(--surface, #000); }
 .ptile .pname { max-width: 100%; display: flex; align-items: center; justify-content: center; gap: 4px; font-size: 13px; color: var(--muted); }
 .ptile .pname > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -831,3 +847,46 @@ body.setts .ldock { display: none; }
 /* Ende der Liste: lädt von selbst weiter, solange dreht sich das Zeichen */
 #more.more { display: grid; place-items: center; width: 100%; height: 56px; border: 0; background: none; color: var(--muted); }
 #more.more .ms { font-size: 24px; animation: spin .8s linear infinite; }
+
+/* Ältere Nachrichten: lädt von selbst, sobald man oben ankommt */
+#msgs .older { display: grid; place-items: center; width: 40px; height: 40px; padding: 0; margin: 4px auto 10px; border-radius: 50%; background: var(--surface-high); color: var(--muted); box-shadow: 0 4px 14px rgba(0,0,0,.4); }
+#msgs .older .ms { font-size: 22px; animation: spin .8s linear infinite; }
+#qbusy.more { display: grid; place-items: center; height: 56px; color: var(--muted); }
+#qbusy.more .ms { font-size: 24px; animation: spin .8s linear infinite; }
+
+/* „Als gelesen markieren“: Leiste und Trennlinie gehen sanft weg statt zu springen */
+.readbar.out { animation: readout .18s ease-in forwards; }
+@keyframes readout { to { opacity: 0; transform: translateY(8px); } }
+.unsep { transition: opacity .25s, max-height .25s, margin .25s; max-height: 40px; overflow: hidden; }
+.unsep.out { opacity: 0; max-height: 0; margin-top: 0; margin-bottom: 0; }
+
+/* Eingebetteter Player (Instagram, YouTube, TikTok) */
+.vp.emb .vp-top a.icon-btn { margin-left: auto; color: #fff; }
+.emb-stage { cursor: default; padding: 0 0 calc(env(safe-area-inset-bottom) + 8px); }
+.emb-stage iframe { position: relative; width: min(100%, 540px); height: 100%; border: 0; background: #000; }
+.emb-wait { position: absolute; color: rgba(255,255,255,.6); }
+.emb-wait .ms { font-size: 28px; animation: spin .8s linear infinite; }
+
+/* Filter-Menü: Trennlinie vor den eigenen Listen; Namen-Eingabe */
+.fmenu .fsep { height: 1px; margin: 4px 10px; background: var(--line); }
+.fmenu .fl { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 180px; }
+.fmenu { max-height: 70vh; overflow-y: auto; }
+.namesheet { display: flex; flex-direction: column; gap: 14px; padding: 18px 16px calc(env(safe-area-inset-bottom) + 16px); }
+.namesheet > b { font-weight: 500; font-size: 18px; padding: 0 4px; }
+.namesheet input { font-size: 16px; }
+.sheet.namesheet .btn { justify-content: center; height: 48px; border-radius: 24px; background: var(--accent); color: var(--on-accent); font-weight: 600; font-size: 15px; }
+.sheet.namesheet .btn:hover { background: var(--accent); }
+.sure p { margin: -6px 4px 0; color: var(--on-surface-variant, #c4c7c5); font-size: 14px; line-height: 1.45; }
+.sure-btns { display: flex; gap: 8px; }
+.sure-btns .btn { flex: 1; }
+.sheet.namesheet .btn.ghost, .sheet.namesheet .btn.ghost:hover { background: var(--surface-high); color: var(--on-surface); }
+.sheet.namesheet .btn.danger, .sheet.namesheet .btn.danger:hover { background: var(--error, #ffb4ab); color: var(--on-error, #690005); }
+
+/* Vorschläge zum Zusammenführen (Einstellungen) */
+.sugg .savs { display: flex; flex: none; padding-right: 4px; }
+.sugg .savs .avw + .avw { margin-left: -14px; }
+.sugg .savs .av { width: 36px; height: 36px; box-shadow: 0 0 0 2px var(--surface-high); }
+.sugg > .ms:last-child { color: var(--muted); }
+.sugg-btns { display: flex; gap: 8px; padding-top: 8px; }
+.sugg-btns .btn { flex: 1; justify-content: center; height: 48px; border-radius: 24px; }
+.sugg-btns .btn.ghost { background: var(--surface-high); color: var(--on-surface); }

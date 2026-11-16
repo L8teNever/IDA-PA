@@ -284,7 +284,7 @@ def _fcm_key(k: str) -> str:
     return f"x_{k}" if k in ("notification", "message_type") or k.startswith(("google", "gcm")) else k
 
 
-async def fcm_send(payload: dict, tokens: list[str] | None = None) -> int:
+async def fcm_send(payload: dict, tokens: list[str] | None = None, urgent: bool = True) -> int:
     """Meldung an die Android-Geräte. Nur Daten (kein „notification“-Block): die App baut die Meldung selbst, auch wenn sie zu ist.
     Abgemeldete Geräte (404 / UNREGISTERED) fliegen raus. → Anzahl zugestellt."""
     import httpx
@@ -301,7 +301,7 @@ async def fcm_send(payload: dict, tokens: list[str] | None = None) -> int:
 
             async def one(t: str) -> int:
                 r = await c.post(url, headers={"authorization": f"Bearer {access}"},
-                                 json={"message": {"token": t, "data": data, "android": {"priority": "HIGH", "ttl": "3600s"}}})
+                                 json={"message": {"token": t, "data": data, "android": {"priority": "HIGH" if urgent else "NORMAL", "ttl": "3600s"}}})
                 if r.status_code not in (200, 404):
                     log.warning("FCM-Antwort %s: %s", r.status_code, r.text[:300])
                 return r.status_code
@@ -325,6 +325,36 @@ async def fcm_send(payload: dict, tokens: list[str] | None = None) -> int:
             _db().executemany("DELETE FROM fcm_tokens WHERE token=?", [(t,) for t in gone])
             _db().commit()
     return ok
+
+
+# ---------------- Meldung wieder weg, sobald der Chat gelesen ist ----------------
+# Gelesen in dieser App, in Beeper oder auf einem anderen Gerät: die Android-App bekommt ein stilles Signal und nimmt die Meldung des
+# Chats weg. Mit normaler Priorität – Google stellt es zu, sobald das Handy ohnehin wach ist, und weckt es dafür nicht (Akku).
+# Browser (Web Push) gehen nicht: dort muss jede Push-Nachricht eine sichtbare Meldung zeigen. Die Seite räumt sie beim Öffnen selbst weg.
+_dismissed: dict[str, float] = {}   # Chat → wann zuletzt weggenommen (nicht doppelt schicken: Markieren + Abgleich danach)
+
+
+def note_key(chat: str) -> str:
+    """Unter diesem Schlüssel steht die Meldung des Chats (bei zusammengeführten Chats die Gruppe)."""
+    return store.group_of(chat) or chat
+
+
+async def dismiss(key: str) -> None:
+    now = time.time()
+    if not key or now - _dismissed.get(key, 0) < 60 or not fcm_tokens():
+        return
+    _dismissed[key] = now
+    for k in [k for k, t in _dismissed.items() if now - t > 600]:
+        _dismissed.pop(k, None)
+    try:
+        await fcm_send({"type": "dismiss", "chat": key}, urgent=False)
+    except Exception as e:  # noqa: BLE001
+        log.debug("Meldung wegnehmen %s: %s", key, e)
+
+
+def new_note(key: str) -> None:
+    """Neue Meldung raus: das nächste Gelesen muss sie wieder wegnehmen dürfen."""
+    _dismissed.pop(key, None)
 
 
 # ---------------- Schnittstelle ----------------

@@ -415,3 +415,102 @@ def test_fcm_android(client, monkeypatch):
 def test_fcm_reserved_keys():
     from app import push
     assert [push._fcm_key(k) for k in ("from", "chat", "gcm.x", "notification")] == ["sender", "chat", "x_gcm.x", "x_notification"]
+
+
+def test_ordnung_startseite_und_listen(client, fake):
+    # Sichtbarkeit pro Chat und pro Netzwerk, eigene Listen – gemerkt im Dienst, für alle Geräte
+    assert client.get(f"{API}/org").json() == {"chats": [], "nets": {}, "labels": []}
+    st = client.put(f"{API}/chats/1/vis", json={"mode": "hidden", "title": "Luka", "network": "snapchat"}).json()
+    assert st["chats"] == [{"id": "1", "mode": "hidden", "title": "Luka", "network": "snapchat"}]
+    assert client.put(f"{API}/chats/1/vis", json={"mode": "egal"}).status_code == 400
+    assert client.put(f"{API}/chats/1/vis", json={"mode": ""}).json()["chats"] == []
+    assert client.put(f"{API}/nets/snapchat/vis", json={"mode": "new"}).json()["nets"] == {"snapchat": "new"}
+    assert client.put(f"{API}/nets/Snap Chat/vis", json={"mode": "new"}).status_code in (400, 404)
+    assert client.put(f"{API}/nets/snapchat/vis", json={"mode": ""}).json()["nets"] == {}
+    r = client.post(f"{API}/labels", json={"name": "  Tagesmutter "}).json()
+    lid = r["created"]
+    assert [x["name"] for x in r["labels"]] == ["Tagesmutter"]
+    assert client.post(f"{API}/labels", json={"name": "tagesmutter"}).status_code == 409
+    st = client.put(f"{API}/labels/{lid}/chats/2", json={"on": True, "title": "Familie", "network": "whatsapp"}).json()
+    assert st["labels"][0]["chats"] == [{"id": "2", "title": "Familie", "network": "whatsapp"}]
+    assert client.put(f"{API}/labels/{lid}", json={"name": "Kita"}).json()["labels"][0]["name"] == "Kita"
+    assert client.put(f"{API}/labels/zzz/chats/2", json={"on": True}).status_code == 404
+    assert client.delete(f"{API}/labels/{lid}").json()["labels"] == []
+
+
+def test_archivieren(client, fake):
+    n = len(fake.rest)
+    assert client.post(f"{API}/chats/1/archive", json={"archived": True}).json() == {"ok": True}
+    assert fake.rest[n:] == [("POST", "/v1/chats/1/archive", {"archived": True})]
+
+
+def test_suche_kurz_gemerkt(client, fake):
+    client.get(f"{API}/chats", params={"q": "zwischen"})
+    n = sum(1 for c, _ in fake.calls if c == "search_chats")
+    client.get(f"{API}/chats", params={"q": "zwischen"})
+    assert sum(1 for c, _ in fake.calls if c == "search_chats") == n   # zweites Mal aus dem Zwischenspeicher
+    client.get(f"{API}/chats")
+    assert sum(1 for c, _ in fake.calls if c == "search_chats") == n + 1   # die normale Liste ist immer frisch
+
+
+def test_meldung_weg_wenn_gelesen(monkeypatch):
+    """Gelesen (hier oder anderswo): die Android-App bekommt ein stilles Signal und nimmt die Meldung weg – nur einmal."""
+    import asyncio
+
+    from app import api, live, push
+    got: list[tuple[dict, bool]] = []
+
+    async def fake_fcm(p, tokens=None, urgent=True):
+        got.append((p, urgent))
+        return 1
+    monkeypatch.setattr(push, "fcm_send", fake_fcm)
+    monkeypatch.setattr(push, "fcm_tokens", lambda: ["t" * 40])
+    monkeypatch.setattr(push, "_dismissed", {})
+    monkeypatch.setattr(push, "has_subs", lambda: False)
+    monkeypatch.setattr(push, "snaps_quiet", lambda: False)
+    monkeypatch.setattr(push, "note_key", lambda c: c)
+    unread = {"n": 2}
+
+    class B:
+        async def text(self, *_a):
+            return ""
+    monkeypatch.setattr(api, "parse_chats", lambda _t: ([{"id": "1", "title": "Luka", "at": "x", "unread": unread["n"]}], None))
+    monkeypatch.setattr(live, "parse_chats", api.parse_chats)
+    monkeypatch.setattr(live, "beeper", lambda: B())
+    monkeypatch.setattr(live.get_settings(), "archive_poll_s", 0)
+
+    async def run():
+        st: dict = {}
+        await live.check(st)
+        unread["n"] = 0           # auf einem anderen Gerät gelesen
+        await live.check(st)
+        await asyncio.sleep(0)
+        await push.dismiss("1")   # gleich danach noch einmal (Markieren + Abgleich): nichts Doppeltes
+    asyncio.run(run())
+    assert got == [({"type": "dismiss", "chat": "1"}, False)]
+    push.new_note("1")            # neue Meldung: das nächste Gelesen darf sie wieder wegnehmen
+    asyncio.run(push.dismiss("1"))
+    assert len(got) == 2
+
+
+def test_vorschlaege_zusammenfuehren(client):
+    from app import org
+    assert org.norm_name("꧁☬Moro☬꧂") == "moro" and org.norm_name("Lúka  Meier (Arbeit)") == "luka meier"
+    chats = [{"id": "w1", "title": "Luka Meier", "network": "whatsapp", "type": "single"},
+             {"id": "i1", "title": "luka.meier", "network": "instagramgo", "type": "single"},
+             {"id": "s1", "title": "Luka", "network": "snapchat", "type": "single"},
+             {"id": "s2", "title": "Luka", "network": "snapchat", "type": "single"},       # zweiter Luka im selben Netzwerk: nicht dazu
+             {"id": "w2", "title": "Familie", "network": "whatsapp", "type": "group"},
+             {"id": "i2", "title": "Anna", "network": "instagram", "type": "single"},
+             {"id": "m1", "title": "Luka Meier", "network": "matrix", "type": "single"}]    # Beeper selbst: nie
+    got = org.suggest(chats, set(), set())
+    assert len(got) == 1
+    ids = {c["id"] for c in got[0]["chats"]}
+    assert {"w1", "i1"} <= ids and len(ids & {"s1", "s2"}) == 1 and "m1" not in ids and got[0]["reason"] == "Gleicher Name"
+    # schon zusammengeführt oder abgelehnt: kommt nicht mehr
+    assert org.suggest(chats, {"w1", "i1"}, set()) == []   # übrig: zwei Snapchat-Chats – dasselbe Netzwerk wird nie vorgeschlagen
+    assert client.post(f"{API}/merges/suggestions/dismiss", json={"chats": ["w1", "i1"]}).json() == {"ok": True}
+    nope = org.nopes()
+    assert ("i1", "w1") in nope
+    assert all({"w1", "i1"} - {c["id"] for c in s["chats"]} for s in org.suggest(chats, set(), nope))
+    assert client.post(f"{API}/merges/suggestions/dismiss", json={"chats": ["w1"]}).status_code == 422

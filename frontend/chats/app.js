@@ -120,7 +120,7 @@ function openFromUrl() {
     const f = msg.files.filter((x) => x.kind === "image" && !x.sticker && x.src)[(+m[3] || 1) - 1];
     if (f) return gallery(f.src);
   }
-  if (m[1] === "video" && msg) { const el = document.getElementById(`m-${msg.id}`)?.querySelector(".vid"); if (el) return playVideo(el); }
+  if (m[1] === "video" && msg) { const el = document.getElementById(`m-${msg.id}`)?.querySelector(".vid, [data-a=embed]"); if (el) return el.dataset.a === "embed" ? playEmbed(el) : playVideo(el); }
   history.replaceState(history.state, "", ovBase());   // nicht (mehr) im geladenen Verlauf: einfach den Chat zeigen
 }
 // Übergang Übersicht ⇄ Chat (nur am Handy, wo immer nur eins von beiden zu sehen ist): Das Profilbild wandert aus der Zeile in den
@@ -188,57 +188,65 @@ async function loadChats({ more = false, quiet = false, keep = quiet } = {}) {
   const seq = ++listSeq;
   if (!more && !quiet && !S.chats.length) $("#list").innerHTML = '<div class="skel"></div>'.repeat(7);
   try {
-    const p = new URLSearchParams({ q: S.q, unread: S.f === "unread", inbox: S.f === "archive" ? "archive" : "primary" });
+    const p = new URLSearchParams({ q: S.q, unread: S.f === "unread" && !S.q, inbox: S.f === "archive" ? "archive" : "primary" });
     if (more && S.next) p.set("cursor", S.next);
     const d = await api(`/chats?${p}`);
     if (seq !== listSeq) return;
+    if (S.q && !more) {   // Suche: Beepers Treffer zuerst, dahinter, was nur das Gerät kennt (z. B. ältere Chats)
+      const ids = new Set(d.items.map((c) => c.id));
+      d.items = d.items.concat(localFind(S.q).filter((c) => !ids.has(c.id)));
+      SQ.set(`${S.f}|${S.q}`, { items: d.items }); if (SQ.size > 100) SQ.delete(SQ.keys().next().value);
+    }
+    S.busyQ = false;
     const had = new Set(S.chats.map((c) => c.id)), got = new Set(d.items.map((c) => c.id));
+    let tidy = false; for (const c of d.items) if (!c.unread && c.id in seen) { delete seen[c.id]; tidy = true; }   // Beeper sieht es jetzt auch so
+    if (tidy) saveSeen();
+    dirAdd(d.items);
     if (more) { S.chats = S.chats.concat(d.items.filter((c) => !had.has(c.id))); S.next = d.next; S.paged = true; }
     else if (keep && S.paged) S.chats = d.items.concat(S.chats.filter((c) => !got.has(c.id)));   // ältere Seiten bleiben, S.next auch
     else { S.chats = d.items; S.next = d.next; S.paged = false; }
-    drawList();
+    drawList(); cacheList();
     if (more) {   // die neu dazugekommenen Zeilen tauchen nacheinander auf
       const els = [...document.querySelectorAll("#list .row")].filter((el) => !had.has(el.dataset.id) && !had.has(grpOf(el.dataset.id)?.id)).slice(0, 14);
       els.forEach((el, i) => { el.style.animationDelay = `${i * 28}ms`; el.classList.add("rin"); });
     }
   } catch (e) {
+    if (seq === listSeq) { S.busyQ = false; if (S.q) drawList(); }
     if (seq === listSeq && !quiet) $("#list").innerHTML = errBox(e);
   } finally { if (more) { moreBusy = false; if (seq !== listSeq && $("#more")) { moreObs.disconnect(); moreObs.observe($("#more")); } } }   // überholt: noch einmal prüfen
 }
 // Gelesen-Markierung: Öffnen allein ändert in Beeper nichts. "Als gelesen markieren" markiert den Chat in Beeper als gelesen (und beim Absender, wenn das Netzwerk das kann).
-// Der lokale Merker sorgt nur dafür, dass der Chat sofort gelesen aussieht, bis Beeper die neue Ungelesen-Zahl liefert.
+// Der lokale Merker hält den Chat gelesen, bis Beeper selbst 0 meldet – Beeper braucht dafür ein paar Sekunden (Snapchat länger).
+// Gemerkt wird die Zeit der letzten Nachricht beim Markieren: Kommt danach etwas Neues, gilt der Chat wieder als ungelesen.
+// (Früher wurde der Merker nach der Antwort des Dienstes gelöscht – lieferte Beeper kurz danach noch die alte Zahl, sprang der Chat zurück auf ungelesen.)
 const SEEN_KEY = "chats-seen";
-const seen = (() => { try { return JSON.parse(localStorage.getItem(SEEN_KEY) || "{}"); } catch { return {}; } })();
-const seenKey = (c) => `${c.unread}|${c.at || ""}`;   // gilt nur, solange seitdem nichts Neues kam (sonst blieb ein Chat mit gleicher Zahl fälschlich "gelesen")
-const left = (c) => (c && c.unread && seen[c.id] !== seenKey(c) ? c.unread : 0);   // gilt als ungelesen, bis markiert (oder neue Nachricht kommt)
-function markSeen(c) {
-  if (!c) return;
-  if (c.unread) seen[c.id] = seenKey(c); else delete seen[c.id];
-  try { localStorage.setItem(SEEN_KEY, JSON.stringify(seen)); } catch {}
-}
+const seen = (() => { try { const o = JSON.parse(localStorage.getItem(SEEN_KEY) || "{}"); for (const k in o) o[k] = String(o[k]).replace(/^\d+\|/, ""); return o; } catch { return {}; } })();
+const saveSeen = () => { try { localStorage.setItem(SEEN_KEY, JSON.stringify(seen)); } catch {} };
+const left = (c) => (c && c.unread && !(c.id in seen && (c.at || "") <= seen[c.id]) ? c.unread : 0);   // ungelesen, bis markiert (oder Neues kommt)
+function markSeen(c) { if (c) seen[c.id] = c.at || ""; }
+function unSeen(c) { for (const x of [c, ...(c.merged || [])]) delete seen[x.id]; saveSeen(); }
 async function markRead(c) {
-  if (!c) return;
-  const id = c.id, before = c.unread, mem = (c.merged || []).map((x) => known(x.id)).filter(Boolean);
-  mem.forEach(markSeen); markSeen(c); refreshReadBar(); drawList();
+  if (!c || c.marking) return;
+  const id = c.id, mem = (c.merged || []).map((x) => known(x.id) || x);
+  mem.forEach(markSeen); markSeen(c); saveSeen(); refreshReadBar(); drawList();
+  c.marking = true;
   try {
     await api(`/chats/${encodeURIComponent(id)}/read`, { method: "POST", body: "{}" });
-    c.unread = 0; markSeen(c); mem.forEach((x) => { x.unread = 0; markSeen(x); }); drawList();
   } catch (e) {
-    delete seen[id]; try { localStorage.setItem(SEEN_KEY, JSON.stringify(seen)); } catch {}
-    c.unread = before; refreshReadBar(); drawList(); toast(`Als gelesen markieren ging nicht: ${e.message}`);
-  }
+    unSeen(c); refreshReadBar(); drawList(); toast(`Als gelesen markieren ging nicht: ${e.message}`);
+  } finally { c.marking = false; }
 }
 async function markUnread(c, msgId) {   // in Beeper wieder ungelesen – auf Wunsch ab einer bestimmten Nachricht
   if (!c) return;
   const before = c.unread;
-  delete seen[c.id]; try { localStorage.setItem(SEEN_KEY, JSON.stringify(seen)); } catch {}
+  unSeen(c);
   c.unread = Math.max(1, c.unread || 0); refreshReadBar(); drawList();
   try {
     const r = await api(`/chats/${encodeURIComponent(c.id)}/unread`, { method: "POST", body: JSON.stringify(msgId ? { message_id: msgId } : {}) });
     if (r.unread) c.unread = r.unread;
     refreshReadBar(); drawList(); toast("Als ungelesen markiert");
   } catch (e) {
-    c.unread = before; markSeen(c); refreshReadBar(); drawList(); toast(`Als ungelesen markieren ging nicht: ${e.message}`);
+    c.unread = before; markSeen(c); saveSeen(); refreshReadBar(); drawList(); toast(`Als ungelesen markieren ging nicht: ${e.message}`);
   }
 }
 // ---------------- Angepinnte Chats (echte Beeper-Pins, höchstens 3 – stehen immer oben) ----------------
@@ -264,6 +272,59 @@ async function togglePin(c) {
 let MERGES = (() => { try { return JSON.parse(localStorage.getItem("chats-merges") || "[]"); } catch { return []; } })();
 const grpOf = (id) => MERGES.find((g) => g.chats.some((c) => c.id === id));
 const isGrp = (id) => MERGES.some((g) => g.id === id);
+// Vorschläge zum Zusammenführen (Einstellungen): dieselbe Person in mehreren Apps – der Dienst sucht, du entscheidest (org.py)
+let SUGG = null;
+async function loadSugg() { try { SUGG = (await api("/merges/suggestions")).items; redrawSett(); } catch { /* ohne Vorschläge */ } }
+function suggSheet(sg, picked = null, nameVal = "") {
+  closeMenu();
+  const all = [...sg.chats], on = picked || new Set(all.map((x) => x.id));
+  const d = document.createElement("div"); d.className = "ctx"; d.id = "ctx";
+  const draw = () => {
+    const n = all.filter((x) => on.has(x.id)).length;
+    d.innerHTML = `<div class="ctx-back"></div><div class="sheet fwd gset"><div class="fwd-top"><b>Zusammenführen?</b><button class="icon-btn" data-x="close" aria-label="Schließen"><span class="ms">close</span></button></div>
+    <div class="fwd-list">
+      <div class="gset-h">${esc(sg.reason || "Vorschlag")} – stimmt das? Abwählen, was nicht dazugehört.</div>
+      ${all.map((x) => `<button class="fwd-row ${on.has(x.id) ? "on" : ""}" data-m="${esc(x.id)}">${netAv(x)}<span class="fwd-t">${esc(clean(x.title))}<small>${esc(netName(x.network))}</small></span>${tick(on.has(x.id))}</button>`).join("")}
+      <button class="fwd-row" data-add="1"><span class="av"><span class="ms">add</span></span><span class="fwd-t">Weitere Chats dazunehmen</span></button>
+      <div class="gset-h">Name (frei lassen = ${esc(clean(all.find((x) => on.has(x.id))?.title || all[0].title))})</div>
+      <label class="search"><span class="ms">edit</span><input id="sgname" maxlength="100" value="${esc(nameVal)}" autocomplete="off"></label>
+    </div>
+    <div class="sugg-btns"><button class="btn ghost" data-no="1">Nicht vorschlagen</button><button class="btn fwd-go" ${n < 2 ? "disabled" : ""}>Zusammenführen${n > 2 ? ` · ${n}` : ""}</button></div></div>`;
+  };
+  draw();
+  d.addEventListener("click", async (e) => {
+    if (e.target.closest("[data-x=close]") || e.target.classList.contains("ctx-back")) return closeMenu();
+    nameVal = d.querySelector("#sgname")?.value || "";
+    const m = e.target.closest("[data-m]");
+    if (m) { const id = m.dataset.m; if (on.has(id)) on.delete(id); else on.add(id); draw(); return; }
+    if (e.target.closest("[data-add]")) {
+      const first = all.find((x) => on.has(x.id)) || all[0];
+      return chatPick({ title: "Dazunehmen …", verb: "Dazunehmen", multi: true, from: first, skip: new Set(all.map((x) => x.id)) }, (to) => {
+        for (const c of to.flatMap((c) => c.merged || [c])) if (!all.some((x) => x.id === c.id)) { all.push({ id: c.id, title: c.title, network: c.network || "" }); on.add(c.id); }
+        suggSheet({ ...sg, chats: all }, on, nameVal);
+      });
+    }
+    if (e.target.closest("[data-no]")) {
+      closeMenu();
+      try { await api("/merges/suggestions/dismiss", { method: "POST", body: JSON.stringify({ chats: sg.chats.map((x) => x.id) }) }); } catch (err) { return toast(`Ging nicht: ${err.message}`); }
+      SUGG = (SUGG || []).filter((x) => x.id !== sg.id); redrawSett(); return toast("Wird nicht mehr vorgeschlagen");
+    }
+    if (!e.target.closest(".fwd-go")) return;
+    const pick = all.filter((x) => on.has(x.id)), name = nameVal.trim();
+    if (pick.length < 2) return;
+    closeMenu();
+    try {
+      const r = await api("/merges", { method: "POST", body: JSON.stringify({ chats: pick.map((x) => ({ id: x.id, title: clean(x.title || ""), network: x.network || "" })) }) });
+      if (name && r.id) await api(`/merges/${encodeURIComponent(r.id)}`, { method: "PATCH", body: JSON.stringify({ name }) });
+      // Abgewählte: genau diese Paarungen nicht wieder vorschlagen
+      const off = sg.chats.filter((x) => !on.has(x.id)).map((x) => x.id);
+      if (off.length) for (const o of off) api("/merges/suggestions/dismiss", { method: "POST", body: JSON.stringify({ chats: [o, ...pick.map((x) => x.id)] }) }).catch(() => {});
+      await loadMerges(); SUGG = (SUGG || []).filter((x) => x.id !== sg.id); redrawSett();
+      toast(`${name || clean(pick[0].title)}: ${pick.length} Chats zusammengeführt`);
+    } catch (err) { toast(`Zusammenführen ging nicht: ${err.message}`); }
+  });
+  document.body.append(d);
+}
 async function loadMerges() {
   try {
     MERGES = (await api("/merges")).items;
@@ -271,7 +332,77 @@ async function loadMerges() {
     drawList();
   } catch { /* letzter Stand bleibt */ }
 }
-const known = (id) => S.chats.find((x) => x.id === id) || PINS.find((x) => x.id === id);
+const known = (id) => S.chats.find((x) => x.id === id) || PINS.find((x) => x.id === id) || DIR.get(id) || orgStub(id);
+
+// ---------------- Verzeichnis: jeder Chat, der einmal geladen war (Name, Netzwerk), im Browser gemerkt ----------------
+// Damit findet die Suche Leute sofort beim Tippen (Beepers Antwort kommt danach dazu), und Chats, die nicht mehr in der
+// geladenen Liste stehen (Listen, Ausgeblendet, aus einer Meldung geöffnet), haben trotzdem gleich Namen und Bild.
+const DIR_KEY = "chats-dir", DIR_MAX = 1500;
+const DIR = (() => { try { return new Map(JSON.parse(localStorage.getItem(DIR_KEY) || "[]").map((c) => [c.id, c])); } catch { return new Map(); } })();
+let dirT;
+function dirAdd(items) {
+  let changed = false;
+  for (const c of items) {
+    if (!c?.id || isGrp(c.id)) continue;
+    const o = DIR.get(c.id), n = { id: c.id, title: c.title || o?.title || "", network: c.network || o?.network || "", type: c.type || o?.type || "single", at: c.at || o?.at || "" };
+    if (!o || o.title !== n.title || o.at !== n.at || o.network !== n.network) { DIR.set(c.id, n); changed = true; }
+  }
+  if (!changed) return;
+  clearTimeout(dirT);
+  dirT = setTimeout(() => {
+    const all = [...DIR.values()].sort((a, b) => (b.at || "").localeCompare(a.at || "")).slice(0, DIR_MAX);
+    if (all.length < DIR.size) { DIR.clear(); all.forEach((c) => DIR.set(c.id, c)); }
+    try { localStorage.setItem(DIR_KEY, JSON.stringify(all)); } catch { /* voll: dann nur im Speicher */ }
+  }, 1500);
+}
+// Vergleich ohne Groß/klein, Akzente und Schnörkel (꧁☬…, unsichtbare Zeichen) – „moro“ findet „꧁ঔৣ☬Moro☬ঔৣ꧂“
+const norm = (t) => clean(t).normalize("NFKD").replace(/\p{M}/gu, "").toLowerCase();
+function localFind(q) {
+  const words = norm(q).split(/\s+/).filter(Boolean); if (!words.length) return [];
+  const hit = (t) => { const h = norm(t); return words.every((w) => h.includes(w)); };
+  const ids = new Set();
+  for (const g of MERGES) if (hit(`${g.name || ""} ${g.chats.map((c) => c.title).join(" ")}`)) g.chats.forEach((c) => ids.add(c.id));
+  for (const c of [...DIR.values(), ...S.chats]) if (hit(`${c.title} ${netName(c.network)}`)) ids.add(c.id);
+  return [...ids].map((id) => S.chats.find((x) => x.id === id) || DIR.get(id)).filter(Boolean).sort((a, b) => (b.at || "").localeCompare(a.at || "")).slice(0, 60);
+}
+// Zuletzt geladene Startseite: beim Öffnen der App sofort da, Frisches kommt gleich danach
+const LIST_KEY = "chats-list";
+function cacheList() { if (!S.q && S.f === "all") try { localStorage.setItem(LIST_KEY, JSON.stringify(S.chats.slice(0, 80))); } catch { /* egal */ } }
+const SQ = new Map();   // Suchergebnisse der Sitzung: Tippen, Löschen, wieder Tippen ist sofort da
+function restoreList() {   // Suche zu: gleich wieder die gemerkte Startseite, Frisches kommt dahinter
+  S.q = ""; S.busyQ = false; S.next = null;
+  let c = []; if (S.f !== "unread" && S.f !== "archive") try { c = JSON.parse(localStorage.getItem(LIST_KEY) || "[]"); } catch { /* egal */ }
+  S.chats = c; if (c.length) drawList();
+  loadChats(c.length ? { quiet: true, keep: false } : {});
+}
+
+// ---------------- Ordnung: Startseite (immer / nur bei Neuem / ausgeblendet), Netzwerke, eigene Listen – im Dienst, für alle Geräte ----------------
+let ORG = (() => { try { return { chats: [], nets: {}, labels: [], ...JSON.parse(localStorage.getItem("chats-org") || "{}") }; } catch { return { chats: [], nets: {}, labels: [] }; } })();
+let VIS = new Map(ORG.chats.map((x) => [x.id, x]));
+function orgSet(o) {
+  ORG = { chats: o.chats || [], nets: o.nets || {}, labels: o.labels || [] }; VIS = new Map(ORG.chats.map((x) => [x.id, x]));
+  try { localStorage.setItem("chats-org", JSON.stringify(ORG)); } catch { /* egal */ }
+  if (S.f.startsWith("l:") && !ORG.labels.some((l) => `l:${l.id}` === S.f)) setFilter("all");
+  drawList(); redrawSett(); redrawInfo(); fbtnState();
+}
+async function loadOrg() { try { orgSet(await api("/org")); } catch { /* letzter Stand bleibt */ } }
+function orgStub(id) {
+  const x = VIS.get(id) || ORG.labels.flatMap((l) => l.chats).find((c) => c.id === id);
+  return x && x.title ? { id, title: x.title, network: x.network, type: "single", at: "", unread: 0 } : undefined;
+}
+const VIS_TEXT = { "": "Immer", show: "Immer", new: "Nur bei neuen Nachrichten", hidden: "Ausgeblendet" };
+const netVis = (c) => c.merged || grpOf(c.id) ? "" : ORG.nets[netKey(c.network)] || "";   // Netzwerk-Regel gilt nicht für Zusammengeführte
+const ownVis = (c) => VIS.get(c.id)?.mode || VIS.get(grpOf(c.id)?.id)?.mode || "";
+const visOf = (c) => { if (!c) return ""; const v = ownVis(c); return v === "show" ? "" : v || netVis(c); };
+const labelOf = () => S.f.startsWith("l:") ? ORG.labels.find((l) => l.id === S.f.slice(2)) : null;
+const inLabel = (l, c) => l.chats.some((x) => x.id === c.id || (c.merged || []).some((m) => m.id === x.id));
+function shown(c) {
+  if (S.q || S.f === "archive") return true;
+  const l = labelOf(); if (l) return inLabel(l, c);
+  const v = visOf(c);
+  if (S.f === "hidden") return !!v;
+  return !v || (v === "new" && !!left(c));
+}
 function grpRow(g) {   // Gruppe als eine Zeile: Titel vom ersten Chat, neueste Zeit, Ungelesene zusammengezählt
   const live = g.chats.map((m) => ({ ...m, ...(known(m.id) || {}) })), head = live[0];
   const av = g.avatar && g.chats.some((x) => x.id === g.avatar) ? g.avatar : g.id;
@@ -299,6 +430,12 @@ async function doMerge(a, list) {
   } catch (e) { toast(`Zusammenführen ging nicht: ${e.message}`); }
 }
 async function unMerge(g, chat = "") {
+  if (!g) return;
+  const m = g.chats.find((x) => x.id === chat), name = clean(g.name || g.chats[0]?.title || "Chat");
+  const ok = await sure(chat ? `${clean(m?.title || "Chat")} herausnehmen?` : "Zusammenführung aufheben?",
+    chat ? `Der Chat steht danach wieder einzeln in der Liste.` : `„${name}“ wird wieder zu ${g.chats.length} einzelnen Chats (${g.chats.map((x) => netName(x.network)).join(", ")}). Eigener Name und Einstellungen der Gruppe gehen verloren.`,
+    chat ? "Herausnehmen" : "Aufheben", true);
+  if (!ok) return;
   try {
     await api(`/merges/${encodeURIComponent(g.id)}${chat ? `?chat=${encodeURIComponent(chat)}` : ""}`, { method: "DELETE" });
     await loadMerges(); toast(chat ? "Chat herausgenommen" : "Zusammenführung aufgehoben");
@@ -404,6 +541,9 @@ function infoHtml(c, d) {
       ${expiry ? row("timer", "Selbstlöschende Nachrichten", `Nach ${per(expiry)}`) : ""}
       ${row(isMuted(c.id) ? "notifications_off" : "notifications", isMuted(c.id) ? "Stummgeschaltet" : "Stummschalten", isMuted(c.id) ? muteText(c.id) : "Keine Benachrichtigungen aufs Handy", 'data-i="mute"')}
       ${row("mark_chat_read", "Automatisch als gelesen", AR_TEXT[arOf(c.id)], 'data-i="autoread"')}
+      ${row(visOf(c) ? "visibility_off" : "visibility", "Auf der Startseite", esc(VIS_TEXT[visOf(c)] + (!ownVis(c) && netVis(c) ? ` (wie alle ${netName(c.network)}-Chats)` : "")), 'data-i="vis"')}
+      ${row("label", "Listen", esc(ORG.labels.filter((l) => inLabel(l, c)).map((l) => l.name).join(", ") || "In keiner Liste"), 'data-i="lists"')}
+      ${row("archive", "Archivieren", "In Beeper archivieren – taucht bei einer neuen Nachricht wieder auf", 'data-i="arch"')}
       ${chats.some((x) => x.muted) ? row("notifications_off", "In Beeper stummgeschaltet", "Auch hier keine Benachrichtigungen") : ""}
       ${left(c) ? row("done_all", "Als gelesen markieren", "", 'data-i="read"') : row("mark_chat_unread", "Als ungelesen markieren", "", 'data-i="unread"')}
       ${row("call_merge", "Mit anderem Chat zusammenführen", "", 'data-i="merge"')}
@@ -422,6 +562,9 @@ document.addEventListener("click", (e) => {
   if (a === "gset") return groupSettings(c);
   if (a === "mute") return muteMenu(c);
   if (a === "autoread") return autoReadMenu(c);
+  if (a === "vis") return visMenu(c);
+  if (a === "lists") return labelPick(c);
+  if (a === "arch") { closeInfo(); return archiveChat(c, true); }
   if (a === "read") { markRead(c); return closeInfo(); }
   if (a === "unread") { markUnread(c); return closeInfo(); }
   if (a === "merge") return chatPick({ title: "Zusammenführen mit …", verb: "Zusammenführen", multi: true, from: c, skip: new Set((c.merged || [c]).map((x) => x.id)) }, (to) => { closeInfo(); doMerge(c, to); });
@@ -541,10 +684,16 @@ function rowMenu(c) {
     <button data-p="merge"><span class="ms">call_merge</span>Mit anderem Chat zusammenführen</button>
     ${c.merged ? '<button data-p="gset"><span class="ms">tune</span>Name, Profilbild, Standard</button>' : ""}
     ${c.merged ? '<button data-p="split"><span class="ms">call_split</span>Zusammenführung aufheben</button>' : ""}
-    ${left(c) ? '<button data-p="read"><span class="ms">done_all</span>Als gelesen markieren</button>' : '<button data-p="unread"><span class="ms">mark_chat_unread</span>Als ungelesen markieren</button>'}</div>`;
+    ${left(c) ? '<button data-p="read"><span class="ms">done_all</span>Als gelesen markieren</button>' : '<button data-p="unread"><span class="ms">mark_chat_unread</span>Als ungelesen markieren</button>'}
+    <button data-p="vis"><span class="ms">${visOf(c) ? "visibility_off" : "visibility"}</span>Auf der Startseite<small>${esc(VIS_TEXT[visOf(c)])}</small></button>
+    <button data-p="lists"><span class="ms">label</span>Listen<small>${esc(ORG.labels.filter((l) => inLabel(l, c)).map((l) => l.name).join(", "))}</small></button>
+    <button data-p="arch"><span class="ms">${S.f === "archive" ? "unarchive" : "archive"}</span>${S.f === "archive" ? "Aus dem Archiv holen" : "Archivieren"}</button></div>`;
   d.addEventListener("click", (e) => {
     const p = e.target.closest("[data-p]")?.dataset.p;
     closeMenu();
+    if (p === "vis") return visMenu(c);
+    if (p === "lists") return labelPick(c);
+    if (p === "arch") return archiveChat(c, S.f !== "archive");
     if (p === "pin") togglePin(c);
     if (p === "read") markRead(c);
     if (p === "unread") markUnread(c);
@@ -582,19 +731,33 @@ function drawList() {
   const pinIds = new Set(PINS.map((p) => p.id)), showPins = S.f === "all" && !S.q;
   const pinned = showPins ? collapse(PINS.map((p) => { const c = S.chats.find((x) => x.id === p.id); if (c) c.pinned = true; return c || p; })) : [];
   const pinGrp = new Set(pinned.map((c) => c.id));
-  const rest = collapse(showPins ? S.chats.filter((c) => !pinIds.has(c.id)) : S.chats).filter((c) => !pinGrp.has(c.id));
-  const n = [...pinned, ...rest].reduce((a, c) => a + left(c), 0);
+  const all = collapse(showPins ? S.chats.filter((c) => !pinIds.has(c.id)) : S.chats).filter((c) => !pinGrp.has(c.id));
+  const rest = all.filter(shown);
+  // Listen und „Ausgeblendet“: Chats, die (noch) nicht geladen sind, kommen aus dem Gemerkten dazu
+  const lb = labelOf();
+  if (!S.q && (lb || S.f === "hidden")) {
+    const have = new Set(all.flatMap((c) => [c.id, ...(c.merged || []).map((m) => m.id)]));
+    const want = lb ? lb.chats : ORG.chats.filter((x) => x.mode === "new" || x.mode === "hidden");
+    for (const x of want) if (!have.has(x.id)) { const c = rowChat(grpOf(x.id)?.id || x.id) || { id: x.id, title: x.title, network: x.network, unread: 0 }; if (!rest.some((r) => r.id === c.id)) rest.push(c); }
+  }
+  // Zähler (Titel, App-Symbol): ausgeblendete Chats zählen nicht mit
+  const n = [...pinned, ...collapse(S.chats.filter((c) => !pinIds.has(c.id))).filter((c) => visOf(c) !== "hidden")].reduce((a, c) => a + left(c), 0);
   document.title = n ? `(${n}) Chats` : "Chats";
   if (navigator.setAppBadge) (n ? navigator.setAppBadge(n) : navigator.clearAppBadge()).catch(() => {});
-  if (!S.chats.length && !pinned.length) { $("#list").innerHTML = `<div class="empty"><span class="ms">${S.q ? "search_off" : "forum"}</span>${S.q ? "Nichts gefunden." : "Keine Chats."}</div>`; return; }
+  if (!rest.length && !pinned.length && !S.next) {
+    const [ic, t] = S.q ? ["search_off", S.busyQ ? "Suche …" : "Nichts gefunden."] : lb ? ["label", `Noch niemand in „${esc(lb.name)}“. Chat lange drücken → Listen.`]
+      : S.f === "hidden" ? ["visibility", "Nichts ausgeblendet."] : S.f === "unread" ? ["done_all", "Alles gelesen."] : ["forum", "Keine Chats."];
+    $("#list").innerHTML = `<div class="empty"><span class="ms">${ic}</span>${t}</div>`; return;
+  }
   const row = (c, pin) => `<div class="row ${left(c) ? "unread" : ""} ${c.id === S.id ? "sel" : ""}" data-id="${esc(c.id)}">
       ${pickAv(c)}<div class="rmain"><div class="rtop"><span class="rtitle">${esc(clean(c.title))}</span><span class="rtime">${when(c.at)}</span></div>
       <div class="rsub"><span class="last">${lastLine(c)}</span>${isMuted(c.id) ? '<span class="ms mute">notifications_off</span>' : ""}${pin ? '<span class="ms pin">push_pin</span>' : ""}${left(c) ? `<span class="cnt">${c.unread}</span>` : ""}</div></div></div>`;
   // Angepinnte Chats: große runde Bilder nebeneinander ganz oben (wie in Beeper), darunter die übrige Liste
   const tile = (c) => `<button type="button" class="ptile ${left(c) ? "unread" : ""} ${c.id === S.id ? "sel" : ""}" data-id="${esc(c.id)}">
-      <span class="pav">${avatar(c.title, c.av || c.id)}${left(c) ? `<span class="cnt">${c.unread}</span>` : ""}</span>
+      <span class="pav">${pickAv(c)}${left(c) ? `<span class="cnt">${c.unread}</span>` : ""}</span>
       <span class="pname"><span>${esc(clean(c.title))}</span>${isMuted(c.id) ? '<span class="ms">notifications_off</span>' : ""}</span></button>`;
   $("#list").innerHTML = (pinned.length ? `<div class="pins">${pinned.map(tile).join("")}</div>` : "") + rest.map((c) => row(c, false)).join("")
+    + (S.q && S.busyQ ? '<div class="more" id="qbusy"><span class="ms">refresh</span></div>' : "")
     + (S.next ? '<button class="more" id="more" aria-label="Mehr laden"><span class="ms">refresh</span></button>' : "");
   moreObs.disconnect(); if ($("#more")) moreObs.observe($("#more"));   // kommt das Ende in Sicht, lädt die nächste Seite von selbst
   if (S.id && $(".chead")) refreshReadBar();
@@ -608,31 +771,49 @@ $("#list").addEventListener("click", (e) => {
   const c = S.chats.find((x) => x.id === r.dataset.id);
   go(r.dataset.id);
 });
-// Filter (Alle / Ungelesen / Archiv) hinter dem Filter-Knopf links in der Leiste unten; das Menü klappt nach oben auf
-const FILTERS = [["all", "forum", "Alle"], ["unread", "mark_chat_unread", "Ungelesen"], ["archive", "archive", "Archiv"]];
+// Filter (Alle / Ungelesen / Ausgeblendet / Archiv / eigene Listen) hinter dem Filter-Knopf links in der Leiste unten; das Menü klappt nach oben auf
+const FILTERS = [["all", "forum", "Alle"], ["unread", "mark_chat_unread", "Ungelesen"], ["hidden", "visibility_off", "Ausgeblendet"], ["archive", "archive", "Archiv"]];
+const filters = () => [...FILTERS, ...ORG.labels.map((l) => [`l:${l.id}`, "label", l.name])];
+function fbtnState() { const b = $("#fbtn"), f = filters().find((x) => x[0] === S.f); b.classList.toggle("on", S.f !== "all"); b.setAttribute("aria-label", `Filter: ${f ? f[2] : "Alle"}`); }
+function setFilter(f) {
+  if (f === S.f) return;
+  // Listen und „Ausgeblendet“ brauchen dieselbe Liste wie „Alle“ – dann nicht neu laden, nur anders filtern
+  const same = (x) => x === "all" || x === "hidden" || x.startsWith("l:");
+  const reuse = same(f) && same(S.f) && S.chats.length;
+  S.f = f; fbtnState();
+  if (reuse) { drawList(); listIn(); $("#list").scrollTop = 0; } else { S.chats = []; loadChats(); }
+}
 $("#fbtn").onclick = (e) => {
   e.preventDefault(); closeMenu();
-  const r = e.currentTarget.getBoundingClientRect(), d = document.createElement("div");
+  const r = e.currentTarget.getBoundingClientRect(), d = document.createElement("div"), fs = filters();
   d.className = "ctx"; d.id = "ctx";
-  d.innerHTML = `<div class="ctx-back clear"></div><div class="ctx-box fmenu" style="bottom:${innerHeight - r.top + 8}px;left:${Math.max(8, r.left)}px">${FILTERS.map(([f, ic, t]) =>
-    `<button data-f="${f}" class="${S.f === f ? "on" : ""}"><span class="ms">${ic}</span>${t}${S.f === f ? '<span class="ms tick">check</span>' : ""}</button>`).join("")}</div>`;
+  const btn = ([f, ic, t]) => `<button data-f="${esc(f)}" class="${S.f === f ? "on" : ""}"><span class="ms">${ic}</span><span class="fl">${esc(t)}</span>${S.f === f ? '<span class="ms tick">check</span>' : ""}</button>`;
+  d.innerHTML = `<div class="ctx-back clear"></div><div class="ctx-box fmenu" style="bottom:${innerHeight - r.top + 8}px;left:${Math.max(8, r.left)}px">${fs.slice(0, FILTERS.length).map(btn).join("")}
+    ${fs.length > FILTERS.length ? `<div class="fsep"></div>${fs.slice(FILTERS.length).map(btn).join("")}` : ""}
+    <div class="fsep"></div><button data-f="+"><span class="ms">new_label</span>Neue Liste …</button></div>`;
   d.addEventListener("click", (ev) => {
     const f = ev.target.closest("[data-f]")?.dataset.f; closeMenu();
-    if (!f || f === S.f) return;
-    S.f = f; const b = $("#fbtn"); b.classList.toggle("on", f !== "all"); b.setAttribute("aria-label", `Filter: ${FILTERS.find((x) => x[0] === f)[2]}`);
-    S.chats = []; loadChats();
+    if (f === "+") return labelNew();
+    if (f) setFilter(f);
   });
   document.body.append(d);
 };
 let qT;
-$("#q").addEventListener("input", () => { clearTimeout(qT); qT = setTimeout(() => { S.q = $("#q").value.trim(); S.chats = []; loadChats(); }, 350); });
+$("#q").addEventListener("input", () => {
+  clearTimeout(qT);
+  const q = $("#q").value.trim();
+  if (!q) { qT = setTimeout(restoreList, 120); return; }
+  // Sofort: was das Gerät schon kennt (und frühere Antworten dieser Sitzung); Beeper sucht kurz danach im Hintergrund weiter
+  S.q = q; S.next = null; S.busyQ = true; S.chats = SQ.get(`${S.f}|${q}`)?.items || localFind(q); drawList(); $("#list").scrollTop = 0;
+  qT = setTimeout(() => loadChats({ quiet: true, keep: false }), 220);
+});
 // Chat-Suche: hinter dem Such-Knopf rechts unten, mit eigener Adresse (…/suche), damit die Zurück-Taste sie wieder schließt
 const readLsrch = () => location.pathname.slice(BASE.length) === "suche";
 function showLsrch(on) {
   $("#tools").hidden = !on; document.body.classList.toggle("lsrch", on);
   if (on) { $("#q").focus(); return; }
   clearTimeout(qT); $("#q").blur();
-  if ($("#q").value || S.q) { $("#q").value = ""; S.q = ""; S.chats = []; loadChats(); }
+  if ($("#q").value || S.q) { $("#q").value = ""; restoreList(); }
 }
 $("#sbtn").onclick = () => { if (!readLsrch()) pushView({ lsrch: true }, "", `${BASE}suche`); showLsrch(true); };
 $("#qback").onclick = () => { if (history.state?.lsrch) history.back(); else { history.replaceState(null, "", BASE); showLsrch(false); } };
@@ -696,8 +877,24 @@ function target() {
 const NET_NAME = { snapchat: "Snapchat", instagram: "Instagram", whatsapp: "WhatsApp", signal: "Signal", telegram: "Telegram", discord: "Discord", messenger: "Messenger",
   gmessages: "SMS", googlechat: "Google Chat", slack: "Slack", linkedin: "LinkedIn", x: "X", imessage: "iMessage" };
 const netName = (n) => NET_NAME[netKey(n)] || String(n || "Chat");
-// Profilbild mit kleinem Netzwerk-Abzeichen unten rechts (wie in Beeper)
-const netAv = (x, big = false) => `<span class="avw ${big ? "big" : ""}">${avatar(clean(x.title), x.id)}<i class="nbadge" data-net="${netKey(x.network)}">${esc(netName(x.network)[0])}</i></span>`;
+// Kleine Logos der Apps fürs Abzeichen (eigene vereinfachte Zeichnungen, Farbe kommt aus [data-net] in app.css)
+const BUBBLE = "M12 3a9 9 0 0 0-7.8 13.5L3 21l4.6-1.2A9 9 0 1 0 12 3z";
+const NET_SVG = {
+  whatsapp: `<path d="${BUBBLE}" fill="none" stroke="currentColor" stroke-width="2"/><path d="M9.2 7.3c-.7 0-1.6.8-1.6 1.9 0 2.8 4 7 7.3 7.2 1 0 1.8-.8 1.8-1.5l-.1-.5-2-1-1 .9c-1.1-.5-2.4-1.8-2.9-2.9l.9-1-.9-2.1z" fill="currentColor"/>`,
+  instagram: '<rect x="3.5" y="3.5" width="17" height="17" rx="5" fill="none" stroke="currentColor" stroke-width="2.2"/><circle cx="12" cy="12" r="3.9" fill="none" stroke="currentColor" stroke-width="2.2"/><circle cx="17.2" cy="6.8" r="1.3" fill="currentColor"/>',
+  snapchat: '<path d="M12 2.8c3.1 0 5.2 2.3 5.2 5.2v2.2l1.5-.5c.6 0 .9.7.3 1l-1.8 1c.6 2 2.1 3.4 3.7 3.8-.2.8-1.3 1.1-2.5 1.2l-.4 1.3c-1.4-.3-2.4.1-3.5.9-.8.6-1.5.9-2.5.9s-1.7-.3-2.5-.9c-1.1-.8-2.1-1.2-3.5-.9l-.4-1.3c-1.2-.1-2.3-.4-2.5-1.2 1.6-.4 3.1-1.8 3.7-3.8l-1.8-1c-.6-.3-.3-1 .3-1l1.5.5V8c0-2.9 2.1-5.2 5.2-5.2z" fill="currentColor"/>',
+  telegram: '<path d="M2.8 11.3 20.3 4.4c.8-.3 1.6.4 1.4 1.3l-3 14.1c-.2.9-1.2 1.2-1.9.7l-4.7-3.5-2.3 2.3c-.3.3-.9.1-.9-.4v-3.6l8.4-7.6-10.4 6.5-3.9-1.3c-.9-.3-.9-1.5-.2-1.6z" fill="currentColor"/>',
+  signal: `<path d="${BUBBLE}" fill="currentColor"/>`,
+  messenger: `<path d="${BUBBLE}" fill="currentColor"/><path d="m6.5 14.5 4-4.3 2.3 2.1 4.7-2.8-4 4.3-2.3-2.1z" fill="#7a3cff"/>`,
+  discord: '<path d="M6.8 6.2c3.3-1.4 7.1-1.4 10.4 0 1.8 2.7 2.7 5.6 2.5 9.1-1.5 1.2-3.1 1.9-4.7 2.3l-1-1.6c-2.7.7-5.3.7-8 0l-1 1.6c-1.6-.4-3.2-1.1-4.7-2.3-.2-3.5.7-6.4 2.5-9.1z" fill="currentColor"/><circle cx="9.2" cy="12.3" r="1.6" fill="#5865f2"/><circle cx="14.8" cy="12.3" r="1.6" fill="#5865f2"/>',
+  gmessages: '<path d="M4 4h16a1 1 0 0 1 1 1v11a1 1 0 0 1-1 1H8l-4 4V5a1 1 0 0 1 1-1z" fill="currentColor"/>',
+  imessage: `<path d="${BUBBLE}" fill="currentColor"/>`,
+};
+const netMark = (n) => { const k = netKey(n); return NET_SVG[k] ? `<svg viewBox="0 0 24 24" aria-hidden="true">${NET_SVG[k]}</svg>` : esc(netName(n)[0]); };
+// Profilbild mit kleinem Abzeichen unten rechts (wie in Beeper): Logo der App – bei zusammengeführten Chats ein eigenes Zeichen
+const netAv = (x, big = false) => `<span class="avw ${big ? "big" : ""}">${avatar(clean(x.title), x.id)}${x.merged
+  ? `<i class="nbadge merged" title="Zusammengeführt: ${esc(x.merged.map((m) => netName(m.network)).join(", "))}"><span class="ms">merge</span></i>`
+  : `<i class="nbadge" data-net="${netKey(x.network)}" title="${esc(netName(x.network))}">${netMark(x.network)}</i>`}</span>`;
 function toChip() {
   const b = $("#toBtn"), c = cur(), ta = $("#txt"); if (!b) return;
   b.hidden = !c?.merged;
@@ -742,12 +939,12 @@ function head() {
 function readBar(c) {
   return left(c) ? `<div class="readbar" id="readbar"><button class="chip" data-a="seen">Als gelesen markieren</button></div>` : "";
 }
-function refreshReadBar() {
-  const c = cur(), old = $("#readbar");
-  if (old) old.remove();
-  if (!left(c)) $("#unsep")?.remove();
-  const d = $("#dock"); if (d && left(c)) d.insertAdjacentHTML("afterbegin", readBar(c));
-  const ub = $("#unseenBtn"); if (ub) ub.hidden = !!left(c);
+function refreshReadBar() {   // nur bei echtem Wechsel anfassen – sonst flackert die Leiste bei jedem Neuzeichnen der Liste
+  const c = cur(), old = $("#readbar:not(.out)"), want = !!left(c);
+  if (old && !want) { old.classList.add("out"); setTimeout(() => old.remove(), 200); }
+  if (!want) { const u = $("#unsep:not(.out)"); if (u) { u.classList.add("out"); setTimeout(() => u.remove(), 260); } }
+  const d = $("#dock"); if (d && want && !old) d.insertAdjacentHTML("afterbegin", readBar(c));
+  const ub = $("#unseenBtn"); if (ub) ub.hidden = want;
 }
 async function openChat() {
   drawn = { id: null, ids: new Set() };   // auch derselbe Chat noch einmal: Auftritt von vorn
@@ -791,6 +988,7 @@ async function openChat() {
   if (matchMedia("(pointer: fine)").matches) ta.focus();
 }
 async function loadMsgs({ first = false, quiet = false, older = false } = {}) {
+  if (older) { if (olderBusy) return; olderBusy = true; }
   const id = S.id, seq = ++S.seq;
   try {
     const pk = older && S.oldest ? `${id}|${S.oldest}` : "";
@@ -818,8 +1016,9 @@ async function loadMsgs({ first = false, quiet = false, older = false } = {}) {
     if (first && !older && before === sig(S.msgs) && $("#msgs .bw")) return;   // aus dem Speicher schon richtig gezeichnet
     drawMsgs({ stick: first || atEnd, keepTop: older }); toChip();
   } catch (e) {
-    if (!quiet && id === S.id) { const b = $("#msgs"); if (b) b.innerHTML = errBox(e); }
-  }
+    if (older) toast(`Ältere Nachrichten: ${e.message}`);
+    else if (!quiet && id === S.id) { const b = $("#msgs"); if (b) b.innerHTML = errBox(e); }
+  } finally { if (older) olderBusy = false; }
 }
 const mmss = (s) => `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, "0")}`;
 const mediaUrl = (f) => f.local ? f.local : `${API}/media?src=${encodeURIComponent(f.src || "")}${f.mime ? `&mime=${encodeURIComponent(f.mime)}` : ""}`;
@@ -921,18 +1120,46 @@ function albumView(id) {
 // Gruppen: Name steht wie bei Signal frei über der ersten Blase einer Folge, jede Person mit eigener Farbe
 const WHO_COLORS = ["#f28b82", "#fbbc04", "#81c995", "#78d9ec", "#8ab4f8", "#c58af9", "#ff8bcb", "#fcad70", "#a8dab5", "#d7aefb"];
 const whoColor = (k) => { let h = 0; for (const ch of String(k || "")) h = (h * 31 + ch.charCodeAt(0)) | 0; return WHO_COLORS[Math.abs(h) % WHO_COLORS.length]; };
+// Videos von Instagram, YouTube und TikTok direkt hier abspielen (eingebetteter Player der Seite, ohne Anmeldung)
+function embedOf(u) {
+  let m;
+  if ((m = /instagram\.com\/(?:[\w.]+\/)?(reels?|p|tv)\/([\w-]+)/i.exec(u || ""))) return { src: `https://www.instagram.com/${m[1] === "p" ? "p" : "reel"}/${m[2]}/embed/`, name: "Instagram", play: m[1] !== "p" };
+  if ((m = /(?:youtube\.com\/(?:watch\?(?:[^#]*&)?v=|shorts\/|embed\/|live\/)|youtu\.be\/)([\w-]{11})/i.exec(u || ""))) return { src: `https://www.youtube-nocookie.com/embed/${m[1]}?autoplay=1&playsinline=1&rel=0`, name: "YouTube", play: true };
+  if ((m = /tiktok\.com\/@[\w.-]+\/video\/(\d+)/i.exec(u || ""))) return { src: `https://www.tiktok.com/embed/v2/${m[1]}`, name: "TikTok", play: true };
+  return null;
+}
+const URL_RE = /https?:\/\/[^\s<>"')\]]+/g;
+const lk = (u) => String(u || "").trim().toLowerCase().replace(/^https?:\/\/(www\.)?/, "").replace(/[?#].*$/, "").replace(/\/+$/, "");
+// Besteht der Text nur aus einem Link (Instagram schickt ihn doppelt: „url (url?id=…)“)? → die Adresse, sonst ""
+function soleLink(m) {
+  const us = (m.text || "").match(URL_RE) || [];
+  if (!us.length || (m.text || "").replace(URL_RE, "").replace(/[\s()]/g, "") || new Set(us.map(lk)).size !== 1) return "";
+  return us.sort((a, b) => a.length - b.length)[0].replace(/[.,!?:;]+$/, "");
+}
+const host = (u) => { try { return new URL(u).hostname.replace(/^www\./, ""); } catch { return ""; } };
+function lpHtml(l, pic = null) {   // pic: Vorschaubild aus dem Anhang (schärfer als das der Webseite)
+  const e = embedOf(l.url), img = pic ? mediaUrl(pic) : l.img ? (l.ext || mediaUrl({ src: l.img })) : "";
+  const w = pic ? pic.w : l.w, h = pic ? pic.h : l.h, r = w && h ? ` style="aspect-ratio:${w}/${h}"` : "";
+  const shot = img ? (e ? `<button type="button" class="lp-pic" data-a="embed" data-url="${esc(l.url)}"><img loading="lazy" alt=""${r} src="${img}"><span class="ms">${e.play ? "play_arrow" : "open_in_full"}</span></button>`
+    : pic ? `<button type="button" class="lp-pic" data-a="zoom" data-src="${esc(pic.src)}"><img loading="lazy" alt=""${r} src="${img}"></button>`
+    : `<a class="lp-pic" href="${esc(l.url)}" target="_blank" rel="noopener noreferrer"><img loading="lazy" alt=""${r} src="${img}"></a>`) : "";
+  const title = l.title || (e ? `${e.name}-${e.play ? "Video" : "Beitrag"}` : host(l.url));
+  return `<div class="lp${pic ? " share" : ""}">${shot}<a class="lp-txt" href="${esc(l.url)}" target="_blank" rel="noopener noreferrer"><b>${esc(title)}</b>${l.summary ? `<i>${esc(l.summary)}</i>` : ""}<small>${esc(host(l.url))}</small></a></div>`;
+}
 function bubble(m, tail = true, stack = null, head = true) {
-  const visual = !m.deleted && m.files.length && m.files.every((f) => (f.kind === "image" || f.kind === "video") && !f.sticker);
-  const files = stack ? stackHtml(stack) : visual && !m.pending ? `<div class="mwrap"><div class="mcol">${m.files.map((f) => fileHtml(f, CLIPS.get(m.id) || null)).join("")}</div></div>` : m.files.map((f) => fileHtml(f)).join("");
+  // Geteilter Beitrag: nur der Link als Text und genau ein Bild (sein Vorschaubild) → eine Karte statt Bild + Link + zweitem Bild
+  const sole = !m.deleted && soleLink(m);
+  const share = sole && !stack && m.files.length === 1 && m.files[0].kind === "image" && !m.files[0].sticker && m.files[0].src && !m.pending ? m.files[0] : null;
+  const visual = !share && !m.deleted && m.files.length && m.files.every((f) => (f.kind === "image" || f.kind === "video") && !f.sticker);
+  const files = share ? "" : stack ? stackHtml(stack) : visual && !m.pending ? `<div class="mwrap"><div class="mcol">${m.files.map((f) => fileHtml(f, CLIPS.get(m.id) || null)).join("")}</div></div>` : m.files.map((f) => fileHtml(f)).join("");
   const split = visual && !stack && (m.text || (m.links || []).some((l) => l.title || l.img));   // Bild/Video und Text: zwei Blasen
   // Gelöscht: Hinweis – und darunter, was drinstand, wenn der Dienst die Nachricht vorher schon gesehen hatte
   const was = m.deleted && m.was ? `<div class="was">${(m.was.files || []).map((f) => fileHtml(f)).join("")}${m.was.text ? `<span class="tx">${autolink(esc(m.was.text))}</span>` : ""}</div>` : "";
   // Besteht der Text nur aus dem Link, der darunter als Vorschau kommt, reicht die Vorschau (sonst steht er doppelt da)
-  const lk = (u) => String(u || "").trim().toLowerCase().replace(/^https?:\/\/(www\.)?/, "").replace(/[/#]+$/, "");
-  const onlyLink = !m.deleted && m.text && (m.links || []).some((l) => (l.title || l.img) && lk(l.url) === lk(m.text));
+  const prev = (m.links || []).filter((l) => l.title || l.img);
+  const onlyLink = !!sole && (share || prev.some((l) => lk(l.url) === lk(sole)));
   const body = m.deleted ? `<span class="gone"><span class="ms">block</span>${m.mine ? "Du hast diese Nachricht gelöscht" : "Diese Nachricht wurde gelöscht"}</span>${was}` : m.text && !onlyLink ? `<span class="tx">${mentionHtml(autolink(esc(m.text)))}</span>` : "";
-  const host = (u) => { try { return new URL(u).hostname.replace(/^www\./, ""); } catch { return ""; } };
-  const links = m.deleted ? "" : (m.links || []).filter((l) => l.title || l.img).map((l) => `<a class="lp" href="${esc(l.url)}" target="_blank" rel="noopener noreferrer">${l.img ? `<img loading="lazy" alt=""${l.w && l.h ? ` style="aspect-ratio:${l.w}/${l.h}"` : ""} src="${l.ext ? l.ext : mediaUrl({ src: l.img })}">` : ""}<span><b>${esc(l.title || host(l.url))}</b>${l.summary ? `<i>${esc(l.summary)}</i>` : ""}<small>${esc(host(l.url))}</small></span></a>`).join("");
+  const links = m.deleted ? "" : share ? lpHtml(prev.find((l) => lk(l.url) === lk(sole)) || { url: sole }, share) : prev.map((l) => lpHtml(l)).join("");
   const group = "";
   const name = head && cur()?.type === "group" && !m.mine && clean(m.sender) ? `<div class="gname" style="color:${whoColor(m.sender_id || m.sender)}">${esc(clean(m.sender))}</div>` : "";
   const quote = "";
@@ -942,7 +1169,7 @@ function bubble(m, tail = true, stack = null, head = true) {
   const face = cur()?.type === "group" && !m.mine ? (tail ? avatar(clean(m.sender), cid(m), m.sender_id) : '<span class="av gap"></span>') : "";
   const prog = m.pendingFile ? `<div class="prog"><i style="width:${Math.round((m.progress || 0) * 100)}%"></i></div>` : "";
   const mc = cur()?.merged, net = mc ? netKey((mc.find((x) => x.id === (m.chat || target())) || {}).network) : null;
-  return `${name}${m.reply_to && !m.deleted ? replyHead(m, net) : ""}<div class="bw ${m.mine ? "me" : ""} ${face ? "grp" : ""} ${m.reply_to && !m.deleted ? "isrep" : ""}"${net !== null ? ` data-net="${net}"` : ""} id="m-${esc(m.id)}" data-id="${esc(m.id)}"><span class="swipe ms">reply</span>${face}${tools}<div class="bcol">${quote}${split ? `<div class="b media ${m.mine ? "me" : ""}">${group}${files}</div>` : ""}<div class="b ${m.mine ? "me" : ""} ${!m.mine && atMe(m) ? "atme" : ""} ${m.pending ? "pending" : ""} ${m.deleted ? "del" : ""} ${!split && visual && !m.text ? "media" : ""}">${split ? "" : group}${split ? "" : files}${prog}${body}${links}${rx}${tmLine(m)}</div>${more}</div><span class="st">${m.at && !m.pending ? fmtTime.format(new Date(m.at)) : ""}</span></div>`;
+  return `${name}${m.reply_to && !m.deleted ? replyHead(m, net) : ""}<div class="bw ${m.mine ? "me" : ""} ${face ? "grp" : ""} ${m.reply_to && !m.deleted ? "isrep" : ""}"${net !== null ? ` data-net="${net}"` : ""} id="m-${esc(m.id)}" data-id="${esc(m.id)}"><span class="swipe ms">reply</span>${face}${tools}<div class="bcol">${quote}${split ? `<div class="b media ${m.mine ? "me" : ""}">${group}${files}</div>` : ""}<div class="b ${m.mine ? "me" : ""} ${share ? "sharebub" : ""} ${!m.mine && atMe(m) ? "atme" : ""} ${m.pending ? "pending" : ""} ${m.deleted ? "del" : ""} ${!split && visual && !m.text ? "media" : ""}">${split ? "" : group}${split ? "" : files}${prog}${body}${links}${rx}${tmLine(m)}</div>${more}</div><span class="st">${m.at && !m.pending ? fmtTime.format(new Date(m.at)) : ""}</span></div>`;
 }
 const NETS = [["snapchat", "snapchat"], ["instagram", "instagram"], ["whatsapp", "whatsapp"], ["signal", "signal"], ["telegram", "telegram"], ["discord", "discord"],
   ["messenger", "messenger"], ["facebook", "messenger"], ["gmessages", "gmessages"], ["google messages", "gmessages"], ["googlechat", "googlechat"], ["google chat", "googlechat"],
@@ -957,6 +1184,8 @@ const pinEnd = () => { const b = $("#msgs"); if (b && atBottom) b.scrollTop = b.
 const growth = new ResizeObserver(pinEnd);
 document.fonts?.ready.then(pinEnd);
 let drawn = { id: null, ids: new Set() };
+let olderObs = null, olderBusy = false;
+const keepBusy = () => olderBusy || !!cascade;   // nicht während des Auftritts beim Öffnen (dann steht der Chat noch nicht unten)
 let cascade = null;   // läuft gerade der Auftritt eines frisch geöffneten Chats? { id, t0 }
 const CAS_N = 16, CAS_STEP = 22;
 function drawMsgs({ stick = false, keepTop = false } = {}) {
@@ -966,7 +1195,7 @@ function drawMsgs({ stick = false, keepTop = false } = {}) {
   const prevH = box.scrollHeight, prevTop = box.scrollTop;
   S.replies = new Map();
   for (const m of S.msgs) if (m.reply_to) S.replies.set(m.reply_to, [...(S.replies.get(m.reply_to) || []), m.id]);
-  let last = "", html = S.more ? '<button class="older" data-a="older">Ältere laden</button>' : "";
+  let last = "", html = S.more ? '<button class="older" id="older" data-a="older" aria-label="Ältere laden"><span class="ms">refresh</span></button>' : "";
   if (!S.msgs.length) html += '<div class="empty">Noch keine Nachrichten.</div>';
   const lastMine = [...S.msgs].reverse().find((m) => m.mine && !m.deleted && !m.pending)?.id;
   // Trennlinie über der ersten ungelesenen Nachricht (wie in Beeper), solange der Chat nicht als gelesen markiert ist
@@ -1004,19 +1233,22 @@ function drawMsgs({ stick = false, keepTop = false } = {}) {
     const gone = performance.now() - cascade.t0;
     [...box.querySelectorAll(".bw, .day, .unsep, .seenrow")].slice(-CAS_N).reverse().forEach((el, i) => { if (!el.classList.contains("in")) { el.style.animationDelay = `${Math.round(i * CAS_STEP - gone)}ms`; el.classList.add("cin"); } });
   } else cascade = null;
+  if (cascade) { const c0 = cascade; setTimeout(() => { if (cascade === c0) { cascade = null; const o = $("#older"); if (o && olderObs) { olderObs.unobserve(o); olderObs.observe(o); } } }, CAS_N * CAS_STEP + 320); }
   $("#conv").dataset.net = cur()?.merged ? "" : netKey(cur()?.network);   // eigene Nachrichten in Netzwerkfarbe, eingehende mit Akzenten in Netzwerkfarbe
   paint();
   if (keepTop) box.scrollTop = box.scrollHeight - prevH + prevTop;
   else if (stick) { atBottom = true; box.scrollTop = box.scrollHeight; requestAnimationFrame(pinEnd); }
   else box.scrollTop = prevTop;
   growth.disconnect(); growth.observe(box); for (const c of box.children) growth.observe(c);
+  olderObs?.disconnect(); olderObs = null;
+  if ($("#older")) { olderObs = new IntersectionObserver((es) => { if (es.some((x) => x.isIntersecting) && !keepBusy()) loadMsgs({ older: true }); }, { root: box, rootMargin: "400px 0px 0px 0px" }); olderObs.observe($("#older")); }
   if (!box.dataset.pin) { box.dataset.pin = 1; for (const ev of ["load", "loadedmetadata", "error"]) box.addEventListener(ev, pinEnd, true); }
   ogFetch();
 }
 // Link-Vorschau selbst holen, wenn Beeper keine mitliefert (z. B. bei Snapchat): Bild, Titel, Text der Seite.
 // Einmal pro Adresse, gemerkt für die Sitzung; nur die letzten 40 Nachrichten, damit beim Hochscrollen nicht alles auf einmal lädt.
 const OG = new Map();
-const urlOf = (m) => !m || m.deleted || (m.links || []).some((l) => l.title || l.img) ? "" : ((m.text || "").match(/https?:\/\/[^\s<>"')\]]+/) || [""])[0].replace(/[.,!?:;]+$/, "");
+const urlOf = (m) => !m || m.deleted || (m.links || []).some((l) => l.title || l.img) ? "" : soleLink(m) || ((m.text || "").match(/https?:\/\/[^\s<>"')\]]+/) || [""])[0].replace(/[.,!?:;]+$/, "");
 function ogApply() {
   for (const m of S.msgs) {
     const u = urlOf(m), c = u && OG.get(u);
@@ -1051,6 +1283,7 @@ $("#conv").addEventListener("click", (e) => {
   }
   if (a.dataset.a === "jump") { const el = document.getElementById(`m-${a.dataset.id}`); if (el) { el.scrollIntoView({ block: "center", behavior: "smooth" }); el.classList.add("flash"); setTimeout(() => el.classList.remove("flash"), 1200); } return; }
   if (a.dataset.a === "play") return togglePlay(a.closest(".voice"));
+  if (a.dataset.a === "embed") return playEmbed(a);
   if (a.dataset.a === "speed") return cycleSpeed(a);
   if (a.dataset.a === "seek") return seek(a.closest(".voice"), e);
   if (a.dataset.a === "vtext") return voiceText(a);
@@ -1183,6 +1416,22 @@ function playVideo(el) {
   document.body.append(d);
   ovOpen(m ? `video/${encodeURIComponent(m.id)}` : "bild", () => close(true));
   go(0);
+}
+// Geteiltes Video (Instagram, YouTube, TikTok) im eingebetteten Player der Seite; oben rechts öffnet es in deren App
+function playEmbed(el) {
+  const e = embedOf(el.dataset.url); if (!e) return;
+  document.querySelector(".vp")?.remove();
+  const m = bubbleMsg(el), d = document.createElement("div");
+  d.className = "vp emb";
+  d.innerHTML = `<div class="vp-top"><button class="icon-btn" data-v="close" aria-label="Zurück"><span class="ms">arrow_back</span></button><div><b>${esc(e.name)}</b><small>${m && !m.mine && m.sender ? esc(clean(m.sender)) : esc(host(el.dataset.url))}</small></div>
+    <a class="icon-btn" href="${esc(el.dataset.url)}" target="_blank" rel="noopener noreferrer" aria-label="In ${esc(e.name)} öffnen" title="In ${esc(e.name)} öffnen"><span class="ms">open_in_new</span></a></div>
+    <div class="vp-stage emb-stage"><div class="emb-wait"><span class="ms">refresh</span></div><iframe src="${esc(e.src)}" allow="autoplay; encrypted-media; fullscreen; picture-in-picture" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe></div>`;
+  d.querySelector("iframe").addEventListener("load", () => d.querySelector(".emb-wait")?.remove(), { once: true });
+  const close = (fromHistory) => { if (fromHistory !== true) ovClosed(); d.classList.add("out"); setTimeout(() => d.remove(), 180); };
+  d.addEventListener("click", (ev) => { if (ev.target.closest("[data-v=close]")) close(); });
+  addEventListener("keydown", function k(ev) { if (!d.isConnected) return removeEventListener("keydown", k); if (ev.key === "Escape") close(); });
+  document.body.append(d);
+  ovOpen(m ? `video/${encodeURIComponent(m.id)}` : "bild", () => close(true));
 }
 // Vollbild wie in Beeper: alle Bilder des Chats, durchwischen nach links/rechts, nach unten wischen schließt
 function lightbox(src, items = null, start = 0) {
@@ -1349,7 +1598,7 @@ async function toggleReaction(m, key) {
   }
 }
 async function deleteMsg(m, everyone) {
-  if (!confirm(everyone ? "Nachricht für alle löschen? Das lässt sich nicht rückgängig machen." : "Nachricht nur bei dir löschen?")) return;
+  if (!await sure(everyone ? "Für alle löschen?" : "Nur bei dir löschen?", everyone ? "Das lässt sich nicht rückgängig machen." : "", "Löschen", true)) return;
   const id = S.id;
   try {
     await api(`/chats/${encodeURIComponent(cid(m))}/messages/${encodeURIComponent(mid(m))}${everyone ? "?everyone=true" : ""}`, { method: "DELETE" });
@@ -1493,7 +1742,7 @@ function forwardPick(m) {
   });
 }
 // Ein Chat als Zeile in Auswahl-Fenstern: Profilbild mit Netzwerk-Abzeichen, Name, darunter Netzwerk(e); rechts ein runder Haken
-const pickAv = (c) => netAv({ title: c.title, id: c.av || c.id, network: c.merged ? c.merged[0].network : c.network });
+const pickAv = (c) => netAv({ title: c.title, id: c.av || c.id, network: c.network, merged: c.merged });
 const pickSub = (c) => c.merged ? `Zusammengeführt · ${c.merged.map((x) => netName(x.network)).join(", ")}` : netName(c.network);
 const tick = (on) => `<span class="pk ${on ? "on" : ""}"><span class="ms">check</span></span>`;
 function chatPick({ title, verb, tail = "", skip = new Set(), multi = false, from = null }, done) {
@@ -1638,7 +1887,7 @@ async function send(override) {
     await api(`/chats/${encodeURIComponent(rep?.chat || target())}/send`, { method: "POST", body: JSON.stringify({ text, reply_to: rep ? mid(rep) : null, mentions: (S.ments || []).filter((x) => text.includes(`@${x.name}`)) }) });
     S.ments = [];
     setTimeout(() => loadMsgs({ quiet: true }), 600);
-    const c = cur(); if (c) { c.at = new Date().toISOString(); c.unread = 0; markSeen(c); refreshReadBar(); drawList(); }
+    const c = cur(); if (c) { c.at = new Date().toISOString(); c.unread = 0; unSeen(c); refreshReadBar(); drawList(); }
     loadChats({ quiet: true });
   } catch (e) {
     S.msgs = S.msgs.filter((m) => m !== tmp); drawMsgs(); ta.value = text;
@@ -1838,7 +2087,7 @@ document.addEventListener("visibilitychange", () => {
   poll(!document.hidden);
   if (document.hidden) return live(false);
   loadChats({ quiet: true }); if (S.id) { loadMsgs({ quiet: true }); clearNotes(S.id); }
-  loadMutes(); live(true); checkVersion();
+  loadMutes(); loadOrg(); live(true); checkVersion();
 });
 // Nach einem Update: ein offener Tab hätte sonst noch den alten Code im Speicher. Beim Zurückholen (höchstens einmal pro Minute)
 // kurz die Version abfragen und neu laden, wenn sie sich geändert hat und gerade nichts getippt wird.
@@ -1932,7 +2181,7 @@ function openSett(push = true) {
   if (push && !readSett()) pushView({ sett: true }, "", `${BASE}einstellungen`);
   const el = document.createElement("div"); el.className = "info sett"; el.id = "sett";
   $(".side").append(el); document.body.classList.add("setts");
-  redrawSett(); pushState(true); loadFcm();
+  redrawSett(); pushState(true); loadFcm(); loadSugg();
 }
 function dropSett() {
   const el = $("#sett"); if (!el) return;
@@ -1966,6 +2215,18 @@ function redrawSett() {
       ${row("photo_camera", "Snaps nicht als neue Nachricht", PREFS.snaps_quiet ? "An – nur Textnachrichten melden sich und schieben den Chat nach oben" : "Aus – jeder Snap zählt wie eine Nachricht", 'data-s="snaps"', `<span class="sw${PREFS.snaps_quiet ? " on" : ""}" aria-hidden="true"></span>`)}
       ${row("movie", "Video-Stücke zusammenfügen", PREFS.snap_join ? "An – Snapchat teilt lange Videos in Stücke, hier werden sie ein Video" : "Aus – jedes Stück steht einzeln da", 'data-s="snapjoin"', `<span class="sw${PREFS.snap_join ? " on" : ""}" aria-hidden="true"></span>`)}
       <p class="ihint">Gilt auf allen Geräten. Snaps siehst du weiter im Chat, sie lösen nur keine Benachrichtigung aus.</p></div>
+    <div class="icard"><small>Startseite</small>
+      ${nets().map((n) => row(ORG.nets[n] ? "visibility_off" : "visibility", `${esc(netName(n))}-Chats`, VIS_TEXT[ORG.nets[n] || ""], `data-s="netvis" data-net="${n}"`)).join("")}
+      <p class="ihint">Ausgeblendete Chats findest du über den Filter „Ausgeblendet“ und die Suche. Zusammengeführte Chats bleiben immer auf der Startseite – darin schreibst du weiter auch über ein ausgeblendetes Netzwerk. Benachrichtigungen ändert das nicht, dafür gibt es Stummschalten.</p></div>
+    ${ORG.chats.length ? `<div class="icard"><small>Eigene Einstellung pro Chat</small>${ORG.chats.map((x) => person(chatOf(x.id).title === "Chat" ? x : chatOf(x.id), VIS_TEXT[x.mode], `data-s="vis" data-id="${esc(x.id)}"`)).join("")}</div>` : ""}
+    <div class="icard"><small>Zusammenführen – Vorschläge</small>
+      ${SUGG === null ? '<p class="ihint">Suche …</p>' : SUGG.length ? SUGG.map((sg, i) => `<button class="irow iperson sugg" data-s="sugg" data-n="${i}"><span class="savs">${sg.chats.slice(0, 3).map((x) => netAv(x)).join("")}</span>
+        <span class="it"><b>${esc(sg.chats.map((x) => clean(x.title)).filter((t, j, l) => l.indexOf(t) === j).join(" · "))}</b><small>${esc(`${sg.reason} · ${sg.chats.map((x) => netName(x.network)).join(", ")}`)}</small></span><span class="ms">chevron_right</span></button>`).join("")
+        : '<p class="ihint">Gerade nichts – dieselbe Person in mehreren Apps findet sich hier, sobald es passt.</p>'}
+      <p class="ihint">Nach Namen über verschiedene Apps hinweg. Antippen zum Prüfen: abwählen, weitere dazunehmen, Namen geben und speichern.</p></div>
+    <div class="icard"><small>Listen</small>
+      ${ORG.labels.map((l) => row("label", esc(l.name), `${l.chats.length} ${l.chats.length === 1 ? "Chat" : "Chats"}`, `data-s="label" data-l="${l.id}"`)).join("")}
+      ${row("new_label", "Neue Liste", "Zum Beispiel „Tagesmutter“ – erscheint im Filter unten links", 'data-s="labelnew"')}</div>
     <div class="icard"><small>Stummgeschaltet</small>
       ${muted.length ? muted.map((c) => person(c, muteText(c.id), `data-s="mute" data-id="${esc(c.id)}"`)).join("") : '<p class="ihint">Kein Chat stumm. Stummschalten: Chat öffnen, oben auf den Namen tippen.</p>'}</div>
     ${auto.length ? `<div class="icard"><small>Automatisch als gelesen</small>${auto.map((c) => person(c, AR_TEXT[arOf(c.id)], `data-s="auto" data-id="${esc(c.id)}"`)).join("")}</div>` : ""}
@@ -1983,6 +2244,11 @@ document.addEventListener("click", (e) => {
   if (a === "snapjoin") return setPref("snap_join", !PREFS.snap_join);
   if (a === "mute") return muteMenu(c);
   if (a === "auto") return autoReadMenu(c);
+  if (a === "netvis") return netVisMenu(t.dataset.net);
+  if (a === "vis") return visMenu(c);
+  if (a === "label") return labelMenu(ORG.labels.find((l) => l.id === t.dataset.l));
+  if (a === "labelnew") return labelNew();
+  if (a === "sugg") { const sg = SUGG?.[+t.dataset.n]; if (sg) suggSheet(sg); }
 });
 document.addEventListener("keydown", (e) => { if (e.key === "Escape" && $("#sett") && !$("#ctx")) closeSett(); });
 // Tipp auf eine Meldung bei offener App: den Chat öffnen
@@ -1991,7 +2257,9 @@ navigator.serviceWorker?.addEventListener("message", (e) => {
   const m = /^\/chat\/([^/]+)/.exec(e.data.url || ""); go(m ? decodeURIComponent(m[1]) : null);
 });
 // Chat geöffnet: seine Meldungen in der Leiste wegräumen
+// In der Android-App über die Brücke; gelesen auf einem anderen Gerät oder in Beeper nimmt der Server sie dort weg (push.py → dismiss).
 async function clearNotes(id) {
+  try { window.IDAChatsNative?.dismiss?.(id); } catch { /* ältere App */ }
   try { for (const n of await (await navigator.serviceWorker.ready).getNotifications({ tag: `chat-${id}` })) n.close(); } catch { /* egal */ }
 }
 
@@ -2091,6 +2359,104 @@ function autoReadMenu(c) {
   });
   document.body.append(d);
 }
+// ---------------- Startseite, Listen, Archiv ----------------
+// Netzwerke für die Einstellungen: alle, die in geladenen oder gemerkten Chats vorkommen, plus die schon eingestellten
+const nets = () => [...new Set([...[...DIR.values(), ...S.chats].map((c) => netKey(c.network)), ...Object.keys(ORG.nets)].filter(Boolean))].sort((a, b) => netName(a).localeCompare(netName(b)));
+async function orgCall(path, body, method = "PUT") {
+  try { const r = await api(path, { method, body: body ? JSON.stringify(body) : undefined }); orgSet(r); return r; }
+  catch (e) { toast(`Ging nicht: ${e.message}`); loadOrg(); return null; }
+}
+function sheetPick(items, now, done) {   // kleines Auswahl-Blatt: [[Wert, Symbol, Titel, Hinweis], …]
+  closeMenu();
+  const d = document.createElement("div"); d.className = "ctx"; d.id = "ctx";
+  d.innerHTML = `<div class="ctx-back"></div><div class="sheet">${items.map(([k, ic, t, sm]) =>
+    `<button data-v="${esc(k)}"${k === now ? ' class="on"' : ""}><span class="ms">${k === now ? "check" : ic}</span>${esc(t)}${sm ? `<small>${esc(sm)}</small>` : ""}</button>`).join("")}</div>`;
+  d.addEventListener("click", (e) => { const v = e.target.closest("[data-v]")?.dataset.v; closeMenu(); if (v !== undefined && v !== now) done(v); });
+  document.body.append(d);
+}
+function visMenu(c) {
+  const net = netVis(c), own = ownVis(c);
+  const items = [
+    ...(net ? [["", "settings", `Wie alle ${netName(c.network)}-Chats`, VIS_TEXT[net]]] : []),
+    [net ? "show" : "", "visibility", "Immer zeigen", ""],
+    ["new", "mark_chat_unread", "Nur bei neuen Nachrichten", "Sonst nur über den Filter „Ausgeblendet“"],
+    ["hidden", "visibility_off", "Ausblenden", "Nie auf der Startseite"]];
+  sheetPick(items, net ? own : own === "show" ? "" : own, async (mode) => {
+    const r = await orgCall(`/chats/${encodeURIComponent(c.id)}/vis`, { mode, title: clean(c.title || ""), network: c.merged ? "" : c.network || "" });
+    if (r) toast(mode === "hidden" ? `${clean(c.title)} ausgeblendet – zu finden unter „Ausgeblendet“` : mode === "new" ? `${clean(c.title)} erscheint nur noch bei neuen Nachrichten` : `${clean(c.title)} wieder auf der Startseite`);
+  });
+}
+function netVisMenu(n) {
+  sheetPick([["", "visibility", "Immer zeigen", ""], ["new", "mark_chat_unread", "Nur bei neuen Nachrichten", ""], ["hidden", "visibility_off", "Ausblenden", "Nie auf der Startseite"]],
+    ORG.nets[n] || "", (mode) => orgCall(`/nets/${n}/vis`, { mode }));
+}
+// Rückfrage im Stil der App (kein confirm(): das zeigt die WebView der Android-App nicht zuverlässig) → Promise<true|false>
+function sure(title, text, yes, danger = false) {
+  closeMenu();
+  return new Promise((res) => {
+    const d = document.createElement("div"); d.className = "ctx"; d.id = "ctx";
+    d.innerHTML = `<div class="ctx-back"></div><div class="sheet namesheet sure"><b>${esc(title)}</b>${text ? `<p>${esc(text)}</p>` : ""}
+      <div class="sure-btns"><button class="btn ghost" data-s="0" type="button">Abbrechen</button><button class="btn ${danger ? "danger" : ""}" data-s="1" type="button">${esc(yes)}</button></div></div>`;
+    d.addEventListener("click", (e) => {
+      const b = e.target.closest("[data-s]");
+      if (!b && !e.target.classList.contains("ctx-back")) return;
+      closeMenu(); res(b?.dataset.s === "1");
+    });
+    document.body.append(d);
+  });
+}
+function nameSheet(title, value, done) {   // Eingabe für einen Namen (kein prompt(): das kann die WebView der Android-App nicht)
+  closeMenu();
+  const d = document.createElement("div"); d.className = "ctx"; d.id = "ctx";
+  d.innerHTML = `<div class="ctx-back"></div><form class="sheet namesheet"><b>${esc(title)}</b><label class="search"><span class="ms">label</span><input maxlength="40" value="${esc(value)}" placeholder="Name, z. B. Tagesmutter" autocomplete="off" enterkeyhint="done"></label><button class="btn" type="submit">Speichern</button></form>`;
+  const inp = d.querySelector("input");
+  d.querySelector("form").onsubmit = (e) => { e.preventDefault(); const v = inp.value.trim(); if (!v) return inp.focus(); closeMenu(); done(v); };
+  d.querySelector(".ctx-back").onclick = closeMenu;
+  document.body.append(d); setTimeout(() => inp.focus(), 60);
+}
+function labelNew(c = null) {
+  nameSheet("Neue Liste", "", async (name) => {
+    const r = await orgCall("/labels", { name }, "POST"); if (!r) return;
+    if (c) await orgCall(`/labels/${r.created}/chats/${encodeURIComponent(c.id)}`, { on: true, title: clean(c.title || ""), network: c.merged ? "" : c.network || "" });
+    toast(c ? `${clean(c.title)} ist jetzt in „${name}“` : `Liste „${name}“ angelegt – lange auf einen Chat drücken, um ihn hinzuzufügen`);
+  });
+}
+function labelPick(c) {   // Chat in Listen an- und abhaken
+  closeMenu();
+  const d = document.createElement("div"); d.className = "ctx"; d.id = "ctx";
+  const draw = () => `<div class="ctx-back"></div><div class="sheet">${ORG.labels.map((l) => { const on = inLabel(l, c);
+      return `<button data-l="${l.id}" class="${on ? "on" : ""}"><span class="ms">${on ? "check_box" : "check_box_outline_blank"}</span>${esc(l.name)}<small>${l.chats.length}</small></button>`; }).join("")}
+    <button data-l="+"><span class="ms">new_label</span>Neue Liste …</button></div>`;
+  d.innerHTML = draw();
+  d.addEventListener("click", async (e) => {
+    if (e.target.classList.contains("ctx-back")) return closeMenu();
+    const id = e.target.closest("[data-l]")?.dataset.l; if (!id) return;
+    if (id === "+") return labelNew(c);
+    const l = ORG.labels.find((x) => x.id === id); if (!l) return;
+    const on = !inLabel(l, c), ids = on ? [c.id] : [c.id, ...(c.merged || []).map((m) => m.id)].filter((x) => l.chats.some((y) => y.id === x));
+    for (const x of ids) await orgCall(`/labels/${id}/chats/${encodeURIComponent(x)}`, { on, title: clean(c.title || ""), network: c.merged ? "" : c.network || "" });
+    if (d.isConnected) d.innerHTML = draw();
+  });
+  document.body.append(d);
+}
+function labelMenu(l) {
+  if (!l) return;
+  sheetPick([["open", "filter_list", "Anzeigen", "Als Filter in der Liste"], ["rename", "edit", "Umbenennen", ""], ["del", "delete", "Liste löschen", "Die Chats bleiben, nur die Liste geht"]], "", (a) => {
+    if (a === "open") { closeSett(); return setFilter(`l:${l.id}`); }
+    if (a === "rename") return nameSheet("Liste umbenennen", l.name, (name) => orgCall(`/labels/${l.id}`, { name }));
+    if (a === "del") orgCall(`/labels/${l.id}`, null, "DELETE").then((r) => r && toast(`Liste „${l.name}“ gelöscht`));
+  });
+}
+async function archiveChat(c, on) {
+  const ids = new Set([c.id, ...(c.merged || []).map((m) => m.id)]), before = S.chats;
+  S.chats = S.chats.filter((x) => !ids.has(x.id)); drawList();
+  try {
+    await api(`/chats/${encodeURIComponent(c.id)}/archive`, { method: "POST", body: JSON.stringify({ archived: on }) });
+    toast(on ? `${clean(c.title)} archiviert · Tippen macht es rückgängig` : `${clean(c.title)} zurück im Posteingang`, on ? () => archiveChat(c, false) : null);
+    if (!on) loadChats({ quiet: true });
+    if (S.id === c.id && on) back();
+  } catch (e) { S.chats = before; drawList(); toast(`Ging nicht: ${e.message}`); }
+}
 loadAutoRead();
 loadMutes();
 loadPrefs();
@@ -2098,7 +2464,9 @@ if (readMenu()) history.replaceState(history.state, "", menuBase());   // Neulad
 route();
 if (readLsrch()) showLsrch(true);
 if (readSett()) openSett(false);
-loadChats();
+try { const c = JSON.parse(localStorage.getItem(LIST_KEY) || "[]"); if (c.length && !S.chats.length && !S.q) { S.chats = c; S.next = null; drawList(); } } catch { /* egal */ }
+loadChats(S.chats.length ? { quiet: true, keep: false } : {});
+loadOrg();
 live(!document.hidden);
 
 // ---------------- Tastatur am Handy ----------------

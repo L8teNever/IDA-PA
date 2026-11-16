@@ -189,6 +189,10 @@ async def health():
     return {"ok": True}
 
 
+_search_cache: dict[str, tuple[float, list[dict], str | None]] = {}
+SEARCH_TTL = 30   # Sekunden; nur Suchen, die normale Liste bleibt immer frisch
+
+
 @router.get("/chats")
 async def chats(q: str = "", unread: bool = False, inbox: str = "primary", cursor: str = ""):
     s = get_settings()
@@ -196,7 +200,16 @@ async def chats(q: str = "", unread: bool = False, inbox: str = "primary", curso
             "inbox": inbox if inbox in ("primary", "low-priority", "archive") else None}
     if cursor:
         args.update(cursor=cursor[:300], direction="before")
-    items, nxt = parse_chats(await call(beeper().text, "search_chats", args))
+    key = repr(sorted(args.items())) if args["query"] else ""
+    hit = _search_cache.get(key) if key else None
+    if hit and time.monotonic() - hit[0] < SEARCH_TTL:
+        items, nxt = [dict(c) for c in hit[1]], hit[2]
+    else:
+        items, nxt = parse_chats(await call(beeper().text, "search_chats", args))
+        if key:
+            if len(_search_cache) > 200:
+                _search_cache.clear()
+            _search_cache[key] = (time.monotonic(), [dict(c) for c in items], nxt)
     try:
         prev = {k: c.get("preview") for c in await rest_chats() for k in (c.get("localChatID"), c.get("id")) if k}
     except HTTPException:
@@ -913,12 +926,29 @@ async def unreact(chat_id: str, msg_id: str, key: str):
     return {"ok": True}
 
 
+class Archive(BaseModel):
+    archived: bool = True
+
+
+@router.post("/chats/{chat_id}/archive")
+async def archive_chat(chat_id: str, body: Archive):
+    """In Beeper archivieren bzw. zurückholen – bei zusammengeführten Chats alle."""
+    check_ids(chat_id)
+    for c in group_members(chat_id) or [chat_id]:
+        await rest_call("POST", f"/v1/chats/{quote(c, safe='')}/archive", {"archived": body.archived})
+    global _chats_cache
+    _chats_cache = None
+    _search_cache.clear()
+    return {"ok": True}
+
+
 @router.post("/chats/{chat_id}/read")
 async def mark_read(chat_id: str):
     """Chat in Beeper als gelesen markieren – damit auch in Beeper und (je nach Netzwerk) beim Absender."""
     check_ids(chat_id)
     for c in group_members(chat_id) or [chat_id]:   # zusammengeführt: alle Chats der Gruppe
         await beeper_read(c)
+    asyncio.create_task(push.dismiss(chat_id if group_members(chat_id) else push.note_key(chat_id)))   # Meldung am Handy weg
     return {"ok": True}
 
 

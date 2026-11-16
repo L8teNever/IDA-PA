@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "IDA Chats",
+  "productName": "Chats",
   "version": "1.0.0",
   "identifier": "com.kulbarts.chats",
   "build": {
@@ -10,7 +10,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "IDA Chats",
+        "title": "Chats",
         "url": "https://chats.kulbarts.com",
         "userAgent": "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36 IDAChats/1"
       }

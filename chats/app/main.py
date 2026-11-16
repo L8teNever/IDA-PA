@@ -10,7 +10,7 @@ from fastapi import FastAPI
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import api, live, push
+from . import api, live, org, push
 from .config import get_settings
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -52,6 +52,7 @@ def create_app() -> FastAPI:
     app = FastAPI(title="IDA Chats", version="1.0", lifespan=lifespan, docs_url="/api/docs", openapi_url="/api/openapi.json")
     app.include_router(api.router)
     app.include_router(push.router)
+    app.include_router(org.router)
 
     front = s.frontend_dir
     own, css, fonts, js = front / "chats", front / "css", front / "fonts", front / "js" / "ui"

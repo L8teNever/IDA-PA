@@ -136,6 +136,12 @@ object Push {
 
     fun allowed(ctx: Context) = NotificationManagerCompat.from(ctx).areNotificationsEnabled()
 
+    /** Meldung des Chats wegnehmen: Chat geöffnet oder gelesen (auch in Beeper oder auf einem anderen Gerät). */
+    fun dismiss(ctx: Context, chat: String) {
+        if (chat.isEmpty()) return
+        try { NotificationManagerCompat.from(ctx).cancel("chat-$chat", 1) } catch (e: Exception) { /* egal */ }
+    }
+
     /** Meldung zeigen: eine pro Chat (neue ersetzt die alte), mit dem Profilbild des Chats, Tipp öffnet den Chat. */
     fun show(ctx: Context, d: Map<String, String>) {
         if (!allowed(ctx)) return
@@ -174,6 +180,7 @@ object Push {
 /** Nimmt die Meldungen von Google an – auch wenn die App zu ist. */
 class PushService : FirebaseMessagingService() {
     override fun onMessageReceived(m: RemoteMessage) {
+        if (m.data["type"] == "dismiss") return Push.dismiss(this, m.data["chat"].orEmpty())   // anderswo gelesen
         if (!Push.enabled(this)) return
         if (Push.visible && m.data["test"] != "1") return   // App offen: die Seite zeigt den Hinweis selbst
         Push.show(this, m.data)
@@ -212,6 +219,8 @@ class Bridge(private val act: MainActivity, private val web: WebView) {
     }
 
     @JavascriptInterface fun pushOff() = act.runOnUiThread { if (own()) Push.off(act) }
+
+    @JavascriptInterface fun dismiss(chat: String) = act.runOnUiThread { if (own()) Push.dismiss(act, chat) }
 
     @JavascriptInterface fun pendingChat(): String { val p = Push.pending.orEmpty(); Push.pending = null; return p }
 

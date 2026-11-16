@@ -59,6 +59,12 @@ Browser (chats.kulbarts.com, Cloudflare Access) ──> chats :8000 ──MCP─
   alle Chats als einen Verlauf; jede Nachricht hat `chat` und `mid` (echte ID), `id` ist `chat~mid`, der Cursor merkt sich pro Chat den Stand.
   Gesendet wird über den Chip im Eingabefeld (Standard: Chat der letzten eingehenden Nachricht), Antworten gehen in den Chat der zitierten Nachricht – der Chip springt dabei auf dessen Netzwerk.
   Eingabefeld und Senden-Knopf tragen die Farbe des Netzwerks, über das gerade gesendet wird.
+  Aufheben bzw. einen Chat herausnehmen fragt vorher nach (eigenes Blatt `sure()`, kein `confirm()` – das zeigt die WebView der APK nicht sicher).
+  In der Liste trägt das Profilbild unten rechts das Logo der App (`NET_SVG`, eigene vereinfachte Zeichnungen), Zusammengeführte ein eigenes Zeichen.
+* **Vorschläge zum Zusammenführen** (Einstellungen): `GET /api/v1/merges/suggestions` sucht in den neuesten 200 Chats dieselbe Person in
+  verschiedenen Apps (`org.suggest`: gleicher Name nach `norm_name`, sehr ähnlicher Name oder gleicher Vorname bei Einzelchats; gleiche Art;
+  pro Netzwerk höchstens einer). Antippen: abwählen, weitere dazunehmen, Namen geben, speichern (`POST /merges` + `PATCH`).
+  „Nicht vorschlagen“ → `POST /merges/suggestions/dismiss` merkt alle Paare (Tabelle `merge_nope`); Abgewählte werden beim Speichern ebenso gemerkt.
 * **Link-Vorschauen:** Doppelte Links von Beeper (kurz/lang, mit/ohne www, gleicher Titel+Bild) werden zu einer Vorschau zusammengefasst;
   besteht der Text nur aus dem Link, steht nur die Vorschau da. Liefert Beeper keine Vorschau (z. B. Snapchat), holt der Dienst sie selbst:
   `GET /api/v1/link?url=` liest og:-Titel/-Text/-Bild der Seite, `GET /api/v1/link/img?u=` reicht das Bild durch. Nur öffentliche Adressen
@@ -131,3 +137,50 @@ beim Scrollen stehen. Ohne View Transitions im Browser oder bei „Bewegung redu
   Tipp aufs oberste Bild/Video öffnet es, Tipp daneben (Rand, Zahl, Kachel-Knopf) öffnet die Übersicht mit allen als Kacheln
   (eigene Adresse `…/chat/<id>/album/<Nachricht>`, Zurück schließt sie). Tipp auf eine Kachel öffnet das Bild bzw. Video.
 
+
+## Startseite, Listen und Archiv
+
+Alles gilt auf allen Geräten (gespeichert im Dienst, `chats/app/org.py`, Tabellen `chat_vis`, `net_vis`, `labels`, `label_chats`);
+Beeper bleibt unberührt – außer beim Archivieren. Benachrichtigungen ändert nichts davon, dafür gibt es Stummschalten.
+
+- **Pro Chat** (Chat lange drücken oder Kontaktinfo → „Auf der Startseite“): *Immer*, *Nur bei neuen Nachrichten* (taucht nur auf,
+  solange etwas ungelesen ist) oder *Ausblenden*. `PUT /chats/{id}/vis` mit `mode` = `show` | `new` | `hidden` | `""`.
+- **Pro Netzwerk** (Einstellungen → Startseite, z. B. alle Snapchat-Chats): *Nur bei neuen Nachrichten* oder *Ausblenden*,
+  `PUT /nets/{net}/vis`. **Zusammengeführte Chats** zählen nicht dazu: sie bleiben auf der Startseite, darin schreibt man weiter
+  auch über das ausgeblendete Netzwerk. Ein einzelner Chat kann die Netzwerk-Regel mit *Immer zeigen* (`show`) überstimmen.
+- **Filter „Ausgeblendet“** zeigt alles, was nicht auf der Startseite steht; die Suche findet ausgeblendete Chats immer.
+  Ausgeblendete zählen nicht im Titel und am App-Symbol mit.
+- **Eigene Listen** (z. B. „Tagesmutter“): im Filter-Menü unten links „Neue Liste …“, Chat lange drücken → Listen. Jede Liste ist ein
+  Filter. Titel und Netzwerk werden mitgemerkt, damit die Liste auch Chats zeigt, die weit unten stehen und noch nicht geladen sind.
+  `GET /org`, `POST /labels`, `PUT|DELETE /labels/{id}`, `PUT /labels/{id}/chats/{chat}` (`on`, `title`, `network`).
+- **Archivieren** (Chat lange drücken): in Beeper archivieren bzw. im Filter „Archiv“ zurückholen, bei Zusammengeführten alle
+  (`POST /chats/{id}/archive`, `archived`). Der Hinweis danach macht es mit einem Tipp rückgängig.
+
+## Schneller durch Zwischenspeichern
+
+- **Startseite** (die ersten 80 Chats) liegt im Browser und steht beim Öffnen sofort da; Frisches kommt gleich danach.
+- **Verzeichnis** (`chats-dir`, bis 1500 Chats): Name und Netzwerk jedes Chats, der einmal geladen war. Die Suche zeigt daraus
+  sofort beim Tippen Treffer (ohne Groß/klein, Akzente und Schnörkel wie „꧁☬…“), Beepers Antwort kommt kurz danach dazu.
+  Auch Listen, „Ausgeblendet“ und aus einer Meldung geöffnete Chats haben damit gleich Namen und Bild.
+- **Suchergebnisse** merkt sich die Seite für die Sitzung, der Dienst 30 s (nur Suchen, die normale Liste ist immer frisch).
+- Nachrichten pro Chat, Profilbilder und die nächste ältere Seite waren schon zwischengespeichert bzw. vorab geladen.
+
+## Gelesen markieren
+
+„Als gelesen markieren“ merkt sich die Zeit der letzten Nachricht und zeigt den Chat sofort gelesen. Das bleibt so, bis Beeper
+selbst 0 meldet (dauert ein paar Sekunden, bei Snapchat länger) oder eine neue Nachricht kommt. Früher wurde der Merker nach der
+Antwort des Dienstes gelöscht; lieferte Beeper kurz danach noch die alte Zahl, sprang der Chat zurück auf ungelesen. Leiste und
+Trennlinie „… ungelesen“ blenden sanft aus.
+
+## Geteilte Beiträge und Links
+
+- Instagram schickt einen geteilten Reel als Text „url (url?id=…)“ plus Vorschaubild als Anhang. Das war bisher Bild, Link und
+  noch einmal die Link-Vorschau mit demselben Bild. Jetzt ist es **eine Karte**: Bild aus dem Anhang, darunter Titel und Text der Seite.
+- **Abspielen:** Tipp aufs Bild spielt Instagram-, YouTube- und TikTok-Videos im eingebetteten Player der jeweiligen Seite ab
+  (ohne Anmeldung, eigene Adresse `…/video/<Nachricht>`, Zurück schließt). Oben rechts öffnet es in deren App.
+- Links öffnen immer in einem neuen Tab bzw. in der Android-App außerhalb (siehe `docs/CHATS-ANDROID.md`).
+
+## Ältere Nachrichten
+
+Oben im Chat steht statt „Ältere laden“ ein sich drehendes Zeichen; kommt man oben an, lädt die nächste Seite von selbst (meist
+schon vorab geholt). Während des Auftritts beim Öffnen eines Chats wartet es, damit nicht gleich beim Öffnen nachgeladen wird.
