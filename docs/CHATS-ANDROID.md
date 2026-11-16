@@ -13,7 +13,7 @@ läuft nur, solange sie sichtbar ist (so macht es die Website selbst).
 | --- | --- |
 | 1 Gerüst (Rust/Tauri, WebView auf die Chats-Seite) | fertig |
 | 2 Anmeldung (Cloudflare Access in der WebView, Cookie bleibt) | über die WebView; am Gerät prüfen |
-| 3 Benachrichtigungen über FCM | offen – braucht ein Firebase-Projekt |
+| 3 Benachrichtigungen über FCM | gebaut, aber ungetestet – braucht dein Firebase-Projekt (siehe unten) |
 | 4 Antworten / Gelesen direkt aus der Meldung | offen |
 | 5 Teilen aus anderen Apps, Zähler am Symbol | offen (Mikrofon- und Kamera-Recht sind schon gesetzt) |
 | 7 Bauen, Signieren, Release über GitHub Actions | fertig |
@@ -32,9 +32,40 @@ höhere Versionsnummer).
 1. Android-SDK 34, Build-Tools, NDK und Rust mit den Android-Zielen (arm64, armv7) einrichten.
 2. Version auf `1.0.<Laufnummer>` setzen – Android erlaubt ein Update nur mit höherer Nummer.
 3. `tauri icon` (aus `frontend/chats/icons/icon-512.png`) und `tauri android init` erzeugen das Android-Projekt (`src-tauri/gen/android`,
-   liegt nicht im Repo). `android/scripts/patch-android.sh` trägt danach die Rechte für Mikrofon und Kamera ins Manifest ein.
+   liegt nicht im Repo). `android/scripts/patch-android.py` trägt danach Rechte (Mikrofon, Kamera, Benachrichtigungen), Firebase
+   Messaging und die Brücke zur Seite (`android/kotlin/Push.kt`) ein.
 4. `tauri android build --apk`, dann `zipalign` und `apksigner`.
 5. Die fertige `ida-chats.apk` wird als Release `android-v1.0.<Laufnummer>` abgelegt.
+
+## Benachrichtigungen (FCM)
+
+Android weckt eine geschlossene App nur über Googles Push-Dienst FCM, und der braucht ein Firebase-Projekt (kostenlos). Weil das Repo
+öffentlich ist, steckt **nichts davon im Repo oder in der APK**: Beide Dateien aus Firebase liegen nur im Chats-Dienst (`chats.db`).
+
+**Einrichten (einmal):**
+
+1. https://console.firebase.google.com → Projekt erstellen (Google Analytics aus).
+2. Android-App hinzufügen, Paketname genau `com.kulbarts.chats` → `google-services.json` herunterladen.
+3. Projekteinstellungen → Dienstkonten → „Neuen privaten Schlüssel generieren“ → JSON-Datei herunterladen.
+4. In IDA Chats (Website oder App): Einstellungen → „Android-App“ → beide Dateien hochladen.
+5. In der Android-App: Einstellungen → „Benachrichtigungen“ einschalten und erlauben, dann „Probemeldung“.
+
+**So läuft es:**
+
+- Die App fragt nach der Anmeldung `GET /api/v1/fcm/client` (Projekt-ID, App-ID, Absender-Nummer, API-Schlüssel aus der
+  `google-services.json`) und richtet Firebase damit zur Laufzeit ein (`Push.init`). Die Daten merkt sie sich, damit Meldungen auch
+  nach einem Neustart des Handys ankommen, ohne dass die Seite offen ist.
+- Google vergibt ein Geräte-Token; die Seite meldet es mit `POST /fcm/register` am Dienst an.
+- Bei einer neuen Nachricht schickt der Dienst (`fcm_send` in `chats/app/push.py`) eine reine Daten-Meldung mit hoher Priorität über
+  die FCM-HTTP-v1-API. Dafür meldet er sich mit dem Dienstkonto bei Google an (JWT, Token 50 min gemerkt). Die App baut daraus
+  die Benachrichtigung (eine pro Chat, Tipp öffnet den Chat). Ist die App gerade offen, zeigt sie keine – dort erscheint der Hinweis
+  der Seite. Stumme Chats und „Snaps nicht als neue Nachricht“ gelten wie bei Web Push, weil derselbe Weg im Dienst sie auslöst.
+- Der Schlüssel des Dienstkontos verlässt den Server nie; `GET /fcm` zeigt nur, ob er da ist.
+- API: `GET /fcm` (Stand), `PUT /fcm/client`, `PUT /fcm/account` (Datei als Body), `DELETE /fcm`, `GET /fcm/client`,
+  `POST /fcm/register`, `POST /fcm/unregister`, `POST /fcm/test` (jeweils `{"token": …}`). Einstellung `ANDROID_PACKAGE` (Standard
+  `com.kulbarts.chats`) wählt die passende App aus der `google-services.json`.
+- Brücke Seite ⇄ App: `window.IDAChatsNative` (`pushState()`, `pushSetup(json)`, `pushOff()`, `pendingChat()`), Antworten als
+  Ereignisse `ida-fcm` (`{token, error}`) und `ida-open` (`{chat}`). Die Brücke reagiert nur auf Seiten unter `kulbarts.com`.
 
 ## Signierschlüssel
 

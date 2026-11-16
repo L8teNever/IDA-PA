@@ -53,7 +53,7 @@ jobs:
           npx tauri icon ../frontend/chats/icons/icon-512.png
           npx tauri android init --ci
           npx tauri icon ../frontend/chats/icons/icon-512.png
-          ./scripts/patch-android.sh
+          python3 scripts/patch-android.py
       - name: APK bauen (arm64 + armv7)
         run: npx tauri android build --apk --target aarch64 armv7 --ci
       - name: Signieren

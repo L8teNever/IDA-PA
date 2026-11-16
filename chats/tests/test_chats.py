@@ -377,3 +377,36 @@ def test_snaps_still(client, monkeypatch):
     client.get(f"{API}/chats")
     assert calls == ["1"]   # gemerkt, solange im Chat nichts Neues passiert
     client.put(f"{API}/prefs", json={"snaps_quiet": False})
+
+
+def test_fcm_android(client, monkeypatch):
+    """Android-App: Firebase-Dateien liegen nur im Dienst, die App holt sich ihre Verbindungsdaten, Geräte melden sich an."""
+    import base64
+    import json
+
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import padding, rsa
+
+    from app import push
+    assert client.get(f"{API}/fcm").json() == {"client": False, "account": False, "project": "", "account_project": "", "package": "", "devices": 0}
+    assert client.get(f"{API}/fcm/client").status_code == 404
+    assert client.put(f"{API}/fcm/client", json={"foo": 1}).status_code == 400
+    services = {"project_info": {"project_number": "123", "project_id": "ida-x"}, "client": [
+        {"client_info": {"mobilesdk_app_id": "1:123:android:zzz", "android_client_info": {"package_name": "other.app"}}, "api_key": [{"current_key": "KEY-OTHER"}]},
+        {"client_info": {"mobilesdk_app_id": "1:123:android:abc", "android_client_info": {"package_name": "com.kulbarts.chats"}}, "api_key": [{"current_key": "KEY"}]}]}
+    assert client.put(f"{API}/fcm/client", json=services).json()["client"] is True
+    assert client.get(f"{API}/fcm/client").json() == {"project_id": "ida-x", "sender_id": "123", "app_id": "1:123:android:abc", "api_key": "KEY", "package": "com.kulbarts.chats"}
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    pem = key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption()).decode()
+    assert client.put(f"{API}/fcm/account", json={"type": "service_account", "project_id": "ida-x"}).status_code == 400
+    st = client.put(f"{API}/fcm/account", json={"type": "service_account", "project_id": "ida-x", "private_key": pem, "client_email": "a@ida-x.iam.gserviceaccount.com"}).json()
+    assert st["account"] is True and st["account_project"] == "ida-x" and "private_key" not in json.dumps(st)
+    # Das Anmelde-JWT fürs Dienstkonto ist gültig signiert
+    h, b, sig = push._jwt(push.fcm_account()).split(".")
+    key.public_key().verify(base64.urlsafe_b64decode(sig + "=="), f"{h}.{b}".encode(), padding.PKCS1v15(), hashes.SHA256())
+    assert json.loads(base64.urlsafe_b64decode(b + "=="))["scope"] == push.FCM_SCOPE
+    tok = "t" * 40
+    assert client.post(f"{API}/fcm/register", json={"token": tok}).json() == {"ok": True}
+    assert client.get(f"{API}/fcm").json()["devices"] == 1 and push.has_subs()
+    client.post(f"{API}/fcm/unregister", json={"token": tok})
+    assert client.delete(f"{API}/fcm").json()["client"] is False and push.fcm_account() is None

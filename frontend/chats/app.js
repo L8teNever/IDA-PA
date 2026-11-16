@@ -1858,10 +1858,32 @@ if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js", { s
 // ---------------- Benachrichtigungen aufs Handy (Web Push) ----------------
 // Die Glocke oben meldet dieses Gerät an. Danach weckt der Server das Handy nur, wenn eine Nachricht kommt – die App selbst
 // läuft dafür nicht (kein Timer, keine offene Verbindung), das kostet praktisch keinen Akku.
-const canPush = "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
+// In der Android-App (android/, docs/CHATS-ANDROID.md) gibt es kein Web Push: dort meldet sich das Gerät über die App bei Googles FCM an.
+// Die App stellt dafür window.IDAChatsNative bereit; die Firebase-Verbindungsdaten holt sie sich hier vom Dienst (nichts davon steckt in der APK).
+const NATIVE = window.IDAChatsNative || null;
+const FCM_KEY = "chats-fcm-token";
+const canPush = !!NATIVE || ("serviceWorker" in navigator && "PushManager" in window && "Notification" in window);
+async function nativePushOn(quiet = false) {
+  try { NATIVE.pushSetup(JSON.stringify(await api("/fcm/client"))); }   // Antwort kommt als Ereignis "ida-fcm"
+  catch (e) { if (!quiet) toast(e.status === 404 ? "Firebase ist noch nicht eingerichtet – unten unter „Android-App“ die beiden Dateien hochladen" : `Anmelden ging nicht: ${e.message}`); }
+}
+addEventListener("ida-fcm", async (e) => {
+  const { token, error } = e.detail || {};
+  if (error || !token) { toast(`Benachrichtigungen gingen nicht an: ${error || "kein Token"}`); return pushState(true); }
+  try {
+    const was = localStorage.getItem(FCM_KEY);
+    if (was && was !== token) api("/fcm/unregister", { method: "POST", body: JSON.stringify({ token: was }) }).catch(() => {});
+    await api("/fcm/register", { method: "POST", body: JSON.stringify({ token }) });
+    localStorage.setItem(FCM_KEY, token);
+    if (was !== token) toast("Benachrichtigungen an");
+  } catch (err) { toast(`Anmelden ging nicht: ${err.message}`); }
+  pushState(true); loadFcm();
+});
+addEventListener("ida-open", (e) => { if (e.detail?.chat) go(e.detail.chat); });   // Tipp auf eine Meldung der Android-App
 const b64key = (k) => { const s = atob((k + "=".repeat((4 - k.length % 4) % 4)).replace(/-/g, "+").replace(/_/g, "/")); return Uint8Array.from(s, (c) => c.charCodeAt(0)); };
 async function pushSub() { try { return await (await navigator.serviceWorker.ready).pushManager.getSubscription(); } catch { return null; } }
 async function pushOn() {
+  if (NATIVE) return nativePushOn();
   if (Notification.permission === "denied") return toast("Benachrichtigungen sind blockiert – in den Browser-Einstellungen für diese Seite erlauben");
   if (await Notification.requestPermission() !== "granted") return toast("Ohne Erlaubnis keine Benachrichtigungen");
   try {
@@ -1874,6 +1896,12 @@ async function pushOn() {
   pushState(true);
 }
 async function pushOff() {
+  if (NATIVE) {
+    const token = localStorage.getItem(FCM_KEY);
+    if (token) await api("/fcm/unregister", { method: "POST", body: JSON.stringify({ token }) }).catch(() => {});
+    localStorage.removeItem(FCM_KEY); NATIVE.pushOff();
+    toast("Benachrichtigungen aus"); loadFcm(); return pushState(true);
+  }
   const sub = await pushSub();
   if (sub) { await api("/push/unsubscribe", { method: "POST", body: JSON.stringify({ endpoint: sub.endpoint }) }).catch(() => {}); await sub.unsubscribe().catch(() => {}); }
   toast("Benachrichtigungen aus"); pushState(true);
@@ -1881,12 +1909,18 @@ async function pushOff() {
 // Stand auf diesem Gerät: "on" | "off" | "denied" | "none" (Browser kann kein Push). Beim Start einmal: Abo beim Server frisch halten.
 let PUSH = canPush ? "off" : "none";
 async function pushState(redraw) {
-  if (canPush) PUSH = Notification.permission === "denied" ? "denied" : Notification.permission === "granted" && await pushSub() ? "on" : "off";
+  if (NATIVE) { const st = NATIVE.pushState(); PUSH = st === "on" && !localStorage.getItem(FCM_KEY) ? "off" : st; }
+  else if (canPush) PUSH = Notification.permission === "denied" ? "denied" : Notification.permission === "granted" && await pushSub() ? "on" : "off";
   if (redraw) redrawSett();
   return PUSH;
 }
-pushState().then((st) => { if (st === "on") pushSub().then((s) => s && api("/push/subscribe", { method: "POST", body: JSON.stringify(s.toJSON()) }).catch(() => {})); });
+pushState().then((st) => { if (NATIVE) { if (st === "on") nativePushOn(true); return; } if (st === "on") pushSub().then((s) => s && api("/push/subscribe", { method: "POST", body: JSON.stringify(s.toJSON()) }).catch(() => {})); });
 async function pushTest() {
+  if (NATIVE) {
+    try { await api("/fcm/test", { method: "POST", body: JSON.stringify({ token: localStorage.getItem(FCM_KEY) || "" }) }); toast("Probemeldung ist unterwegs"); }
+    catch (e) { toast(`Ging nicht: ${e.message}`); }
+    return;
+  }
   try { (await navigator.serviceWorker.ready).showNotification("Chats", { body: "So sieht eine Benachrichtigung aus.", icon: "/icons/icon-192.png", badge: "/icons/badge-96.png", tag: "test" }); }
   catch (e) { toast(`Ging nicht: ${e.message}`); }
 }
@@ -1898,7 +1932,7 @@ function openSett(push = true) {
   if (push && !readSett()) pushView({ sett: true }, "", `${BASE}einstellungen`);
   const el = document.createElement("div"); el.className = "info sett"; el.id = "sett";
   $(".side").append(el); document.body.classList.add("setts");
-  redrawSett(); pushState(true);
+  redrawSett(); pushState(true); loadFcm();
 }
 function dropSett() {
   const el = $("#sett"); if (!el) return;
@@ -1916,13 +1950,18 @@ function redrawSett() {
   const person = (c, small, attrs) => `<button class="irow iperson" ${attrs}>${avatar(clean(c.title || "Chat"), c.av || c.id)}<span class="it"><b>${esc(clean(c.title || "Chat"))}</b><small>${esc(small)}</small></span></button>`;
   const muted = [...MUTES.keys()].filter(isMuted).map(chatOf);
   const auto = [...AUTOREAD.keys()].map(chatOf);
-  const pushTxt = { on: "An – neue Nachrichten melden sich auf diesem Gerät", off: "Aus auf diesem Gerät", denied: "Im Browser blockiert – dort für diese Seite erlauben", none: "Dieser Browser kann keine Benachrichtigungen" }[PUSH];
+  const pushTxt = { on: "An – neue Nachrichten melden sich auf diesem Gerät", off: "Aus auf diesem Gerät", denied: NATIVE ? "In Android blockiert – in den App-Einstellungen Benachrichtigungen erlauben" : "Im Browser blockiert – dort für diese Seite erlauben", none: "Dieser Browser kann keine Benachrichtigungen" }[PUSH];
   el.innerHTML = `<div class="ihead"><button class="icon-btn" data-s="close" aria-label="Zurück"><span class="ms">arrow_back</span></button><b>Einstellungen</b></div>
   <div class="ibody">
     <div class="icard"><small>Benachrichtigungen</small>
       ${row(PUSH === "on" ? "notifications_active" : "notifications_off", "Benachrichtigungen", pushTxt, `data-s="push"${PUSH === "none" ? " disabled" : ""}`, `<span class="sw${PUSH === "on" ? " on" : ""}" aria-hidden="true"></span>`)}
       ${PUSH === "on" ? row("science", "Probemeldung", "Zeigt eine Benachrichtigung auf diesem Gerät", 'data-s="test"') : ""}
       <p class="ihint">Kostet keinen Akku: Der Server weckt das Handy nur, wenn eine Nachricht kommt.</p></div>
+    <div class="icard"><small>Android-App</small>
+      ${row(FCM.client ? "check_circle" : "upload_file", "google-services.json", FCM.client ? `Hochgeladen – Projekt ${esc(FCM.project)}${FCM.package ? `, App ${esc(FCM.package)}` : ""}` : "Aus Firebase: App hinzufügen → Datei herunterladen", 'data-s="fcmfile" data-k="client"')}
+      ${row(FCM.account ? "check_circle" : "key", "Schlüssel des Dienstkontos", FCM.account ? `Hochgeladen – Projekt ${esc(FCM.account_project)}` : "Aus Firebase: Projekteinstellungen → Dienstkonten → Neuen privaten Schlüssel generieren", 'data-s="fcmfile" data-k="account"')}
+      ${FCM.client || FCM.account ? row("delete", "Firebase-Dateien entfernen", `${FCM.devices} ${FCM.devices === 1 ? "Gerät" : "Geräte"} angemeldet – werden mit abgemeldet`, 'data-s="fcmdel"') : ""}
+      <p class="ihint">${FCM.client && FCM.account && FCM.project !== FCM.account_project ? "Achtung: Die beiden Dateien gehören zu verschiedenen Firebase-Projekten. " : ""}Für Benachrichtigungen in der Android-App. Beide Dateien bleiben auf deinem Server – sie stehen weder im Repo noch in der APK, der Schlüssel wird nie wieder ausgegeben.</p></div>
     <div class="icard"><small>Snapchat</small>
       ${row("photo_camera", "Snaps nicht als neue Nachricht", PREFS.snaps_quiet ? "An – nur Textnachrichten melden sich und schieben den Chat nach oben" : "Aus – jeder Snap zählt wie eine Nachricht", 'data-s="snaps"', `<span class="sw${PREFS.snaps_quiet ? " on" : ""}" aria-hidden="true"></span>`)}
       ${row("movie", "Video-Stücke zusammenfügen", PREFS.snap_join ? "An – Snapchat teilt lange Videos in Stücke, hier werden sie ein Video" : "Aus – jedes Stück steht einzeln da", 'data-s="snapjoin"', `<span class="sw${PREFS.snap_join ? " on" : ""}" aria-hidden="true"></span>`)}
@@ -1939,6 +1978,8 @@ document.addEventListener("click", (e) => {
   if (a === "push") return PUSH === "on" ? pushOff() : pushOn();
   if (a === "test") return pushTest();
   if (a === "snaps") return setPref("snaps_quiet", !PREFS.snaps_quiet);
+  if (a === "fcmfile") return fcmUpload(t.dataset.k);
+  if (a === "fcmdel") return fcmRemove();
   if (a === "snapjoin") return setPref("snap_join", !PREFS.snap_join);
   if (a === "mute") return muteMenu(c);
   if (a === "auto") return autoReadMenu(c);
@@ -1954,6 +1995,26 @@ async function clearNotes(id) {
   try { for (const n of await (await navigator.serviceWorker.ready).getNotifications({ tag: `chat-${id}` })) n.close(); } catch { /* egal */ }
 }
 
+// Firebase-Dateien für die Android-App: Stand anzeigen, hochladen, entfernen
+let FCM = { client: false, account: false, project: "", account_project: "", package: "", devices: 0 };
+async function loadFcm() { try { FCM = await api("/fcm"); redrawSett(); } catch { /* bleibt */ } }
+function fcmUpload(kind) {
+  const inp = document.createElement("input"); inp.type = "file"; inp.accept = "application/json,.json";
+  inp.onchange = async () => {
+    const f = inp.files?.[0]; if (!f) return;
+    if (f.size > 20000) return toast("Die Datei ist zu groß – das ist nicht die richtige");
+    try {
+      FCM = await api(`/fcm/${kind}`, { method: "PUT", body: await f.text() }); redrawSett();
+      toast(kind === "client" ? "google-services.json gespeichert" : "Schlüssel gespeichert");
+      if (NATIVE && FCM.client && PUSH === "on") nativePushOn(true);
+    } catch (e) { toast(`Ging nicht: ${e.message}`); }
+  };
+  inp.click();
+}
+async function fcmRemove() {
+  try { FCM = await api("/fcm", { method: "DELETE" }); localStorage.removeItem(FCM_KEY); NATIVE?.pushOff(); redrawSett(); pushState(true); toast("Firebase-Dateien entfernt"); }
+  catch (e) { toast(`Ging nicht: ${e.message}`); }
+}
 async function loadPrefs() {
   try { const was = PREFS.snap_join; PREFS = { ...PREFS, ...(await api("/prefs")) }; redrawSett(); if (was !== PREFS.snap_join && $("#msgs") && S.msgs.length) drawMsgs(); } catch { /* bleibt */ }
 }
@@ -2056,3 +2117,4 @@ if (window.visualViewport && matchMedia("(pointer: coarse)").matches) {
 }
 loadPins();
 loadMerges();
+if (NATIVE) { const p = NATIVE.pendingChat(); if (p) go(p); }   // App über eine Meldung gestartet: gleich in den Chat

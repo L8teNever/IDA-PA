@@ -12,7 +12,7 @@ import logging
 import re
 import time
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from . import store
@@ -28,6 +28,7 @@ def _db():
     d.execute("CREATE TABLE IF NOT EXISTS push_subs (endpoint TEXT PRIMARY KEY, p256dh TEXT, auth TEXT, at REAL)")
     d.execute("CREATE TABLE IF NOT EXISTS mutes (chat TEXT PRIMARY KEY, until REAL)")
     d.execute("CREATE TABLE IF NOT EXISTS autoread (chat TEXT PRIMARY KEY, mode TEXT)")
+    d.execute("CREATE TABLE IF NOT EXISTS fcm_tokens (token TEXT PRIMARY KEY, at REAL)")
     return d
 
 
@@ -60,7 +61,7 @@ def subs() -> list[dict]:
 
 def has_subs() -> bool:
     with store._lock:
-        return bool(_db().execute("SELECT 1 FROM push_subs LIMIT 1").fetchone())
+        return bool(_db().execute("SELECT 1 FROM push_subs LIMIT 1").fetchone() or _db().execute("SELECT 1 FROM fcm_tokens LIMIT 1").fetchone())
 
 
 def _drop(endpoints: set[str]) -> None:
@@ -165,7 +166,12 @@ def _send_one(sub: dict, data: str, pem: str, claims: dict) -> int:
 
 
 async def send(payload: dict) -> int:
-    """Schickt eine Meldung an alle angemeldeten Geräte; abgelaufene Abos (404/410) fliegen raus. → Anzahl zugestellt."""
+    """Schickt eine Meldung an alle angemeldeten Geräte (Browser per Web Push, Android-App per FCM); abgelaufene Abos fliegen raus.
+    → Anzahl zugestellt."""
+    return await _send_web(payload) + await fcm_send(payload)
+
+
+async def _send_web(payload: dict) -> int:
     lst = subs()
     if not lst:
         return 0
@@ -176,6 +182,139 @@ async def send(payload: dict) -> int:
     codes = await asyncio.gather(*(asyncio.to_thread(_send_one, s, data, pem, claims) for s in lst))
     _drop({s["endpoint"] for s, c in zip(lst, codes) if c in (404, 410)})
     return sum(200 <= c < 300 for c in codes)
+
+
+# ---------------- Android-App: Firebase Cloud Messaging (FCM) ----------------
+# Die Android-App (android/, docs/CHATS-ANDROID.md) kann kein Web Push. Sie bekommt Meldungen über Googles FCM – der einzige Weg, der
+# das Handy schlafen lässt. Das Firebase-Projekt gehört dem Nutzer; seine beiden Dateien liegen NUR hier (chats.db), nie im Repo und
+# nie in der APK: google-services.json (daraus holt sich die App nach der Anmeldung ihre Verbindungsdaten) und der Schlüssel des
+# Dienstkontos (damit darf dieser Dienst senden – verlässt den Server nie).
+FCM_SCOPE = "https://www.googleapis.com/auth/firebase.messaging"
+_fcm_tok: tuple[float, str] | None = None   # (gültig bis, Zugriffstoken)
+
+
+def _kv(k: str) -> str:
+    with store._lock:
+        r = _db().execute("SELECT v FROM kv WHERE k=?", (k,)).fetchone()
+    return r[0] if r else ""
+
+
+def _kv_set(k: str, v: str) -> None:
+    with store._lock:
+        if v:
+            _db().execute("INSERT OR REPLACE INTO kv (k, v) VALUES (?, ?)", (k, v))
+        else:
+            _db().execute("DELETE FROM kv WHERE k=?", (k,))
+        _db().commit()
+
+
+def fcm_client() -> dict | None:
+    """Verbindungsdaten für die App (aus google-services.json) – oder None, solange nichts hochgeladen ist."""
+    try:
+        return json.loads(_kv("fcm_client")) or None
+    except ValueError:
+        return None
+
+
+def fcm_account() -> dict | None:
+    try:
+        return json.loads(_kv("fcm_account")) or None
+    except ValueError:
+        return None
+
+
+def fcm_tokens() -> list[str]:
+    with store._lock:
+        return [t for (t,) in _db().execute("SELECT token FROM fcm_tokens")]
+
+
+def parse_services(data: dict, package: str = "") -> dict:
+    """google-services.json → das, was die App zum Einrichten braucht. Nimmt die App mit passendem Paketnamen, sonst die erste."""
+    try:
+        info = data["project_info"]
+        clients = data["client"]
+        c = next((x for x in clients if x["client_info"]["android_client_info"]["package_name"] == package), clients[0])
+        out = {"project_id": str(info["project_id"]), "sender_id": str(info["project_number"]),
+               "app_id": str(c["client_info"]["mobilesdk_app_id"]), "api_key": str(c["api_key"][0]["current_key"]),
+               "package": str(c["client_info"]["android_client_info"]["package_name"])}
+    except (KeyError, IndexError, TypeError) as e:
+        raise HTTPException(400, "Das ist keine google-services.json aus Firebase") from e
+    if not all(out.values()):
+        raise HTTPException(400, "In der google-services.json fehlen Angaben")
+    return out
+
+
+def check_account(data: dict) -> dict:
+    if data.get("type") != "service_account" or not all(isinstance(data.get(k), str) and data.get(k) for k in ("project_id", "private_key", "client_email")):
+        raise HTTPException(400, "Das ist keine Schlüssel-Datei eines Dienstkontos (Firebase → Projekteinstellungen → Dienstkonten)")
+    try:
+        from cryptography.hazmat.primitives import serialization
+        serialization.load_pem_private_key(data["private_key"].encode(), None)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(400, "Der private Schlüssel in der Datei ist nicht lesbar") from e
+    return {k: data[k] for k in ("project_id", "private_key", "client_email")} | {"token_uri": data.get("token_uri") or "https://oauth2.googleapis.com/token"}
+
+
+def _jwt(acc: dict) -> str:
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import padding
+    now = int(time.time())
+    head = _b64(json.dumps({"alg": "RS256", "typ": "JWT"}).encode())
+    body = _b64(json.dumps({"iss": acc["client_email"], "scope": FCM_SCOPE, "aud": acc["token_uri"], "iat": now, "exp": now + 3600}).encode())
+    key = serialization.load_pem_private_key(acc["private_key"].encode(), None)
+    return f"{head}.{body}.{_b64(key.sign(f'{head}.{body}'.encode(), padding.PKCS1v15(), hashes.SHA256()))}"
+
+
+async def _fcm_access(acc: dict, c) -> str:
+    """Zugriffstoken von Google (eine Stunde gültig, hier 50 Minuten gemerkt)."""
+    global _fcm_tok
+    if _fcm_tok and _fcm_tok[0] > time.time():
+        return _fcm_tok[1]
+    r = await c.post(acc["token_uri"], data={"grant_type": "urn:ietf:params:oauth:grant-type:jwt-bearer", "assertion": _jwt(acc)})
+    if r.status_code != 200:
+        raise RuntimeError(f"Google lehnt das Dienstkonto ab (HTTP {r.status_code}): {r.text[:200]}")
+    _fcm_tok = (time.time() + 3000, r.json()["access_token"])
+    return _fcm_tok[1]
+
+
+async def fcm_send(payload: dict, tokens: list[str] | None = None) -> int:
+    """Meldung an die Android-Geräte. Nur Daten (kein „notification“-Block): die App baut die Meldung selbst, auch wenn sie zu ist.
+    Abgemeldete Geräte (404 / UNREGISTERED) fliegen raus. → Anzahl zugestellt."""
+    import httpx
+    acc, toks = fcm_account(), fcm_tokens() if tokens is None else tokens
+    if not acc or not toks:
+        return 0
+    data = {k: str(v) for k, v in payload.items() if v is not None}   # FCM erlaubt in data nur Text
+    ok, gone = 0, []
+    try:
+        async with httpx.AsyncClient(timeout=10) as c:
+            access = await _fcm_access(acc, c)
+            url = f"https://fcm.googleapis.com/v1/projects/{acc['project_id']}/messages:send"
+
+            async def one(t: str) -> int:
+                r = await c.post(url, headers={"authorization": f"Bearer {access}"},
+                                 json={"message": {"token": t, "data": data, "android": {"priority": "HIGH", "ttl": "3600s"}}})
+                return r.status_code
+            for t, code in zip(toks, await asyncio.gather(*(one(t) for t in toks), return_exceptions=True)):
+                if code == 200:
+                    ok += 1
+                elif code == 404:   # UNREGISTERED: die App ist deinstalliert oder hat ein neues Token
+                    gone.append(t)
+                elif isinstance(code, int) and code in (401, 403):
+                    global _fcm_tok
+                    _fcm_tok = None
+                    log.warning("FCM lehnt ab (HTTP %s) – Dienstkonto und Projekt prüfen", code)
+                elif not isinstance(code, int) or code >= 400:
+                    log.warning("FCM: %s", code)
+    except Exception as e:  # noqa: BLE001 – Android darf die Browser-Meldungen nicht aufhalten
+        log.warning("FCM fehlgeschlagen: %s", e)
+        if tokens is not None:
+            raise
+    if gone:
+        with store._lock:
+            _db().executemany("DELETE FROM fcm_tokens WHERE token=?", [(t,) for t in gone])
+            _db().commit()
+    return ok
 
 
 # ---------------- Schnittstelle ----------------
@@ -236,6 +375,103 @@ async def get_prefs():
 @router.put("/prefs")
 async def put_prefs(body: Prefs):
     return set_prefs({k: v for k, v in body.model_dump().items() if v is not None})
+
+
+class FcmToken(BaseModel):
+    token: str = Field(min_length=20, max_length=4096)
+
+
+MAX_JSON = 20_000
+
+
+async def _json_body(request: Request) -> dict:
+    raw = await request.body()
+    if len(raw) > MAX_JSON:
+        raise HTTPException(413, "Datei zu groß")
+    try:
+        d = json.loads(raw)
+    except ValueError as e:
+        raise HTTPException(400, "Das ist keine JSON-Datei") from e
+    if not isinstance(d, dict):
+        raise HTTPException(400, "Das ist keine JSON-Datei")
+    return d
+
+
+@router.get("/fcm")
+async def fcm_status():
+    """Stand der Android-Benachrichtigungen – ohne Geheimnisse."""
+    c, a = fcm_client(), fcm_account()
+    return {"client": bool(c), "account": bool(a), "project": (c or {}).get("project_id", ""), "account_project": (a or {}).get("project_id", ""),
+            "package": (c or {}).get("package", ""), "devices": len(fcm_tokens())}
+
+
+@router.put("/fcm/client")
+async def fcm_put_client(request: Request):
+    """google-services.json aus Firebase hochladen (kommt nicht ins Repo und nicht in die APK)."""
+    c = parse_services(await _json_body(request), get_settings().android_package)
+    _kv_set("fcm_client", json.dumps(c))
+    return await fcm_status()
+
+
+@router.put("/fcm/account")
+async def fcm_put_account(request: Request):
+    """Schlüssel-Datei des Dienstkontos hochladen – bleibt auf dem Server, wird nie wieder ausgegeben."""
+    global _fcm_tok
+    _kv_set("fcm_account", json.dumps(check_account(await _json_body(request))))
+    _fcm_tok = None
+    return await fcm_status()
+
+
+@router.delete("/fcm")
+async def fcm_delete():
+    """Firebase-Dateien und alle angemeldeten Android-Geräte vergessen."""
+    global _fcm_tok
+    _kv_set("fcm_client", "")
+    _kv_set("fcm_account", "")
+    _fcm_tok = None
+    with store._lock:
+        _db().execute("DELETE FROM fcm_tokens")
+        _db().commit()
+    return await fcm_status()
+
+
+@router.get("/fcm/client")
+async def fcm_get_client():
+    """Verbindungsdaten für die Android-App (holt sie sich nach der Anmeldung, statt sie fest eingebaut zu haben)."""
+    c = fcm_client()
+    if not c:
+        raise HTTPException(404, "Firebase ist noch nicht eingerichtet (Einstellungen → Android-App)")
+    return c
+
+
+@router.post("/fcm/register")
+async def fcm_register(body: FcmToken):
+    with store._lock:
+        _db().execute("INSERT OR REPLACE INTO fcm_tokens (token, at) VALUES (?, ?)", (body.token, time.time()))
+        _db().commit()
+    return {"ok": True}
+
+
+@router.post("/fcm/unregister")
+async def fcm_unregister(body: FcmToken):
+    with store._lock:
+        _db().execute("DELETE FROM fcm_tokens WHERE token=?", (body.token,))
+        _db().commit()
+    return {"ok": True}
+
+
+@router.post("/fcm/test")
+async def fcm_test(body: FcmToken):
+    """Probemeldung an genau dieses Gerät – zeigt, ob Firebase-Projekt, Dienstkonto und App zusammenpassen."""
+    if not fcm_account():
+        raise HTTPException(400, "Der Schlüssel des Dienstkontos fehlt noch")
+    try:
+        n = await fcm_send({"chat": "", "title": "Chats", "body": "So sieht eine Benachrichtigung aus.", "test": "1"}, [body.token])
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(502, f"Senden ging nicht: {e}") from e
+    if not n:
+        raise HTTPException(502, "Google hat die Meldung nicht angenommen – passen google-services.json und Dienstkonto zum selben Projekt?")
+    return {"ok": True}
 
 
 @router.get("/mutes")
