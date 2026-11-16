@@ -13,7 +13,7 @@ läuft nur, solange sie sichtbar ist (so macht es die Website selbst).
 | --- | --- |
 | 1 Gerüst (Rust/Tauri, WebView auf die Chats-Seite) | fertig |
 | 2 Anmeldung (Cloudflare Access in der WebView, Cookie bleibt) | über die WebView; am Gerät prüfen |
-| 3 Benachrichtigungen über FCM | gebaut, aber ungetestet – braucht dein Firebase-Projekt (siehe unten) |
+| 3 Benachrichtigungen über FCM | läuft (Probemeldung am 16.11.2026 angekommen) |
 | 4 Antworten / Gelesen direkt aus der Meldung | offen |
 | 5 Teilen aus anderen Apps, Zähler am Symbol | offen (Mikrofon- und Kamera-Recht sind schon gesetzt) |
 | 7 Bauen, Signieren, Release über GitHub Actions | fertig |
@@ -60,6 +60,9 @@ Android weckt eine geschlossene App nur über Googles Push-Dienst FCM, und der b
   die FCM-HTTP-v1-API. Dafür meldet er sich mit dem Dienstkonto bei Google an (JWT, Token 50 min gemerkt). Die App baut daraus
   die Benachrichtigung (eine pro Chat, Tipp öffnet den Chat). Ist die App gerade offen, zeigt sie keine – dort erscheint der Hinweis
   der Seite. Stumme Chats und „Snaps nicht als neue Nachricht“ gelten wie bei Web Push, weil derselbe Weg im Dienst sie auslöst.
+- Vorn in der Meldung steht das Profilbild des Chats statt des App-Symbols (`Push.avatar`): Die App holt es von `/api/v1/avatar/…`
+  mit den Cookies der WebView (Cloudflare-Anmeldung), schneidet es rund und merkt es sich einen Tag. Die Meldung ist dafür eine
+  Unterhaltung (MessagingStyle + Kurzbefehl pro Chat). Klappt das Laden nicht, bleibt das App-Symbol. Noch nicht am Handy geprüft.
 - Der Schlüssel des Dienstkontos verlässt den Server nie; `GET /fcm` zeigt nur, ob er da ist.
 - API: `GET /fcm` (Stand), `PUT /fcm/client`, `PUT /fcm/account` (Datei als Body), `DELETE /fcm`, `GET /fcm/client`,
   `POST /fcm/register`, `POST /fcm/unregister`, `POST /fcm/test` (jeweils `{"token": …}`). Einstellung `ANDROID_PACKAGE` (Standard

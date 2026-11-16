@@ -10,20 +10,35 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.database.Cursor
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.Canvas
+import android.graphics.Paint
+import android.graphics.PorterDuff
+import android.graphics.PorterDuffXfermode
+import android.graphics.Rect
 import android.net.Uri
 import android.os.Build
+import android.webkit.CookieManager
 import android.webkit.JavascriptInterface
 import android.webkit.WebView
 import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
+import androidx.core.app.Person
 import androidx.core.content.ContextCompat
+import androidx.core.content.pm.ShortcutInfoCompat
+import androidx.core.content.pm.ShortcutManagerCompat
+import androidx.core.graphics.drawable.IconCompat
 import com.google.firebase.FirebaseApp
 import com.google.firebase.FirebaseOptions
 import com.google.firebase.messaging.FirebaseMessaging
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
 import org.json.JSONObject
+import java.io.File
+import java.net.HttpURLConnection
+import java.net.URL
 
 /**
  * Benachrichtigungen der Android-App über Googles FCM.
@@ -79,9 +94,49 @@ object Push {
         try { if (init(ctx)) FirebaseMessaging.getInstance().deleteToken() } catch (e: Exception) { /* egal */ }
     }
 
+    /** Adresse der Chats-Seite merken: von dort holt [avatar] das Profilbild. */
+    fun origin(ctx: Context, o: String) = prefs(ctx).edit().putString("origin", o).apply()
+
+    /**
+     * Profilbild des Chats, rund zugeschnitten – oder null (dann bleibt es beim App-Symbol). Die Anmeldung (Cloudflare) kommt aus den
+     * Cookies der WebView. Das Bild liegt einen Tag im Cache der App, damit nicht jede Meldung das Netz braucht.
+     */
+    private fun avatar(ctx: Context, av: String): Bitmap? {
+        if (av.isEmpty()) return null
+        return try {
+            val f = File(ctx.cacheDir, "av-" + Integer.toHexString(av.hashCode()))
+            if (!f.exists() || System.currentTimeMillis() - f.lastModified() > 86_400_000L) {
+                val url = (prefs(ctx).getString("origin", null) ?: "https://chats.kulbarts.com") + "/api/v1/avatar/" + Uri.encode(av)
+                val c = URL(url).openConnection() as HttpURLConnection
+                try {
+                    c.connectTimeout = 4000
+                    c.readTimeout = 4000
+                    c.instanceFollowRedirects = false   // Umleitung = Anmeldung abgelaufen
+                    CookieManager.getInstance().getCookie(url)?.let { c.setRequestProperty("Cookie", it) }
+                    if (c.responseCode != 200 || c.contentType?.startsWith("image/") != true) return null
+                    f.writeBytes(c.inputStream.use { it.readBytes() })
+                } finally {
+                    c.disconnect()
+                }
+            }
+            val src = BitmapFactory.decodeFile(f.path) ?: return null
+            val n = 192
+            val s = minOf(src.width, src.height)
+            val out = Bitmap.createBitmap(n, n, Bitmap.Config.ARGB_8888)
+            val cv = Canvas(out)
+            val p = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+            cv.drawCircle(n / 2f, n / 2f, n / 2f, p)
+            p.xfermode = PorterDuffXfermode(PorterDuff.Mode.SRC_IN)
+            cv.drawBitmap(src, Rect((src.width - s) / 2, (src.height - s) / 2, (src.width + s) / 2, (src.height + s) / 2), Rect(0, 0, n, n), p)
+            out
+        } catch (e: Exception) {
+            null
+        }
+    }
+
     fun allowed(ctx: Context) = NotificationManagerCompat.from(ctx).areNotificationsEnabled()
 
-    /** Meldung zeigen: eine pro Chat (neue ersetzt die alte), Tipp öffnet den Chat. */
+    /** Meldung zeigen: eine pro Chat (neue ersetzt die alte), mit dem Profilbild des Chats, Tipp öffnet den Chat. */
     fun show(ctx: Context, d: Map<String, String>) {
         if (!allowed(ctx)) return
         val nm = ctx.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
@@ -91,11 +146,25 @@ object Push {
         val open = Intent(ctx, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP).putExtra("chat", chat)
         val pi = PendingIntent.getActivity(ctx, chat.hashCode(), open, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         val body = d["body"].orEmpty()
-        val n = NotificationCompat.Builder(ctx, CHANNEL)
+        val title = d["title"]?.takeIf { it.isNotEmpty() } ?: "Chats"
+        val b = NotificationCompat.Builder(ctx, CHANNEL)
             .setSmallIcon(android.R.drawable.stat_notify_chat)
-            .setContentTitle(d["title"] ?: "Chats").setContentText(body)
+            .setContentTitle(title).setContentText(body)
             .setStyle(NotificationCompat.BigTextStyle().bigText(body))
-            .setCategory(NotificationCompat.CATEGORY_MESSAGE).setPriority(NotificationCompat.PRIORITY_HIGH)
+        val pic = avatar(ctx, d["av"].orEmpty())
+        if (pic != null && chat.isNotEmpty()) {
+            // Als Unterhaltung zeigt Android das Profilbild vorn anstelle des App-Symbols.
+            val icon = IconCompat.createWithBitmap(pic)
+            val who = Person.Builder().setName(title).setKey(chat).setIcon(icon).build()
+            b.setLargeIcon(pic).setStyle(NotificationCompat.MessagingStyle(Person.Builder().setName("Ich").build())
+                .addMessage(body, System.currentTimeMillis(), who))
+            try {
+                val sc = ShortcutInfoCompat.Builder(ctx, "chat-$chat").setShortLabel(title).setLongLived(true).setIcon(icon).setPerson(who)
+                    .setIntent(Intent(open).setAction(Intent.ACTION_VIEW)).build()
+                if (ShortcutManagerCompat.pushDynamicShortcut(ctx, sc)) b.setShortcutId("chat-$chat")
+            } catch (e: Exception) { /* ohne Kurzbefehl bleibt es eine normale Meldung mit Bild */ }
+        }
+        val n = b.setCategory(NotificationCompat.CATEGORY_MESSAGE).setPriority(NotificationCompat.PRIORITY_HIGH)
             .setNumber(d["unread"]?.toIntOrNull() ?: 0)
             .setAutoCancel(true).setContentIntent(pi).build()
         try { NotificationManagerCompat.from(ctx).notify("chat-$chat", 1, n) } catch (e: SecurityException) { /* Erlaubnis entzogen */ }
@@ -136,6 +205,7 @@ class Bridge(private val act: MainActivity, private val web: WebView) {
 
     @JavascriptInterface fun pushSetup(cfg: String) = act.runOnUiThread {
         if (!own()) return@runOnUiThread
+        Uri.parse(web.url ?: "").let { u -> if (u.scheme == "https" && u.host != null) Push.origin(act, "https://${u.host}") }
         Push.setup(act, cfg) { token, error ->
             act.runOnUiThread { event("ida-fcm", JSONObject().put("token", token ?: JSONObject.NULL).put("error", error ?: JSONObject.NULL)) }
         }
