@@ -366,9 +366,11 @@ def test_snaps_still(client, monkeypatch):
         return msgs
     monkeypatch.setattr(api, "fetch_messages", fake_fetch)
     api._snap_cache.clear()
-    assert client.get(f"{API}/prefs").json() == {"snaps_quiet": False}
+    assert client.get(f"{API}/prefs").json() == {"snaps_quiet": False, "snap_join": True}
     assert [c["id"] for c in client.get(f"{API}/chats").json()["items"]] == ["1", "2"] and not calls   # aus: wie Beeper
-    assert client.put(f"{API}/prefs", json={"snaps_quiet": True}).json() == {"snaps_quiet": True}
+    assert client.put(f"{API}/prefs", json={"snaps_quiet": True}).json() == {"snaps_quiet": True, "snap_join": True}
+    assert client.put(f"{API}/prefs", json={"snap_join": False}).json() == {"snaps_quiet": True, "snap_join": False}
+    client.put(f"{API}/prefs", json={"snap_join": True})
     items = client.get(f"{API}/chats").json()["items"]
     assert [c["id"] for c in items] == ["2", "1"]   # der Snap schiebt den Chat nicht mehr nach oben
     assert (items[1]["at"], items[1]["unread"], items[1]["last"]["text"]) == ("2026-11-12T10:30:00Z", 1, "Na?")

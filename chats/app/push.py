@@ -126,7 +126,9 @@ def set_autoread(chat: str, mode: str) -> None:
 
 
 # ---------------- Einstellungen (für alle Geräte gleich) ----------------
-PREFS = {"snaps_quiet": False}   # Snapchat: Snaps zählen nicht als neue Nachricht (keine Meldung, Chat rutscht nicht nach oben)
+# snaps_quiet: Snapchat-Snaps zählen nicht als neue Nachricht (keine Meldung, Chat rutscht nicht nach oben)
+# snap_join: Snapchat-Videostücke desselben Absenders zeigt die Oberfläche als ein Video
+PREFS = {"snaps_quiet": False, "snap_join": True}
 
 
 def prefs() -> dict[str, bool]:
@@ -223,6 +225,7 @@ async def unsubscribe(body: Unsub):
 
 class Prefs(BaseModel):
     snaps_quiet: bool | None = None
+    snap_join: bool | None = None
 
 
 @router.get("/prefs")

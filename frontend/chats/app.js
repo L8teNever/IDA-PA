@@ -6,7 +6,7 @@ const $ = (s) => document.querySelector(s);
 const BASE = "/";
 const COLORS = ["rot", "orange", "gelb", "salbei", "gruen", "tuerkis", "blau", "lavendel", "lila", "koralle"];
 let AUTOREAD = new Map();   // automatisch gelesen: ID → "open" (beim Öffnen) oder "always" (sofort, ohne Öffnen)
-let PREFS = { snaps_quiet: false };   // Einstellungen für alle Geräte (im Dienst gespeichert)
+let PREFS = { snaps_quiet: false, snap_join: true };   // Einstellungen für alle Geräte (im Dienst gespeichert)
 let MUTES = new Map();   // stummgeschaltete Chats: ID → bis (ms, 0 = bis du es aufhebst)
 const S = { chats: [], next: null, q: "", f: "all", id: null, msgs: [], more: false, oldest: null, seq: 0, sending: false, reply: null, edit: null, voice: {}, vopen: {} };
 
@@ -93,7 +93,7 @@ window.addEventListener("popstate", () => {
 // Zurück schließt sie, ein Neuladen oder ein geteilter Link öffnet sie wieder.
 let OV = null;   // Schließen-Funktion des offenen Vollbilds (ohne Verlauf anzufassen)
 const ovBase = () => urlFor(readUrl());
-const readOv = () => /^chat\/[^/]+\/(foto|video|bild)(?:\/|$)/.test(location.pathname.slice(BASE.length)) || /^bild$/.test(location.pathname.slice(BASE.length));
+const readOv = () => /^chat\/[^/]+\/(foto|video|bild|album)(?:\/|$)/.test(location.pathname.slice(BASE.length)) || /^bild$/.test(location.pathname.slice(BASE.length));
 function ovPath(sub) { const b = ovBase(); return `${b}${b.endsWith("/") ? "" : "/"}${sub}`; }
 function ovOpen(sub, close) {
   const path = ovPath(sub), was = OV;
@@ -109,12 +109,13 @@ function ovClosed() {   // über den eigenen Knopf, Wischen oder Esc geschlossen
   if (history.state?.ov) history.back(); else history.replaceState(history.state, "", ovBase());
 }
 function openFromUrl() {
-  const m = /^chat\/[^/]+\/(foto|video|bild|info|suche)(?:\/([^/]+))?(?:\/(\d+))?/.exec(location.pathname.slice(BASE.length));
+  const m = /^chat\/[^/]+\/(foto|video|bild|album|info|suche)(?:\/([^/]+))?(?:\/(\d+))?/.exec(location.pathname.slice(BASE.length));
   if (!m && readOv()) return history.replaceState(history.state, "", ovBase());
   if (!m || !S.id) return;
   if (m[1] === "info") return $("#info") ? undefined : openInfo();
   if (m[1] === "suche") return $("#srch") ? undefined : openSearch();
   const msg = m[2] && S.msgs.find((x) => x.id === decodeURIComponent(m[2]));
+  if (m[1] === "album" && msg && albumView(msg.id)) return;
   if (m[1] === "foto" && msg) {
     const f = msg.files.filter((x) => x.kind === "image" && !x.sticker && x.src)[(+m[3] || 1) - 1];
     if (f) return gallery(f.src);
@@ -122,7 +123,23 @@ function openFromUrl() {
   if (m[1] === "video" && msg) { const el = document.getElementById(`m-${msg.id}`)?.querySelector(".vid"); if (el) return playVideo(el); }
   history.replaceState(history.state, "", ovBase());   // nicht (mehr) im geladenen Verlauf: einfach den Chat zeigen
 }
+// Übergang Übersicht ⇄ Chat (nur am Handy, wo immer nur eins von beiden zu sehen ist): Das Profilbild wandert aus der Zeile in den
+// Kopf, die Leiste unten wird zur Eingabe (links → Plus, Mitte → Textfeld, rechts → Senden) – und zurück. Die Namen dafür stehen in app.css.
+const VT_OK = !!document.startViewTransition, VT_PHONE = matchMedia("(max-width: 860px)"), VT_CALM = matchMedia("(prefers-reduced-motion: reduce)");
+let vtReady = false;   // erst nach dem ersten Aufbau: beim Laden der Seite gibt es keinen Übergang
 function route() {
+  const to = readUrl(), from = S.id, plain = /^(chat\/[^/]+)?$/.test(location.pathname.slice(BASE.length));
+  if (!vtReady || !VT_OK || !VT_PHONE.matches || VT_CALM.matches || !plain || !!to === document.body.classList.contains("reading") || $("#ctx") || $("#sett") || $("#info")) { vtReady = true; return routeNow(); }
+  const mark = (id) => {   // genau ein Profilbild in der Liste trägt den Namen: das des Chats, der auf- oder zugeht
+    document.querySelectorAll("#list .vt-av").forEach((x) => x.classList.remove("vt-av"));
+    if (id) document.querySelector(`#list [data-id="${CSS.escape(id)}"] .av`)?.classList.add("vt-av");
+  };
+  mark(to || from);
+  document.documentElement.classList.add("vt");
+  const t = document.startViewTransition(() => { routeNow(); mark(to || from); });
+  t.finished.finally(() => { document.documentElement.classList.remove("vt"); mark(null); });
+}
+function routeNow() {
   let id = readUrl();
   const g = id && grpOf(id); if (g && g.id !== id) { history.replaceState(history.state, "", urlFor(g.id)); id = g.id; }
   document.body.classList.toggle("reading", !!id);
@@ -607,8 +624,6 @@ $("#sbtn").onclick = () => { if (!readLsrch()) pushView({ lsrch: true }, "", `${
 $("#qback").onclick = () => { if (history.state?.lsrch) history.back(); else { history.replaceState(null, "", BASE); showLsrch(false); } };
 $("#q").addEventListener("keydown", (e) => { if (e.key === "Escape") $("#qback").click(); });
 $("#setbtn").onclick = () => openSett();
-// Leiste beim Runterscrollen ausblenden, beim Hochscrollen wieder zeigen
-{ let y = 0; $("#list").addEventListener("scroll", (e) => { const t = e.target.scrollTop; if (Math.abs(t - y) < 8) return; $("#ldock").classList.toggle("away", t > y && t > 80); y = t; }, { passive: true }); }
 $("#refresh").onclick = (e) => {
   const ic = e.currentTarget.firstElementChild; ic.classList.remove("spin"); void ic.offsetWidth; ic.classList.add("spin");
   loadChats({ quiet: true }); if (S.id) loadMsgs({ quiet: true });
@@ -813,11 +828,41 @@ function tmLine(m) {   // klein in der Blase: "bearbeitet", Häkchen – das Net
 // Snapchat teilt Videos in ~10-Sekunden-Stücke: aufeinanderfolgende reine Videos vom selben Absender werden ein Video
 const vidOnly = (m) => m && !m.deleted && !m.pending && !m.text && !m.reply_to && m.files.length === 1 && m.files[0].kind === "video" && m.files[0].src;
 const CLIPS = new Map();   // ID der ersten Nachricht → alle Stücke
-const picOnly = (m) => m && !m.deleted && !m.pending && !m.text && !m.reply_to && m.files.length && m.files.every((f) => f.kind === "image" && !f.sticker && f.src);
-function stackHtml(fs) {
+// … aber nur bei Snapchat und nur, solange es in den Einstellungen an ist. Alles andere (z. B. mehrere WhatsApp-Videos) bleibt einzeln bzw. wird ein Album.
+const msgNet = (m) => { const c = cur(); return netKey((c?.merged ? c.merged.find((x) => x.id === (m.chat || target())) : c)?.network); };
+const snapClip = (m) => PREFS.snap_join && vidOnly(m) && msgNet(m) === "snapchat";
+// Album: mehrere Bilder und/oder Videos hintereinander vom selben Absender
+const picOnly = (m) => m && !m.deleted && !m.pending && !m.text && !m.reply_to && m.files.length && m.files.every((f) => (f.kind === "image" || f.kind === "video") && !f.sticker && f.src) && !snapClip(m);
+const ALBUMS = new Map();   // ID der ersten Nachricht → alle Dateien des Albums (für die Übersicht)
+const thumbOf = (f) => f.kind === "image" ? mediaUrl(f) : f.poster ? mediaUrl({ src: f.poster }) : "";
+function stackHtml(fs) {   // Tipp aufs oberste Bild/Video öffnet es; Tipp daneben (Rand, Zahl, Knopf) die Übersicht des Albums
   const top = fs[0], r = top.w && top.h ? ` style="aspect-ratio:${top.w}/${top.h}"` : "";
-  return `<div class="stackw"><div class="stack" data-a="zoom" data-src="${esc(top.src)}">${fs.slice(1, 3).reverse().map((f, i) => `<img class="sk sk${i}" loading="lazy" alt="" src="${mediaUrl(f)}">`).join("")}
-    <img class="pic sk-top" loading="lazy" alt="Bild"${r} src="${mediaUrl(top)}"><span class="skn">${fs.length}</span></div></div>`;
+  const front = top.kind === "video"
+    ? `<div class="vid sk-top"${r} data-a="video" data-src="${esc(top.src)}" data-mime="${esc(top.mime)}">${top.poster ? `<img class="poster" loading="lazy" alt="" src="${mediaUrl({ src: top.poster })}">` : ""}<span class="ms">play_arrow</span></div>`
+    : `<img class="pic sk-top" loading="lazy" alt="Bild" data-a="zoom" data-src="${esc(top.src)}"${r} src="${mediaUrl(top)}">`;
+  return `<div class="stackw" data-a="album"><div class="stack">${fs.slice(1, 3).reverse().map((f, i) => thumbOf(f) ? `<img class="sk sk${i}" loading="lazy" alt="" src="${thumbOf(f)}">` : `<i class="sk sk${i} skv"></i>`).join("")}
+    ${front}<span class="skn">${fs.length}</span></div><button class="skgrid" type="button" aria-label="Alle ${fs.length} ansehen" title="Alle ansehen"><span class="ms">grid_view</span></button></div>`;
+}
+// Übersicht eines Albums: alle Bilder und Videos als Kacheln, mit eigener Adresse (…/album/<Nachricht>) – Zurück schließt sie
+function albumView(id) {
+  const fs = ALBUMS.get(id); if (!fs) return false;
+  document.querySelector(".album")?.remove();
+  const m = S.msgs.find((x) => x.id === id), who = m ? (m.mine ? "Du" : clean(m.sender) || clean(cur()?.title || "")) : "";
+  const d = document.createElement("div"); d.className = "album";
+  d.innerHTML = `<div class="al-top"><button class="icon-btn" data-al="close" aria-label="Zurück"><span class="ms">arrow_back</span></button><div class="lb-info"><b>${esc(who)}</b><small>${fs.length} Medien${m?.at ? ` · ${fmtDay.format(new Date(m.at))}, ${fmtTime.format(new Date(m.at))}` : ""}</small></div></div>
+    <div class="al-grid">${fs.map((f, i) => `<button type="button" class="al-tile" data-i="${i}">${thumbOf(f) ? `<img loading="lazy" alt="" src="${thumbOf(f)}">` : ""}${f.kind === "video" ? `<span class="ms">play_arrow</span>${f.duration ? `<small>${mmss(f.duration)}</small>` : ""}` : ""}</button>`).join("")}</div>`;
+  const close = (fromHistory) => { if (fromHistory !== true) ovClosed(); d.classList.add("out"); setTimeout(() => d.remove(), 180); };
+  d.addEventListener("click", (e) => {
+    if (e.target.closest("[data-al=close]")) return close();
+    const t = e.target.closest(".al-tile"); if (!t) return;
+    const f = fs[+t.dataset.i];
+    d.remove();   // das Bild/Video übernimmt die Adresse; Zurück führt von dort in den Chat
+    if (f.kind === "video") { t.dataset.src = f.src; t.dataset.mime = f.mime || ""; playVideo(t); } else gallery(f.src);
+  });
+  addEventListener("keydown", function k(e) { if (!d.isConnected) return removeEventListener("keydown", k); if (e.key === "Escape" && !document.querySelector(".lightbox, .vp")) close(); });
+  document.body.append(d);
+  ovOpen(`album/${encodeURIComponent(id)}`, () => close(true));
+  return true;
 }
 // Gruppen: Name steht wie bei Signal frei über der ersten Blase einer Folge, jede Person mit eigener Farbe
 const WHO_COLORS = ["#f28b82", "#fbbc04", "#81c995", "#78d9ec", "#8ab4f8", "#c58af9", "#ff8bcb", "#fcad70", "#a8dab5", "#d7aefb"];
@@ -876,14 +921,15 @@ function drawMsgs({ stick = false, keepTop = false } = {}) {
     if (unFrom >= 0 && i >= unFrom) { html += `<div class="unsep" id="unsep"><span>${left(cur())} ungelesen</span></div>`; unFrom = -1; }
     const k = m.at ? dayKey(m.at) : last;
     if (k !== last) { last = k; html += `<div class="day">${esc(fmtDay.format(new Date(m.at)))}</div>`; }
-    let j = i, files = null;   // Bilder-Folge vom selben Absender innerhalb von 3 Minuten → ein Stapel
-    if (vidOnly(m)) {
-      while (vidOnly(S.msgs[j + 1]) && S.msgs[j + 1].sender_id === m.sender_id && S.msgs[j + 1].mine === m.mine && Date.parse(S.msgs[j + 1].at) - Date.parse(S.msgs[j].at) < 90000 && dayKey(S.msgs[j + 1].at) === k) j++;
-      if (j > i) CLIPS.set(m.id, S.msgs.slice(i, j + 1).map((x) => x.files[0])); else CLIPS.delete(m.id);
+    let j = i, files = null;   // Bilder-/Video-Folge vom selben Absender innerhalb von 3 Minuten → ein Stapel
+    CLIPS.delete(m.id); ALBUMS.delete(m.id);
+    if (snapClip(m)) {   // nur Snapchat: Stücke desselben Absenders (im zusammengeführten Chat: desselben Netzwerks) werden ein Video
+      while (snapClip(S.msgs[j + 1]) && S.msgs[j + 1].sender_id === m.sender_id && S.msgs[j + 1].mine === m.mine && Date.parse(S.msgs[j + 1].at) - Date.parse(S.msgs[j].at) < 90000 && dayKey(S.msgs[j + 1].at) === k) j++;
+      if (j > i) CLIPS.set(m.id, S.msgs.slice(i, j + 1).map((x) => x.files[0]));
     } else if (picOnly(m)) {
       while (picOnly(S.msgs[j + 1]) && S.msgs[j + 1].sender_id === m.sender_id && S.msgs[j + 1].mine === m.mine && Date.parse(S.msgs[j + 1].at) - Date.parse(S.msgs[j].at) < 180000 && dayKey(S.msgs[j + 1].at) === k) j++;
       files = S.msgs.slice(i, j + 1).flatMap((x) => x.files);
-      if (files.length < 2) files = null;
+      if (files.length < 2) files = null; else ALBUMS.set(m.id, files);
     }
     const n = S.msgs[j + 1];   // Bild nur an der letzten Nachricht einer Folge vom selben Absender (wie in Beeper)
     const p = S.msgs[i - 1];   // Name nur an der ersten Nachricht einer Folge vom selben Absender
@@ -945,6 +991,7 @@ $("#conv").addEventListener("click", (e) => {
   if (a.dataset.a === "speed") return cycleSpeed(a);
   if (a.dataset.a === "seek") return seek(a.closest(".voice"), e);
   if (a.dataset.a === "vtext") return voiceText(a);
+  if (a.dataset.a === "album") { const m = bubbleMsg(a); return m && albumView(m.id); }
   if (a.dataset.a === "zoom") return a.dataset.src ? gallery(a.dataset.src) : lightbox(a.src);
   if (a.dataset.a === "video") return playVideo(a);
 });
@@ -1815,6 +1862,7 @@ function redrawSett() {
       <p class="ihint">Kostet keinen Akku: Der Server weckt das Handy nur, wenn eine Nachricht kommt.</p></div>
     <div class="icard"><small>Snapchat</small>
       ${row("photo_camera", "Snaps nicht als neue Nachricht", PREFS.snaps_quiet ? "An – nur Textnachrichten melden sich und schieben den Chat nach oben" : "Aus – jeder Snap zählt wie eine Nachricht", 'data-s="snaps"', `<span class="sw${PREFS.snaps_quiet ? " on" : ""}" aria-hidden="true"></span>`)}
+      ${row("movie", "Video-Stücke zusammenfügen", PREFS.snap_join ? "An – Snapchat teilt lange Videos in Stücke, hier werden sie ein Video" : "Aus – jedes Stück steht einzeln da", 'data-s="snapjoin"', `<span class="sw${PREFS.snap_join ? " on" : ""}" aria-hidden="true"></span>`)}
       <p class="ihint">Gilt auf allen Geräten. Snaps siehst du weiter im Chat, sie lösen nur keine Benachrichtigung aus.</p></div>
     <div class="icard"><small>Stummgeschaltet</small>
       ${muted.length ? muted.map((c) => person(c, muteText(c.id), `data-s="mute" data-id="${esc(c.id)}"`)).join("") : '<p class="ihint">Kein Chat stumm. Stummschalten: Chat öffnen, oben auf den Namen tippen.</p>'}</div>
@@ -1828,6 +1876,7 @@ document.addEventListener("click", (e) => {
   if (a === "push") return PUSH === "on" ? pushOff() : pushOn();
   if (a === "test") return pushTest();
   if (a === "snaps") return setPref("snaps_quiet", !PREFS.snaps_quiet);
+  if (a === "snapjoin") return setPref("snap_join", !PREFS.snap_join);
   if (a === "mute") return muteMenu(c);
   if (a === "auto") return autoReadMenu(c);
 });
@@ -1843,13 +1892,13 @@ async function clearNotes(id) {
 }
 
 async function loadPrefs() {
-  try { PREFS = { ...PREFS, ...(await api("/prefs")) }; redrawSett(); } catch { /* bleibt */ }
+  try { const was = PREFS.snap_join; PREFS = { ...PREFS, ...(await api("/prefs")) }; redrawSett(); if (was !== PREFS.snap_join && $("#msgs") && S.msgs.length) drawMsgs(); } catch { /* bleibt */ }
 }
 async function setPref(k, v) {
   const was = PREFS[k]; PREFS = { ...PREFS, [k]: v }; redrawSett();
   try { PREFS = { ...PREFS, ...(await api("/prefs", { method: "PUT", body: JSON.stringify({ [k]: v }) })) }; loadChats({ quiet: true }); }
   catch (e) { PREFS = { ...PREFS, [k]: was }; toast(`Ging nicht: ${e.message}`); }
-  redrawSett();
+  redrawSett(); if (k === "snap_join" && $("#msgs") && S.msgs.length) drawMsgs();
 }
 
 // ---------------- Stummschalten (nur Benachrichtigungen; Beeper bleibt unberührt) ----------------

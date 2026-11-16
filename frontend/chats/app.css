@@ -733,7 +733,6 @@ html, body { max-width: 100%; }
 .ldock { position: absolute; left: 0; right: 0; bottom: calc(env(safe-area-inset-bottom) + 16px); z-index: 5; display: flex; align-items: center; justify-content: center; gap: 8px;
   padding: 0 12px; pointer-events: none; transition: transform .28s var(--ease-out, ease), opacity .2s; }
 .ldock > * { pointer-events: auto; }
-.ldock.away { transform: translateY(calc(100% + 32px)); opacity: 0; }
 body.lsrch .ldock { display: none; }
 .dfab, .dbar { background: #1f1f1f; box-shadow: 0 6px 18px rgba(0,0,0,.55); }
 .dfab { flex: none; width: 48px; height: 48px; border: 0; border-radius: 50%; color: var(--on-surface); display: grid; place-items: center; transition: border-radius .2s var(--ease-out, ease), background-color .15s, transform .12s; }
@@ -774,3 +773,44 @@ body.setts .ldock { display: none; }
 
 /* Scroll-Chaining aus: Hauptbereiche und Überlagerungen halten das Scrollen bei sich (siehe css/tokens.css) */
 :where(.mentbox) { overscroll-behavior: contain; }
+
+/* ---------------- Übergang Übersicht ⇄ Chat (Handy): Profilbild → Kopf, Leiste unten → Eingabe ---------------- */
+@media (max-width: 860px) {
+  #list .vt-av, .chead .cinfo > .av { view-transition-name: chat-av; }
+  #fbtn, #attachBtn { view-transition-name: dock-l; }
+  .ldock .dbar, .dock .composer .inwrap { view-transition-name: dock-m; }
+  #sbtn, #sendBtn { view-transition-name: dock-r; }
+  html.vt body.reading .conv, html.vt body:not(.reading) .side { animation: none; }   /* der Übergang ersetzt das Reinschieben */
+}
+::view-transition-group(*) { animation-duration: .34s; animation-timing-function: cubic-bezier(.2, 0, 0, 1); }
+::view-transition-old(root), ::view-transition-new(root) { animation-duration: .22s; }
+::view-transition-group(chat-av) { border-radius: 50%; overflow: clip; }
+::view-transition-old(chat-av), ::view-transition-new(chat-av) { width: 100%; height: 100%; object-fit: cover; }
+/* Die Mitte wächst zum Textfeld: Inhalt nicht verzerren, sondern in der wachsenden Pille stehen lassen */
+::view-transition-group(dock-m) { border-radius: 24px; overflow: clip; }
+::view-transition-old(dock-m), ::view-transition-new(dock-m) { width: 100%; height: 100%; object-fit: none; }
+::view-transition-old(dock-m) { object-position: center; }
+::view-transition-new(dock-m) { object-position: left center; }
+/* Rechts und links: runder Knopf bleibt rund, das Symbol blendet über */
+::view-transition-group(dock-l), ::view-transition-group(dock-r) { border-radius: 50%; overflow: clip; }
+::view-transition-old(dock-l), ::view-transition-new(dock-l), ::view-transition-old(dock-r), ::view-transition-new(dock-r) { width: 100%; height: 100%; object-fit: cover; }
+
+/* ---------------- Album: Video oben im Stapel, Knopf und Übersicht (Kacheln) ---------------- */
+.stackw { cursor: pointer; }
+.stack .skv { background: #1a1a1a; }
+.stack .vid.sk-top { position: relative; width: 100%; max-height: 340px; aspect-ratio: 3/4; border-radius: 20px; margin: 0; box-shadow: 0 6px 20px rgba(0,0,0,.45); }
+.stack .vid.sk-top .poster { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.skgrid { flex: none; width: 40px; height: 40px; border: 0; border-radius: 50%; background: var(--surface-high); color: var(--on-surface); display: grid; place-items: center; transition: transform .12s var(--ease-out, ease); }
+.skgrid .ms { font-size: 20px; }
+.skgrid:active { transform: scale(.92); }
+.album { position: fixed; inset: 0; z-index: 88; background: #000; color: #fff; display: flex; flex-direction: column; animation: pagein .26s var(--ease-out, ease); }
+.album.out { animation: infoout .18s ease-in forwards; }
+.al-top { display: flex; align-items: center; gap: 8px; padding: calc(env(safe-area-inset-top) + 8px) 8px 8px; }
+.al-top .icon-btn { color: #fff; width: 44px; height: 44px; border-radius: 50%; }
+.al-grid { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; align-content: start;
+  padding: 8px 12px calc(env(safe-area-inset-bottom) + 24px); max-width: 900px; width: 100%; margin: 0 auto; }
+.al-tile { position: relative; aspect-ratio: 1; border: 0; padding: 0; border-radius: 20px; overflow: hidden; background: #1a1a1a; display: grid; place-items: center; cursor: pointer; transition: transform .12s var(--ease-out, ease); }
+.al-tile:active { transform: scale(.97); }
+.al-tile img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.al-tile .ms { position: relative; width: 48px; height: 48px; border-radius: 50%; display: grid; place-items: center; background: rgba(0,0,0,.85); color: #fff; font-size: 32px; }
+.al-tile small { position: absolute; left: 8px; bottom: 8px; padding: 2px 8px; border-radius: 10px; background: rgba(0,0,0,.55); color: #fff; font-size: 12px; }

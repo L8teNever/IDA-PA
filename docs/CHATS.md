@@ -114,3 +114,20 @@ Browser (chats.kulbarts.com, Cloudflare Access) ──> chats :8000 ──MCP─
   Im Chat selbst bleiben die Snaps sichtbar. API: `GET /prefs`, `PUT /prefs` (`{"snaps_quiet": true}`).
 - API: `GET /push` (öffentlicher Schlüssel), `POST /push/subscribe`, `POST /push/unsubscribe`, `GET /mutes`,
   `PUT /chats/{id}/mute` (`{"hours": 1 | 8 | 0}`, 0 = für immer), `DELETE /chats/{id}/mute`.
+
+## Übergang Übersicht ⇄ Chat (Handy)
+
+Beim Öffnen und Schließen eines Chats läuft am Handy (bis 860 px Breite) ein Übergang über die View-Transitions-API des Browsers
+(`route()` in `frontend/chats/app.js`, Namen und Tempo am Ende von `app.css`): Das Profilbild wandert aus der Zeile in den Kopf, die
+Leiste unten wird zur Eingabe (links Filter → Plus, Mitte → Textfeld, rechts Suche → Senden/Mikrofon) und zurück. Die Leiste bleibt
+beim Scrollen stehen. Ohne View Transitions im Browser oder bei „Bewegung reduzieren“ bleibt es beim einfachen Reinschieben.
+
+## Videos und Alben
+
+- **Snapchat-Videostücke:** Snapchat teilt lange Videos in ~10-Sekunden-Stücke. Aufeinanderfolgende reine Videos desselben Absenders
+  (höchstens 90 s Abstand) zeigt die App als ein Video – nur bei Snapchat und nur, solange „Video-Stücke zusammenfügen“ in den
+  Einstellungen an ist (`snap_join`, Standard an, gilt für alle Geräte). Bei anderen Netzwerken wird nie zusammengefügt.
+- **Album:** Mehrere Bilder und/oder Videos hintereinander vom selben Absender (höchstens 3 min Abstand) stehen als Stapel da.
+  Tipp aufs oberste Bild/Video öffnet es, Tipp daneben (Rand, Zahl, Kachel-Knopf) öffnet die Übersicht mit allen als Kacheln
+  (eigene Adresse `…/chat/<id>/album/<Nachricht>`, Zurück schließt sie). Tipp auf eine Kachel öffnet das Bild bzw. Video.
+
