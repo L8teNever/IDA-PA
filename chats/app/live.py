@@ -24,6 +24,8 @@ async def remember(ids: list[str]) -> None:
 
 async def check(state: dict) -> None:
     items, _ = parse_chats(await beeper().text("search_chats", {"limit": 30, "inbox": "primary"}))
+    if push.snaps_quiet():   # neue Snaps ändern nichts: keine Meldung, kein Hochrutschen
+        items = await api.quiet_snaps(items)
     sig = {c["id"]: (c["at"], c["unread"]) for c in items}
     old = state.get("sig")
     state["sig"] = sig
@@ -90,6 +92,8 @@ async def notify(chats: list[dict]) -> None:
     metas = store.metas()
     for c in chats:
         p = prev.get(c["id"]) if isinstance(prev.get(c["id"]), dict) else {}
+        if "snapchat" in (c.get("network") or "") and (st := api._snap_cache.get(c["id"])) and st[1].get("last") and push.snaps_quiet():
+            p = st[1]["last"]   # nicht den Snap danach melden, sondern die echte Nachricht
         if p.get("isSender"):
             continue
         grp = store.group_of(c["id"])

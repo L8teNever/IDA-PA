@@ -125,6 +125,27 @@ def set_autoread(chat: str, mode: str) -> None:
         _db().commit()
 
 
+# ---------------- Einstellungen (für alle Geräte gleich) ----------------
+PREFS = {"snaps_quiet": False}   # Snapchat: Snaps zählen nicht als neue Nachricht (keine Meldung, Chat rutscht nicht nach oben)
+
+
+def prefs() -> dict[str, bool]:
+    with store._lock:
+        got = dict(_db().execute(f"SELECT k, v FROM kv WHERE k IN ({','.join('?' * len(PREFS))})", [f"pref_{k}" for k in PREFS]).fetchall())
+    return {k: got.get(f"pref_{k}", "1" if v else "0") == "1" for k, v in PREFS.items()}
+
+
+def snaps_quiet() -> bool:
+    return prefs()["snaps_quiet"]
+
+
+def set_prefs(new: dict[str, bool]) -> dict[str, bool]:
+    with store._lock:
+        _db().executemany("INSERT OR REPLACE INTO kv (k, v) VALUES (?, ?)", [(f"pref_{k}", "1" if v else "0") for k, v in new.items() if k in PREFS])
+        _db().commit()
+    return prefs()
+
+
 # ---------------- Senden ----------------
 def _send_one(sub: dict, data: str, pem: str, claims: dict) -> int:
     from py_vapid import Vapid01
@@ -198,6 +219,20 @@ async def subscribe(body: Sub):
 async def unsubscribe(body: Unsub):
     _drop({body.endpoint})
     return {"ok": True}
+
+
+class Prefs(BaseModel):
+    snaps_quiet: bool | None = None
+
+
+@router.get("/prefs")
+async def get_prefs():
+    return prefs()
+
+
+@router.put("/prefs")
+async def put_prefs(body: Prefs):
+    return set_prefs({k: v for k, v in body.model_dump().items() if v is not None})
 
 
 @router.get("/mutes")

@@ -15,7 +15,7 @@ from fastapi import APIRouter, File, Form, HTTPException, Request, Response, Upl
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from . import bus, store
+from . import bus, push, store
 from .config import get_settings
 from .mcp import Beeper, BeeperError
 
@@ -203,7 +203,65 @@ async def chats(q: str = "", unread: bool = False, inbox: str = "primary", curso
         prev = {}
     for c in items:
         c["last"] = preview(prev.get(c["id"]), c.get("type") == "group")
+    if push.snaps_quiet():
+        items = await quiet_snaps(items)
+        if unread:
+            items = [c for c in items if c["unread"]]
     return {"items": items, "next": nxt}
+
+
+# ---------------- Snaps still (Einstellung): bei Snapchat zählen nur echte Nachrichten, keine Snaps ----------------
+# Ein Snap kommt bei Beeper als Bild/Video ohne Text an (fremde ungeöffnet sogar ohne Anhang, eigene als SNAP-….jpg); dazu Hinweise
+# wie „Your Snapstreak ended“. Solche Chats rutschen nicht nach oben, zählen nicht als ungelesen und melden sich nicht.
+_snap_cache: dict[str, tuple[str, dict]] = {}   # Chat → (letzte Aktivität, {at, unread, last})
+_snap_sem = asyncio.Semaphore(6)
+
+
+def is_snap(m: dict) -> bool:
+    t = (m.get("type") or "").upper()
+    if t == "NOTICE":
+        return True
+    if t not in ("IMAGE", "VIDEO") or (m.get("text") or "").strip():
+        return False
+    att = [a for a in m.get("attachments") or [] if isinstance(a, dict)]
+    return all((a.get("fileName") or "").upper().startswith("SNAP-") for a in att)
+
+
+async def _snap_state(c: dict) -> dict | None:
+    hit = _snap_cache.get(c["id"])
+    if hit and hit[0] == c["at"]:
+        return hit[1]
+    async with _snap_sem:
+        try:
+            d = await fetch_messages(c["id"], "", "before")
+        except HTTPException:
+            return None
+    msgs = sorted((m for m in d.get("items", []) if isinstance(m, dict) and (m.get("type") or "").upper() != "REACTION"),
+                  key=lambda m: m.get("timestamp") or "", reverse=True)
+    if not msgs:
+        return None
+    real = [m for m in msgs if not is_snap(m)]
+    st = {"at": real[0].get("timestamp") if real else msgs[-1].get("timestamp") or "",   # nur Snaps: hinter den ältesten geladenen
+          "unread": sum(1 for m in real if m.get("isUnread") and not m.get("isSender")),
+          "last": real[0] if real else None}
+    if len(_snap_cache) > 500:
+        _snap_cache.clear()
+    _snap_cache[c["id"]] = (c["at"], st)
+    return st
+
+
+async def quiet_snaps(items: list[dict]) -> list[dict]:
+    """Snapchat-Chats auf ihre letzte echte Nachricht setzen (Zeit, Ungelesen, Vorschau) und die Liste danach neu sortieren."""
+    snaps = [c for c in items if "snapchat" in (c.get("network") or "")]
+    if not snaps:
+        return items
+    for c, st in zip(snaps, await asyncio.gather(*(_snap_state(c) for c in snaps))):
+        if not st:
+            continue
+        c["at"], c["unread"] = st["at"] or c["at"], st["unread"]
+        if "last" in c:
+            c["last"] = preview(st["last"], c.get("type") == "group")
+    return sorted(items, key=lambda c: c.get("at") or "", reverse=True)
 
 
 _chats_cache: tuple[float, list[dict]] | None = None

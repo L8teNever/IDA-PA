@@ -106,5 +106,11 @@ Browser (chats.kulbarts.com, Cloudflare Access) ──> chats :8000 ──MCP─
 - **Stummschalten:** Chat-Kopf antippen → Info → „Stummschalten“ (oder in der Liste lange drücken): 1 Stunde, 8 Stunden oder bis du
   es aufhebst. Das gilt nur für Benachrichtigungen dieser App, Beeper bleibt unberührt. In Beeper stummgeschaltete Chats bleiben
   ebenfalls still. In der Liste zeigt ein durchgestrichenes Glocken-Symbol stumme Chats.
+- **Snaps still (Snapchat):** Einstellungen → „Snaps nicht als neue Nachricht“ (gilt für alle Geräte, gespeichert in `chats.db`, Standard aus).
+  Dann zählen bei Snapchat-Chats nur echte Nachrichten: Ein Snap (Bild/Video ohne Text, fremd ungeöffnet ohne Anhang, eigene als
+  `SNAP-….jpg`) und Hinweise wie „Your Snapstreak ended“ lösen keine Meldung aus, zählen nicht als ungelesen und schieben den Chat nicht
+  nach oben. Dafür liest der Dienst die letzten Nachrichten des Chats (gemerkt, bis sich dort etwas tut) und setzt Zeit, Ungelesen-Zahl
+  und Vorschau auf die letzte echte Nachricht. Gibt es auf der ersten Seite keine, steht der Chat hinter dem ältesten geladenen Snap.
+  Im Chat selbst bleiben die Snaps sichtbar. API: `GET /prefs`, `PUT /prefs` (`{"snaps_quiet": true}`).
 - API: `GET /push` (öffentlicher Schlüssel), `POST /push/subscribe`, `POST /push/unsubscribe`, `GET /mutes`,
   `PUT /chats/{id}/mute` (`{"hours": 1 | 8 | 0}`, 0 = für immer), `DELETE /chats/{id}/mute`.

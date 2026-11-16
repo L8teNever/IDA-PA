@@ -6,6 +6,7 @@ const $ = (s) => document.querySelector(s);
 const BASE = "/";
 const COLORS = ["rot", "orange", "gelb", "salbei", "gruen", "tuerkis", "blau", "lavendel", "lila", "koralle"];
 let AUTOREAD = new Map();   // automatisch gelesen: ID → "open" (beim Öffnen) oder "always" (sofort, ohne Öffnen)
+let PREFS = { snaps_quiet: false };   // Einstellungen für alle Geräte (im Dienst gespeichert)
 let MUTES = new Map();   // stummgeschaltete Chats: ID → bis (ms, 0 = bis du es aufhebst)
 const S = { chats: [], next: null, q: "", f: "all", id: null, msgs: [], more: false, oldest: null, seq: 0, sending: false, reply: null, edit: null, voice: {}, vopen: {} };
 
@@ -1812,6 +1813,9 @@ function redrawSett() {
       ${row(PUSH === "on" ? "notifications_active" : "notifications_off", "Benachrichtigungen", pushTxt, `data-s="push"${PUSH === "none" ? " disabled" : ""}`, `<span class="sw${PUSH === "on" ? " on" : ""}" aria-hidden="true"></span>`)}
       ${PUSH === "on" ? row("science", "Probemeldung", "Zeigt eine Benachrichtigung auf diesem Gerät", 'data-s="test"') : ""}
       <p class="ihint">Kostet keinen Akku: Der Server weckt das Handy nur, wenn eine Nachricht kommt.</p></div>
+    <div class="icard"><small>Snapchat</small>
+      ${row("photo_camera", "Snaps nicht als neue Nachricht", PREFS.snaps_quiet ? "An – nur Textnachrichten melden sich und schieben den Chat nach oben" : "Aus – jeder Snap zählt wie eine Nachricht", 'data-s="snaps"', `<span class="sw${PREFS.snaps_quiet ? " on" : ""}" aria-hidden="true"></span>`)}
+      <p class="ihint">Gilt auf allen Geräten. Snaps siehst du weiter im Chat, sie lösen nur keine Benachrichtigung aus.</p></div>
     <div class="icard"><small>Stummgeschaltet</small>
       ${muted.length ? muted.map((c) => person(c, muteText(c.id), `data-s="mute" data-id="${esc(c.id)}"`)).join("") : '<p class="ihint">Kein Chat stumm. Stummschalten: Chat öffnen, oben auf den Namen tippen.</p>'}</div>
     ${auto.length ? `<div class="icard"><small>Automatisch als gelesen</small>${auto.map((c) => person(c, AR_TEXT[arOf(c.id)], `data-s="auto" data-id="${esc(c.id)}"`)).join("")}</div>` : ""}
@@ -1823,6 +1827,7 @@ document.addEventListener("click", (e) => {
   if (a === "close") return closeSett();
   if (a === "push") return PUSH === "on" ? pushOff() : pushOn();
   if (a === "test") return pushTest();
+  if (a === "snaps") return setPref("snaps_quiet", !PREFS.snaps_quiet);
   if (a === "mute") return muteMenu(c);
   if (a === "auto") return autoReadMenu(c);
 });
@@ -1835,6 +1840,16 @@ navigator.serviceWorker?.addEventListener("message", (e) => {
 // Chat geöffnet: seine Meldungen in der Leiste wegräumen
 async function clearNotes(id) {
   try { for (const n of await (await navigator.serviceWorker.ready).getNotifications({ tag: `chat-${id}` })) n.close(); } catch { /* egal */ }
+}
+
+async function loadPrefs() {
+  try { PREFS = { ...PREFS, ...(await api("/prefs")) }; redrawSett(); } catch { /* bleibt */ }
+}
+async function setPref(k, v) {
+  const was = PREFS[k]; PREFS = { ...PREFS, [k]: v }; redrawSett();
+  try { PREFS = { ...PREFS, ...(await api("/prefs", { method: "PUT", body: JSON.stringify({ [k]: v }) })) }; loadChats({ quiet: true }); }
+  catch (e) { PREFS = { ...PREFS, [k]: was }; toast(`Ging nicht: ${e.message}`); }
+  redrawSett();
 }
 
 // ---------------- Stummschalten (nur Benachrichtigungen; Beeper bleibt unberührt) ----------------
@@ -1905,6 +1920,7 @@ function autoReadMenu(c) {
 }
 loadAutoRead();
 loadMutes();
+loadPrefs();
 if (readMenu()) history.replaceState(history.state, "", menuBase());   // Neuladen mit offenem Menü: das Menü ist weg, die Adresse auch
 route();
 if (readLsrch()) showLsrch(true);

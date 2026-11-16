@@ -348,3 +348,30 @@ def test_snap_oeffnen(monkeypatch):
     # WhatsApp: nur gelesen. Snapchat: erst öffnen (noch ungelesen), dann gelesen, dann Park-Chat
     assert calls == [("/v1/chats/8/read", {"messageID": "2"}), ("/v1/focus", {"chatID": "7", "messageID": "2"}),
                      ("/v1/chats/7/read", {"messageID": "2"}), ("/v1/focus", {"chatID": "5"})]
+
+
+def test_snaps_still(client, monkeypatch):
+    """Einstellung „Snaps nicht als neue Nachricht“: Snapchat-Chats zählen nur echte Nachrichten (Zeit, Ungelesen, Vorschau)."""
+    from app import api
+    assert api.is_snap({"type": "IMAGE"}) and api.is_snap({"type": "NOTICE", "text": "Your 46-day Snapstreak ended"})
+    assert api.is_snap({"type": "IMAGE", "isSender": True, "attachments": [{"fileName": "SNAP-1.jpg"}]})
+    assert not api.is_snap({"type": "TEXT", "text": "Hi"}) and not api.is_snap({"type": "IMAGE", "attachments": [{"fileName": "foto.jpg"}]})
+    msgs = {"items": [{"id": "3", "timestamp": "2026-11-12T10:40:00Z", "type": "IMAGE", "isUnread": True},
+                      {"id": "2", "timestamp": "2026-11-12T10:30:00Z", "type": "TEXT", "text": "Na?", "senderName": "Luka"},
+                      {"id": "1", "timestamp": "2026-11-12T10:20:00Z", "type": "TEXT", "text": "Hey", "isUnread": True}]}
+    calls = []
+
+    async def fake_fetch(chat_id, cursor, direction):
+        calls.append(chat_id)
+        return msgs
+    monkeypatch.setattr(api, "fetch_messages", fake_fetch)
+    api._snap_cache.clear()
+    assert client.get(f"{API}/prefs").json() == {"snaps_quiet": False}
+    assert [c["id"] for c in client.get(f"{API}/chats").json()["items"]] == ["1", "2"] and not calls   # aus: wie Beeper
+    assert client.put(f"{API}/prefs", json={"snaps_quiet": True}).json() == {"snaps_quiet": True}
+    items = client.get(f"{API}/chats").json()["items"]
+    assert [c["id"] for c in items] == ["2", "1"]   # der Snap schiebt den Chat nicht mehr nach oben
+    assert (items[1]["at"], items[1]["unread"], items[1]["last"]["text"]) == ("2026-11-12T10:30:00Z", 1, "Na?")
+    client.get(f"{API}/chats")
+    assert calls == ["1"]   # gemerkt, solange im Chat nichts Neues passiert
+    client.put(f"{API}/prefs", json={"snaps_quiet": False})
