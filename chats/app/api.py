@@ -400,6 +400,27 @@ async def search_chat(chat_id: str, q: str = "", media: str = "", start: str = "
     todo = [c for c in ids if not cursor or curs.get(c)]
 
     async def one(c: str) -> tuple[str, dict]:
+        if c.startswith("untis:"):
+            from . import untis
+            d = await untis.messages(c[len("untis:"):], "", "before")
+            ql = q.strip().lower()
+            hits = []
+            for m in reversed(d.get("items") or []):
+                if ql and ql not in (m.get("text") or "").lower():
+                    continue
+                if kinds and not (
+                    ("image" in kinds and any(f.get("kind") == "image" for f in m.get("files") or []))
+                    or ("video" in kinds and any(f.get("kind") == "video" for f in m.get("files") or []))
+                    or ("file" in kinds and any(f.get("kind") not in ("image", "video") for f in m.get("files") or []))
+                    or ("link" in kinds and (m.get("links") or "http" in (m.get("text") or "")))
+                ):
+                    continue
+                if start and (m.get("at") or "") < start:
+                    continue
+                if end and (m.get("at") or "") > end:
+                    continue
+                hits.append({**m, "chat": c})
+            return c, {"_untis_items": hits[:20]}
         params = {**base, "chatIDs": [c], **({"cursor": curs[c][:300], "direction": "before"} if curs.get(c) else {})}
         r = await rest_get("/v1/messages/search", **params)
         if r.status_code != 200:
@@ -409,6 +430,9 @@ async def search_chat(chat_id: str, q: str = "", media: str = "", start: str = "
     got = await asyncio.gather(*(one(c) for c in todo))
     items, nxt = [], {}
     for c, d in got:
+        if "_untis_items" in d:
+            items.extend(d["_untis_items"])
+            continue
         raw = [m for m in d.get("items", []) if isinstance(m, dict) and (m.get("type") or "").upper() != "REACTION"]
         me = {m["senderID"] for m in raw if m.get("isSender") and m.get("senderID")}
         for m in raw:
@@ -450,6 +474,9 @@ async def group_messages(members: list[str], cursor: str) -> dict:
 
     async def one(c: str):
         try:
+            if c.startswith("untis:"):
+                from . import untis
+                return c, await untis.messages(c[len("untis:"):], cur[c][:300], "before")
             return c, shape_messages(await fetch_messages(c, cur[c][:300], "before"), c)
         except HTTPException:
             return c, None
@@ -707,7 +734,7 @@ def is_local(src: str) -> bool:
 
 
 def check_src(src: str) -> None:
-    if not (SRC.match(src) or is_local(src)):
+    if not (SRC.match(src) or is_local(src) or src.startswith(("untis:", "ida:"))):
         raise HTTPException(400, "Ungültige Adresse")
 
 
@@ -720,6 +747,16 @@ _media_gate = asyncio.Semaphore(6)   # mehrere Bilder gleichzeitig, aber Beeper 
 
 
 async def fetch_media(src: str, mime: str) -> tuple[bytes, str]:
+    if src.startswith("untis:"):
+        from . import untis
+        data = await untis.file_bytes(src)
+        ct = mime.split(";")[0].strip().lower() if SAFE_MIME.match(mime or "") else (sniff(data) or "application/octet-stream")
+        return data, ct
+    if src.startswith("ida:"):
+        from . import ida
+        data = await ida.file_bytes(src)
+        ct = mime.split(";")[0].strip().lower() if SAFE_MIME.match(mime or "") else (sniff(data) or "application/octet-stream")
+        return data, ct
     if is_local(src):   # lokal bei Beeper: über die REST-API (assets/serve) holen
         global _rest
         if not rest_base():
@@ -778,12 +815,17 @@ async def media(request: Request, src: str, mime: str = ""):
     """Bild, Audio oder Video einer Nachricht – mit Range-Unterstützung (Spulen, iPhone-Wiedergabe)."""
     check_src(src)
     data, ctype = await media_bytes(src, mime)
+    return bytes_response(request, data, ctype)
+
+
+def bytes_response(request: Request, data: bytes, ctype: str, name: str = "") -> Response:
+    """Datei ausliefern: Bilder/Audio/Video direkt (mit Range), alles andere nur als Download."""
     if not SAFE_MIME.match(ctype):   # alles andere (HTML, SVG …) nur als Download, nie im Browser ausführen
         ctype = "application/octet-stream"
     headers = {"cache-control": "private, max-age=86400", "content-security-policy": "default-src 'none'", "x-content-type-options": "nosniff",
                "accept-ranges": "bytes"}
     if ctype == "application/octet-stream":
-        headers["content-disposition"] = "attachment"
+        headers["content-disposition"] = "attachment" + (f"; filename*=UTF-8''{quote(name)}" if name else "")
     rng = re.match(r"bytes=(\d*)-(\d*)$", request.headers.get("range", ""))
     if rng and (rng[1] or rng[2]):
         n = len(data)
@@ -793,6 +835,39 @@ async def media(request: Request, src: str, mime: str = ""):
             return Response(status_code=416, headers={"content-range": f"bytes */{n}"})
         return Response(data[start:end + 1], status_code=206, media_type=ctype, headers={**headers, "content-range": f"bytes {start}-{end}/{n}"})
     return Response(data, media_type=ctype, headers=headers)
+
+
+IG_REEL = re.compile(r"^https?://(?:www\.)?instagram\.com/(?:reel|reels|p|tv)/([A-Za-z0-9_-]{5,40})", re.I)
+
+
+@router.get("/video")
+async def ig_video(request: Request, url: str):
+    """Instagram-Reel/Video direkt als MP4 ausliefern (ohne die Instagram-Web-Oberfläche darum herum)."""
+    m = IG_REEL.match((url or "").strip())
+    if not m:
+        raise HTTPException(400, "Kein unterstützter Video-Link")
+    code = m[1]
+    key = f"ig:{code}"
+    if key not in _media:
+        async with _media_gate:
+            try:
+                async with httpx.AsyncClient(timeout=30) as c:
+                    r = await c.get(f"https://kkinstagram.com/reel/{code}/",
+                                    headers={"user-agent": "TelegramBot (like TwitterBot)"}, follow_redirects=False)
+                    loc = r.headers.get("location") or ""
+                    if not loc.lower().startswith("https://"):
+                        raise HTTPException(404, "Video nicht direkt abrufbar")
+                    v = await c.get(loc, follow_redirects=True, timeout=60)
+                    if v.status_code >= 400 or not v.content:
+                        raise HTTPException(404, "Video nicht ladbar")
+                    if len(v.content) <= MEDIA_MAX:
+                        _media[key] = (v.content, "video/mp4")
+                    else:
+                        return bytes_response(request, v.content, "video/mp4", f"{code}.mp4")
+            except httpx.HTTPError as e:
+                raise HTTPException(502, "Video nicht erreichbar") from e
+    data, ctype = _media[key]
+    return bytes_response(request, data, ctype, f"{code}.mp4")
 
 
 @router.get("/image", include_in_schema=False)
@@ -935,7 +1010,8 @@ async def archive_chat(chat_id: str, body: Archive):
     """In Beeper archivieren bzw. zurückholen – bei zusammengeführten Chats alle."""
     check_ids(chat_id)
     for c in group_members(chat_id) or [chat_id]:
-        await rest_call("POST", f"/v1/chats/{quote(c, safe='')}/archive", {"archived": body.archived})
+        if not c.startswith("untis:") and c != "ida":
+            await rest_call("POST", f"/v1/chats/{quote(c, safe='')}/archive", {"archived": body.archived})
     global _chats_cache
     _chats_cache = None
     _search_cache.clear()
@@ -947,7 +1023,14 @@ async def mark_read(chat_id: str):
     """Chat in Beeper als gelesen markieren – damit auch in Beeper und (je nach Netzwerk) beim Absender."""
     check_ids(chat_id)
     for c in group_members(chat_id) or [chat_id]:   # zusammengeführt: alle Chats der Gruppe
-        await beeper_read(c)
+        if c.startswith("untis:"):
+            from . import untis
+            await untis.read(c[len("untis:"):])
+        elif c == "ida":
+            from . import ida
+            await ida.ida_read()
+        else:
+            await beeper_read(c)
     asyncio.create_task(push.dismiss(chat_id if group_members(chat_id) else push.note_key(chat_id)))   # Meldung am Handy weg
     return {"ok": True}
 
@@ -1030,22 +1113,66 @@ async def open_in_beeper(chat_id: str, msg_id: str) -> None:
             log.warning("Chat %s gelesen markieren/parken fehlgeschlagen: %s", chat_id, e.detail)
 
 
-# ---------------- Angepinnte Chats (echte Beeper-Pins, also auch in Beeper selbst oben) ----------------
+# ---------------- Angepinnte Chats (echte Beeper-Pins + lokale Pins für Ida & Untis) ----------------
 PIN_MAX = 3
 PINS_TTL = 60
 _pins: tuple[float, list[dict]] | None = None
 
 
+def local_pins() -> list[str]:
+    try:
+        v = json.loads(push._kv("local_pins") or "[]")
+        return [str(x) for x in v if isinstance(x, str)] if isinstance(v, list) else []
+    except ValueError:
+        return []
+
+
+def set_local_pins(ids: list[str]) -> None:
+    push._kv_set("local_pins", json.dumps(list(dict.fromkeys(ids))))
+
+
+async def resolve_local_pin(cid: str) -> dict | None:
+    if cid == "ida":
+        from . import ida
+        if not ida.enabled():
+            return None
+        try:
+            r = await ida.row()
+            return {**r, "pinned": True}
+        except HTTPException:
+            return {"id": "ida", "title": "Ida", "network": "ida", "type": "single", "ida": True, "at": "", "unread": 0, "muted": push.muted("ida"), "pinned": True, "last": None}
+    if cid.startswith("untis:"):
+        from . import untis
+        if not untis.enabled():
+            return None
+        key = cid[len("untis:"):]
+        try:
+            for r in await untis.rows():
+                if r["id"] == cid:
+                    return {**r, "pinned": True}
+            t = await untis.teacher(key)
+            return {"id": cid, "title": t["name"] if t else key, "network": "untis", "type": "single", "untis": True, "at": "", "unread": 0, "muted": push.muted(cid), "pinned": True, "last": None}
+        except HTTPException:
+            return {"id": cid, "title": key, "network": "untis", "type": "single", "untis": True, "at": "", "unread": 0, "muted": push.muted(cid), "pinned": True, "last": None}
+    return None
+
+
 async def pinned() -> list[dict]:
-    """Angepinnte Chats aus der REST-Liste von Beeper (die Textliste über MCP kennt Pins nicht)."""
+    """Angepinnte Chats aus der REST-Liste von Beeper + lokale Pins (Ida, WebUntis)."""
     global _pins
     if _pins and time.monotonic() - _pins[0] < PINS_TTL:
         return _pins[1]
-    # Die Chatliste (MCP) nutzt die lokale ID ("66736"), REST die Matrix-ID – lokal nehmen, sonst steht der Chat doppelt da
-    out = [{"id": str(c.get("localChatID") or c["id"]), "title": (c.get("title") or "").strip(), "network": (c.get("accountID") or c.get("network") or "").lower(),
-            "type": c.get("type") or "", "at": c.get("lastActivity") or "", "unread": int(c.get("unreadCount") or 0),
-            "muted": bool(c.get("isMuted")), "pinned": True, "last": preview(c.get("preview"), c.get("type") == "group")}
-           for c in await rest_chats() if c.get("isPinned") and c.get("id")]
+    loc = [x for x in await asyncio.gather(*(resolve_local_pin(c) for c in local_pins())) if x]
+    try:
+        # Die Chatliste (MCP) nutzt die lokale ID ("66736"), REST die Matrix-ID – lokal nehmen, sonst steht der Chat doppelt da
+        b_pins = [{"id": str(c.get("localChatID") or c["id"]), "title": (c.get("title") or "").strip(), "network": (c.get("accountID") or c.get("network") or "").lower(),
+                   "type": c.get("type") or "", "at": c.get("lastActivity") or "", "unread": int(c.get("unreadCount") or 0),
+                   "muted": bool(c.get("isMuted")), "pinned": True, "last": preview(c.get("preview"), c.get("type") == "group")}
+                  for c in await rest_chats() if c.get("isPinned") and c.get("id")]
+    except HTTPException:
+        b_pins = []
+    seen = {x["id"] for x in loc}
+    out = (loc + [x for x in b_pins if x["id"] not in seen])[:PIN_MAX]
     _pins = (time.monotonic(), out)
     return out
 
@@ -1063,10 +1190,18 @@ class Pin(BaseModel):
 async def pin(chat_id: str, body: Pin):
     global _pins, _chats_cache
     check_ids(chat_id)
-    if body.pinned:
-        now = await pinned()
-        if chat_id not in {c["id"] for c in now} and len(now) >= PIN_MAX:
-            raise HTTPException(400, f"Höchstens {PIN_MAX} Chats anpinnen")
+    now = await pinned()
+    if body.pinned and chat_id not in {c["id"] for c in now} and len(now) >= PIN_MAX:
+        raise HTTPException(400, f"Höchstens {PIN_MAX} Chats anpinnen")
+    if chat_id == "ida" or chat_id.startswith("untis:"):
+        cur = local_pins()
+        if body.pinned and chat_id not in cur:
+            cur.append(chat_id)
+        elif not body.pinned and chat_id in cur:
+            cur.remove(chat_id)
+        set_local_pins(cur)
+        _pins = None
+        return {"ok": True}
     await rest_call("PATCH", f"/v1/chats/{quote(chat_id, safe='')}", {"isPinned": body.pinned})
     _pins = _chats_cache = None
     return {"ok": True}
@@ -1210,6 +1345,28 @@ async def forward(chat_id: str, body: Forward):
         raise HTTPException(400, "Nichts zum Weiterleiten")
     for f in body.files:
         check_src(f.src)
+    if chat_id.startswith("untis:"):
+        from . import untis
+        att = []
+        for f in body.files:
+            data, ct = await media_bytes(f.src, f.mime)
+            mime = ct if ct != "application/octet-stream" else (f.mime.split(";")[0].strip().lower() or ct)
+            name = re.sub(r"[\\/\x00-\x1f]", "_", f.name)[:200] or f"datei.{EXT.get(mime, 'bin')}"
+            att.append((name, data, mime))
+        await untis.deliver(chat_id[len("untis:"):], text, None, att)
+        return {"ok": True}
+    if chat_id == "ida":
+        from . import ida
+        fids = []
+        for f in body.files:
+            data, ct = await media_bytes(f.src, f.mime)
+            mime = ct if ct != "application/octet-stream" else (f.mime.split(";")[0].strip().lower() or ct)
+            name = re.sub(r"[\\/\x00-\x1f]", "_", f.name)[:200] or f"datei.{EXT.get(mime, 'bin')}"
+            r = await ida.client().post("/api/v1/uploads", params={"any": "true"}, files={"file": (name, data, mime)}, timeout=60)
+            if r.status_code < 400:
+                fids.append(r.json()["id"])
+        await ida.start(text or "Weitergeleitete Datei", files=fids or None)
+        return {"ok": True}
     for i, f in enumerate(body.files):
         data, ct = await media_bytes(f.src, f.mime)
         mime = ct if ct != "application/octet-stream" else (f.mime.split(";")[0].strip().lower() or ct)
@@ -1224,6 +1381,12 @@ async def forward(chat_id: str, body: Forward):
 
 # ---------------- Info-Seite (wie "Kontaktinfo" bei WhatsApp) ----------------
 async def about_one(chat_id: str) -> dict:
+    if chat_id.startswith("untis:"):
+        from . import untis
+        return await untis.about_one(chat_id[len("untis:"):])
+    if chat_id == "ida":
+        from . import ida
+        return (await ida.ida_about())["chats"][0]
     r = await rest_get(f"/v1/chats/{quote(chat_id, safe='')}")
     if r.status_code != 200:
         raise HTTPException(404 if r.status_code == 404 else 502, "Chat nicht gefunden")

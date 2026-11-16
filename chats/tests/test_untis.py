@@ -60,7 +60,8 @@ class FakeUntis:
                 if p.endswith("/v1/messages/sent"):
                     return self._out({"sentMessages": [{"id": 30, "subject": "Krank", "contentPreview": "Ich bin heute krank.", "sentDateTime": "2026-11-13T07:00:00"}]})
                 if p.endswith("/recipients/static/teachers"):
-                    return self._out([{"type": "TEACHERS", "persons": [{"personId": 55, "displayName": "Samarajiwa Konrad"}, {"personId": 77, "displayName": "Weber Tom"},
+                    return self._out([{"type": "TEACHERS", "persons": [{"personId": 55, "displayName": "Samarajiwa Konrad", "tags": ["PROJ (BK2T)", "Klassenlehrkraft"]},
+                                                                      {"personId": 77, "displayName": "Weber Tom"},
                                                                       {"personId": 88, "displayName": "Neu Lena"}]}])
                 if (m := re.search(r"/v1/messages/(\d+)/reply-form$", p)):
                     return self._out({"subject": "AW: " + outer.details[int(m[1])]["subject"]})
@@ -75,6 +76,8 @@ class FakeUntis:
                 p = self.path.split("?")[0]
                 if p == "/WebUntis/jsonrpc.do":
                     d = json.loads(raw)
+                    if d.get("method") == "getSubjects":
+                        return self._out({"result": [{"name": "PROJ", "longName": "Projektarbeit"}]})
                     if d["params"]["password"] != "geheim":
                         return self._out({"error": {"code": -8504, "message": "bad credentials"}})
                     self.send_response(200)
@@ -144,3 +147,14 @@ def test_untis_antworten_und_neu(client, fu):
     client.post(f"{API}/chats/untis:samarajiwa-konrad/send", json={"text": "ok", "reply_to": "u11"})
     assert fu.posts[-1][0].endswith("/v2/messages/11/reply")
     assert client.post(f"{API}/chats/untis:../send", json={"text": "x"}).status_code in (400, 404)
+    # Datei-Anhang senden
+    r = client.post(f"{API}/chats/untis:samarajiwa-konrad/upload", files={"file": ("themenblatt.pdf", b"%PDF-1.4", "application/pdf")}, data={"text": "Hier das Blatt"})
+    assert r.json()["how"] == "reply"
+    # Kontaktinfo mit Fächern & Anpinnen für Untis-Chats
+    ab = client.get(f"{API}/chats/untis:samarajiwa-konrad/about").json()["chats"][0]
+    assert ab["title"] == "Samarajiwa Konrad" and ab["network"] == "untis"
+    assert any("PROJ" in s for s in ab["subjects"])
+    assert client.post(f"{API}/chats/untis:samarajiwa-konrad/pin", json={"pinned": True}).json()["ok"] is True
+    assert any(p["id"] == "untis:samarajiwa-konrad" for p in client.get(f"{API}/pins").json()["items"])
+    assert client.post(f"{API}/chats/untis:samarajiwa-konrad/pin", json={"pinned": False}).json()["ok"] is True
+

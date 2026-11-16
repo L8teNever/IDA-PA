@@ -30,7 +30,8 @@ const letter = (t) => (String(t || "?").replace(/[^\p{L}\p{N}]/gu, "")[0] || "?"
 // Profilbild aus Beeper; fehlt es (404), bleibt der farbige Anfangsbuchstabe darunter stehen
 // Profilbilder: einmal geladen (oder fehlend) merken, damit sie beim Neuzeichnen sofort da sind statt neu einzublenden
 const AV_OK = new Set(), AV_NO = new Set();
-const avSrc = (id, user) => `${API}/avatar/${encodeURIComponent(id)}${user ? `?user=${encodeURIComponent(user)}` : "?v=2"}`;   // v=2: Gruppen ohne Bild haben jetzt eine Collage
+let avV = 2;
+const avSrc = (id, user) => `${API}/avatar/${encodeURIComponent(id)}${user ? `?user=${encodeURIComponent(user)}` : `?v=${avV}`}`;   // v=2: Gruppen ohne Bild haben jetzt eine Collage
 const avatar = (t, id, user = "") => { const u = id && avSrc(id, user), ok = AV_OK.has(u);
   return `<span class="av" style="${color(user || id || t)}">${esc(letter(t))}${u && !AV_NO.has(u) ? `<img class="avimg${ok ? " ok" : ""}" alt="" ${ok ? "" : 'loading="lazy" '}decoding="${ok ? "sync" : "async"}" src="${u}">` : ""}</span>`; };
 document.addEventListener("error", (e) => { if (e.target.classList?.contains("avimg")) { AV_NO.add(e.target.getAttribute("src")); e.target.remove(); } }, true);
@@ -112,7 +113,7 @@ function openFromUrl() {
   const m = /^chat\/[^/]+\/(foto|video|bild|album|info|suche)(?:\/([^/]+))?(?:\/(\d+))?/.exec(location.pathname.slice(BASE.length));
   if (!m && readOv()) return history.replaceState(history.state, "", ovBase());
   if (!m || !S.id) return;
-  if (m[1] === "info") return $("#info") || ownChat(S.id) ? undefined : openInfo();
+  if (m[1] === "info") return $("#info") ? undefined : openInfo();
   if (m[1] === "suche") return $("#srch") ? undefined : openSearch();
   const msg = m[2] && S.msgs.find((x) => x.id === decodeURIComponent(m[2]));
   if (m[1] === "album" && msg && albumView(msg.id)) return;
@@ -120,7 +121,7 @@ function openFromUrl() {
     const f = msg.files.filter((x) => x.kind === "image" && !x.sticker && x.src)[(+m[3] || 1) - 1];
     if (f) return gallery(f.src);
   }
-  if (m[1] === "video" && msg) { const el = document.getElementById(`m-${msg.id}`)?.querySelector(".vid, [data-a=embed]"); if (el) return el.dataset.a === "embed" ? playEmbed(el) : playVideo(el); }
+  if (m[1] === "video" && msg) { const el = document.getElementById(`m-${msg.id}`)?.querySelector(".vid, [data-a=igvideo], [data-a=embed]"); if (el) return el.dataset.a === "embed" ? playEmbed(el) : playVideo(el); }
   history.replaceState(history.state, "", ovBase());   // nicht (mehr) im geladenen Verlauf: einfach den Chat zeigen
 }
 // Übergang Übersicht ⇄ Chat (nur am Handy, wo immer nur eins von beiden zu sehen ist): Das Profilbild wandert aus der Zeile in den
@@ -535,15 +536,16 @@ async function openInfo() {
 function infoHtml(c, d) {
   const title = clean(c.title || "Chat"), chats = d?.chats || [], one = chats[0];
   const other = (x) => (x?.people || []).find((p) => !p.self && !p.bot);
-  const isGroup = c.type === "group";
+  const isGroup = c.type === "group", ida = isIda(c.id), untis = isUntis(c.id);
   const phone = !isGroup && !c.merged ? other(one)?.phone : "";
   const media = S.msgs.flatMap((m) => m.deleted ? [] : m.files.filter((f) => f.kind === "image" || f.kind === "video")).slice(-60).reverse();
   const nLinks = S.msgs.reduce((a, m) => a + (m.deleted ? 0 : (m.links?.length || (/https?:\/\//.test(m.text || "") ? 1 : 0))), 0);
   const nFiles = S.msgs.reduce((a, m) => a + (m.deleted ? 0 : m.files.filter((f) => f.kind === "file" || f.kind === "audio").length), 0);
   const pinned = PINS.some((p) => p.id === c.id);
-  const sub = c.merged ? c.merged.map((x) => netName(x.network)).join(" · ") : isGroup ? `Gruppe · ${one ? one.total : "…"} Mitglieder` : phone || netName(c.network);
+  const untisCh = chats.find((x) => x.untis);
+  const sub = c.merged ? c.merged.map((x) => netName(x.network)).join(" · ") : ida ? "Deine persönliche Assistentin" : untis ? [untisCh?.class_teacher ? "Klassenlehrkraft" : "Lehrkraft", untisCh?.school || "WebUntis"].filter(Boolean).join(" · ") : isGroup ? `Gruppe · ${one ? one.total : "…"} Mitglieder` : phone || netName(c.network);
   const row = (icon, main, small = "", attrs = "") => `<button class="irow" ${attrs}><span class="ms">${icon}</span><span class="it"><b>${main}</b>${small ? `<small>${small}</small>` : ""}</span></button>`;
-  const desc = chats.map((x) => x.description).find(Boolean);
+  const desc = chats.map((x) => x.description || x.about).find(Boolean);
   const expiry = chats.map((x) => x.expiry).find(Boolean);
   const per = (sec) => sec >= 86400 ? `${Math.round(sec / 86400)} Tag${sec >= 172800 ? "e" : ""}` : sec >= 3600 ? `${Math.round(sec / 3600)} Std.` : `${Math.round(sec / 60)} Min.`;
   return `<div class="ihead"><button class="icon-btn" data-i="close" aria-label="Zurück"><span class="ms">arrow_back</span></button><b>${isGroup ? "Gruppeninfo" : "Kontaktinfo"}</b></div>
@@ -554,14 +556,24 @@ function infoHtml(c, d) {
         <button data-i="pin"><span class="ms">push_pin</span>${pinned ? "Gelöst" : "Anpinnen"}</button>
         <button data-i="search"><span class="ms">search</span>Suchen</button>
         ${phone ? `<a href="tel:${esc(phone.replace(/[^\d+]/g, ""))}"><span class="ms">call</span>Anrufen</a>` : ""}
+        ${ida && one?.ida_url ? `<a href="${esc(one.ida_url)}" target="_blank" rel="noopener"><span class="ms">open_in_new</span>IDA</a>` : ""}
+        ${untis && untisCh?.web_url ? `<a href="${esc(untisCh.web_url)}" target="_blank" rel="noopener"><span class="ms">open_in_new</span>WebUntis</a>` : ""}
       </div></div>
     ${d?.error ? `<div class="icard ierr"><span class="ms">cloud_off</span>${esc(d.error)}</div>` : ""}
     ${desc ? `<div class="icard"><small>${isGroup ? "Beschreibung" : "Info"}</small><div class="idesc">${autolink(esc(desc))}</div></div>` : ""}
+    ${untisCh ? `<div class="icard"><small>Unterricht bei dir</small>
+      ${untisCh.class_teacher ? row("verified", "Klassenlehrkraft", untisCh.school || "Deine Klasse") : ""}
+      ${(untisCh.subjects || []).length ? `<div class="ufachs">${untisCh.subjects.map((s) => `<span class="ufach">${esc(s)}</span>`).join("")}</div>` : '<p class="ihint">Keine Fächer in WebUntis hinterlegt.</p>'}
+    </div>` : ""}
+    ${ida ? `<div class="icard"><small>Profilbild</small>
+      ${row("add_a_photo", "Eigenes Profilbild wählen", one?.custom_avatar ? "Eigenes Bild aktiv – antippen zum Ändern" : "Standard-Symbol durch ein eigenes Bild ersetzen", 'data-i="av-up"')}
+      ${one?.custom_avatar ? row("delete", "Eigenes Bild entfernen", "Zurück zum Standard-Symbol", 'data-i="av-del"') : ""}
+    </div>` : ""}
     ${media.length || nLinks || nFiles ? `<div class="icard"><div class="ich"><small>Medien, Links und Dateien</small><small>${media.length} · ${nLinks} · ${nFiles}</small></div>
       ${media.length ? `<div class="igrid">${media.slice(0, 9).map((f) => `<button class="ithumb" data-i="media" data-src="${esc(f.src || "")}" data-kind="${f.kind}">${f.kind === "image" ? `<img loading="lazy" alt="" src="${mediaUrl(f)}">` : f.poster ? `<img loading="lazy" alt="" src="${mediaUrl({ src: f.poster })}">` : ""}${f.kind === "video" ? '<span class="ms">play_circle</span>' : ""}</button>`).join("")}</div>` : ""}
       <p class="ihint">Aus den geladenen Nachrichten</p></div>` : ""}
     ${c.merged ? `<div class="icard"><small>Zusammengeführte Chats</small>${c.merged.map((x) => { const a = chats.find((y) => y.id === x.id), p = other(a);
-        return `<div class="iperson">${netAv(x, true)}<span class="it"><b>${esc(clean(x.title))}</b><small>${esc([netName(x.network), p?.phone, p?.username && "@" + p.username].filter(Boolean).join(" · "))}</small></span></div>`; }).join("")}
+        return `<div class="iperson">${netAv(x, true)}<span class="it"><b>${esc(clean(x.title))}</b><small>${esc([netName(x.network), a?.untis && (a.subjects || []).join(", "), p?.phone, p?.username && "@" + p.username].filter(Boolean).join(" · "))}</small></span></div>`; }).join("")}
       ${row("tune", "Name, Profilbild, Standard", "", 'data-i="gset"')}</div>` : ""}
     ${isGroup && one ? `<div class="icard"><div class="ich"><small>${one.total} Mitglieder</small></div>${one.people.filter((p) => !p.bot).sort((a, b) => (b.self - a.self) || (b.admin - a.admin) || a.name.localeCompare(b.name)).map((p) =>
         `<div class="iperson">${avatar(clean(p.name), c.id, p.id)}<span class="it"><b>${p.self ? "Du" : esc(clean(p.name) || "Unbekannt")}</b><small>${esc([p.phone, p.username && "@" + p.username].filter(Boolean).join(" · "))}</small></span>${p.admin ? '<span class="iadm">Admin</span>' : ""}</div>`).join("")}</div>` : ""}
@@ -569,16 +581,39 @@ function infoHtml(c, d) {
     <div class="icard">
       ${expiry ? row("timer", "Selbstlöschende Nachrichten", `Nach ${per(expiry)}`) : ""}
       ${row(isMuted(c.id) ? "notifications_off" : "notifications", isMuted(c.id) ? "Stummgeschaltet" : "Stummschalten", isMuted(c.id) ? muteText(c.id) : "Keine Benachrichtigungen aufs Handy", 'data-i="mute"')}
-      ${row("mark_chat_read", "Automatisch als gelesen", AR_TEXT[arOf(c.id)], 'data-i="autoread"')}
+      ${!ownChat(c.id) ? row("mark_chat_read", "Automatisch als gelesen", AR_TEXT[arOf(c.id)], 'data-i="autoread"') : ""}
       ${row(visOf(c) ? "visibility_off" : "visibility", "Auf der Startseite", esc(VIS_TEXT[visOf(c)] + (!ownVis(c) && netVis(c) ? ` (wie alle ${netName(c.network)}-Chats)` : "")), 'data-i="vis"')}
       ${row("label", "Listen", esc(ORG.labels.filter((l) => inLabel(l, c)).map((l) => l.name).join(", ") || "In keiner Liste"), 'data-i="lists"')}
-      ${row("archive", "Archivieren", "In Beeper archivieren – taucht bei einer neuen Nachricht wieder auf", 'data-i="arch"')}
+      ${!ownChat(c.id) ? row("archive", "Archivieren", "In Beeper archivieren – taucht bei einer neuen Nachricht wieder auf", 'data-i="arch"') : ""}
       ${chats.some((x) => x.muted) ? row("notifications_off", "In Beeper stummgeschaltet", "Auch hier keine Benachrichtigungen") : ""}
-      ${left(c) ? row("done_all", "Als gelesen markieren", "", 'data-i="read"') : row("mark_chat_unread", "Als ungelesen markieren", "", 'data-i="unread"')}
-      ${row("call_merge", "Mit anderem Chat zusammenführen", "", 'data-i="merge"')}
+      ${left(c) ? row("done_all", "Als gelesen markieren", "", 'data-i="read"') : !ownChat(c.id) ? row("mark_chat_unread", "Als ungelesen markieren", "", 'data-i="unread"') : ""}
+      ${!ida ? row("call_merge", "Mit anderem Chat zusammenführen", "", 'data-i="merge"') : ""}
       ${c.merged ? `<button class="irow danger" data-i="split"><span class="ms">call_split</span><span class="it"><b>Zusammenführung aufheben</b></span></button>` : ""}
     </div>
   </div>`;
+}
+function refreshAv(id) {
+  avV++; AV_OK.clear(); AV_NO.clear(); ABOUT.delete(id);
+  if ($(".chead")) $(".chead").outerHTML = head();
+  drawList();
+  api(`/chats/${encodeURIComponent(id)}/about`).then((d) => { ABOUT.set(id, { t: Date.now(), d }); redrawInfo(); }).catch(() => redrawInfo());
+}
+function uploadIdaAvatar() {
+  const inp = document.createElement("input"); inp.type = "file"; inp.accept = "image/*";
+  inp.onchange = async () => {
+    const f = inp.files?.[0]; if (!f) return;
+    const fd = new FormData(); fd.append("file", f, f.name || "avatar.png");
+    try {
+      const r = await fetch(`${API}/avatar/ida`, { method: "PUT", credentials: "same-origin", body: fd });
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || `HTTP ${r.status}`);
+      toast("Profilbild gespeichert"); refreshAv("ida");
+    } catch (e) { toast(`Ging nicht: ${e.message}`); }
+  };
+  inp.click();
+}
+async function deleteIdaAvatar() {
+  try { await api("/avatar/ida", { method: "DELETE" }); toast("Standard-Profilbild wiederhergestellt"); refreshAv("ida"); }
+  catch (e) { toast(`Ging nicht: ${e.message}`); }
 }
 document.addEventListener("click", (e) => {
   const av = e.target.closest("#info .ihero > .av, #info .iperson .av, #msgs .bw > .av"); if (av && avatarBig(av)) return;
@@ -587,6 +622,8 @@ document.addEventListener("click", (e) => {
   if (a === "close" || a === "chat") return closeInfo();
   if (a === "pin") { togglePin(c); setTimeout(() => { const el = $("#info"); if (el) el.innerHTML = infoHtml(cur(), ABOUT.get(c.id)?.d); }, 50); return; }
   if (a === "search") return openSearch();
+  if (a === "av-up") return uploadIdaAvatar();
+  if (a === "av-del") return deleteIdaAvatar();
   if (a === "media") { const t = e.target.closest("[data-src]"); if (t.dataset.kind === "image") return gallery(t.dataset.src); closeInfo(); const el = [...document.querySelectorAll("#msgs .vid")].find((v) => v.dataset.src === t.dataset.src); el?.scrollIntoView({ block: "center" }); return; }
   if (a === "gset") return groupSettings(c);
   if (a === "mute") return muteMenu(c);
@@ -596,7 +633,7 @@ document.addEventListener("click", (e) => {
   if (a === "arch") { closeInfo(); return archiveChat(c, true); }
   if (a === "read") { markRead(c); return closeInfo(); }
   if (a === "unread") { markUnread(c); return closeInfo(); }
-  if (a === "merge") return chatPick({ title: "Zusammenführen mit …", verb: "Zusammenführen", multi: true, from: c, skip: new Set((c.merged || [c]).map((x) => x.id)) }, (to) => { closeInfo(); doMerge(c, to); });
+  if (a === "merge") return chatPick({ title: "Zusammenführen mit …", verb: "Zusammenführen", multi: true, from: c, skip: new Set(["ida", ...(c.merged || [c]).map((x) => x.id)]) }, (to) => { closeInfo(); doMerge(c, to); });
   if (a === "split") { closeInfo(); return unMerge(grpOf(c.id)); }
 });
 document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !$("#ctx") && !$(".lightbox")) { if ($("#srch")) closeSrch(); else if ($("#info")) closeInfo(); } });
@@ -705,21 +742,18 @@ async function openHit(m, el) {
 }
 function rowMenu(c) {
   closeMenu();
-  const on = PINS.some((p) => p.id === c.id), d = document.createElement("div");
+  const on = PINS.some((p) => p.id === c.id), own = ownChat(c.id), ida = isIda(c.id), d = document.createElement("div");
   d.className = "ctx"; d.id = "ctx";
-  if (ownChat(c.id)) d.innerHTML = `<div class="ctx-back"></div><div class="sheet">
-    <button data-p="mute"><span class="ms">${isMuted(c.id) ? "notifications" : "notifications_off"}</span>${isMuted(c.id) ? "Stummschaltung ändern" : "Stummschalten"}</button>
-    ${left(c) ? '<button data-p="read"><span class="ms">done_all</span>Als gelesen markieren</button>' : ""}</div>`;
-  else d.innerHTML = `<div class="ctx-back"></div><div class="sheet">
+  d.innerHTML = `<div class="ctx-back"></div><div class="sheet">
     <button data-p="pin"><span class="ms">push_pin</span>${on ? "Nicht mehr anpinnen" : "Anpinnen"}</button>
     <button data-p="mute"><span class="ms">${isMuted(c.id) ? "notifications" : "notifications_off"}</span>${isMuted(c.id) ? "Stummschaltung ändern" : "Stummschalten"}</button>
-    <button data-p="merge"><span class="ms">call_merge</span>Mit anderem Chat zusammenführen</button>
+    ${!ida ? '<button data-p="merge"><span class="ms">call_merge</span>Mit anderem Chat zusammenführen</button>' : ""}
     ${c.merged ? '<button data-p="gset"><span class="ms">tune</span>Name, Profilbild, Standard</button>' : ""}
     ${c.merged ? '<button data-p="split"><span class="ms">call_split</span>Zusammenführung aufheben</button>' : ""}
-    ${left(c) ? '<button data-p="read"><span class="ms">done_all</span>Als gelesen markieren</button>' : '<button data-p="unread"><span class="ms">mark_chat_unread</span>Als ungelesen markieren</button>'}
+    ${left(c) ? '<button data-p="read"><span class="ms">done_all</span>Als gelesen markieren</button>' : !own ? '<button data-p="unread"><span class="ms">mark_chat_unread</span>Als ungelesen markieren</button>' : ""}
     <button data-p="vis"><span class="ms">${visOf(c) ? "visibility_off" : "visibility"}</span>Auf der Startseite<small>${esc(VIS_TEXT[visOf(c)])}</small></button>
     <button data-p="lists"><span class="ms">label</span>Listen<small>${esc(ORG.labels.filter((l) => inLabel(l, c)).map((l) => l.name).join(", "))}</small></button>
-    <button data-p="arch"><span class="ms">${S.f === "archive" ? "unarchive" : "archive"}</span>${S.f === "archive" ? "Aus dem Archiv holen" : "Archivieren"}</button></div>`;
+    ${!own ? `<button data-p="arch"><span class="ms">${S.f === "archive" ? "unarchive" : "archive"}</span>${S.f === "archive" ? "Aus dem Archiv holen" : "Archivieren"}</button>` : ""}</div>`;
   d.addEventListener("click", (e) => {
     const p = e.target.closest("[data-p]")?.dataset.p;
     closeMenu();
@@ -729,7 +763,7 @@ function rowMenu(c) {
     if (p === "pin") togglePin(c);
     if (p === "read") markRead(c);
     if (p === "unread") markUnread(c);
-    if (p === "merge") chatPick({ title: "Zusammenführen mit …", verb: "Zusammenführen", multi: true, from: c, skip: new Set((c.merged || [c]).map((x) => x.id)) }, (to) => doMerge(c, to));
+    if (p === "merge") chatPick({ title: "Zusammenführen mit …", verb: "Zusammenführen", multi: true, from: c, skip: new Set(["ida", ...(c.merged || [c]).map((x) => x.id)]) }, (to) => doMerge(c, to));
     if (p === "split") unMerge(grpOf(c.id));
     if (p === "gset") groupSettings(c);
     if (p === "mute") muteMenu(c);
@@ -761,13 +795,12 @@ function lastLine(c) {   // "Du: …" / in Gruppen "Name: …" / sonst nur der T
 const moreObs = new IntersectionObserver((es) => { if (es.some((x) => x.isIntersecting)) { moreObs.disconnect(); loadChats({ more: true }); } }, { root: $("#list"), rootMargin: "0px 0px 400px 0px" });
 function drawList() {
   const pinIds = new Set(PINS.map((p) => p.id)), showPins = S.f === "all" && !S.q;
-  const pinned = showPins ? collapse(PINS.map((p) => { const c = S.chats.find((x) => x.id === p.id); if (c) c.pinned = true; return c || p; })) : [];
+  const pinned = showPins ? collapse(PINS.map((p) => { const c = known(p.id); return c ? { ...c, pinned: true } : p; })) : [];
   const pinGrp = new Set(pinned.map((c) => c.id));
-  const all = collapse(showPins ? S.chats.filter((c) => !pinIds.has(c.id)) : S.chats).filter((c) => !pinGrp.has(c.id));
-  const rest = all.filter(shown);
-  const extra = S.q ? [...(IDA ? [IDA] : []), ...UNTIS.items, ...UNTIS.teachers.filter((t) => !UNTIS.items.some((x) => x.id === t.id))].filter((c) => norm(c.title).includes(norm(S.q)))
-    : showPins ? extraRows() : S.f === "unread" ? extraRows().filter(left) : [];
-  for (const x of extra) { if (rest.some((c) => c.id === x.id)) continue; const i = S.q ? -1 : rest.findIndex((c) => (c.at || "") < (x.at || "")); rest.splice(i < 0 ? rest.length : i, 0, x); }
+  const raw = S.q ? [...S.chats, ...(IDA ? [IDA] : []), ...UNTIS.items, ...UNTIS.teachers.filter((t) => !UNTIS.items.some((x) => x.id === t.id)).filter((c) => norm(c.title).includes(norm(S.q)))]
+    : S.f === "archive" ? S.chats : [...S.chats, ...extraRows().filter((x) => !S.chats.some((c) => c.id === x.id))];
+  const all = collapse(showPins ? raw.filter((c) => !pinIds.has(c.id)) : raw).filter((c) => !pinGrp.has(c.id));
+  const rest = (S.f === "unread" && !S.q ? all.filter(left) : all.filter(shown)).sort((a, b) => S.q ? 0 : (b.at || "").localeCompare(a.at || ""));
   // Listen und „Ausgeblendet“: Chats, die (noch) nicht geladen sind, kommen aus dem Gemerkten dazu
   const lb = labelOf();
   if (!S.q && (lb || S.f === "hidden")) {
@@ -776,8 +809,9 @@ function drawList() {
     for (const x of want) if (!have.has(x.id)) { const c = rowChat(grpOf(x.id)?.id || x.id) || { id: x.id, title: x.title, network: x.network, unread: 0 }; if (!rest.some((r) => r.id === c.id)) rest.push(c); }
   }
   // Zähler (Titel, App-Symbol): ausgeblendete Chats zählen nicht mit
-  const n = [...pinned, ...collapse(S.chats.filter((c) => !pinIds.has(c.id))).filter((c) => visOf(c) !== "hidden"), ...extraRows()].reduce((a, c) => a + left(c), 0);
+  const n = [...pinned, ...collapse([...S.chats, ...extraRows()].filter((c) => !pinIds.has(c.id))).filter((c) => visOf(c) !== "hidden")].reduce((a, c) => a + left(c), 0);
   document.title = n ? `(${n}) Chats` : "Chats";
+  const ib = $("#idabtn"); if (ib) ib.classList.toggle("unread", !!(IDA && left(IDA)));
   if (navigator.setAppBadge) (n ? navigator.setAppBadge(n) : navigator.clearAppBadge()).catch(() => {});
   if (!rest.length && !pinned.length && !S.next) {
     const [ic, t] = S.q ? ["search_off", S.busyQ ? "Suche …" : "Nichts gefunden."] : lb ? ["label", `Noch niemand in „${esc(lb.name)}“. Chat lange drücken → Listen.`]
@@ -803,7 +837,6 @@ $("#list").addEventListener("click", (e) => {
   const av = e.target.closest(".row .av"); if (av && avatarBig(av)) return;
   const r = e.target.closest(".row, .ptile");
   if (!r) return;
-  const c = S.chats.find((x) => x.id === r.dataset.id);
   go(r.dataset.id);
 });
 // Filter (Alle / Ungelesen / Ausgeblendet / Archiv / eigene Listen) hinter dem Filter-Knopf links in der Leiste unten; das Menü klappt nach oben auf
@@ -854,10 +887,7 @@ $("#sbtn").onclick = () => { if (!readLsrch()) pushView({ lsrch: true }, "", `${
 $("#qback").onclick = () => { if (history.state?.lsrch) history.back(); else { history.replaceState(null, "", BASE); showLsrch(false); } };
 $("#q").addEventListener("keydown", (e) => { if (e.key === "Escape") $("#qback").click(); });
 $("#setbtn").onclick = () => openSett();
-$("#refresh").onclick = (e) => {
-  const ic = e.currentTarget.firstElementChild; ic.classList.remove("spin"); void ic.offsetWidth; ic.classList.add("spin");
-  pullReload();
-};
+if ($("#idabtn")) $("#idabtn").onclick = () => go("ida");
 
 // ---------------- Nach unten ziehen lädt die Chats neu; danach tauchen die Zeilen schnell nacheinander auf ----------------
 function listIn() {   // Auftritt der Liste: Zeile für Zeile, leicht versetzt
@@ -1007,7 +1037,7 @@ async function openChat() {
     ta.value = t; ta.dispatchEvent(new Event("input")); hideFix(); ta.focus();   // Text antippen: Vorschlag ins Feld übernehmen
   });
   $("#attachBtn").onclick = attachMenu;
-  if (ownChat(S.id)) { $("#attachBtn").hidden = true; ta.placeholder = isIda(S.id) ? "Nachricht an Ida" : `Nachricht an ${clean(cur()?.title || "")} (WebUntis)`; sendMode(); }
+  if (ownChat(S.id)) { ta.placeholder = isIda(S.id) ? "Nachricht an Ida" : `Nachricht an ${clean(cur()?.title || "")} (WebUntis)`; sendMode(); }
   $("#toBtn").onclick = toMenu; toChip();
   $("#recbar").addEventListener("click", (e) => { const a = e.target.closest("[data-rec]")?.dataset.rec; if (a) recAction(a); });
   const conv = $("#conv");
@@ -1039,9 +1069,10 @@ async function loadMsgs({ first = false, quiet = false, older = false } = {}) {
     const box = $("#msgs"), atEnd = !box || box.scrollHeight - box.scrollTop - box.clientHeight < 120;
     const keep = new Map(S.msgs.map((m) => [m.id, m]));
     for (const m of d.items) keep.set(m.id, m);
-    const sig = (l) => l.map((m) => `${m.id}|${m.text}|${m.edited ? 1 : 0}|${(m.read_by || []).length}|${(m.reactions || []).map((r) => r.key + r.n).join()}|${m.deleted}${m.was ? 1 : 0}|${m.pending ? 1 : 0}`).join(";");
+    const sig = (l) => l.map((m) => `${m.id}|${m.text}|${m.edited ? 1 : 0}|${(m.read_by || []).length}|${(m.reactions || []).map((r) => r.key + r.n).join()}|${m.deleted}${m.was ? 1 : 0}|${m.pending ? 1 : 0}|${(m.options || []).join(",")}`).join(";");
     const before = sig(S.msgs);
     const landed = (m) => m.pendingFile ? m.sentAt && d.items.some((x) => x.mine && x.files.length && Date.parse(x.at) >= Date.parse(m.at) - 10000)
+      : m.pendingFwd ? d.items.some((x) => x.mine && x.ida_kind === "forward" && Date.parse(x.at) >= Date.parse(m.at) - 15000)
       : d.items.some((x) => x.mine && x.text === m.text);
     // Was im Zeitraum der geladenen Seite liegt, dort aber fehlt, gibt es nicht mehr (z. B. für mich gelöscht) – nicht aus dem Speicher zurückholen
     const lo = d.items[0]?.at, hi = d.items.at(-1)?.at, got = new Set(d.items.map((m) => m.id));
@@ -1059,7 +1090,13 @@ async function loadMsgs({ first = false, quiet = false, older = false } = {}) {
   } finally { if (older) olderBusy = false; }
 }
 const mmss = (s) => `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, "0")}`;
-const mediaUrl = (f) => f.local ? f.local : `${API}/media?src=${encodeURIComponent(f.src || "")}${f.mime ? `&mime=${encodeURIComponent(f.mime)}` : ""}`;
+function mediaUrl(f) {
+  if (f.local) return f.local;
+  const s = String(f.src || "");
+  if (s.startsWith("untis:")) return `${API}/untis/file?src=${encodeURIComponent(s)}${f.mime ? `&mime=${encodeURIComponent(f.mime)}` : ""}${f.name ? `&name=${encodeURIComponent(f.name)}` : ""}`;
+  if (s.startsWith("ida:")) return `${API}/ida/file?src=${encodeURIComponent(s)}${f.mime ? `&mime=${encodeURIComponent(f.mime)}` : ""}${f.name ? `&name=${encodeURIComponent(f.name)}` : ""}`;
+  return `${API}/media?src=${encodeURIComponent(s)}${f.mime ? `&mime=${encodeURIComponent(f.mime)}` : ""}`;
+}
 function bars(key) {   // Wellenform: aus der Adresse abgeleitet, damit sie pro Nachricht gleich bleibt
   let h = 7;
   for (const c of String(key)) h = (h * 31 + c.charCodeAt(0)) >>> 0;
@@ -1158,10 +1195,10 @@ function albumView(id) {
 // Gruppen: Name steht wie bei Signal frei über der ersten Blase einer Folge, jede Person mit eigener Farbe
 const WHO_COLORS = ["#f28b82", "#fbbc04", "#81c995", "#78d9ec", "#8ab4f8", "#c58af9", "#ff8bcb", "#fcad70", "#a8dab5", "#d7aefb"];
 const whoColor = (k) => { let h = 0; for (const ch of String(k || "")) h = (h * 31 + ch.charCodeAt(0)) | 0; return WHO_COLORS[Math.abs(h) % WHO_COLORS.length]; };
-// Videos von Instagram, YouTube und TikTok direkt hier abspielen (eingebetteter Player der Seite, ohne Anmeldung)
+// Videos von Instagram, YouTube und TikTok direkt hier abspielen (Instagram direkt im Video-Player, sonst eingebetteter Player)
 function embedOf(u) {
   let m;
-  if ((m = /instagram\.com\/(?:[\w.]+\/)?(reels?|p|tv)\/([\w-]+)/i.exec(u || ""))) return { src: `https://www.instagram.com/${m[1] === "p" ? "p" : "reel"}/${m[2]}/embed/`, name: "Instagram", play: m[1] !== "p" };
+  if ((m = /instagram\.com\/(?:[\w.]+\/)?(reels?|p|tv)\/([\w-]+)/i.exec(u || ""))) return { src: `https://www.instagram.com/${m[1] === "p" ? "p" : "reel"}/${m[2]}/embed/`, name: "Instagram", play: m[1] !== "p", videoUrl: m[1] !== "p" ? u : "" };
   if ((m = /(?:youtube\.com\/(?:watch\?(?:[^#]*&)?v=|shorts\/|embed\/|live\/)|youtu\.be\/)([\w-]{11})/i.exec(u || ""))) return { src: `https://www.youtube-nocookie.com/embed/${m[1]}?autoplay=1&playsinline=1&rel=0`, name: "YouTube", play: true };
   if ((m = /tiktok\.com\/@[\w.-]+\/video\/(\d+)/i.exec(u || ""))) return { src: `https://www.tiktok.com/embed/v2/${m[1]}`, name: "TikTok", play: true };
   return null;
@@ -1178,7 +1215,7 @@ const host = (u) => { try { return new URL(u).hostname.replace(/^www\./, ""); } 
 function lpHtml(l, pic = null) {   // pic: Vorschaubild aus dem Anhang (schärfer als das der Webseite)
   const e = embedOf(l.url), img = pic ? mediaUrl(pic) : l.img ? (l.ext || mediaUrl({ src: l.img })) : "";
   const w = pic ? pic.w : l.w, h = pic ? pic.h : l.h, r = w && h ? ` style="aspect-ratio:${w}/${h}"` : "";
-  const shot = img ? (e ? `<button type="button" class="lp-pic" data-a="embed" data-url="${esc(l.url)}"><img loading="lazy" alt=""${r} src="${img}"><span class="ms">${e.play ? "play_arrow" : "open_in_full"}</span></button>`
+  const shot = img ? (e ? `<button type="button" class="lp-pic" data-a="${e.videoUrl ? "igvideo" : "embed"}" data-url="${esc(l.url)}"><img loading="lazy" alt=""${r} src="${img}"><span class="ms">${e.play ? "play_arrow" : "open_in_full"}</span></button>`
     : pic ? `<button type="button" class="lp-pic" data-a="zoom" data-src="${esc(pic.src)}"><img loading="lazy" alt=""${r} src="${img}"></button>`
     : `<a class="lp-pic" href="${esc(l.url)}" target="_blank" rel="noopener noreferrer"><img loading="lazy" alt=""${r} src="${img}"></a>`) : "";
   const title = l.title || (e ? `${e.name}-${e.play ? "Video" : "Beitrag"}` : host(l.url));
@@ -1189,26 +1226,32 @@ function bubble(m, tail = true, stack = null, head = true) {
   // Geteilter Beitrag: nur der Link als Text und genau ein Bild (sein Vorschaubild) → eine Karte statt Bild + Link + zweitem Bild
   const sole = !m.deleted && soleLink(m);
   const share = sole && !stack && m.files.length === 1 && m.files[0].kind === "image" && !m.files[0].sticker && m.files[0].src && !m.pending ? m.files[0] : null;
+  const hasVid = !m.deleted && m.files.some((f) => f.kind === "video");
+  const hideSoleVid = !!(sole && hasVid && embedOf(sole));
   const visual = !share && !m.deleted && m.files.length && m.files.every((f) => (f.kind === "image" || f.kind === "video") && !f.sticker);
   const files = share ? "" : stack ? stackHtml(stack) : visual && !m.pending ? `<div class="mwrap"><div class="mcol">${m.files.map((f) => fileHtml(f, CLIPS.get(m.id) || null)).join("")}</div></div>` : m.files.map((f) => fileHtml(f)).join("");
-  const split = visual && !stack && (m.text || (m.links || []).some((l) => l.title || l.img));   // Bild/Video und Text: zwei Blasen
+  const prev = hideSoleVid ? [] : (m.links || []).filter((l) => l.title || l.img);
+  const onlyLink = !!sole && (share || hideSoleVid || prev.some((l) => lk(l.url) === lk(sole)));
+  const split = visual && !stack && ((m.text && !onlyLink) || prev.length > 0);   // Bild/Video und Text: zwei Blasen
   // Gelöscht: Hinweis – und darunter, was drinstand, wenn der Dienst die Nachricht vorher schon gesehen hatte
   const was = m.deleted && m.was ? `<div class="was">${(m.was.files || []).map((f) => fileHtml(f)).join("")}${m.was.text ? `<span class="tx">${autolink(esc(m.was.text))}</span>` : ""}</div>` : "";
-  // Besteht der Text nur aus dem Link, der darunter als Vorschau kommt, reicht die Vorschau (sonst steht er doppelt da)
-  const prev = (m.links || []).filter((l) => l.title || l.img);
-  const onlyLink = !!sole && (share || prev.some((l) => lk(l.url) === lk(sole)));
   const body = m.deleted ? `<span class="gone"><span class="ms">block</span>${m.mine ? "Du hast diese Nachricht gelöscht" : "Diese Nachricht wurde gelöscht"}</span>${was}` : m.text && !onlyLink ? `<span class="tx">${mentionHtml(autolink(esc(m.text)))}</span>` : "";
   const links = m.deleted ? "" : share ? lpHtml(prev.find((l) => lk(l.url) === lk(sole)) || { url: sole }, share) : prev.map((l) => lpHtml(l)).join("");
+  const ikind = isIda(S.id) ? (m.ida_kind || (m.notice ? "notice" : "chat")) : "";
+  const itag = ikind === "notice" ? `<span class="ikind-tag"><span class="ms">notifications</span>${esc(m.sender && m.sender !== "Ida" ? `Mitteilung · ${clean(m.sender)}` : "Mitteilung von Ida")}</span>`
+    : ikind === "forward" ? `<span class="ikind-tag"><span class="ms">forward</span>${m.mine ? "Weitergeleitet an Ida" : "Antwort zur Weiterleitung"}</span>` : "";
+  const fwdLoad = m.pendingFwd ? `<div class="fwd-wait"><span class="ms spin">progress_activity</span>Wird an Ida geschickt …</div>` : "";
+  const opts = !m.mine && m.options?.length ? `<div class="ida-opts">${m.options.map((o) => `<button type="button" class="ida-opt" data-a="ida-opt" data-opt="${esc(o)}">${esc(o)}</button>`).join("")}</div>` : "";
   const group = "";
   const name = head && cur()?.type === "group" && !m.mine && clean(m.sender) ? `<div class="gname" style="color:${whoColor(m.sender_id || m.sender)}">${esc(clean(m.sender))}</div>` : "";
   const quote = "";
-  const more = "";
+  const more = opts;
   const rx = m.reactions?.length ? `<div class="rx">${m.reactions.map((r) => `<span class="${r.mine ? "mine" : ""}" data-a="rx" data-id="${esc(m.id)}" data-k="${esc(r.key)}">${esc(r.key)}${r.n > 1 ? ` ${r.n}` : ""}</span>`).join("")}</div>` : "";
   const tools = m.pending || m.deleted ? "" : `<button class="rep" data-a="reply" data-id="${esc(m.id)}" aria-label="Antworten" title="Antworten"><span class="ms">reply</span></button>`;
   const face = cur()?.type === "group" && !m.mine ? (tail ? avatar(clean(m.sender), cid(m), m.sender_id) : '<span class="av gap"></span>') : "";
   const prog = m.pendingFile ? `<div class="prog"><i style="width:${Math.round((m.progress || 0) * 100)}%"></i></div>` : "";
   const mc = cur()?.merged, net = mc ? netKey((mc.find((x) => x.id === (m.chat || target())) || {}).network) : null;
-  return `${name}${m.reply_to && !m.deleted ? replyHead(m, net) : ""}<div class="bw ${m.mine ? "me" : ""} ${face ? "grp" : ""} ${m.reply_to && !m.deleted ? "isrep" : ""}"${net !== null ? ` data-net="${net}"` : ""} id="m-${esc(m.id)}" data-id="${esc(m.id)}"><span class="swipe ms">reply</span>${face}${tools}<div class="bcol">${quote}${split ? `<div class="b media ${m.mine ? "me" : ""}">${group}${files}</div>` : ""}<div class="b ${m.mine ? "me" : ""} ${share ? "sharebub" : ""} ${!m.mine && atMe(m) ? "atme" : ""} ${m.pending ? "pending" : ""} ${m.deleted ? "del" : ""} ${!split && visual && !m.text ? "media" : ""}">${split ? "" : group}${split ? "" : files}${prog}${body}${links}${rx}${tmLine(m)}</div>${more}</div><span class="st">${m.at && !m.pending ? fmtTime.format(new Date(m.at)) : ""}</span></div>`;
+  return `${name}${m.reply_to && !m.deleted ? replyHead(m, net) : ""}<div class="bw ${m.mine ? "me" : ""} ${face ? "grp" : ""} ${m.reply_to && !m.deleted ? "isrep" : ""}"${net !== null ? ` data-net="${net}"` : ""}${ikind ? ` data-ikind="${esc(ikind)}"` : ""} id="m-${esc(m.id)}" data-id="${esc(m.id)}"><span class="swipe ms">reply</span>${face}${tools}<div class="bcol">${quote}${split ? `<div class="b media ${m.mine ? "me" : ""}">${group}${files}</div>` : ""}<div class="b ${m.mine ? "me" : ""} ${share ? "sharebub" : ""} ${!m.mine && atMe(m) ? "atme" : ""} ${m.pending ? "pending" : ""} ${m.pendingFwd ? "pfwd" : ""} ${m.deleted ? "del" : ""} ${!split && visual && (!m.text || onlyLink) ? "media" : ""}"${ikind ? ` data-ikind="${esc(ikind)}"` : ""}>${itag}${split ? "" : group}${split ? "" : files}${prog}${body}${fwdLoad}${links}${rx}${tmLine(m)}</div>${more}</div><span class="st">${m.at && !m.pending ? fmtTime.format(new Date(m.at)) : ""}</span></div>`;
 }
 const NETS = [["ida", "ida"], ["untis", "untis"], ["snapchat", "snapchat"], ["instagram", "instagram"], ["whatsapp", "whatsapp"], ["signal", "signal"], ["telegram", "telegram"], ["discord", "discord"],
   ["messenger", "messenger"], ["facebook", "messenger"], ["gmessages", "gmessages"], ["google messages", "gmessages"], ["googlechat", "googlechat"], ["google chat", "googlechat"],
@@ -1306,9 +1349,13 @@ $("#conv").addEventListener("click", (e) => {
   if (!a) return;
   if (a.dataset.a === "back") return back();
   if (a.dataset.a === "gset") return groupSettings(cur());
-  if (a.dataset.a === "info") return isIda(S.id) ? window.open("https://ida.kulbarts.com/", "_blank", "noopener") : isUntis(S.id) ? UNTIS.server && window.open(`https://${UNTIS.server}/today`, "_blank", "noopener") : openInfo();
+  if (a.dataset.a === "info") return openInfo();
   if (a.dataset.a === "older") return loadMsgs({ older: true });
   if (a.dataset.a === "reply") return setReply(S.msgs.find((m) => m.id === a.dataset.id));
+  if (a.dataset.a === "ida-opt") {
+    const m = bubbleMsg(a); if (m) m.options = [];
+    return send(a.dataset.opt);
+  }
   if (a.dataset.a === "seen") return markRead(cur());
   if (a.dataset.a === "unseen") return markUnread(cur());
   if (a.dataset.a === "rx") { const m = S.msgs.find((x) => x.id === a.dataset.id); return m && toggleReaction(m, a.dataset.k); }
@@ -1322,6 +1369,7 @@ $("#conv").addEventListener("click", (e) => {
   }
   if (a.dataset.a === "jump") { const el = document.getElementById(`m-${a.dataset.id}`); if (el) { el.scrollIntoView({ block: "center", behavior: "smooth" }); el.classList.add("flash"); setTimeout(() => el.classList.remove("flash"), 1200); } return; }
   if (a.dataset.a === "play") return togglePlay(a.closest(".voice"));
+  if (a.dataset.a === "igvideo") return playVideo(a);
   if (a.dataset.a === "embed") return playEmbed(a);
   if (a.dataset.a === "speed") return cycleSpeed(a);
   if (a.dataset.a === "seek") return seek(a.closest(".voice"), e);
@@ -1355,7 +1403,7 @@ function togglePlay(v) {
   const src = v.dataset.src;
   if (cur$ !== src) {
     audio.pause(); cur$ = src;
-    audio.src = `${API}/media?src=${encodeURIComponent(src)}${v.dataset.mime ? `&mime=${encodeURIComponent(v.dataset.mime)}` : ""}`;
+    audio.src = mediaUrl({ src, mime: v.dataset.mime || "" });
     audio.playbackRate = speed;
   }
   if (audio.paused) audio.play().catch(() => {}); else audio.pause();
@@ -1383,12 +1431,12 @@ async function voiceText(btn) {
 // Video-Player wie in Beeper: oben "Video · MP4 Video", groß in der Mitte, dicker Spulbalken, Text der Nachricht, unten Pause, Reaktion, Antworten, Download
 function playVideo(el) {
   document.querySelector(".vp")?.remove();
-  const m = bubbleMsg(el), mime = el.dataset.mime || "video/mp4";
+  const m = bubbleMsg(el), mime = el.dataset.mime || "video/mp4", igUrl = el.dataset.url || "";
   // Abspielliste: bei zusammengefügten Snapchat-Stücken alle, sonst nur das eine Video
-  const clips = (m && CLIPS.get(m.id)) || [{ src: el.dataset.src, mime: el.dataset.mime, duration: 0 }];
-  const urlOf = (c) => `${API}/media?src=${encodeURIComponent(c.src)}${c.mime ? `&mime=${encodeURIComponent(c.mime)}` : ""}`;
+  const clips = igUrl ? [{ url: igUrl, duration: 0 }] : (m && CLIPS.get(m.id)) || [{ src: el.dataset.src, mime: el.dataset.mime, duration: 0 }];
+  const urlOf = (c) => c.url ? `${API}/video?url=${encodeURIComponent(c.url)}` : mediaUrl(c);
   const dur = clips.map((c) => c.duration || 0);
-  const kindName = `${(mime.split("/")[1] || "mp4").split(";")[0].replace("quicktime", "mov").toUpperCase()} Video`;
+  const kindName = igUrl ? "Instagram Video" : `${(mime.split("/")[1] || "mp4").split(";")[0].replace("quicktime", "mov").toUpperCase()} Video`;
   const d = document.createElement("div");
   d.className = "vp";
   d.innerHTML = `<div class="vp-top"><button class="icon-btn" data-v="close" aria-label="Zurück"><span class="ms">arrow_back</span></button><div><b>Video</b><small>${esc(kindName)}${clips.length > 1 ? ` · ${clips.length} Teile` : ""}${m && !m.mine && m.sender ? ` · ${esc(clean(m.sender))}` : ""}</small></div></div>
@@ -1429,7 +1477,11 @@ function playVideo(el) {
     v.addEventListener("play", () => { if (v !== act) return; icons(); flash(); cancelAnimationFrame(raf); loop(); });
     v.addEventListener("pause", () => { if (v !== act) return; icons(); cancelAnimationFrame(raf); paintBar(); });
     v.addEventListener("ended", () => { if (v !== act) return; if (i + 1 < clips.length) go(i + 1); else { wantPlay = false; icons(); flash(); } });
-    v.addEventListener("error", () => { if (v === act) toast("Video konnte nicht geladen werden"); });
+    v.addEventListener("error", () => {
+      if (v !== act) return;
+      if (igUrl) { vA.removeAttribute("src"); d.remove(); playEmbed(el); return; }
+      toast("Video konnte nicht geladen werden");
+    });
   }
   const toggle = () => { if (act.ended && i === clips.length - 1) { wantPlay = true; return go(0); } wantPlay = act.paused; wantPlay ? act.play() : act.pause(); icons(); flash(); };
   const track = d.querySelector(".vp-track");
@@ -1537,12 +1589,14 @@ function menu(m) {
   d.className = "ctx"; d.id = "ctx";
   const emo = (k) => `<button class="emo ${mine.has(k) ? "on" : ""}" data-r="${esc(k)}" aria-label="${esc(k)}">${esc(k)}</button>`;
   if (m.typing) return;
-  if (ownChat(S.id)) {   // Ida / WebUntis: keine Reaktionen, kein Bearbeiten oder Löschen; bei Untis Antworten (auf genau diese Nachricht) und An Ida schicken
+  if (ownChat(S.id)) {   // Ida / WebUntis: keine Reaktionen, kein Bearbeiten oder Löschen; bei Untis Antworten (auf genau diese Nachricht), Weiterleiten und An Ida schicken
     const un = isUntis(S.id) && !m.pending;
     d.innerHTML = `<div class="ctx-back"></div><div class="ctx-stack ${m.mine ? "me" : ""}"><div class="ctx-msg"></div><div class="ctx-box">
       ${un && !m.mine && m.can_reply !== false ? '<button data-c="reply"><span class="ms">reply</span>Antworten</button>' : ""}
       ${m.text ? '<button data-c="copy"><span class="ms">content_copy</span>Text kopieren</button>' : ""}
-      ${un && IDA ? '<button data-c="ida"><span class="ms">auto_awesome</span>An Ida schicken</button>' : ""}</div></div>`;
+      ${!m.pending && (m.text || m.files.length) ? '<button data-c="fwd"><span class="ms">forward</span>Weiterleiten</button>' : ""}
+      ${un && IDA ? '<button data-c="ida"><span class="ms">auto_awesome</span>An Ida schicken</button>' : ""}
+      ${m.files[0] ? '<button data-c="open"><span class="ms">open_in_new</span>Datei öffnen</button>' : ""}</div></div>`;
   } else d.innerHTML = `<div class="ctx-back"></div><div class="ctx-stack ${m.mine ? "me" : ""}">
     ${m.pending || m.deleted ? "" : `<div class="ctx-rx">${QUICK.map(emo).join("")}<button class="emo plus" data-c="more" aria-label="Mehr"><span class="ms">add</span></button></div>
     <div class="ctx-more" hidden>${MORE.map(emo).join("")}</div>`}
@@ -1610,7 +1664,7 @@ function menu(m) {
   addEventListener("resize", onRs);
   buzz(20);
 }
-// „An Ida schicken“: die Nachricht mit dem Chat und bis zu 8 Nachrichten davor geht sofort an Ida (chats/app/ida.py → /ida/forward)
+// „An Ida schicken“: sofort in den Ida-Chat wechseln, Platzhalter mit Lade-Animation zeigen, dann Nachricht + Verlauf schicken (chats/app/ida.py → /ida/forward)
 function lineOf(x) {
   const f = x.deleted ? x.was : x, files = (f?.files || []).map((a) => a.transcript ? `[Sprachnachricht: ${a.transcript}]` : `[${{ image: "Bild", video: "Video", audio: "Audio" }[a.kind] || "Datei"}${a.name ? ` ${a.name}` : ""}]`);
   const links = (x.links || []).filter((l) => l.title).map((l) => `[Link: ${l.title}]`);
@@ -1619,12 +1673,22 @@ function lineOf(x) {
 async function toIda(m) {
   const c = cur(), src = m.chat ? known(m.chat) || { id: m.chat } : c, i = S.msgs.indexOf(m);
   const before = S.msgs.slice(Math.max(0, i - 8), Math.max(0, i)).filter((x) => !x.pending && !x.typing && (!m.chat || x.chat === m.chat)).map(lineOf);
-  const body = { chat_id: cid(m), title: clean(c?.title || src?.title || ""), network: netName(src?.network || c?.network), group: c?.type === "group",
-    message: lineOf(m), before };
-  if (m.chat) body.chat_id = m.chat;
-  toast("Geht an Ida …");
-  try { await api("/ida/forward", { method: "POST", body: JSON.stringify(body) }); toast("An Ida geschickt – antippen zum Öffnen", () => go("ida")); loadIda(); }
-  catch (e) { toast(`Ging nicht an Ida: ${e.message}`); }
+  const msg = lineOf(m), chatTitle = clean(c?.title || src?.title || ""), net = netName(src?.network || c?.network);
+  const body = { chat_id: m.chat || cid(m), title: chatTitle, network: net, group: c?.type === "group", message: msg, before };
+  const headTxt = `↪ Aus dem Chat „${chatTitle || "Chat"}“${net ? ` (${net}` + (c?.type === "group" ? ", Gruppe" : "") + ")" : ""}`;
+  const whoTxt = msg.mine ? "Ich" : msg.who || chatTitle || "Jemand";
+  const tmp = { id: `tmp-fwd-${Date.now()}`, text: `${headTxt} – ${whoTxt}:\n\n${msg.text || "(ohne Text)"}`, mine: true, pending: true, pendingFwd: true, ida_kind: "forward", at: new Date().toISOString(), files: [], type: "TEXT", sender: "" };
+  go("ida");
+  if (!S.msgs.some((x) => x.id === tmp.id)) { S.msgs.push(tmp); drawMsgs({ stick: true }); }
+  try {
+    await api("/ida/forward", { method: "POST", body: JSON.stringify(body) });
+    tmp.pendingFwd = false;
+    loadMsgs({ quiet: true }); loadIda();
+  } catch (e) {
+    S.msgs = S.msgs.filter((x) => x !== tmp);
+    if (S.id === "ida") drawMsgs();
+    toast(`Ging nicht an Ida: ${e.message}`);
+  }
 }
 // Nachrichten-Info: wann gesendet, über welches Netzwerk und wer sie wann gelesen hat (statt "Gelesen von …" im Chat)
 function msgInfo(m) {
@@ -1823,7 +1887,12 @@ function chatPick({ title, verb, tail = "", skip = new Set(), multi = false, fro
   const picks = new Map();   // Mehrfachauswahl (Zusammenführen): bleibt auch beim Suchen erhalten
   const on = (c) => (multi ? picks.has(c.id) : pick?.id === c.id);
   const keep = (l) => collapse(l).filter((c) => !skip.has(c.id) && !(c.merged || []).some((x) => skip.has(x.id)));
-  const base = () => { const ids = new Set(PINS.map((p) => p.id)); return keep([...PINS, ...S.chats.filter((c) => !ids.has(c.id))]); };
+  const base = () => {
+    const raw = [...PINS.map((p) => known(p.id) || p), ...S.chats, ...extraRows(), ...UNTIS.teachers];
+    const seenIds = new Set(), uniq = [];
+    for (const c of raw) if (c && !seenIds.has(c.id)) { seenIds.add(c.id); uniq.push(c); }
+    return keep(uniq);
+  };
   const draw = () => {
     list.innerHTML = items.length ? items.map((c) => `<button class="fwd-row ${on(c) ? "on" : ""}" data-id="${esc(c.id)}">${pickAv(c)}
       <span class="fwd-t">${esc(clean(c.title))}<small>${esc(pickSub(c))}</small></span>${tick(on(c))}</button>`).join("")
@@ -1843,7 +1912,15 @@ function chatPick({ title, verb, tail = "", skip = new Set(), multi = false, fro
     const q = inp.value.trim(), lq = q.toLowerCase(), n = ++seq;
     items = q ? base().filter((c) => clean(c.title).toLowerCase().includes(lq)) : base(); draw();
     if (q) t = setTimeout(async () => {   // auch Chats finden, die gerade nicht in der Liste stehen
-      try { const r = await api(`/chats?${new URLSearchParams({ q, inbox: "" })}`); if (n === seq && $("#ctx") === d) { items = keep(r.items); draw(); } } catch { /* dann bleibt der lokale Treffer */ }
+      try {
+        const r = await api(`/chats?${new URLSearchParams({ q, inbox: "" })}`);
+        if (n === seq && $("#ctx") === d) {
+          const loc = base().filter((c) => clean(c.title).toLowerCase().includes(lq));
+          const ids = new Set(r.items.map((x) => x.id));
+          items = keep([...r.items, ...loc.filter((x) => !ids.has(x.id))]);
+          draw();
+        }
+      } catch { /* dann bleibt der lokale Treffer */ }
     }, 350);
   });
   d.addEventListener("click", async (e) => {

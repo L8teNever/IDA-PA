@@ -5,24 +5,39 @@ notify_user, Antworten anderer Agenten) – sie stehen im selben Verlauf und mel
 
 Die Routen hängen vor denen von api.py: /chats/ida/... landet hier, alle anderen Chats gehen wie bisher an Beeper. Siehe docs/CHATS.md."""
 import asyncio
+import base64
 import json
 import logging
+import mimetypes
 import re
 import time
 
 import httpx
-from fastapi import APIRouter, HTTPException, Response
+from fastapi import APIRouter, File, Form, HTTPException, Request, Response, UploadFile
 from pydantic import BaseModel, Field
 
 from . import bus, push
+from .api import bytes_response
 from .config import get_settings
 
 log = logging.getLogger("chats.ida")
 router = APIRouter(prefix="/api/v1", tags=["ida"])
 IDA = "ida"   # Chat-ID in der App (Beeper-IDs sehen ganz anders aus: "!…:beeper.local")
+PREFIX = "ida:"
+FILE_ID = re.compile(r"^[A-Za-z0-9_-]{4,64}$")
+OPT_RE = re.compile(r"\[(?:OPTIONEN|BUTTONS|AUSWAHL)\s*:\s*([^\]]+)\]", re.I)
 _c: httpx.AsyncClient | None = None
 _agent: dict = {"t": 0.0, "v": None}
 _running: dict[str, float] = {}   # läuft gerade eine Antwort? (seit wann)
+
+CHAT_HINT = (
+    "\n\n[Hinweis für dich: Falls dir zu genannten Personen, Gruppen, Lehrkräften oder Themen Kontext fehlt, "
+    "schau selbstständig in deinem Gedächtnis (memory_search) und im Wiki (wiki_search, wiki_read) nach, ohne zu fragen. "
+    "Speichere neue wichtige Erkenntnisse über Personen, Pläne oder Vorlieben im Gedächtnis (memory_save) bzw. Wiki (wiki_memory_save). "
+    "Wenn es um einen Termin oder eine Verabredung geht, prüfe den Kalender (calendar_events / calendar_conflicts) und trage ihn ein oder frag kurz nach. "
+    "Wenn du Simon eine Rückfrage stellst oder eine Auswahl anbietest, hänge ganz am Ende deiner Antwort "
+    "[OPTIONEN: Ja, eintragen | Nein] (oder passende kurze Knöpfe, getrennt durch |) an, damit er direkt tippen kann.]"
+)
 
 
 def enabled() -> bool:
@@ -64,6 +79,17 @@ def chat_id() -> str:
     return push._kv("ida_chat")
 
 
+def custom_avatar() -> tuple[bytes, str] | None:
+    raw = push._kv("ida_avatar")
+    if not raw:
+        return None
+    try:
+        d = json.loads(raw)
+        return base64.b64decode(d["data"]), d.get("mime") or "image/png"
+    except (ValueError, KeyError):
+        return None
+
+
 # ---------------- Text: Idas Markdown wird lesbarer Klartext (die App zeigt keine Formatierung) ----------------
 def plain(t: str) -> str:
     t = re.sub(r"```[a-z]*\n?", "", t or "")
@@ -73,6 +99,42 @@ def plain(t: str) -> str:
     t = re.sub(r"\[([^\]\n]+)\]\((https?://[^)\s]+)\)", lambda m: m[2] if m[1] == m[2] else f"{m[1]} ({m[2]})", t)
     t = re.sub(r"^(\s*)[-*]\s+", r"\1• ", t, flags=re.M)
     return re.sub(r"\n{3,}", "\n\n", t).strip()
+
+
+def _clean_user_text(t: str) -> str:
+    t = (t or "").strip()
+    if CHAT_HINT.strip() in t:
+        t = t.replace(CHAT_HINT, "").replace(CHAT_HINT.strip(), "").strip()
+    t = re.sub(r"\n*\[Hinweis für dich:[\s\S]*$", "", t).strip()
+    if t.startswith("↪ Aus dem Chat ") and "\n\n— Kontext für dich —" in t:
+        t = t.split("\n\n— Kontext für dich —", 1)[0].strip()
+    return t
+
+
+def _extract_options(t: str) -> tuple[str, list[str]]:
+    opts: list[str] = []
+    for m in OPT_RE.finditer(t or ""):
+        for part in m[1].split("|"):
+            p = part.strip().strip("„“\"'")[:60]
+            if p and p not in opts:
+                opts.append(p)
+    cleaned = OPT_RE.sub("", t or "").strip()
+    if not opts and cleaned.endswith("?"):
+        last_line = cleaned.rsplit("\n", 1)[-1].lower()
+        if any(w in last_line for w in ("soll ich", "möchtest du", "willst du", "eintragen", "anlegen", "speichern", "einrichten", "bestätigen", "passen")):
+            opts = ["Ja", "Nein"]
+    return cleaned, opts[:4]
+
+
+def _file_entry(f: dict) -> dict | None:
+    fid = str(f.get("id") or "")
+    if not FILE_ID.match(fid):
+        return None
+    name = (f.get("name") or "Datei")[:200]
+    mime = f.get("mime") or mimetypes.guess_type(name)[0] or "application/octet-stream"
+    kind = "image" if mime.startswith("image/") else "video" if mime.startswith("video/") else "audio" if mime.startswith("audio/") else "file"
+    return {"src": PREFIX + fid, "kind": kind, "mime": mime, "name": name, "size": int(f.get("size") or 0),
+            "duration": 0, "w": None, "h": None, "transcript": "", "sticker": False, "gif": mime == "image/gif", "poster": ""}
 
 
 def _msg(mid: str, at: str, text: str, mine: bool, sender: str, **extra) -> dict:
@@ -104,11 +166,27 @@ async def history() -> tuple[list[dict], bool]:
         raise
     name = (await agent()).get("name") or "Ida"
     out = []
+    last_kind = "chat"
     for m in (d.get("messages") or [])[-150:]:
-        if m.get("role") not in ("user", "assistant") or not (m.get("text") or "").strip():
+        if m.get("role") not in ("user", "assistant"):
             continue
         mine = m["role"] == "user"
-        out.append(_msg(f"c{m['id']}", _z(m.get("at")), (m.get("text") or "").strip() if mine else plain(m["text"]), mine, "" if mine else name))
+        raw_files = ((m.get("meta") or {}).get("files") or []) if isinstance(m.get("meta"), dict) else []
+        files = [x for f in raw_files if isinstance(f, dict) and (x := _file_entry(f))]
+        raw_text = (m.get("text") or "").strip()
+        if not raw_text and not files:
+            continue
+        if mine:
+            text = _clean_user_text(raw_text)
+            is_fwd = text.startswith("↪ Aus dem Chat ")
+            kind = "forward" if is_fwd else "chat"
+            last_kind = kind
+            opts: list[str] = []
+        else:
+            text, opts = _extract_options(plain(raw_text))
+            kind = last_kind
+        out.append(_msg(f"c{m['id']}", _z(m.get("at")), text, mine, "" if mine else name,
+                        ida_kind=kind, files=files, type="MEDIA" if files else "TEXT", **({"options": opts} if opts else {})))
     return out, bool(d.get("running"))
 
 
@@ -119,9 +197,10 @@ async def notices(limit: int = 60) -> tuple[list[dict], int]:
 
 
 def notice_msg(n: dict) -> dict:
-    title, text = (n.get("title") or "").strip(), plain(n.get("text") or "")
-    return _msg(f"n{n['id']}", _z(n.get("at")), f"{title}\n{text}" if title and title not in text else text, False, n.get("from_name") or "Ida",
-                notice=True)
+    title, raw = (n.get("title") or "").strip(), plain(n.get("text") or "")
+    text, opts = _extract_options(f"{title}\n{raw}" if title and title not in raw else raw)
+    return _msg(f"n{n['id']}", _z(n.get("at")), text, False, n.get("from_name") or "Ida",
+                notice=True, ida_kind="notice", **({"options": opts} if opts else {}))
 
 
 # ---------------- Ungelesen: Meldungen ungelesen im Postfach + Antworten nach dem letzten Lesen ----------------
@@ -138,9 +217,10 @@ async def row() -> dict:
     seen = seen_at()
     unread = unread_n + sum(1 for m in msgs if not m["mine"] and m["at"] > seen)
     last = all_[-1] if all_ else None
+    last_txt = (last["text"] or (f"📎 {last['files'][0]['name']}" if last.get("files") else "")) if last else ""
     return {"id": IDA, "title": a.get("name") or "Ida", "network": "ida", "type": "single", "ida": True, "unread": unread, "running": running,
-            "at": last["at"] if last else "", "muted": False,
-            "last": {"text": re.sub(r"\s+", " ", last["text"])[:140], "mine": last["mine"], "sender": "", "at": last["at"]} if last else None}
+            "at": last["at"] if last else "", "muted": push.muted(IDA),
+            "last": {"text": re.sub(r"\s+", " ", last_txt)[:140], "mine": last["mine"], "sender": "", "at": last["at"]} if last else None}
 
 
 @router.get("/ida")
@@ -182,11 +262,15 @@ async def ida_about():
     a = await agent()
     return {"chats": [{"id": IDA, "title": a.get("name") or "Ida", "network": "ida", "group": False, "people": [],
                        "about": a.get("description") or "Deine persönliche Assistentin in IDA", "ida": True,
+                       "custom_avatar": custom_avatar() is not None,
                        "ida_url": "https://ida.kulbarts.com" + (f"/chats/{chat_id()}" if chat_id() else "")}]}
 
 
 @router.get(f"/avatar/{IDA}")
 async def ida_avatar():
+    if custom := custom_avatar():
+        return Response(custom[0], media_type=custom[1],
+                        headers={"cache-control": "private, no-cache", "x-content-type-options": "nosniff"})
     try:
         a = await agent()
         if a.get("avatar"):
@@ -199,6 +283,71 @@ async def ida_avatar():
     return Response(status_code=404, headers={"cache-control": "private, max-age=600"})
 
 
+@router.put(f"/avatar/{IDA}")
+async def put_ida_avatar(file: UploadFile = File(...)):
+    data = await file.read(5 * 1024 * 1024 + 1)
+    if not data or len(data) > 5 * 1024 * 1024:
+        raise HTTPException(400, "Bild fehlt oder ist größer als 5 MB")
+    mime = file.content_type if file.content_type in ("image/png", "image/jpeg", "image/webp", "image/gif") else "image/png"
+    push._kv_set("ida_avatar", json.dumps({"mime": mime, "data": base64.b64encode(data).decode()}))
+    bus.publish({"type": "list"})
+    return {"ok": True}
+
+
+@router.delete(f"/avatar/{IDA}")
+async def delete_ida_avatar():
+    push._kv_set("ida_avatar", "")
+    bus.publish({"type": "list"})
+    return {"ok": True}
+
+
+# ---------------- Dateien im Ida-Chat (Upload & Anzeige) ----------------
+async def file_bytes(src: str) -> bytes:
+    fid = src.removeprefix(PREFIX)
+    if not FILE_ID.match(fid):
+        raise HTTPException(400, "Ungültige Datei-ID")
+    try:
+        r = await client().get(f"/api/v1/files/{fid}", timeout=60)
+    except httpx.HTTPError as e:
+        raise HTTPException(502, f"Ida nicht erreichbar: {e.__class__.__name__}") from e
+    if r.status_code >= 400:
+        raise HTTPException(404 if r.status_code == 404 else 502, "Datei in IDA nicht gefunden")
+    return r.content
+
+
+@router.get("/ida/file")
+async def ida_file(request: Request, src: str, mime: str = "", name: str = ""):
+    if not src.startswith(PREFIX):
+        raise HTTPException(400, "Ungültige Quelle")
+    data = await file_bytes(src)
+    ctype = mime if re.match(r"^[\w.+-]+/[\w.+-]+$", mime or "") else (mimetypes.guess_type(name)[0] if name else None) or "application/octet-stream"
+    return bytes_response(request, data, ctype, re.sub(r"[\x00-\x1f\\/]", "_", name)[:200])
+
+
+@router.post(f"/chats/{IDA}/upload")
+async def ida_upload(file: UploadFile = File(...), caption: str = Form(""), reply_to: str = Form(""),
+                     voice: str = Form(""), duration: str = Form(""), mime: str = Form("")):
+    if not enabled():
+        raise HTTPException(404, "Ida ist hier nicht verbunden")
+    data = await file.read(25 * 1024 * 1024 + 1)
+    if not data:
+        raise HTTPException(400, "Leere Datei")
+    if len(data) > 25 * 1024 * 1024:
+        raise HTTPException(413, "Datei zu groß (max. 25 MB)")
+    fname = (file.filename or "datei")[:200]
+    ctype = (mime or file.content_type or mimetypes.guess_type(fname)[0] or "application/octet-stream").split(";")[0].strip()
+    try:
+        r = await client().post("/api/v1/uploads", params={"any": "true"}, files={"file": (fname, data, ctype)}, timeout=60)
+    except httpx.HTTPError as e:
+        raise HTTPException(502, f"Ida nicht erreichbar: {e.__class__.__name__}") from e
+    if r.status_code >= 400:
+        raise HTTPException(502 if r.status_code >= 500 else r.status_code, f"Ida-Upload: {r.text[:200]}")
+    info = r.json()
+    text = caption.strip() or f"Datei: {fname}"
+    await start(text, files=[info["id"]])
+    return {"ok": True, "file": info}
+
+
 # ---------------- Senden: an den IDA-Chat; die Antwort läuft in IDA weiter, auch wenn die App zu ist ----------------
 class IdaSend(BaseModel):
     text: str = Field(max_length=20_000)
@@ -206,10 +355,13 @@ class IdaSend(BaseModel):
     mentions: list = Field(default_factory=list)
 
 
-async def start(text: str) -> None:
+async def start(text: str, files: list[str] | None = None, with_hint: bool = True) -> None:
     """Schickt den Text an Ida und kehrt zurück, sobald IDA die Nachricht angenommen hat; die Antwort verfolgt follow()."""
     cid = chat_id()
-    body = {"chat_id": cid, "text": text} if cid else {"agent_id": (await agent())["id"], "text": text}
+    full_text = text + (CHAT_HINT if with_hint and CHAT_HINT not in text else "")
+    body: dict = {"chat_id": cid, "text": full_text} if cid else {"agent_id": (await agent())["id"], "text": full_text}
+    if files:
+        body["files"] = files
     req = client().build_request("POST", "/api/v1/chat", json=body, timeout=httpx.Timeout(20, read=None))
     try:
         r = await client().send(req, stream=True)
@@ -220,7 +372,7 @@ async def start(text: str) -> None:
         await r.aclose()
         if r.status_code == 404 and cid:   # Chat in IDA gelöscht: einmal mit neuem Chat
             push._kv_set("ida_chat", "")
-            return await start(text)
+            return await start(text, files=files, with_hint=with_hint)
         raise HTTPException(502, f"Ida: {detail}")
     lines = r.aiter_lines()
     try:
@@ -307,7 +459,13 @@ def forward_text(f: Forward) -> str:
     out = [f"↪ Aus dem Chat „{f.title or f.chat_id}“{net}{' (Gruppe)' if f.group else ''}:", "", _line(f.message)]
     if f.note.strip():
         out += ["", f.note.strip()]
-    out += ["", "— Kontext für dich —", f"Beeper-Chat-ID: {f.chat_id}"]
+    out += [
+        "",
+        "— Kontext für dich —",
+        f"Chat-ID: {f.chat_id}",
+        "Wichtig: Schau bei unbekannten Personen, Gruppen, Lehrkräften oder Themen zuerst in deinem Gedächtnis (memory_search) und im Wiki (wiki_search, wiki_read) nach und speichere wichtige neue Infos dort (memory_save, wiki_memory_save). "
+        "Geht es um einen Termin oder eine Frist, prüfe direkt den Kalender (calendar_events / calendar_conflicts) und trage ihn ein oder frag kurz nach (mit [OPTIONEN: Ja, eintragen | Nein] am Ende).",
+    ]
     if f.before:
         out += ["Nachrichten davor:", *(_line(x) for x in f.before)]
     return "\n".join(out)
@@ -328,23 +486,18 @@ async def loop() -> None:
     while True:
         wait = 20 if bus.count() else 60
         try:
-            ns, _ = await notices(10)
-            fresh = [n for n in ns if _z(n.get("at")) > last] if last else []
-            if ns:
-                newest = max(_z(n.get("at")) for n in ns)
-                if newest != last:
-                    last = newest
-                    push._kv_set("ida_notice", last)
-            if fresh:
-                bus.publish({"type": "chat", "id": IDA, "title": "Ida", "new": True})
-                if push.has_subs() and not push.muted(IDA) and not bus.count():
-                    n = fresh[0]   # die neueste; mehrere: Zahl dazu
-                    m = notice_msg(n)
-                    push.new_note(IDA)
-                    await push.send({"chat": IDA, "from": IDA, "title": n.get("from_name") or "Ida",
-                                     "body": re.sub(r"\s+", " ", m["text"])[:300] + (f" (+{len(fresh) - 1} weitere)" if len(fresh) > 1 else ""),
-                                     "unread": len(fresh), "at": m["at"], "av": IDA})
-        except Exception as e:  # noqa: BLE001 – darf nie sterben
+            items, _ = await notices(10)
+            newest = max(( _z(x.get("at")) for x in items ), default="")
+            if newest and newest > last:
+                if last:   # nicht beim allerersten Start alte Meldungen noch mal schicken
+                    bus.publish({"type": "chat", "id": IDA, "title": "Ida", "new": True})
+                    if not bus.count() and push.has_subs() and not push.muted(IDA):
+                        for n in reversed([x for x in items if _z(x.get("at")) > last]):
+                            push.new_note(IDA)
+                            await push.send({"chat": IDA, "from": IDA, "title": (n.get("title") or n.get("from_name") or "Ida")[:120],
+                                             "body": plain(n.get("text") or "")[:300], "unread": 1, "at": _z(n.get("at")), "av": IDA})
+                last = newest
+                push._kv_set("ida_notice", last)
+        except Exception as e:  # noqa: BLE001
             log.debug("Ida-Postfach: %s", e)
-            wait = 120
         await asyncio.sleep(wait)

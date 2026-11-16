@@ -913,3 +913,43 @@ body.setts .ldock { display: none; }
 .untissheet .uschools:empty { display: none; }
 .untissheet .uschools .irow { width: 100%; height: auto; min-height: 56px; padding: 6px 8px; text-align: left; }
 .untissheet .uschools .irow.on .ms { color: var(--primary, #a8c7fa); }
+
+/* WebUntis-Lehrer: Fächer-Chips in der Kontaktinfo */
+.ufachs { display: flex; flex-wrap: wrap; gap: 6px; padding: 6px 8px 10px; }
+.ufach { display: inline-flex; align-items: center; gap: 6px; padding: 5px 11px; border-radius: 14px; background: var(--surface-high); font-size: 13px; color: var(--on-surface); }
+.ufach b { font-weight: 600; color: var(--primary, #a8c7fa); }
+.ufach span { color: var(--muted); }
+.ufach.kl { background: color-mix(in srgb, #fbbc04 20%, var(--surface-high)); }
+.ufach.kl b { color: #fdd663; }
+
+/* Ida-Knopf unten in der Übersicht: Punkt bei ungelesenen Nachrichten */
+#idabtn { position: relative; }
+#idabtn.unread::after { content: ""; position: absolute; top: 6px; right: 11px; width: 8px; height: 8px; border-radius: 50%; background: var(--primary, #a8c7fa); box-shadow: 0 0 0 2px #1f1f1f; }
+
+/* Chat „Ida“: 3 deutlich unterscheidbare Nachrichtenarten (1: Mitteilung, 2: Frage/Antwort, 3: Weitergeleitet) */
+.b .ikind-tag { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 600; letter-spacing: .02em; margin-bottom: 5px; padding: 2px 8px 2px 6px; border-radius: 10px; width: fit-content; }
+.b .ikind-tag .ms { font-size: 14px; }
+/* 1) Allgemeine Mitteilungen von Ida (Erinnerungen, andere Agenten, Hinweise): warmer Gold-/Bernstein-Ton */
+.b:not(.me)[data-ikind="notice"] { background: color-mix(in srgb, #fbbc04 16%, var(--surface-high)); border-left: 3px solid #fdd663; }
+.b:not(.me)[data-ikind="notice"] .ikind-tag { background: rgba(253, 214, 99, .18); color: #fdd663; }
+/* 2) Direkte Frage & Antwort im Ida-Chat: klares IDA-Blau */
+.b.me[data-ikind="chat"] { background: #a8c7fa; color: #062e6f; }
+.b:not(.me)[data-ikind="chat"] { background: color-mix(in srgb, #a8c7fa 14%, var(--surface-high)); border-left: 3px solid #a8c7fa; }
+/* 3) „An Ida schicken“ (weitergeleitete Nachricht & Idas Antwort darauf): markantes Violett */
+.b.me[data-ikind="forward"] { background: #d0bcff; color: #381e72; }
+.b.me[data-ikind="forward"] .ikind-tag { background: rgba(56, 30, 114, .14); color: #381e72; }
+.b:not(.me)[data-ikind="forward"] { background: color-mix(in srgb, #d0bcff 18%, var(--surface-high)); border-left: 3px solid #d0bcff; }
+.b:not(.me)[data-ikind="forward"] .ikind-tag { background: rgba(208, 188, 255, .18); color: #d0bcff; }
+/* Ladezustand beim Weiterleiten an Ida */
+.b.pfwd { opacity: .88; }
+.b .fwd-wait { display: flex; align-items: center; gap: 6px; margin-top: 6px; font-size: 12px; font-weight: 500; opacity: .85; }
+.b .fwd-wait .ms { font-size: 16px; animation: spin .8s linear infinite; }
+
+/* Schnell-Antwortknöpfe unter Idas Nachrichten (z. B. Termin eintragen) */
+.ida-opts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; padding-top: 6px; border-top: 1px solid rgba(255,255,255,.1); }
+.ida-opt { border: 1px solid rgba(168, 199, 250, .45); background: rgba(168, 199, 250, .14); color: var(--on-surface); font: inherit; font-size: 13px; font-weight: 600;
+  padding: 6px 12px; border-radius: 16px; cursor: pointer; transition: background-color .15s, transform .12s; }
+.b[data-ikind="forward"] .ida-opt { border-color: rgba(208, 188, 255, .5); background: rgba(208, 188, 255, .16); }
+.ida-opt:hover { background: rgba(168, 199, 250, .26); }
+.ida-opt:active { transform: scale(.96); }
+

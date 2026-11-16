@@ -44,13 +44,17 @@ class FakeIda:
 
             def do_POST(self):
                 n = int(self.headers.get("content-length") or 0)
-                body = json.loads(self.rfile.read(n) or b"{}")
-                if self.path == "/api/v1/messages/read-all":
+                raw = self.rfile.read(n)
+                p = self.path.split("?")[0]
+                if p == "/api/v1/uploads":
+                    return self._json({"id": "file-1234-abcd", "name": "notiz.txt", "mime": "text/plain", "size": 10})
+                body = json.loads(raw or b"{}")
+                if p == "/api/v1/messages/read-all":
                     outer.read_all += 1
                     for x in outer.inbox:
                         x["read"] = True
                     return self._json({"ok": True})
-                if self.path == "/api/v1/chat":
+                if p == "/api/v1/chat":
                     outer.sent.append(body)
                     out = (json.dumps({"chat": {"id": "c1"}}) + "\n" + json.dumps({"text": "ok"}) + "\n" + json.dumps({"done": {"ok": True}}) + "\n").encode()
                     self.send_response(200)
@@ -105,10 +109,11 @@ def test_ida_verlauf_und_zeile(client, fida):
 def test_ida_senden(client, fida):
     from app import push
     assert client.post(f"{API}/chats/ida/send", json={"text": "Wie spät?"}).json()["ok"]
-    assert fida.sent[-1] == {"agent_id": "ida", "text": "Wie spät?"}   # erster Chat: beim Haupt-Agenten anlegen
+    assert fida.sent[-1]["agent_id"] == "ida" and fida.sent[-1]["text"].startswith("Wie spät?")   # erster Chat: beim Haupt-Agenten anlegen
+    assert "wiki_search" in fida.sent[-1]["text"] and "OPTIONEN:" in fida.sent[-1]["text"]
     assert push._kv("ida_chat") == "c1"
     client.post(f"{API}/chats/ida/send", json={"text": "Danke"})
-    assert fida.sent[-1] == {"chat_id": "c1", "text": "Danke"}   # danach derselbe Chat
+    assert fida.sent[-1]["chat_id"] == "c1" and fida.sent[-1]["text"].startswith("Danke")   # danach derselbe Chat
     assert client.post(f"{API}/chats/ida/send", json={"text": "  "}).status_code == 400
 
 
@@ -118,5 +123,33 @@ def test_an_ida_schicken(client, fida):
     assert client.post(f"{API}/ida/forward", json=body).json()["ok"]
     t = fida.sent[-1]["text"]
     assert t.startswith("↪ Aus dem Chat „Moro“ über Snapchat:") and "[2026-11-16 14:03] Moro: Kommst du morgen?" in t
-    assert "Beeper-Chat-ID: !abc:beeper.local" in t and "[2026-11-16 14:01] Simon: Hey" in t
+    assert "Chat-ID: !abc:beeper.local" in t and "[2026-11-16 14:01] Simon: Hey" in t
+    assert "wiki_search" in t and "OPTIONEN:" in t
     time.sleep(0.1)
+
+
+def test_ida_kinds_optionen_und_dateien(client, fida):
+    from app import push
+    push._kv_set("ida_chat", "c1")
+    fida.chat["messages"] = [
+        {"id": "m1", "role": "user", "text": "Hi Ida\n\n[Hinweis für dich: ...]", "at": "2026-11-16T10:00:00"},
+        {"id": "m2", "role": "assistant", "text": "Hallo!", "at": "2026-11-16T10:00:05"},
+        {"id": "m3", "role": "user", "text": "↪ Aus dem Chat „Moro“ über Snapchat:\n\n[2026-11-16 14:03] Moro: Treffen um 16 Uhr?\n\n— Kontext für dich —\nChat-ID: x", "at": "2026-11-16T10:01:00"},
+        {"id": "m4", "role": "assistant", "text": "Soll ich den Termin um 16 Uhr eintragen?\n[OPTIONEN: Ja, eintragen | Nein]", "at": "2026-11-16T10:01:05"},
+    ]
+    d = client.get(f"{API}/chats/ida/messages").json()
+    by_id = {m["id"]: m for m in d["items"]}
+    assert by_id["cm1"]["ida_kind"] == "chat" and by_id["cm1"]["text"] == "Hi Ida"
+    assert by_id["cm2"]["ida_kind"] == "chat"
+    assert by_id["cm3"]["ida_kind"] == "forward" and "Kontext für dich" not in by_id["cm3"]["text"]
+    assert by_id["cm4"]["ida_kind"] == "forward" and by_id["cm4"]["options"] == ["Ja, eintragen", "Nein"]
+    assert "[OPTIONEN:" not in by_id["cm4"]["text"]
+    assert by_id["nn1"]["ida_kind"] == "notice"
+    # Datei hochladen & abrufen
+    r = client.post(f"{API}/chats/ida/upload", files={"file": ("notiz.txt", b"Hallo Welt", "text/plain")}, data={"caption": "Lies das"})
+    assert r.json()["ok"] and fida.sent[-1]["files"] == ["file-1234-abcd"]
+    # Eigenes Profilbild für Ida
+    assert client.put(f"{API}/avatar/ida", files={"file": ("av.png", b"\x89PNG\r\n\x1a\n1234", "image/png")}).json()["ok"]
+    assert client.get(f"{API}/avatar/ida").status_code == 200
+    assert client.delete(f"{API}/avatar/ida").json()["ok"]
+

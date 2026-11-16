@@ -10,12 +10,17 @@ Schnittstellen (die gleichen, die die WebUntis-Webseite selbst nutzt – aus ihr
   Lehrkräfte  GET  api/rest/view/v1/messages/recipients/static/teachers
   Neu         POST api/rest/view/v2/messages                multipart, Teil "request": {subject, content, recipientOption, recipientPersonIds, …}
   Antworten   POST api/rest/view/v2/messages/{id}/reply     multipart, Teil "request": {subject, content}
+              (Dateien beim Senden/Antworten: weitere Teile "attachments")
+  Anhänge     in der ganzen Nachricht (und replyHistory): storageAttachments [{id, name}] →
+              GET api/rest/view/v1/messages/{id}/attachmentstorageurl → {downloadUrl, additionalHeaders} (S3, Header mitschicken);
+              blobAttachment {name} → GET api/rest/view/v1/messages/{nachricht}/attachment; attachments = OneDrive-Links
 Siehe docs/CHATS.md."""
 import asyncio
 import base64
 import html
 import json
 import logging
+import mimetypes
 import re
 import time
 import unicodedata
@@ -23,11 +28,11 @@ from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
 import httpx
-from fastapi import APIRouter, HTTPException, Response
+from fastapi import APIRouter, File, Form, HTTPException, Request, Response, UploadFile
 from pydantic import BaseModel, Field
 
 from . import bus, push
-from .api import plain
+from .api import bytes_response, plain
 
 log = logging.getLogger("chats.untis")
 router = APIRouter(prefix="/api/v1", tags=["untis"])
@@ -167,6 +172,22 @@ async def rest(method: str, path: str, *, retry: bool = True, **kw) -> dict | li
         return {}
 
 
+async def rest_raw(path: str, retry: bool = True) -> bytes:
+    """Wie rest(), aber die rohen Bytes (Dateien)."""
+    s = await session()
+    h = {"authorization": f"Bearer {s.jwt}", **({"tenant-id": s.tenant} if s.tenant else {})}
+    try:
+        r = await s.c.get(f"{s.base}/api/rest/view/{path}", headers=h, timeout=120)
+    except httpx.HTTPError as e:
+        raise HTTPException(502, f"WebUntis nicht erreichbar: {e.__class__.__name__}") from e
+    if r.status_code in (401, 403) and retry:
+        await session(fresh=True)
+        return await rest_raw(path, retry=False)
+    if r.status_code >= 400:
+        raise HTTPException(404 if r.status_code == 404 else 502, f"WebUntis: Datei nicht abrufbar (HTTP {r.status_code})")
+    return r.content
+
+
 # ---------------- Daten: Postfach, Gesendet, einzelne Nachrichten ----------------
 _cache: dict[str, tuple[float, object]] = {}
 _detail: dict[int, dict] = {}     # Nachricht → Inhalt (ändert sich nicht; nur gesehene / gesendete)
@@ -234,17 +255,51 @@ def key_of(name: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", n).strip("-")[:80] or "unbekannt"
 
 
-def _people(x, out: list) -> None:
+def _people(x, out: list, group_type: str = "") -> None:
     """Alle Personen aus einer Antwort, egal wie verschachtelt (Gruppen mit persons/recipients)."""
     if isinstance(x, list):
         for y in x:
-            _people(y, out)
+            _people(y, out, group_type)
     elif isinstance(x, dict):
+        gt = x.get("type") if isinstance(x.get("teachers"), list) else group_type
         if x.get("displayName") and any(x.get(k) for k in ("personId", "id", "userId")) and x.get("type") != "GROUP":
-            out.append(x)
-        for k in ("persons", "recipients", "groupRecipients", "data", "items", "users"):
+            out.append({**x, "_gt": gt})
+        for k in ("teachers", "persons", "recipients", "groupRecipients", "data", "items", "users"):
             if k in x:
-                _people(x[k], out)
+                _people(x[k], out, gt)
+
+
+async def subjects() -> dict[str, str]:
+    """Kürzel → voller Fachname aus WebUntis (z. B. AT → Angewandte Technik)."""
+    async def get():
+        s = await session()
+        cr = creds() or {}
+        try:
+            r = await s.c.post(f"{s.base}/jsonrpc.do", params={"school": cr.get("school", "")},
+                               json={"id": "sub", "method": "getSubjects", "params": {}, "jsonrpc": "2.0"})
+            res = (r.json() if r.status_code == 200 else {}).get("result") or []
+        except (httpx.HTTPError, ValueError):
+            res = []
+        return {str(x["name"]).strip(): str(x.get("longName") or "").strip() for x in res if isinstance(x, dict) and x.get("name")}
+    return await cached("subjects", 86400, get)
+
+
+def _format_tags(tags: list[str], smap: dict[str, str]) -> list[str]:
+    out = []
+    for raw in tags:
+        t = str(raw or "").strip()
+        if not t:
+            continue
+        if t == "KL":
+            out.append("KL (Klassenlehrkraft)")
+            continue
+        base, _, rest = t.partition(" ")
+        long = smap.get(t) or smap.get(base)
+        if long and long.lower() != base.lower():
+            out.append(f"{t} ({long})" if not rest else f"{base} ({long}) {rest}")
+        else:
+            out.append(t)
+    return out
 
 
 async def teachers() -> list[dict]:
@@ -257,11 +312,22 @@ async def teachers() -> list[dict]:
                 continue
             if raw:
                 break
+        smap = await subjects()
         out: dict[str, dict] = {}
         for p in raw:
             k = key_of(p["displayName"])
-            out.setdefault(k, {"key": k, "name": p["displayName"].strip(), "pid": p.get("personId") or p.get("id") or p.get("userId"),
-                               "sub": p.get("subtitle") or p.get("className") or ""})
+            tags = [str(x).strip() for x in p.get("tags") or [] if str(x).strip()]
+            e = out.setdefault(k, {"key": k, "name": p["displayName"].strip(), "pid": p.get("personId") or p.get("id") or p.get("userId"),
+                                   "sub": p.get("subtitle") or p.get("className") or "", "tags": [], "subjects": [], "class_teacher": False})
+            for tg in tags:
+                if tg not in e["tags"]:
+                    e["tags"].append(tg)
+            if p.get("_gt") == "CLASS_TEACHERS" or "KL" in tags:
+                e["class_teacher"] = True
+        for e in out.values():
+            e["subjects"] = _format_tags(e["tags"], smap)
+            if not e["sub"] and e["tags"]:
+                e["sub"] = ", ".join(e["tags"])
         return sorted(out.values(), key=lambda t: t["name"].lower())
     return await cached("teachers", 3600, get)
 
@@ -299,19 +365,50 @@ def _content(m: dict) -> str:
     return html.unescape(t).strip()
 
 
-def _text(m: dict, with_subject: bool = True) -> str:
+STORAGE_ID = re.compile(r"^[A-Za-z0-9-]{8,80}$")
+
+
+def _kind(mime: str) -> str:
+    return next((k for k in ("image", "video", "audio") if mime.startswith(k + "/")), "file")
+
+
+def _file(src: str, name: str) -> dict:
+    name = (name or "Datei").strip()[:200]
+    mime = mimetypes.guess_type(name)[0] or "application/octet-stream"
+    return {"src": src, "kind": _kind(mime), "mime": mime, "name": name, "size": 0, "duration": 0, "w": None, "h": None,
+            "transcript": "", "sticker": False, "gif": mime == "image/gif", "poster": ""}
+
+
+def _files(m: dict) -> tuple[list[dict], list[dict]]:
+    """Anhänge einer ganzen Nachricht → (Dateien zum Anzeigen, OneDrive-Links)."""
+    files = [_file(f"untis:s:{a['id']}", a.get("name") or "") for a in m.get("storageAttachments") or []
+             if isinstance(a, dict) and STORAGE_ID.match(str(a.get("id") or ""))]
+    b = m.get("blobAttachment")
+    if isinstance(b, dict) and m.get("id"):
+        files.append(_file(f"untis:b:{int(m['id'])}", b.get("name") or ""))
+    links = []
+    for a in m.get("attachments") or []:
+        u = isinstance(a, dict) and str(a.get("url") or a.get("downloadUrl") or a.get("webUrl") or "")
+        if u and u.lower().startswith("https://"):
+            links.append({"url": u, "title": (a.get("name") or "OneDrive-Datei")[:200], "summary": "OneDrive", "img": "", "w": None, "h": None})
+    return files, links[:3]
+
+
+def _text(m: dict, with_subject: bool = True, known: bool = False) -> str:
     sub, body = (m.get("subject") or "").strip(), _content(m)
     if with_subject and sub and not re.match(r"^(aw|re|antwort)\s*:", sub, re.I) and sub not in body[:len(sub) + 5]:
         body = f"{sub}\n\n{body}" if body else sub
-    if m.get("hasAttachments") or m.get("attachments") or m.get("storageAttachments"):
+    if not known and m.get("hasAttachments"):   # nur die Liste, nicht die ganze Nachricht: Anhang bekannt, aber nicht welcher
         body += "\n📎 Anhang (in WebUntis öffnen)"
     return body.strip()
 
 
 def msg(m: dict, mine: bool, name: str, **extra) -> dict:
-    return {"id": f"u{m['id']}", "at": _when(m), "mine": mine, "sender": "" if mine else name, "sender_id": "", "type": "TEXT",
-            "text": _text(m), "deleted": bool(m.get("isRevoked")), "edited": False, "reply_to": None, "reactions": [], "mentions": [],
-            "at_me": False, "files": [], "links": [], "read_by": [], **extra}
+    files, links = _files(m)
+    known = bool(files or links) or any(k in m for k in ("storageAttachments", "blobAttachment", "attachments"))
+    return {"id": f"u{m['id']}", "at": _when(m), "mine": mine, "sender": "" if mine else name, "sender_id": "", "type": "MEDIA" if files else "TEXT",
+            "text": _text(m, known=known), "deleted": bool(m.get("isRevoked")), "edited": False, "reply_to": None, "reactions": [], "mentions": [],
+            "at_me": False, "files": files, "links": links, "read_by": [], **extra}
 
 
 # ---------------- Chats (Liste) ----------------
@@ -326,7 +423,7 @@ async def rows() -> list[dict]:
         at = _when(m)
         if at >= r["at"]:
             r["at"] = at
-            r["last"] = {"text": re.sub(r"\s+", " ", (m.get("subject") or "") + " – " + (m.get("contentPreview") or _content(m)))[:140].strip(" –"),
+            r["last"] = {"text": (("📎 " if m.get("hasAttachments") else "") + re.sub(r"\s+", " ", (m.get("subject") or "") + " – " + (m.get("contentPreview") or _content(m))))[:140].strip(" –"),
                          "mine": mine, "sender": "", "at": at}
     for m in await inbox():
         if _sender(m):
@@ -496,16 +593,77 @@ async def read(key: str):
     return {"ok": True}
 
 
+async def about_one(key: str) -> dict:
+    _cid(PREFIX + key)
+    t = await teacher(key) if enabled() else None
+    if not t:
+        _, name, _ = await thread(key) if enabled() else ([], key, [])
+    else:
+        name = t["name"]
+    c = creds() or {}
+    subs = (t or {}).get("subjects") or []
+    return {
+        "id": PREFIX + key, "title": name or key, "network": "untis", "group": False, "untis": True,
+        "subjects": subs, "class_teacher": bool((t or {}).get("class_teacher")),
+        "school": c.get("school_name") or c.get("school") or "",
+        "web_url": f"https://{c['server']}/WebUntis/?school={c['school']}#/basic/messages" if c.get("server") and c.get("school") else "",
+        "people": [{"id": str((t or {}).get("pid") or key), "name": name or key, "user": ", ".join(subs), "phone": "", "email": "", "admin": False}],
+    }
+
+
 @router.get("/chats/" + PREFIX + "{key}/about")
 async def about(key: str):
-    _cid(PREFIX + key)
-    t = await teacher(key)
-    return {"chats": [{"id": PREFIX + key, "title": t["name"] if t else key, "network": "untis", "group": False, "people": [], "untis": True}]}
+    return {"chats": [await about_one(key)]}
 
 
 @router.get("/avatar/" + PREFIX + "{key}")
 async def avatar(key: str):
     return Response(status_code=404, headers={"cache-control": "private, max-age=86400"})
+
+
+_blobs: dict[str, bytes] = {}   # zuletzt geholte Anhänge (Bilder werden oft mehrmals geladen)
+BLOB_CACHE = 60 * 1024 * 1024
+
+
+async def file_bytes(src: str) -> bytes:
+    """Bytes eines Untis-Anhangs: untis:s:<speicher-id> oder untis:b:<nachricht>."""
+    if src in _blobs:
+        return _blobs[src]
+    kind, _, ref = src[len(PREFIX):].partition(":")
+    if kind == "s" and STORAGE_ID.match(ref):
+        d = await rest("GET", f"v1/messages/{ref}/attachmentstorageurl")
+        url = isinstance(d, dict) and str(d.get("downloadUrl") or "")
+        if not url or not url.lower().startswith(("https://", "http://")):
+            raise HTTPException(404, "WebUntis: Anhang nicht gefunden")
+        h = {x["key"]: x["value"] for x in d.get("additionalHeaders") or [] if isinstance(x, dict) and x.get("key") and x.get("value") is not None}
+        h.pop("host", None)
+        try:
+            async with httpx.AsyncClient(timeout=120, follow_redirects=True) as c:
+                r = await c.get(url, headers=h)
+        except httpx.HTTPError as e:
+            raise HTTPException(502, f"Anhang nicht erreichbar: {e.__class__.__name__}") from e
+        if r.status_code >= 400:
+            raise HTTPException(502, f"Anhang nicht abrufbar (HTTP {r.status_code})")
+        data = r.content
+    elif kind == "b" and ref.isdigit():
+        data = await rest_raw(f"v1/messages/{int(ref)}/attachment")
+    else:
+        raise HTTPException(400, "Ungültiger Anhang")
+    while _blobs and sum(len(v) for v in _blobs.values()) + len(data) > BLOB_CACHE:
+        _blobs.pop(next(iter(_blobs)))
+    if len(data) <= BLOB_CACHE // 3:
+        _blobs[src] = data
+    return data
+
+
+@router.get("/untis/file")
+async def file(request: Request, src: str, mime: str = "", name: str = ""):
+    """Anhang einer Untis-Nachricht (Bild, PDF, …) – über den Dienst, die App hat keinen WebUntis-Zugang."""
+    if not src.startswith(PREFIX) or len(src) > 120:
+        raise HTTPException(400, "Ungültiger Anhang")
+    data = await file_bytes(src)
+    ctype = mime if re.match(r"^[\w.+-]+/[\w.+-]+$", mime or "") else (mimetypes.guess_type(name)[0] if name else None) or "application/octet-stream"
+    return bytes_response(request, data, ctype, re.sub(r"[\x00-\x1f\\/]", "_", name)[:200])
 
 
 class Send(BaseModel):
@@ -518,8 +676,10 @@ def _html(text: str) -> str:
     return "<p>" + "<br>".join(html.escape(line) for line in text.split("\n")) + "</p>"
 
 
-def _form(req: dict) -> dict:
-    return {"files": {"request": (None, json.dumps(req, ensure_ascii=False).encode(), "application/json")}}
+def _form(req: dict, files: list[tuple[str, bytes, str]] = ()) -> dict:
+    parts = [("request", (None, json.dumps(req, ensure_ascii=False).encode(), "application/json"))]
+    parts += [("attachments", f) for f in files]
+    return {"files": parts}
 
 
 @router.post("/chats/" + PREFIX + "{key}/send")
@@ -528,11 +688,38 @@ async def send(key: str, body: Send):
     text = body.text.strip()
     if not text:
         raise HTTPException(400, "Leere Nachricht")
+    return await deliver(key, text, body.reply_to)
+
+
+UPLOAD_MAX = 50 * 1024 * 1024
+
+
+@router.post("/chats/" + PREFIX + "{key}/upload")
+async def upload(key: str, file: list[UploadFile] = File(...), text: str = Form(""), reply_to: str = Form(""),
+                 voice: bool = Form(False), duration: float = Form(0)):
+    """Datei(en) an die Lehrkraft – als Anhang einer Antwort oder neuen Nachricht (WebUntis nimmt jede Art von Datei)."""
+    _cid(PREFIX + key)
+    files, total = [], 0
+    for f in file[:10]:
+        data = await f.read(UPLOAD_MAX + 1)
+        total += len(data)
+        if total > UPLOAD_MAX:
+            raise HTTPException(413, "Dateien zu groß (zusammen höchstens 50 MB)")
+        if data:
+            name = re.sub(r"[\\/\x00-\x1f]", "_", f.filename or "datei")[:200] or "datei"
+            files.append((name, data, (f.content_type or "application/octet-stream").split(";")[0].strip().lower()))
+    if not files:
+        raise HTTPException(400, "Leere Datei")
+    return await deliver(key, text.strip()[:20_000], reply_to or None, files)
+
+
+async def deliver(key: str, text: str, reply_to: str | None, files: list[tuple[str, bytes, str]] = ()) -> dict:
+    """Antwort auf ihre (letzte oder genannte) Nachricht oder – gibt es keine – neue Nachricht; optional mit Dateien."""
     items, name, got = await thread(key)
     target = None
-    if body.reply_to and re.match(r"^u\d+$", body.reply_to):   # „Antworten“ auf eine bestimmte Nachricht
-        rid = int(body.reply_to[1:])
-        target = next((g for g in got if g["id"] == rid), None) or {"id": rid, "subject": next((m.get("subject") for m in items if m["id"] == body.reply_to), "")}
+    if reply_to and re.match(r"^u\d+$", reply_to):   # „Antworten“ auf eine bestimmte Nachricht
+        rid = int(reply_to[1:])
+        target = next((g for g in got if g["id"] == rid), None) or {"id": rid, "subject": next((m.get("subject") for m in items if m["id"] == reply_to), "")}
     elif got:   # sonst auf ihre letzte Nachricht, wenn sie Antworten erlaubt
         last = max(got, key=_when)
         if last.get("isReplyAllowed", True):
@@ -546,21 +733,21 @@ async def send(key: str, body: Send):
             pass
         if sub and not re.match(r"^(aw|re)\s*:", sub, re.I):
             sub = f"AW: {sub}"
-        await rest("POST", f"v2/messages/{target['id']}/reply", **_form({"subject": sub or "AW:", "content": _html(text)}))
+        await rest("POST", f"v2/messages/{target['id']}/reply", timeout=300, **_form({"subject": sub or "AW:", "content": _html(text) if text else ""}, files))
         how = "reply"
     else:   # noch nichts von ihr: neue Nachricht, Betreff = Anfang des Textes
         t = await teacher(key)
         if not t or not t.get("pid"):
             raise HTTPException(400, f"{name}: in WebUntis nicht als Empfänger erlaubt")
-        first = text.split("\n", 1)[0].strip()
+        first = text.split("\n", 1)[0].strip() or (files[0][0] if files else "")
         sub = first if len(first) <= 80 else first[:77].rstrip() + "…"
-        await rest("POST", "v2/messages", **_form({"subject": sub, "content": _html(text), "recipientOption": "TEACHER",
+        await rest("POST", "v2/messages", timeout=300, **_form({"subject": sub, "content": _html(text) if text else "", "recipientOption": "TEACHER",
                                                      "recipientPersonIds": [t["pid"]], "recipientGroupIds": [], "requestConfirmation": False,
-                                                     "copyToStudent": False, "forbidReply": False}))
+                                                     "copyToStudent": False, "forbidReply": False}, files))
         how = "new"
     _cache.pop("sent", None)
     bus.publish({"type": "chat", "id": PREFIX + key, "title": name, "new": False})
-    return {"ok": True, "how": how}
+    return {"ok": True, "how": how, "files": len(files)}
 
 
 # ---------------- Neue Nachrichten melden ----------------
