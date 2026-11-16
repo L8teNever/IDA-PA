@@ -181,7 +181,10 @@ function prefetchOlder() {
 
 // ---------------- Liste ----------------
 let listSeq = 0;
-async function loadChats({ more = false, quiet = false } = {}) {
+// keep: stilles Auffrischen (live) lässt schon nachgeladene ältere Chats stehen, statt die Liste wieder auf die erste Seite zu kürzen
+let moreBusy = false;
+async function loadChats({ more = false, quiet = false, keep = quiet } = {}) {
+  if (more) { if (moreBusy || !S.next) return; moreBusy = true; }
   const seq = ++listSeq;
   if (!more && !quiet && !S.chats.length) $("#list").innerHTML = '<div class="skel"></div>'.repeat(7);
   try {
@@ -189,11 +192,18 @@ async function loadChats({ more = false, quiet = false } = {}) {
     if (more && S.next) p.set("cursor", S.next);
     const d = await api(`/chats?${p}`);
     if (seq !== listSeq) return;
-    S.chats = more ? S.chats.concat(d.items) : d.items; S.next = d.next;
+    const had = new Set(S.chats.map((c) => c.id)), got = new Set(d.items.map((c) => c.id));
+    if (more) { S.chats = S.chats.concat(d.items.filter((c) => !had.has(c.id))); S.next = d.next; S.paged = true; }
+    else if (keep && S.paged) S.chats = d.items.concat(S.chats.filter((c) => !got.has(c.id)));   // ältere Seiten bleiben, S.next auch
+    else { S.chats = d.items; S.next = d.next; S.paged = false; }
     drawList();
+    if (more) {   // die neu dazugekommenen Zeilen tauchen nacheinander auf
+      const els = [...document.querySelectorAll("#list .row")].filter((el) => !had.has(el.dataset.id) && !had.has(grpOf(el.dataset.id)?.id)).slice(0, 14);
+      els.forEach((el, i) => { el.style.animationDelay = `${i * 28}ms`; el.classList.add("rin"); });
+    }
   } catch (e) {
     if (seq === listSeq && !quiet) $("#list").innerHTML = errBox(e);
-  }
+  } finally { if (more) { moreBusy = false; if (seq !== listSeq && $("#more")) { moreObs.disconnect(); moreObs.observe($("#more")); } } }   // überholt: noch einmal prüfen
 }
 // Gelesen-Markierung: Öffnen allein ändert in Beeper nichts. "Als gelesen markieren" markiert den Chat in Beeper als gelesen (und beim Absender, wenn das Netzwerk das kann).
 // Der lokale Merker sorgt nur dafür, dass der Chat sofort gelesen aussieht, bis Beeper die neue Ungelesen-Zahl liefert.
@@ -567,6 +577,7 @@ function lastLine(c) {   // "Du: …" / in Gruppen "Name: …" / sonst nur der T
   const who = l.mine ? "Du: " : l.sender ? `${clean(l.sender)}: ` : "";
   return `${who ? `<b>${esc(who)}</b>` : ""}${l.text ? esc(clean(l.text)) : "<i>Anhang</i>"}`;
 }
+const moreObs = new IntersectionObserver((es) => { if (es.some((x) => x.isIntersecting)) { moreObs.disconnect(); loadChats({ more: true }); } }, { root: $("#list"), rootMargin: "0px 0px 400px 0px" });
 function drawList() {
   const pinIds = new Set(PINS.map((p) => p.id)), showPins = S.f === "all" && !S.q;
   const pinned = showPins ? collapse(PINS.map((p) => { const c = S.chats.find((x) => x.id === p.id); if (c) c.pinned = true; return c || p; })) : [];
@@ -584,7 +595,8 @@ function drawList() {
       <span class="pav">${avatar(c.title, c.av || c.id)}${left(c) ? `<span class="cnt">${c.unread}</span>` : ""}</span>
       <span class="pname"><span>${esc(clean(c.title))}</span>${isMuted(c.id) ? '<span class="ms">notifications_off</span>' : ""}</span></button>`;
   $("#list").innerHTML = (pinned.length ? `<div class="pins">${pinned.map(tile).join("")}</div>` : "") + rest.map((c) => row(c, false)).join("")
-    + (S.next ? '<button class="more" id="more">Mehr laden</button>' : "");
+    + (S.next ? '<button class="more" id="more" aria-label="Mehr laden"><span class="ms">refresh</span></button>' : "");
+  moreObs.disconnect(); if ($("#more")) moreObs.observe($("#more"));   // kommt das Ende in Sicht, lädt die nächste Seite von selbst
   if (S.id && $(".chead")) refreshReadBar();
 }
 $("#list").addEventListener("click", (e) => {
@@ -638,7 +650,7 @@ function listIn() {   // Auftritt der Liste: Zeile für Zeile, leicht versetzt
   setTimeout(() => els.forEach((el) => { el.classList.remove("rin"); el.style.animationDelay = ""; }), 16 * 28 + 400);
 }
 async function pullReload() {
-  await Promise.all([loadChats({ quiet: true }), loadPins()]);
+  await Promise.all([loadChats({ quiet: true, keep: false }), loadPins()]);
   if (S.id) loadMsgs({ quiet: true });
   drawList(); listIn();
 }
@@ -738,6 +750,7 @@ function refreshReadBar() {
   const ub = $("#unseenBtn"); if (ub) ub.hidden = !!left(c);
 }
 async function openChat() {
+  drawn = { id: null, ids: new Set() };   // auch derselbe Chat noch einmal: Auftritt von vorn
   $("#conv").innerHTML = `${head()}<div class="msgs" id="msgs"><div class="skel"></div><div class="skel"></div></div>
     <div class="dock" id="dock">${readBar(cur())}<div class="fixbar float" id="fixbar" hidden></div><div class="replybar float" id="replybar" hidden></div><form class="composer" id="form">
     <button class="icon-btn attach" id="attachBtn" type="button" aria-label="Anhängen" title="Foto, Video oder Datei"><span class="ms">add</span></button>
@@ -944,6 +957,8 @@ const pinEnd = () => { const b = $("#msgs"); if (b && atBottom) b.scrollTop = b.
 const growth = new ResizeObserver(pinEnd);
 document.fonts?.ready.then(pinEnd);
 let drawn = { id: null, ids: new Set() };
+let cascade = null;   // läuft gerade der Auftritt eines frisch geöffneten Chats? { id, t0 }
+const CAS_N = 16, CAS_STEP = 22;
 function drawMsgs({ stick = false, keepTop = false } = {}) {
   const box = $("#msgs"); if (!box) return;
   ogApply();
@@ -980,8 +995,15 @@ function drawMsgs({ stick = false, keepTop = false } = {}) {
     i = j;
   }
   box.innerHTML = html;
+  // Chat geht auf: die Nachrichten tauchen von unten nach oben nacheinander auf. Kommt währenddessen Frisches und der Verlauf wird
+  // neu gezeichnet, läuft der Auftritt an derselben Stelle weiter (negative Verzögerung) statt neu zu starten oder zu springen.
+  if (drawn.id !== S.id && S.msgs.length && !keepTop) cascade = { id: S.id, t0: performance.now() };
   drawn = { id: S.id, ids: new Set(S.msgs.map((m) => m.id)) };
   for (const m of fresh) document.getElementById(`m-${m.id}`)?.classList.add("in");
+  if (cascade && cascade.id === S.id && performance.now() - cascade.t0 < CAS_N * CAS_STEP + 300) {
+    const gone = performance.now() - cascade.t0;
+    [...box.querySelectorAll(".bw, .day, .unsep, .seenrow")].slice(-CAS_N).reverse().forEach((el, i) => { if (!el.classList.contains("in")) { el.style.animationDelay = `${Math.round(i * CAS_STEP - gone)}ms`; el.classList.add("cin"); } });
+  } else cascade = null;
   $("#conv").dataset.net = cur()?.merged ? "" : netKey(cur()?.network);   // eigene Nachrichten in Netzwerkfarbe, eingehende mit Akzenten in Netzwerkfarbe
   paint();
   if (keepTop) box.scrollTop = box.scrollHeight - prevH + prevTop;

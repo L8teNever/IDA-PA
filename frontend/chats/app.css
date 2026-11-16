@@ -823,3 +823,11 @@ body.setts .ldock { display: none; }
 .ptr.spin .ms { animation: spin .7s linear infinite; }
 #list .rin { animation: rowin .32s cubic-bezier(.2, 0, 0, 1) both; }
 @keyframes rowin { from { opacity: 0; transform: translateY(14px) scale(.97); } }
+
+/* Chat geht auf: Nachrichten tauchen von unten nach oben nacheinander auf */
+#msgs .cin { animation: msgin .3s cubic-bezier(.2, 0, 0, 1) both; }
+@keyframes msgin { from { opacity: 0; transform: translateY(16px); } }
+
+/* Ende der Liste: lädt von selbst weiter, solange dreht sich das Zeichen */
+#more.more { display: grid; place-items: center; width: 100%; height: 56px; border: 0; background: none; color: var(--muted); }
+#more.more .ms { font-size: 24px; animation: spin .8s linear infinite; }
