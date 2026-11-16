@@ -820,7 +820,7 @@ function drawList() {
   }
   const row = (c, pin) => `<div class="row ${left(c) ? "unread" : ""} ${c.id === S.id ? "sel" : ""}" data-id="${esc(c.id)}">
       ${pickAv(c)}<div class="rmain"><div class="rtop"><span class="rtitle">${esc(clean(c.title))}</span><span class="rtime">${when(c.at)}</span></div>
-      <div class="rsub"><span class="last">${lastLine(c)}</span>${isMuted(c.id) ? '<span class="ms mute">notifications_off</span>' : ""}${pin ? '<span class="ms pin">push_pin</span>' : ""}${left(c) ? `<span class="cnt">${c.unread}</span>` : ""}</div></div></div>`;
+      <div class="rsub"><span class="last">${lastLine(c)}</span>${isMuted(c.id) ? '<span class="ms mute">notifications_off</span>' : ""}${pin ? '<span class="ms pin">push_pin</span>' : ""}${left(c) ? `<span class="cnt">${c.unread}</span>` : c.snaps && !(c.id in seen && (c.at || "") <= seen[c.id]) ? `<span class="snapchip" title="Neue Snaps (ohne Meldung)"><span class="ms">photo_camera</span>${c.snaps > 1 ? c.snaps : ""}</span>` : ""}</div></div></div>`;
   // Angepinnte Chats: große runde Bilder nebeneinander ganz oben (wie in Beeper), darunter die übrige Liste
   const tile = (c) => `<button type="button" class="ptile ${left(c) ? "unread" : ""} ${c.id === S.id ? "sel" : ""}" data-id="${esc(c.id)}">
       <span class="pav">${pickAv(c)}${left(c) ? `<span class="cnt">${c.unread}</span>` : ""}</span>
@@ -1235,7 +1235,10 @@ function bubble(m, tail = true, stack = null, head = true) {
   const split = visual && !stack && ((m.text && !onlyLink) || prev.length > 0);   // Bild/Video und Text: zwei Blasen
   // Gelöscht: Hinweis – und darunter, was drinstand, wenn der Dienst die Nachricht vorher schon gesehen hatte
   const was = m.deleted && m.was ? `<div class="was">${(m.was.files || []).map((f) => fileHtml(f)).join("")}${m.was.text ? `<span class="tx">${autolink(esc(m.was.text))}</span>` : ""}</div>` : "";
-  const body = m.deleted ? `<span class="gone"><span class="ms">block</span>${m.mine ? "Du hast diese Nachricht gelöscht" : "Diese Nachricht wurde gelöscht"}</span>${was}` : m.text && !onlyLink ? `<span class="tx">${mentionHtml(autolink(esc(m.text)))}</span>` : "";
+  // Ungeöffneter Snap: Beeper liefert ihn ohne Bild und Text – statt einer leeren Blase ein Hinweis
+  const snapPh = !m.deleted && !m.text && !m.files.length && !m.pending && (m.type === "IMAGE" || m.type === "VIDEO") && msgNet(m) === "snapchat"
+    ? `<span class="snapph"><span class="ms">${m.type === "VIDEO" ? "videocam" : "photo_camera"}</span>${m.mine ? "Snap gesendet" : `Neuer Snap${m.type === "VIDEO" ? " (Video)" : ""} – öffnen in Snapchat`}</span>` : "";
+  const body = snapPh ? snapPh : m.deleted ? `<span class="gone"><span class="ms">block</span>${m.mine ? "Du hast diese Nachricht gelöscht" : "Diese Nachricht wurde gelöscht"}</span>${was}` : m.text && !onlyLink ? `<span class="tx">${mentionHtml(autolink(esc(m.text)))}</span>` : "";
   const links = m.deleted ? "" : share ? lpHtml(prev.find((l) => lk(l.url) === lk(sole)) || { url: sole }, share) : prev.map((l) => lpHtml(l)).join("");
   const ikind = isIda(S.id) ? (m.ida_kind || (m.notice ? "notice" : "chat")) : "";
   const itag = ikind === "notice" ? `<span class="ikind-tag"><span class="ms">notifications</span>${esc(m.sender && m.sender !== "Ida" ? `Mitteilung · ${clean(m.sender)}` : "Mitteilung von Ida")}</span>`
@@ -2361,7 +2364,7 @@ function redrawSett() {
     <div class="icard"><small>Snapchat</small>
       ${row("photo_camera", "Snaps nicht als neue Nachricht", PREFS.snaps_quiet ? "An – nur Textnachrichten melden sich und schieben den Chat nach oben" : "Aus – jeder Snap zählt wie eine Nachricht", 'data-s="snaps"', `<span class="sw${PREFS.snaps_quiet ? " on" : ""}" aria-hidden="true"></span>`)}
       ${row("movie", "Video-Stücke zusammenfügen", PREFS.snap_join ? "An – Snapchat teilt lange Videos in Stücke, hier werden sie ein Video" : "Aus – jedes Stück steht einzeln da", 'data-s="snapjoin"', `<span class="sw${PREFS.snap_join ? " on" : ""}" aria-hidden="true"></span>`)}
-      <p class="ihint">Gilt auf allen Geräten. Snaps siehst du weiter im Chat, sie lösen nur keine Benachrichtigung aus.</p></div>
+      <p class="ihint">Gilt auf allen Geräten. Snaps siehst du weiter: im Chat und in der Liste als kleines gelbes Kamera-Zeichen, nur ohne Meldung und ohne Hochrutschen.</p></div>
     <div class="icard"><small>Startseite</small>
       ${nets().map((n) => row(ORG.nets[n] ? "visibility_off" : "visibility", `${esc(netName(n))}-Chats`, VIS_TEXT[ORG.nets[n] || ""], `data-s="netvis" data-net="${n}"`)).join("")}
       <p class="ihint">Ausgeblendete Chats findest du über den Filter „Ausgeblendet“ und die Suche. Zusammengeführte Chats bleiben immer auf der Startseite – darin schreibst du weiter auch über ein ausgeblendetes Netzwerk. Benachrichtigungen ändert das nicht, dafür gibt es Stummschalten.</p></div>

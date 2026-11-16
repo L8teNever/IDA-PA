@@ -241,8 +241,9 @@ def is_snap(m: dict) -> bool:
 
 
 async def _snap_state(c: dict) -> dict | None:
+    key = f'{c["at"]}|{c.get("unread") or 0}'   # gelesen ändert die Zeit nicht, aber Beepers Zähler
     hit = _snap_cache.get(c["id"])
-    if hit and hit[0] == c["at"]:
+    if hit and hit[0] == key:
         return hit[1]
     async with _snap_sem:
         try:
@@ -256,10 +257,12 @@ async def _snap_state(c: dict) -> dict | None:
     real = [m for m in msgs if not is_snap(m)]
     st = {"at": real[0].get("timestamp") if real else msgs[-1].get("timestamp") or "",   # nur Snaps: hinter den ältesten geladenen
           "unread": sum(1 for m in real if m.get("isUnread") and not m.get("isSender")),
+          # neue Snaps trotzdem anzeigen (leiser Hinweis in der Liste), nur ohne Meldung, Zähler und Hochrutschen
+          "snaps": sum(1 for m in msgs if m.get("isUnread") and not m.get("isSender") and is_snap(m) and (m.get("type") or "").upper() != "NOTICE"),
           "last": real[0] if real else None}
     if len(_snap_cache) > 500:
         _snap_cache.clear()
-    _snap_cache[c["id"]] = (c["at"], st)
+    _snap_cache[c["id"]] = (key, st)
     return st
 
 
@@ -271,7 +274,7 @@ async def quiet_snaps(items: list[dict]) -> list[dict]:
     for c, st in zip(snaps, await asyncio.gather(*(_snap_state(c) for c in snaps))):
         if not st:
             continue
-        c["at"], c["unread"] = st["at"] or c["at"], st["unread"]
+        c["at"], c["unread"], c["snaps"] = st["at"] or c["at"], st["unread"], st.get("snaps", 0)
         if "last" in c:
             c["last"] = preview(st["last"], c.get("type") == "group")
     return sorted(items, key=lambda c: c.get("at") or "", reverse=True)

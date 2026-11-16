@@ -953,3 +953,10 @@ body.setts .ldock { display: none; }
 .ida-opt:hover { background: rgba(168, 199, 250, .26); }
 .ida-opt:active { transform: scale(.96); }
 
+
+/* Snaps: leiser Hinweis in der Liste (bei „Snaps nicht als neue Nachricht“) und ungeöffnete Snaps im Chat */
+.snapchip { display: inline-flex; align-items: center; gap: 2px; margin-left: 6px; padding: 1px 7px; border-radius: 10px; background: rgba(255, 252, 0, .16); color: #e8e200; font-size: 12px; font-weight: 600; }
+.snapchip .ms { font-size: 15px; }
+.snapph { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; color: #e8e200; }
+.b.me .snapph { color: inherit; opacity: .85; }
+.snapph .ms { font-size: 18px; }
