@@ -1,0 +1,12 @@
+{
+  "name": "ida-chats-android",
+  "private": true,
+  "version": "1.0.0",
+  "description": "IDA Chats als Android-App (Tauri 2, Rust)",
+  "scripts": {
+    "tauri": "tauri"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2"
+  }
+}

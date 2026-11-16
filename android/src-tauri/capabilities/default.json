@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/mobile-schema.json",
+  "identifier": "default",
+  "description": "Die Chats-Seite braucht keine Rechte der App – sie ist eine normale Webseite.",
+  "windows": ["main"],
+  "permissions": []
+}

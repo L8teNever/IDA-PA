@@ -1,0 +1,79 @@
+# IDA Chats als Android-APK (Tauri 2, Rust): bauen, signieren und als Release ablegen.
+# Herunterladen: https://github.com/<owner>/<repo>/releases/latest/download/ida-chats.apk – siehe docs/CHATS-ANDROID.md
+name: Android-APK (Chats)
+
+on:
+  push:
+    branches: [main]
+    paths: ["android/**", ".github/workflows/android.yml", "frontend/chats/icons/icon-512.png"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: android-apk
+  cancel-in-progress: true
+
+env:
+  NDK_VERSION: 26.3.11579264
+  BUILD_TOOLS: 34.0.0
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: android
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: "17" }
+      - uses: android-actions/setup-android@v3
+      - name: Android-SDK, Build-Tools und NDK
+        run: |
+          sdkmanager "platforms;android-34" "build-tools;${BUILD_TOOLS}" "ndk;${NDK_VERSION}" > /dev/null
+          echo "NDK_HOME=${ANDROID_HOME}/ndk/${NDK_VERSION}" >> "$GITHUB_ENV"
+      - uses: dtolnay/rust-toolchain@stable
+        with: { targets: "aarch64-linux-android,armv7-linux-androideabi" }
+      - uses: Swatinem/rust-cache@v2
+        with: { workspaces: "android/src-tauri" }
+      - uses: actions/setup-node@v4
+        with: { node-version: "22" }
+      - run: npm install --no-audit --no-fund
+      - name: Version (1.0.<Lauf>) – Android erlaubt ein Update nur mit höherer Nummer
+        run: |
+          V="1.0.${{ github.run_number }}"
+          sed -i "s/\"version\": \"1.0.0\"/\"version\": \"${V}\"/" src-tauri/tauri.conf.json
+          sed -i "0,/^version = \"1.0.0\"/s//version = \"${V}\"/" src-tauri/Cargo.toml
+          echo "APP_VERSION=${V}" >> "$GITHUB_ENV"
+      - name: Symbole und Android-Projekt erzeugen
+        run: |
+          npx tauri icon ../frontend/chats/icons/icon-512.png
+          npx tauri android init --ci
+          npx tauri icon ../frontend/chats/icons/icon-512.png
+          ./scripts/patch-android.sh
+      - name: APK bauen (arm64 + armv7)
+        run: npx tauri android build --apk --target aarch64 armv7 --ci
+      - name: Signieren
+        env:
+          KS_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+          KS_PASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          APK=$(find src-tauri/gen/android/app/build/outputs/apk -name "*.apk" | head -1)
+          echo "Gebaut: ${APK}"
+          echo "${KS_B64}" | base64 -d > "${RUNNER_TEMP}/ks.p12"
+          BT="${ANDROID_HOME}/build-tools/${BUILD_TOOLS}"
+          "${BT}/zipalign" -f -p 4 "${APK}" "${RUNNER_TEMP}/aligned.apk"
+          "${BT}/apksigner" sign --ks "${RUNNER_TEMP}/ks.p12" --ks-type pkcs12 --ks-key-alias ida --ks-pass env:KS_PASS --key-pass env:KS_PASS --out "${GITHUB_WORKSPACE}/ida-chats.apk" "${RUNNER_TEMP}/aligned.apk"
+          "${BT}/apksigner" verify --print-certs "${GITHUB_WORKSPACE}/ida-chats.apk" | head -3
+          rm -f "${RUNNER_TEMP}/ks.p12"
+          ls -la "${GITHUB_WORKSPACE}/ida-chats.apk"
+      - uses: actions/upload-artifact@v4
+        with: { name: ida-chats-apk, path: ida-chats.apk }
+      - name: Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "android-v${APP_VERSION}" "${GITHUB_WORKSPACE}/ida-chats.apk" --repo "${GITHUB_REPOSITORY}" --target "${GITHUB_SHA}" --latest \
+            --title "IDA Chats für Android ${APP_VERSION}" --notes "APK herunterladen und installieren: ida-chats.apk. Ein Update installiert sich über die vorhandene App."

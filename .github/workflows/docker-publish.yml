@@ -6,6 +6,7 @@ on:
   push:
     branches: [main]
     tags: ["v*"]
+    paths-ignore: ["android/**", ".github/workflows/android.yml", "docs/CHATS-ANDROID.md"]   # die Android-App baut android.yml
   pull_request:
   workflow_dispatch:
 

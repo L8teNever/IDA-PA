@@ -1,0 +1,5 @@
+node_modules/
+src-tauri/target/
+# entsteht beim Bauen (tauri android init / tauri icon), siehe docs/CHATS-ANDROID.md
+src-tauri/gen/
+src-tauri/icons/
