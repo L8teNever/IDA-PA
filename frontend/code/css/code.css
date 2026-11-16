@@ -765,3 +765,6 @@ body.pane-resizing iframe { pointer-events: none; }
 .msg-rewind:hover { color: var(--accent); background: rgba(255,255,255,.06); }
 .row.me:hover .msg-rewind, .msg-rewind:focus-visible { opacity: 1; }
 @media (hover: none) { .msg-rewind { opacity: .5; } }
+
+/* Scroll-Chaining aus: Hauptbereiche und Überlagerungen halten das Scrollen bei sich (siehe css/tokens.css) */
+:where(.cd-rail, .tree-scroll, .stage-scroll, .sheet-scroll, .dd-menu) { overscroll-behavior: contain; }

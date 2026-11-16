@@ -1244,3 +1244,6 @@ body.view-timeline #btnBack { display: none; }
   body.code-thread #drawerMenu, body.tap-view #drawerMenu, body.live-view #drawerMenu { transform: translateX(-112%); }
   #drawerMenu .side-nav a, #drawerMenu .side-nav button { height: 44px; border-radius: 22px; font-size: 14.5px; }
 }
+
+/* Scroll-Chaining aus: Hauptbereiche und Überlagerungen halten das Scrollen bei sich (siehe css/tokens.css) */
+:where(.slash-menu, .cp-body) { overscroll-behavior: contain; }

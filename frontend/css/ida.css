@@ -1026,3 +1026,6 @@
   .stage.agent-home { padding-top: var(--hdr) !important; }
   .messages { mask-image: none; -webkit-mask-image: none; }
   @media (max-height: 520px) { :root { --hdr: calc(env(safe-area-inset-top) + 54px); } }
+
+/* Scroll-Chaining aus: Hauptbereiche und Überlagerungen halten das Scrollen bei sich (siehe css/tokens.css) */
+:where(.messages, .drawer, .stage.page, .stage.home) { overscroll-behavior: contain; }

@@ -189,3 +189,6 @@ body.composing .ev-scrim { opacity: 1; pointer-events: auto; }
 .dd-t small { color: var(--muted); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dd-opt .ms { color: var(--accent, #ff9f7a); width: 24px; }
 .sug-i .av { width: 32px; height: 32px; font-size: 14px; flex: none; }
+
+/* Scroll-Chaining aus: Hauptbereiche und Überlagerungen halten das Scrollen bei sich (siehe css/tokens.css) */
+:where(.nav, .dd-menu, .sug) { overscroll-behavior: contain; }

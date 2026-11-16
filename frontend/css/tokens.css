@@ -48,6 +48,8 @@
   :root { --ev-graphit: #b4b8c0; --evc-graphit: #3f4146; }
   :root { --ev-on: #1b1b1f; }
 
-/* Scroll-Chaining aus: Am Anfang/Ende eines scrollbaren Bereichs scrollt nicht der
-   Hintergrund oder die ganze Seite mit. Wirkt nur auf Elemente, die selbst scrollen. */
-:where(*:not(html)) { overscroll-behavior: contain; }
+/* Scroll-Chaining aus – aber NUR bei Hauptbereichen und Überlagerungen (Menüs, Sheets, Leisten).
+   Nie pauschal auf alles: Browser halten das Scrollen auch in Elementen fest, die gar nichts zu scrollen
+   haben (overflow: hidden/auto ohne Überlauf, z. B. Karten, Codeblöcke, Textfelder) – dann geht das Mausrad
+   bzw. Wischen über ihnen nicht mehr. Die einzelnen Bereiche stehen in der CSS-Datei der jeweiligen App (nur dort setzen, wo kein scrollender Bereich drumherum liegt). */
+:where(body) { overscroll-behavior: contain; }

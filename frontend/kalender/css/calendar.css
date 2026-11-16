@@ -596,3 +596,6 @@ body.syncing::before { content: ""; position: fixed; left: 0; right: 0; top: 0; 
 .net-off { opacity: .45; pointer-events: none; }
 .net-off small { color: var(--ev-orange) !important; }
 .card .icons .ms.cloud { color: var(--ev-orange); }
+
+/* Scroll-Chaining aus: Hauptbereiche und Überlagerungen halten das Scrollen bei sich (siehe css/tokens.css) */
+:where(.drawer, .ed, .bs, .es-body, .search .res) { overscroll-behavior: contain; }

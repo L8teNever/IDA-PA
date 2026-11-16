@@ -771,3 +771,6 @@ body.setts .ldock { display: none; }
 .ptile .pname > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ptile .pname .ms { font-size: 15px; flex: none; }
 .ptile.unread .pname { color: var(--on-surface); font-weight: 600; }
+
+/* Scroll-Chaining aus: Hauptbereiche und Überlagerungen halten das Scrollen bei sich (siehe css/tokens.css) */
+:where(.mentbox) { overscroll-behavior: contain; }
