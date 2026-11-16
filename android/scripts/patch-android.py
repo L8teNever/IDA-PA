@@ -73,10 +73,12 @@ shutil.copy("kotlin/Links.kt", SRC / "Links.kt")
 # ändert ein eigener Gradle-Schritt sie danach und vor dem Kompilieren (idaPatchLinks); ohne Treffer bricht der Build ab.
 LINKS_TASK = r'''
 // --- IDA Chats: Links nach außen öffnen (scripts/patch-android.py, Links.kt) ---
+val idaJavaDir = layout.projectDirectory.dir("src/main/java").asFile   // vorher auslesen: im Schritt kein Project (Konfigurations-Cache)
 val idaPatchLinks = tasks.register("idaPatchLinks") {
     mustRunAfter(tasks.matching { it.name.startsWith("rustBuild") })
+    val javaDir = idaJavaDir
     doLast {
-        val files = fileTree(projectDir) { include("src/main/java/**/RustWebViewClient.kt") }.files
+        val files = javaDir.walkTopDown().filter { it.name == "RustWebViewClient.kt" }.toList()
         if (files.isEmpty()) throw GradleException("RustWebViewClient.kt nicht gefunden (vom Rust-Build erzeugt?)")
         for (f in files) {
             val t = f.readText()
