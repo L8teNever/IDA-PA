@@ -129,7 +129,7 @@ const VT_OK = !!document.startViewTransition, VT_PHONE = matchMedia("(max-width:
 let vtReady = false;   // erst nach dem ersten Aufbau: beim Laden der Seite gibt es keinen Übergang
 function route() {
   const to = readUrl(), from = S.id, plain = /^(chat\/[^/]+)?$/.test(location.pathname.slice(BASE.length));
-  if (!vtReady || !VT_OK || !VT_PHONE.matches || VT_CALM.matches || !plain || !!to === document.body.classList.contains("reading") || $("#ctx") || $("#sett") || $("#info")) { vtReady = true; return routeNow(); }
+  if (!vtReady || !VT_OK || !VT_PHONE.matches || VT_CALM.matches || !plain || !!to === document.body.classList.contains("reading") || $("#ctx") || $("#sett") || $("#info")) { vtReady = true; document.documentElement.classList.remove("vt"); return routeNow(); }
   const mark = (id) => {   // genau ein Profilbild in der Liste trägt den Namen: das des Chats, der auf- oder zugeht
     document.querySelectorAll("#list .vt-av").forEach((x) => x.classList.remove("vt-av"));
     if (id) document.querySelector(`#list [data-id="${CSS.escape(id)}"] .av`)?.classList.add("vt-av");
@@ -137,7 +137,9 @@ function route() {
   mark(to || from);
   document.documentElement.classList.add("vt");
   const t = document.startViewTransition(() => { routeNow(); mark(to || from); });
-  t.finished.finally(() => { document.documentElement.classList.remove("vt"); mark(null); });
+  // "vt" bleibt bis zum nächsten Wechsel ohne Übergang stehen: Nähme man es hier weg, liefe das Reinschieben (pagein/pageback) nach dem
+  // Übergang noch einmal los – die Seite wackelt dann kurz.
+  t.finished.finally(() => mark(null));
 }
 function routeNow() {
   let id = readUrl();
@@ -626,8 +628,47 @@ $("#q").addEventListener("keydown", (e) => { if (e.key === "Escape") $("#qback")
 $("#setbtn").onclick = () => openSett();
 $("#refresh").onclick = (e) => {
   const ic = e.currentTarget.firstElementChild; ic.classList.remove("spin"); void ic.offsetWidth; ic.classList.add("spin");
-  loadChats({ quiet: true }); if (S.id) loadMsgs({ quiet: true });
+  pullReload();
 };
+
+// ---------------- Nach unten ziehen lädt die Chats neu; danach tauchen die Zeilen schnell nacheinander auf ----------------
+function listIn() {   // Auftritt der Liste: Zeile für Zeile, leicht versetzt
+  const els = [...document.querySelectorAll("#list .ptile, #list .row")].slice(0, 16);
+  els.forEach((el, i) => { el.style.animationDelay = `${i * 28}ms`; el.classList.add("rin"); });
+  setTimeout(() => els.forEach((el) => { el.classList.remove("rin"); el.style.animationDelay = ""; }), 16 * 28 + 400);
+}
+async function pullReload() {
+  await Promise.all([loadChats({ quiet: true }), loadPins()]);
+  if (S.id) loadMsgs({ quiet: true });
+  drawList(); listIn();
+}
+{
+  const list = $("#list"), PULL = 72, MAX = 120;
+  const ptr = document.createElement("div"); ptr.className = "ptr"; ptr.innerHTML = '<span class="ms">refresh</span>'; list.before(ptr);
+  let y0 = null, x0 = 0, dy = 0, on = false, busy = false;
+  const set = (v, anim) => {
+    list.style.transition = ptr.style.transition = anim ? "transform .28s cubic-bezier(.2,0,0,1), opacity .2s" : "none";
+    list.style.transform = v ? `translateY(${v}px)` : "";
+    ptr.style.transform = `translateY(${v - 48}px) rotate(${v * 3}deg)`; ptr.style.opacity = Math.min(1, v / PULL);
+    ptr.classList.toggle("go", v >= PULL);
+  };
+  list.addEventListener("touchstart", (e) => { y0 = !busy && e.touches.length === 1 && list.scrollTop <= 0 ? e.touches[0].clientY : null; x0 = e.touches[0].clientX; dy = 0; on = false; }, { passive: true });
+  list.addEventListener("touchmove", (e) => {
+    if (y0 === null) return;
+    const d = e.touches[0].clientY - y0, dx = Math.abs(e.touches[0].clientX - x0);
+    if (!on) { if (d < 10 || dx > d || list.scrollTop > 0) { if (d < -6 || dx > 14) y0 = null; return; } on = true; rowHeld = false; }
+    dy = Math.min(MAX, (d - 10) * .5); set(Math.max(0, dy), false);
+    if (dy >= PULL && !ptr.dataset.buzz) { ptr.dataset.buzz = "1"; buzz(8); } else if (dy < PULL) delete ptr.dataset.buzz;
+  }, { passive: true });
+  const end = async () => {
+    if (y0 === null || !on) { y0 = null; return; }
+    y0 = null; on = false; delete ptr.dataset.buzz;
+    if (dy < PULL) return set(0, true);
+    busy = true; set(56, true); ptr.classList.add("spin");
+    try { await pullReload(); } finally { busy = false; ptr.classList.remove("spin"); set(0, true); }
+  };
+  list.addEventListener("touchend", end); list.addEventListener("touchcancel", end);
+}
 
 // ---------------- Unterhaltung ----------------
 const cur = () => S.id && rowChat(S.id);

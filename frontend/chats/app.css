@@ -814,3 +814,12 @@ body.setts .ldock { display: none; }
 .al-tile img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
 .al-tile .ms { position: relative; width: 48px; height: 48px; border-radius: 50%; display: grid; place-items: center; background: rgba(0,0,0,.85); color: #fff; font-size: 32px; }
 .al-tile small { position: absolute; left: 8px; bottom: 8px; padding: 2px 8px; border-radius: 10px; background: rgba(0,0,0,.55); color: #fff; font-size: 12px; }
+
+/* ---------------- Nach unten ziehen lädt neu; Zeilen tauchen nacheinander auf ---------------- */
+.ptr { position: absolute; top: calc(env(safe-area-inset-top) + 8px); left: 50%; z-index: 4; width: 40px; height: 40px; margin-left: -20px; border-radius: 50%; display: grid; place-items: center;
+  background: var(--surface-high); color: var(--muted); box-shadow: 0 4px 14px rgba(0,0,0,.5); opacity: 0; transform: translateY(-48px); pointer-events: none; }
+.ptr .ms { font-size: 22px; }
+.ptr.go { color: var(--accent); }
+.ptr.spin .ms { animation: spin .7s linear infinite; }
+#list .rin { animation: rowin .32s cubic-bezier(.2, 0, 0, 1) both; }
+@keyframes rowin { from { opacity: 0; transform: translateY(14px) scale(.97); } }
