@@ -69,15 +69,29 @@ shutil.copy("kotlin/Push.kt", SRC / "Push.kt")
 shutil.copy("kotlin/Links.kt", SRC / "Links.kt")
 
 # ---- Links: fremde Seiten nicht in der App laden, sondern in der passenden App/im Browser öffnen (Links.kt) ----
-wvc = next(APP.glob("src/main/java/**/RustWebViewClient.kt"), None)
-if wvc is None:
-    fail("RustWebViewClient.kt nicht gefunden")
-w = wvc.read_text()
-if "Links.external" not in w:
-    w, n = re.subn(r"(\n(\s*)return Rust\.shouldOverride\()", r"\n\2if (com.kulbarts.chats.Links.external(view, request)) return true\1", w, count=1)
-    if n != 1:
-        fail("shouldOverrideUrlLoading in RustWebViewClient.kt hat sich geändert")
-    wvc.write_text(w)
+# RustWebViewClient.kt gibt es hier noch nicht: wry erzeugt sie erst beim Rust-Build innerhalb von Gradle (rustBuild…). Deshalb
+# ändert ein eigener Gradle-Schritt sie danach und vor dem Kompilieren (idaPatchLinks); ohne Treffer bricht der Build ab.
+LINKS_TASK = r'''
+// --- IDA Chats: Links nach außen öffnen (scripts/patch-android.py, Links.kt) ---
+val idaPatchLinks = tasks.register("idaPatchLinks") {
+    mustRunAfter(tasks.matching { it.name.startsWith("rustBuild") })
+    doLast {
+        val files = fileTree(projectDir) { include("src/main/java/**/RustWebViewClient.kt") }.files
+        if (files.isEmpty()) throw GradleException("RustWebViewClient.kt nicht gefunden (vom Rust-Build erzeugt?)")
+        for (f in files) {
+            val t = f.readText()
+            if (t.contains("Links.external")) continue
+            val m = Regex("""\n(\s*)return Rust\.shouldOverride\(""").find(t)
+                ?: throw GradleException("shouldOverrideUrlLoading in RustWebViewClient.kt hat sich geändert")
+            f.writeText(t.replaceRange(m.range, "\n" + m.groupValues[1] + "if (com.kulbarts.chats.Links.external(view, request)) return true" + m.value))
+        }
+    }
+}
+tasks.matching { it.name.startsWith("compile") && it.name.endsWith("Kotlin") }.configureEach { dependsOn(idaPatchLinks) }
+'''
+t = g.read_text()
+if "idaPatchLinks" not in t:
+    g.write_text(t.rstrip() + "\n" + LINKS_TASK)
 ma = SRC / "MainActivity.kt"
 a = ma.read_text()
 if "IDAChatsNative" not in a:
