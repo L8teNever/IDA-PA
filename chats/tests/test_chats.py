@@ -184,6 +184,8 @@ def test_html_wird_zu_text():
     assert plain('<a href="https://a.de/x?y=1" rel="noopener" target="_blank">https://a.de/x?y=1</a>') == "https://a.de/x?y=1"
     assert plain('Schau <a href="https://a.de">hier</a><br>und <b>da</b>') == "Schau hier (https://a.de)\nund da"
     assert plain("a < b und c > d <3") == "a < b und c > d <3"
+    assert plain("Hab grad n Jahr &quot;frei&quot; &amp; so&#33;") == "Hab grad n Jahr \"frei\" & so!"
+    assert plain("Tom & Jerry") == "Tom & Jerry"
 
 
 def test_geloeschtes_bleibt_lesbar_und_loeschen(client, fake):

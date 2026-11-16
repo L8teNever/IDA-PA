@@ -117,13 +117,17 @@ MENTION_URL = re.compile(r"^https://matrix\.to/#/[@!]", re.I)
 MD_MENTION = re.compile(r"\[([^\]\n]{1,80})\]\(https://matrix\.to/#/[@!][^)\s]+\)")
 
 
+HTML_ENTITY = re.compile(r"&(?:#\d{1,7}|#x[0-9a-f]{1,6}|[a-z][a-z0-9]{1,31});", re.I)
+
+
 def plain(text: str) -> str:
     """Manche Netzwerke (Matrix, Mail-Brücken, Bots) liefern HTML statt Text. Daraus wird lesbarer Text: Absätze und <br> zu
-    Zeilenumbrüchen, Links zu ihrer Adresse. Text ohne bekannte HTML-Tags bleibt unverändert."""
+    Zeilenumbrüchen, Links zu ihrer Adresse. Text ohne HTML-Tags bleibt bis auf Zeichencodes (&quot; &amp; …) unverändert."""
     if text and "matrix.to/#/" in text:   # Erwähnung als Markdown-Link
         text = MD_MENTION.sub(lambda m: m[1] if m[1].startswith("@") else f"@{m[1]}", text)
     if not text or not HTML_TAG.search(text):
-        return text
+        # Manche Brücken (z. B. Snapchat) schicken reinen Text, aber mit HTML-Zeichencodes: &quot;frei&quot; → "frei"
+        return html.unescape(text) if text and HTML_ENTITY.search(text) else text
 
     def link(m: re.Match) -> str:
         url, label = html.unescape(m[2]).strip(), html.unescape(HTML_TAG.sub("", m[3])).strip()
