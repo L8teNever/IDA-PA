@@ -5,7 +5,7 @@ import re
 
 from fastapi import APIRouter
 from fastapi.responses import FileResponse
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from ..models import Chat, ChatMessage, CodeProject
 from ..db import session_scope, utcnow
@@ -194,16 +194,37 @@ async def project_raw_file(pid: str, file_path: str, db: DB):
 
 # ---- threads ----
 
+async def _thread_lists(db, pids: list[str]) -> dict[str, list[dict]]:
+    """Threads mehrerer Projekte samt letzter Nachricht – zwei Abfragen statt einer pro Thread."""
+    out: dict[str, list[dict]] = {pid: [] for pid in pids}
+    if not pids:
+        return out
+    rows = (await db.scalars(select(Chat).where(Chat.project_id.in_(pids)).order_by(*PIN_ORDER))).all()
+    if not rows:
+        return out
+    rn = func.row_number().over(partition_by=ChatMessage.chat_id, order_by=ChatMessage.at.desc()).label("rn")
+    sub = (select(ChatMessage.id, rn)
+           .where(ChatMessage.chat_id.in_([c.id for c in rows]), ChatMessage.role != "system").subquery())
+    lasts = {m.chat_id: m for m in (await db.scalars(select(ChatMessage).join(sub, ChatMessage.id == sub.c.id).where(sub.c.rn == 1))).all()}
+    for c in rows:
+        out[c.project_id].append({**ser.chat(c, lasts.get(c.id)), "running": chat_service.running(c.id), "waiting": len(approvals.waiting(c.id))})
+    return out
+
+
+@router.get("/tree")
+async def tree(db: DB):
+    """Alles für die Seitenleiste in einem Aufruf: Projekte mit ihren Threads (die Code-App fragt das regelmäßig ab)."""
+    await code_area.require(db)
+    listing = await projects.listing(db)
+    lists = await _thread_lists(db, [p.id for p, _, _ in listing])
+    return [{**ser.code_project(p, n, r), "threadList": lists[p.id]} for p, n, r in listing]
+
+
 @router.get("/projects/{pid}/threads")
 async def threads(pid: str, db: DB):
     await code_area.require(db)
     await projects.get(db, pid)
-    rows = (await db.scalars(select(Chat).where(Chat.project_id == pid).order_by(*PIN_ORDER))).all()
-    out = []
-    for c in rows:
-        last = await db.scalar(select(ChatMessage).where(ChatMessage.chat_id == c.id, ChatMessage.role != "system").order_by(ChatMessage.at.desc()).limit(1))
-        out.append({**ser.chat(c, last), "running": chat_service.running(c.id), "waiting": len(approvals.waiting(c.id))})
-    return out
+    return (await _thread_lists(db, [pid]))[pid]
 
 
 @router.patch("/threads/{cid}")

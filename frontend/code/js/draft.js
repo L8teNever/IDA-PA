@@ -8,7 +8,7 @@ import { draftFiles, restoreFiles, setFiles } from "./composer.js";
 import { $ } from "./ui.js";
 
 const url = (k) => `/code/drafts/${encodeURIComponent(k)}`;
-const SAVE_MS = 600, PULL_MS = 10000;
+const SAVE_MS = 600, PULL_MS = 15000;
 const snap = (d) => JSON.stringify([d.text, d.files.map((f) => f.id)]);
 const EMPTY = snap({ text: "", files: [] });
 
@@ -143,4 +143,7 @@ document.addEventListener("code:thread", (e) => {
 document.addEventListener("code:attach", changed);
 document.addEventListener("visibilitychange", () => (document.hidden ? flush(true) : pull()));
 addEventListener("pagehide", () => flush(true));
-setInterval(() => { if (!document.hidden) pull(); }, PULL_MS);
+// nur nachsehen, solange man hier wirklich ist: im Hintergrund oder in einem anderen Fenster nicht – beim
+// Zurückwechseln (Fokus) wird sofort einmal geholt, so kommt Getipptes vom anderen Gerät trotzdem an
+setInterval(() => { if (!document.hidden && document.hasFocus()) pull(); }, PULL_MS);
+addEventListener("focus", () => pull());

@@ -8,14 +8,14 @@ import { stashQueue } from "./queue.js";
 import { navigate, parse, setUrl, startRouter, urlOf } from "./router.js";
 import { openLimits } from "./limits.js";
 import { openSettings } from "./settings.js";
-import { MODES, codeEnabled, loadBoot, loadTree, loadUsage, mainAgent, modeOf, onChange, projectById, repoName, state } from "./store.js";
+import { MODES, codeEnabled, loadBoot, loadGithub, loadTree, loadUsage, mainAgent, modeOf, onChange, projectById, repoName, state } from "./store.js";
 import { $, attempt, confirmDialog, esc, fmtRel, formDialog, openModal, popMenu, sheetHead, toast } from "./ui.js";
 
 let route = { view: "home" };
 let cur = null;           // aktuelles Projekt (mit git-Status), falls route.project
 let thread = null;        // geöffneter Thread (Titel usw.)
 let q = "";               // Suche in der Seitenleiste
-let paneTab = ["files", "changes", "actions"].includes(localStorage.getItem("code-pane")) ? localStorage.getItem("code-pane") : null; // offener Tab rechts (PC), null = zu
+let paneTab = ["files", "changes", "actions", "sandbox"].includes(localStorage.getItem("code-pane")) ? localStorage.getItem("code-pane") : null; // offener Tab rechts (PC), null = zu
 const open = new Set();   // aufgeklappte Projekte in der Seitenleiste
 const wide = () => matchMedia("(min-width: 1200px)").matches;
 const desktop = () => matchMedia("(min-width: 961px)").matches;
@@ -46,7 +46,9 @@ export async function startApp(root) {
   document.addEventListener("click", onClick);
   document.addEventListener("pointerdown", (e) => { if (e.button === 0 && e.target.closest("[data-pane-resize]")) startPaneResize(e); });
   document.addEventListener("dblclick", (e) => { if (e.target.closest("[data-pane-resize]")) { localStorage.removeItem("code-pane-w"); applyPaneW(); } });
-  addEventListener("resize", () => { drawPane(); measureSide(); });
+  // beim Ziehen am Fensterrand kommen Dutzende resize-Ereignisse – einmal pro Bild reicht
+  let resizeFrame = 0;
+  addEventListener("resize", () => { if (!resizeFrame) resizeFrame = requestAnimationFrame(() => { resizeFrame = 0; drawPane(); measureSide(); }); });
   addEventListener("keydown", (e) => {
     if ((e.ctrlKey || e.metaKey) && e.key === "k") { e.preventDefault(); openDrawer(); $("sideQ").focus(); }
     if ((e.ctrlKey || e.metaKey) && e.key === ".") { e.preventDefault(); setPane(paneTab ? null : "files"); }
@@ -62,9 +64,16 @@ export async function startApp(root) {
     return;
   }
   loadUsage();
+  loadGithub();
   setInterval(() => !document.hidden && loadUsage(), 180000);
   poll();
-  document.addEventListener("visibilitychange", () => { if (!document.hidden) poll(); });
+  // zurück in der App: einmal nachsehen (auch GitHub – die Anmeldung kann sich in IDA geändert haben), danach normal weiter
+  let hiddenSince = 0;
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) { hiddenSince = Date.now(); clearTimeout(pollTimer); return; }
+    poll();
+    if (Date.now() - hiddenSince > 60000) loadGithub();
+  });
   document.addEventListener("code:thread", (e) => {
     // neuer Thread angelegt: Adresse anpassen und in der Seitenleiste zeigen
     setUrl(urlOf({ project: e.detail.project, thread: e.detail.id }));
@@ -80,17 +89,22 @@ export async function startApp(root) {
   startRouter(show);
 }
 
-let pollTimer = null;
+let pollTimer = null, polling = false, pollAgain = false;
 async function poll() {
   clearTimeout(pollTimer);
   if (document.hidden) return; // im Hintergrund nichts abfragen – beim Zurückkommen geht es sofort weiter
+  // läuft schon eine Abfrage (mehrere Ereignisse kurz hintereinander), danach nur einmal nachholen statt parallel zu fragen
+  if (polling) { pollAgain = true; return; }
+  polling = true;
   let busy = false;
-  try { busy = await loadTree(); } catch { /* nächster Versuch */ }
+  try { busy = await loadTree(); } catch { /* nächster Versuch */ } finally { polling = false; }
+  if (pollAgain) { pollAgain = false; return poll(); }
   const p = cur && projectById(cur.id);
   // ein Projekt wurde fertig geklont: Projektseite neu zeichnen
   if (p && cur.status !== p.status && route.view === "project") show(route);
   // läuft gerade etwas, öfter nachsehen – im offenen Thread kommt aber eh alles live, dort reicht es seltener
-  pollTimer = setTimeout(poll, ctx.busy ? 10000 : busy ? 5000 : 30000);
+  // ohne Laufendes selten – neue Threads aus IDA oder vom anderen Gerät tauchen trotzdem nach spätestens einer Minute auf
+  if (!document.hidden) pollTimer = setTimeout(poll, ctx.busy ? 15000 : busy ? 5000 : 60000);
 }
 
 // ---------- Leiste links ----------

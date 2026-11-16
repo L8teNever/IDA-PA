@@ -133,6 +133,10 @@ def test_code_thread_runs_in_the_project_with_real_tools(client, code_on, github
     assert th() == [c["id"], c2["id"]]
     client.patch(f"{API}/code/threads/{c['id']}", json={"pinned": False})
     assert th() == [c2["id"], c["id"]]
+    # alles für die Seitenleiste in einem Aufruf: Projekt mit Threads (gleiche Reihenfolge) und letzter Nachricht
+    tp = next(x for x in client.get(f"{API}/code/tree").json() if x["id"] == p["id"])
+    assert tp["threads"] == 2 and [t["id"] for t in tp["threadList"]] == th()
+    assert tp["threadList"][0]["last"]["role"] == "assistant" and "running" in tp["threadList"][0] and "waiting" in tp["threadList"][0]
     # code area off: the thread cannot run
     client.put(f"{API}/code/settings", json={"enabled": False})
     assert client.post(f"{API}/chat", json={"chat_id": c["id"], "text": "x"}).status_code == 400

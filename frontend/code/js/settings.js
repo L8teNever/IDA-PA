@@ -1,6 +1,6 @@
 // Einstellungen wie im Kalender und Wiki: Übersicht mit Unterseiten (Code-Bereich, GitHub, App).
 import { api } from "./api.js";
-import { loadBoot, loadTree, state } from "./store.js";
+import { loadBoot, loadGithub, loadTree, state } from "./store.js";
 import { openLimits } from "./limits.js";
 import { attempt, esc, openModal, toast } from "./ui.js";
 
@@ -70,7 +70,7 @@ export function openSettings(start = "home") {
   const show = async (name, dir = "") => {
     page = name;
     clearTimeout(timer);
-    if (name === "home" || name === "github") gh = await api.get("/github/status").catch(() => gh);
+    if (name === "home" || name === "github") gh = (await loadGithub()) || gh;
     if (!el.isConnected) return;
     el.className = `set-view ${dir}`;
     el.innerHTML = pages[name]();
@@ -78,7 +78,7 @@ export function openSettings(start = "home") {
       const check = async () => {
         if (!el.isConnected || page !== "github") return;
         const now = await api.get("/github/status").catch(() => null);
-        if (now?.connected) { toast(`Angemeldet als ${now.login}`); loadTree().catch(() => {}); return show("github"); }
+        if (now?.connected) { toast(`Angemeldet als ${now.login}`); loadGithub(); return show("github"); }
         if (now && (!now.pending || now.pending.error)) return show("github");
         timer = setTimeout(check, 2000);
       };
@@ -105,7 +105,7 @@ export function openSettings(start = "home") {
     if (t.closest("#ghLogin")) { if (await attempt(() => api.post("/github/login"))) show("github"); }
     if (t.closest("#ghCancel")) { await api.del("/github/login").catch(() => {}); show("github"); }
     if (t.closest("#ghCopy")) navigator.clipboard?.writeText(gh?.pending?.user_code || "").then(() => toast("Code kopiert"), () => toast(gh?.pending?.user_code || ""));
-    if (t.closest("#ghOut")) { if (await attempt(() => api.del("/github"), "Abgemeldet")) { loadTree().catch(() => {}); show("github"); } }
+    if (t.closest("#ghOut")) { if (await attempt(() => api.del("/github"), "Abgemeldet")) { loadGithub(); show("github"); } }
   });
   el.addEventListener("submit", async (e) => {
     e.preventDefault();
@@ -113,7 +113,7 @@ export function openSettings(start = "home") {
     if (e.target.id === "ghTokForm") {
       const token = e.target.elements.tok.value.trim();
       if (!token) return toast("Token fehlt");
-      if (await attempt(() => api.post("/github/token", { token }), "Mit GitHub verbunden")) { loadTree().catch(() => {}); show("github"); }
+      if (await attempt(() => api.post("/github/token", { token }), "Mit GitHub verbunden")) { loadGithub(); show("github"); }
     }
   });
   show(start);

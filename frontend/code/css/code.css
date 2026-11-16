@@ -633,6 +633,13 @@ body.pane-resizing iframe { pointer-events: none; }
   .cd-backdrop { backdrop-filter: none; }
 }
 @media (prefers-reduced-motion: reduce) { .set-view.fwd, .set-view.back, .spin { animation: none; } }
+/* Akku vor Komfort am Handy: das Ida-Gesicht oben steht still, Lade-Kreise drehen in 8 Schritten statt mit 60 Bildern
+   pro Sekunde (sieht fast gleich aus, die Grafik muss aber kaum noch neu zeichnen), die Tipp-Punkte blinken ruhiger */
+@media (pointer: coarse) {
+  .ida-mini i { animation: none; }
+  .spin { animation-duration: 1.2s; animation-timing-function: steps(8); }
+  .typing i { animation-duration: 1.8s; animation-timing-function: steps(3); }
+}
 
 /* ---------- Änderungen: Info-Karte, Leerzustand, Aktionen ---------- */
 .git-card { background: var(--surface-high); border-radius: 20px; padding: 6px; display: flex; flex-direction: column; }

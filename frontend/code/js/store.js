@@ -27,19 +27,40 @@ export async function loadBoot() {
   return boot;
 }
 
-// Projekte + Threads (für die Seitenleiste). Gibt true zurück, wenn gerade etwas läuft (dann öfter nachsehen).
-export async function loadTree() {
-  if (!codeEnabled()) { state.projects = []; state.loaded = true; emit(); return false; }
-  const [list, gh] = await Promise.all([api.get("/code/projects"), api.get("/github/status").catch(() => null)]);
-  const withThreads = await Promise.all(list.map(async (p) => ({
+// Projekte + Threads (für die Seitenleiste) in einem Aufruf. Gibt true zurück, wenn gerade etwas läuft (dann öfter nachsehen).
+// Neu gezeichnet wird nur, wenn sich wirklich etwas geändert hat – die meisten Abfragen bringen nichts Neues.
+let treeSig = "";
+let oldTree = false; // IDA ohne /code/tree (ältere Version): wie früher pro Projekt fragen
+async function fetchTree() {
+  if (!oldTree) {
+    try { return await api.get("/code/tree"); } catch (e) { if (e.status !== 404) throw e; oldTree = true; }
+  }
+  const list = await api.get("/code/projects");
+  return Promise.all(list.map(async (p) => ({
     ...p,
     threadList: p.status === "ready" || p.threads ? await api.get(`/code/projects/${p.id}/threads`).catch(() => []) : [],
   })));
-  state.projects = withThreads;
-  state.github = gh;
-  state.loaded = true;
-  emit();
-  return withThreads.some((p) => p.status === "cloning" || p.running || p.threadList.some((t) => t.running || t.waiting));
+}
+
+export async function loadTree() {
+  if (!codeEnabled()) { state.projects = []; state.loaded = true; treeSig = ""; emit(); return false; }
+  const list = await fetchTree();
+  for (const p of list) p.threadList ||= [];
+  const sig = JSON.stringify(list);
+  if (sig !== treeSig || !state.loaded) {
+    treeSig = sig;
+    state.projects = list;
+    state.loaded = true;
+    emit();
+  }
+  return list.some((p) => p.status === "cloning" || p.running || p.threadList.some((t) => t.running || t.waiting));
+}
+
+// GitHub-Anmeldung: ändert sich nur über die Einstellungen – deshalb nicht bei jeder Abfrage mitholen
+export async function loadGithub() {
+  const gh = await api.get("/github/status").catch(() => null);
+  if (JSON.stringify(gh) !== JSON.stringify(state.github)) { state.github = gh; emit(); }
+  return gh;
 }
 
 export function sessionPercent(windows) {
@@ -53,10 +74,12 @@ export function sessionPercent(windows) {
 export async function loadUsage() {
   try {
     const list = await api.get("/usage");
+    let changed = false;
     for (const a of list) {
-      state.usage[a.id] = sessionPercent(a.windows);
+      const v = sessionPercent(a.windows);
+      if (state.usage[a.id] !== v) { state.usage[a.id] = v; changed = true; }
     }
-    emit();
+    if (changed) emit();
   } catch { /* Limits sind nur eine Anzeige */ }
 }
 

@@ -86,11 +86,10 @@ async def ready(db: AsyncSession, pid: str) -> tuple[CodeProject, Path]:
 async def listing(db: AsyncSession) -> list[tuple[CodeProject, int, int]]:
     """Projects (newest activity first) with the number of threads and how many of them are running."""
     rows = (await db.scalars(select(CodeProject).order_by(CodeProject.updated_at.desc()))).all()
-    out = []
-    for p in rows:
-        ids = (await db.scalars(select(Chat.id).where(Chat.project_id == p.id))).all()
-        out.append((p, len(ids), sum(chat_service.running(i) for i in ids)))
-    return out
+    ids: dict[str, list[str]] = {}
+    for cid, pid in (await db.execute(select(Chat.id, Chat.project_id).where(Chat.project_id.is_not(None)))).all():
+        ids.setdefault(pid, []).append(cid)
+    return [(p, len(ids.get(p.id, [])), sum(chat_service.running(i) for i in ids.get(p.id, []))) for p in rows]
 
 
 def _check_url(url: str) -> str:

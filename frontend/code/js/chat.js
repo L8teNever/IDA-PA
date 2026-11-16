@@ -198,15 +198,33 @@ document.addEventListener("click", async (e) => {
   if (ok === undefined) b.closest(".btn-row")?.querySelectorAll("button").forEach((x) => (x.disabled = false));
 });
 
+// Teile einzeln zeichnen und sich merken: Was sich seit dem letzten Mal nicht geändert hat, bleibt im DOM stehen.
+// So wird beim Mitlesen nur der wachsende letzte Text neu gebaut – nicht jedes Mal das ganze Markdown, alle
+// Werkzeug-Ausgaben und Vorschauen (bei langen Antworten der größte Rechen- und Akkufresser).
+const nodeOf = (html) => { const t = document.createElement("template"); t.innerHTML = html; return t.content.firstElementChild; };
 function renderBot(el, parts, text, meta) {
-  const html = (parts || []).map((p) => (p.t === "text" ? `<div class="md">${md(p.text)}</div>` : p.t === "approval" ? approvalHtml(p) : shownFile(p) ? shownHtml(shownFile(p), !!meta?.id) : toolHtml(p))).join("");
-  // aufgeklappte Werkzeuge bleiben beim Neuzeichnen offen
-  const open = new Set([...el.querySelectorAll("details")].flatMap((d, i) => (d.open ? [i] : [])));
-  el.innerHTML = html || (text ? `<div class="md">${md(text)}</div>` : "");
-  if (open.size) el.querySelectorAll("details").forEach((d, i) => { if (open.has(i)) d.open = true; });
+  const list = parts?.length ? parts : text ? [{ t: "text", text }] : [];
+  const cache = el._parts || (el._parts = []);
+  const keep = new Set(cache.map((c) => c.node));
+  for (const c of [...el.children]) if (!keep.has(c)) c.remove(); // Hinweise, Fehler, Meta-Zeile: kommen unten frisch dazu
+  list.forEach((p, i) => {
+    const c = cache[i];
+    const src = p.t === "text" ? p.text : null;
+    if (c && src !== null && c.src === src) return;
+    const html = src !== null ? `<div class="md">${md(src)}</div>` : p.t === "approval" ? approvalHtml(p) : shownFile(p) ? shownHtml(shownFile(p), !!meta?.id) : toolHtml(p);
+    if (c && src === null && c.html === html) return;
+    const node = nodeOf(html);
+    if (!node) return;
+    if (c) {
+      if (c.node.open && node.tagName === "DETAILS") node.open = true; // aufgeklappte Werkzeuge bleiben offen
+      c.node.replaceWith(node);
+    } else el.appendChild(node);
+    cache[i] = { node, src, html: src === null ? html : "" };
+  });
+  for (const c of cache.splice(list.length)) c.node.remove();
   if (meta?.stopped) el.insertAdjacentHTML("beforeend", `<div class="msg-note"><span class="ms">stop_circle</span>Gestoppt</div>`);
   if (meta?.error) el.insertAdjacentHTML("beforeend", `<div class="msg-err"><span class="ms">error</span>${esc(meta.error)}</div>`);
-  if (!el.innerHTML) el.innerHTML = `<div class="typing"><i></i><i></i><i></i></div>`;
+  if (!el.firstElementChild) el.innerHTML = `<div class="typing"><i></i><i></i><i></i></div>`;
   // bei "Auto": welches Modell es wurde (Grund beim Darüberfahren) und Bewertung, aus der Auto lernt
   const r = meta?.route;
   const rate = r && meta.id ? `<span class="route-rate" data-mid="${esc(meta.id)}">${RATINGS.map(([k, ic, t]) =>

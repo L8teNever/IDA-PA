@@ -37,7 +37,15 @@ export function mountActions(el, projectId, isCurrent) {
   let timer = null, view = { kind: "list" }, onlyBranch = false, st = null;
   const alive = () => isCurrent();
   const stop = () => { clearTimeout(timer); timer = null; };
-  const later = (fn, ms) => { stop(); timer = setTimeout(() => { if (alive()) fn(); }, ms); };
+  // im Hintergrund nicht weiter abfragen: erst wieder, wenn die App vorne ist
+  const later = (fn, ms) => {
+    stop();
+    timer = setTimeout(() => {
+      if (!alive()) return;
+      if (!document.hidden) return fn();
+      document.addEventListener("visibilitychange", () => alive() && fn(), { once: true });
+    }, ms);
+  };
   const fail = (e) => {
     if (!alive()) return;
     const local = /GitHub-Repo/.test(e.message);
