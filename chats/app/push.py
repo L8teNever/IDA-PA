@@ -277,6 +277,13 @@ async def _fcm_access(acc: dict, c) -> str:
     return _fcm_tok[1]
 
 
+def _fcm_key(k: str) -> str:
+    """Reservierte data-Schlüssel umbenennen (aus "from" wird "sender"), sonst weist FCM die ganze Meldung ab."""
+    if k == "from":
+        return "sender"
+    return f"x_{k}" if k in ("notification", "message_type") or k.startswith(("google", "gcm")) else k
+
+
 async def fcm_send(payload: dict, tokens: list[str] | None = None) -> int:
     """Meldung an die Android-Geräte. Nur Daten (kein „notification“-Block): die App baut die Meldung selbst, auch wenn sie zu ist.
     Abgemeldete Geräte (404 / UNREGISTERED) fliegen raus. → Anzahl zugestellt."""
@@ -284,7 +291,8 @@ async def fcm_send(payload: dict, tokens: list[str] | None = None) -> int:
     acc, toks = fcm_account(), fcm_tokens() if tokens is None else tokens
     if not acc or not toks:
         return 0
-    data = {k: str(v) for k, v in payload.items() if v is not None}   # FCM erlaubt in data nur Text
+    # FCM erlaubt in data nur Text und lehnt reservierte Schlüssel mit 400 ab ("from", "notification", "message_type", "google…", "gcm…")
+    data = {_fcm_key(k): str(v) for k, v in payload.items() if v is not None}
     ok, gone = 0, []
     try:
         async with httpx.AsyncClient(timeout=10) as c:
@@ -294,6 +302,8 @@ async def fcm_send(payload: dict, tokens: list[str] | None = None) -> int:
             async def one(t: str) -> int:
                 r = await c.post(url, headers={"authorization": f"Bearer {access}"},
                                  json={"message": {"token": t, "data": data, "android": {"priority": "HIGH", "ttl": "3600s"}}})
+                if r.status_code not in (200, 404):
+                    log.warning("FCM-Antwort %s: %s", r.status_code, r.text[:300])
                 return r.status_code
             for t, code in zip(toks, await asyncio.gather(*(one(t) for t in toks), return_exceptions=True)):
                 if code == 200:

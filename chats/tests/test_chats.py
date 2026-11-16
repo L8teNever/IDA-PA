@@ -410,3 +410,8 @@ def test_fcm_android(client, monkeypatch):
     assert client.get(f"{API}/fcm").json()["devices"] == 1 and push.has_subs()
     client.post(f"{API}/fcm/unregister", json={"token": tok})
     assert client.delete(f"{API}/fcm").json()["client"] is False and push.fcm_account() is None
+
+
+def test_fcm_reserved_keys():
+    from app import push
+    assert [push._fcm_key(k) for k in ("from", "chat", "gcm.x", "notification")] == ["sender", "chat", "x_gcm.x", "x_notification"]
