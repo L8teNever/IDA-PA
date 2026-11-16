@@ -10,7 +10,7 @@ from fastapi import FastAPI
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import api, ida, live, org, push
+from . import api, ida, live, org, push, untis
 from .config import get_settings
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -41,10 +41,12 @@ def frontend_version(*dirs: Path) -> str:
 async def lifespan(app: FastAPI):
     task = asyncio.create_task(live.loop())
     ida_task = asyncio.create_task(ida.loop())   # Idas Benachrichtigungen (Chat „Ida“)
+    untis_task = asyncio.create_task(untis.loop())   # neue WebUntis-Nachrichten
     log.info("Chats bereit")
     yield
     task.cancel()
     ida_task.cancel()
+    untis_task.cancel()
     if api._beeper:
         await api._beeper.close()
 
@@ -53,6 +55,7 @@ def create_app() -> FastAPI:
     s = get_settings()
     app = FastAPI(title="IDA Chats", version="1.0", lifespan=lifespan, docs_url="/api/docs", openapi_url="/api/openapi.json")
     app.include_router(ida.router)   # vor api: /chats/ida/… ist der Chat mit Ida, nicht Beeper
+    app.include_router(untis.router)   # vor api: /chats/untis:…/… sind WebUntis-Nachrichten
     app.include_router(api.router)
     app.include_router(push.router)
     app.include_router(org.router)

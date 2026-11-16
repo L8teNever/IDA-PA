@@ -112,7 +112,7 @@ function openFromUrl() {
   const m = /^chat\/[^/]+\/(foto|video|bild|album|info|suche)(?:\/([^/]+))?(?:\/(\d+))?/.exec(location.pathname.slice(BASE.length));
   if (!m && readOv()) return history.replaceState(history.state, "", ovBase());
   if (!m || !S.id) return;
-  if (m[1] === "info") return $("#info") || isIda(S.id) ? undefined : openInfo();
+  if (m[1] === "info") return $("#info") || ownChat(S.id) ? undefined : openInfo();
   if (m[1] === "suche") return $("#srch") ? undefined : openSearch();
   const msg = m[2] && S.msgs.find((x) => x.id === decodeURIComponent(m[2]));
   if (m[1] === "album" && msg && albumView(msg.id)) return;
@@ -206,7 +206,7 @@ async function loadChats({ more = false, quiet = false, keep = quiet } = {}) {
     else if (keep && S.paged) S.chats = d.items.concat(S.chats.filter((c) => !got.has(c.id)));   // ältere Seiten bleiben, S.next auch
     else { S.chats = d.items; S.next = d.next; S.paged = false; }
     drawList(); cacheList();
-    if (!more && !S.q) loadIda();
+    if (!more && !S.q) { loadIda(); loadUntis(); }
     if (more) {   // die neu dazugekommenen Zeilen tauchen nacheinander auf
       const els = [...document.querySelectorAll("#list .row")].filter((el) => !had.has(el.dataset.id) && !had.has(grpOf(el.dataset.id)?.id)).slice(0, 14);
       els.forEach((el, i) => { el.style.animationDelay = `${i * 28}ms`; el.classList.add("rin"); });
@@ -233,6 +233,7 @@ async function markRead(c) {
   c.marking = true;
   try {
     await api(`/chats/${encodeURIComponent(id)}/read`, { method: "POST", body: "{}" });
+    if (isUntis(id)) loadUntis(); if (isIda(id)) loadIda();
   } catch (e) {
     unSeen(c); refreshReadBar(); drawList(); toast(`Als gelesen markieren ging nicht: ${e.message}`);
   } finally { c.marking = false; }
@@ -344,7 +345,23 @@ async function loadIda() {
     drawList(); if (isIda(S.id) && $(".chead")) refreshReadBar();
   } catch { /* letzter Stand bleibt */ }
 }
-const known = (id) => isIda(id) ? IDA : S.chats.find((x) => x.id === id) || PINS.find((x) => x.id === id) || DIR.get(id) || orgStub(id);
+// WebUntis-Nachrichten (chats/app/untis.py): pro Lehrkraft ein Chat „untis:<name>“; alle Lehrkräfte findet die Suche (neuer Chat)
+let UNTIS = (() => { try { return { on: false, items: [], teachers: [], ...JSON.parse(localStorage.getItem("chats-untis") || "{}") }; } catch { return { on: false, items: [], teachers: [] }; } })();
+const isUntis = (id) => String(id || "").startsWith("untis:");
+const saveUntis = () => { try { localStorage.setItem("chats-untis", JSON.stringify(UNTIS)); } catch { /* egal */ } };
+async function loadUntis() {
+  try {
+    const d = await api("/untis/chats");
+    UNTIS = { ...UNTIS, on: d.on, items: d.on ? d.error && UNTIS.items.length ? UNTIS.items : d.items : [], error: d.error || "" };
+    if (!d.on) UNTIS.teachers = [];
+    saveUntis(); drawList(); if (isUntis(S.id) && $(".chead")) refreshReadBar();
+    if (d.on && !UNTIS.teachers.length) { UNTIS.teachers = (await api("/untis/teachers")).items; saveUntis(); }
+  } catch { /* letzter Stand bleibt */ }
+}
+const untisChat = (id) => UNTIS.items.find((x) => x.id === id) || UNTIS.teachers.find((x) => x.id === id) || (isUntis(id) ? { id, title: id.slice(6).replace(/-/g, " "), network: "untis", type: "single", untis: true, unread: 0 } : null);
+const ownChat = (id) => isIda(id) || isUntis(id);   // nicht aus Beeper: nur Text, keine Reaktionen/Anhänge/Bearbeiten
+const extraRows = () => [...(IDA ? [IDA] : []), ...UNTIS.items];   // eigene Chats neben denen aus Beeper
+const known = (id) => isIda(id) ? IDA : isUntis(id) ? untisChat(id) : S.chats.find((x) => x.id === id) || PINS.find((x) => x.id === id) || DIR.get(id) || orgStub(id);
 
 // ---------------- Verzeichnis: jeder Chat, der einmal geladen war (Name, Netzwerk), im Browser gemerkt ----------------
 // Damit findet die Suche Leute sofort beim Tippen (Beepers Antwort kommt danach dazu), und Chats, die nicht mehr in der
@@ -690,7 +707,7 @@ function rowMenu(c) {
   closeMenu();
   const on = PINS.some((p) => p.id === c.id), d = document.createElement("div");
   d.className = "ctx"; d.id = "ctx";
-  if (isIda(c.id)) d.innerHTML = `<div class="ctx-back"></div><div class="sheet">
+  if (ownChat(c.id)) d.innerHTML = `<div class="ctx-back"></div><div class="sheet">
     <button data-p="mute"><span class="ms">${isMuted(c.id) ? "notifications" : "notifications_off"}</span>${isMuted(c.id) ? "Stummschaltung ändern" : "Stummschalten"}</button>
     ${left(c) ? '<button data-p="read"><span class="ms">done_all</span>Als gelesen markieren</button>' : ""}</div>`;
   else d.innerHTML = `<div class="ctx-back"></div><div class="sheet">
@@ -748,7 +765,9 @@ function drawList() {
   const pinGrp = new Set(pinned.map((c) => c.id));
   const all = collapse(showPins ? S.chats.filter((c) => !pinIds.has(c.id)) : S.chats).filter((c) => !pinGrp.has(c.id));
   const rest = all.filter(shown);
-  if (showPins && IDA) { const i = rest.findIndex((c) => (c.at || "") < (IDA.at || "")); rest.splice(i < 0 ? rest.length : i, 0, IDA); }
+  const extra = S.q ? [...(IDA ? [IDA] : []), ...UNTIS.items, ...UNTIS.teachers.filter((t) => !UNTIS.items.some((x) => x.id === t.id))].filter((c) => norm(c.title).includes(norm(S.q)))
+    : showPins ? extraRows() : S.f === "unread" ? extraRows().filter(left) : [];
+  for (const x of extra) { if (rest.some((c) => c.id === x.id)) continue; const i = S.q ? -1 : rest.findIndex((c) => (c.at || "") < (x.at || "")); rest.splice(i < 0 ? rest.length : i, 0, x); }
   // Listen und „Ausgeblendet“: Chats, die (noch) nicht geladen sind, kommen aus dem Gemerkten dazu
   const lb = labelOf();
   if (!S.q && (lb || S.f === "hidden")) {
@@ -757,7 +776,7 @@ function drawList() {
     for (const x of want) if (!have.has(x.id)) { const c = rowChat(grpOf(x.id)?.id || x.id) || { id: x.id, title: x.title, network: x.network, unread: 0 }; if (!rest.some((r) => r.id === c.id)) rest.push(c); }
   }
   // Zähler (Titel, App-Symbol): ausgeblendete Chats zählen nicht mit
-  const n = [...pinned, ...collapse(S.chats.filter((c) => !pinIds.has(c.id))).filter((c) => visOf(c) !== "hidden"), ...(IDA ? [IDA] : [])].reduce((a, c) => a + left(c), 0);
+  const n = [...pinned, ...collapse(S.chats.filter((c) => !pinIds.has(c.id))).filter((c) => visOf(c) !== "hidden"), ...extraRows()].reduce((a, c) => a + left(c), 0);
   document.title = n ? `(${n}) Chats` : "Chats";
   if (navigator.setAppBadge) (n ? navigator.setAppBadge(n) : navigator.clearAppBadge()).catch(() => {});
   if (!rest.length && !pinned.length && !S.next) {
@@ -891,7 +910,7 @@ function target() {
   return last?.chat || c.merged[0].id;
 }
 const NET_NAME = { snapchat: "Snapchat", instagram: "Instagram", whatsapp: "WhatsApp", signal: "Signal", telegram: "Telegram", discord: "Discord", messenger: "Messenger",
-  ida: "Ida", gmessages: "SMS", googlechat: "Google Chat", slack: "Slack", linkedin: "LinkedIn", x: "X", imessage: "iMessage" };
+  ida: "Ida", untis: "WebUntis", gmessages: "SMS", googlechat: "Google Chat", slack: "Slack", linkedin: "LinkedIn", x: "X", imessage: "iMessage" };
 const netName = (n) => NET_NAME[netKey(n)] || String(n || "Chat");
 // Kleine Logos der Apps fürs Abzeichen (eigene vereinfachte Zeichnungen, Farbe kommt aus [data-net] in app.css)
 const BUBBLE = "M12 3a9 9 0 0 0-7.8 13.5L3 21l4.6-1.2A9 9 0 1 0 12 3z";
@@ -905,6 +924,7 @@ const NET_SVG = {
   discord: '<path d="M6.8 6.2c3.3-1.4 7.1-1.4 10.4 0 1.8 2.7 2.7 5.6 2.5 9.1-1.5 1.2-3.1 1.9-4.7 2.3l-1-1.6c-2.7.7-5.3.7-8 0l-1 1.6c-1.6-.4-3.2-1.1-4.7-2.3-.2-3.5.7-6.4 2.5-9.1z" fill="currentColor"/><circle cx="9.2" cy="12.3" r="1.6" fill="#5865f2"/><circle cx="14.8" cy="12.3" r="1.6" fill="#5865f2"/>',
   gmessages: '<path d="M4 4h16a1 1 0 0 1 1 1v11a1 1 0 0 1-1 1H8l-4 4V5a1 1 0 0 1 1-1z" fill="currentColor"/>',
   imessage: `<path d="${BUBBLE}" fill="currentColor"/>`,
+  untis: '<path d="M12 3 1.5 8.5 12 14l8.5-4.45V16h2V8.5z" fill="currentColor"/><path d="M5.5 12.6v3.9C7.3 18.4 9.5 19.5 12 19.5s4.7-1.1 6.5-3V12.6L12 16z" fill="currentColor"/>',
   ida: '<path d="M12 2.5l2.3 6.2 6.2 2.3-6.2 2.3L12 19.5l-2.3-6.2L3.5 11l6.2-2.3z" fill="currentColor"/><path d="M19 15.5l.9 2.1 2.1.9-2.1.9-.9 2.1-.9-2.1-2.1-.9 2.1-.9z" fill="currentColor"/>',
 };
 const netMark = (n) => { const k = netKey(n); return NET_SVG[k] ? `<svg viewBox="0 0 24 24" aria-hidden="true">${NET_SVG[k]}</svg>` : esc(netName(n)[0]); };
@@ -951,7 +971,7 @@ document.addEventListener("pointerdown", (e) => { if ($("#topanel") && !e.target
 function head() {
   const c = cur(), title = clean(c?.title || "Chat");
   return `<div class="chead"><button class="icon-btn back float" data-a="back" aria-label="Zurück"><span class="ms">arrow_back</span></button><div class="cinfo float" data-a="info" role="button" title="Info anzeigen">${avatar(title, c?.av || S.id)}
-    <div class="t"><b>${esc(title)}</b><small>${esc(c?.ida ? "Deine Assistentin" : c?.network || "")}${c?.type === "group" ? " · Gruppe" : ""}</small></div></div></div>`;
+    <div class="t"><b>${esc(title)}</b><small>${esc(c?.ida ? "Deine Assistentin" : c?.untis ? "WebUntis" : c?.network || "")}${c?.type === "group" ? " · Gruppe" : ""}</small></div></div></div>`;
 }
 function readBar(c) {
   return left(c) ? `<div class="readbar" id="readbar"><button class="chip" data-a="seen">Als gelesen markieren</button></div>` : "";
@@ -987,7 +1007,7 @@ async function openChat() {
     ta.value = t; ta.dispatchEvent(new Event("input")); hideFix(); ta.focus();   // Text antippen: Vorschlag ins Feld übernehmen
   });
   $("#attachBtn").onclick = attachMenu;
-  if (isIda(S.id)) { $("#attachBtn").hidden = true; ta.placeholder = "Nachricht an Ida"; sendMode(); }
+  if (ownChat(S.id)) { $("#attachBtn").hidden = true; ta.placeholder = isIda(S.id) ? "Nachricht an Ida" : `Nachricht an ${clean(cur()?.title || "")} (WebUntis)`; sendMode(); }
   $("#toBtn").onclick = toMenu; toChip();
   $("#recbar").addEventListener("click", (e) => { const a = e.target.closest("[data-rec]")?.dataset.rec; if (a) recAction(a); });
   const conv = $("#conv");
@@ -995,7 +1015,7 @@ async function openChat() {
   conv.ondragleave = (e) => { if (e.target === conv || !conv.contains(e.relatedTarget)) conv.classList.remove("drop"); };
   conv.ondrop = (e) => { conv.classList.remove("drop"); const f = [...(e.dataTransfer?.files || [])]; if (f.length) { e.preventDefault(); pickFiles(f); } };
   ta.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey && !matchMedia("(pointer: coarse)").matches) { e.preventDefault(); $("#form").requestSubmit(); } });
-  $("#form").addEventListener("submit", (e) => { e.preventDefault(); if (ta.value.trim()) send(); else if (!S.edit && !isIda(S.id)) startRec(); });
+  $("#form").addEventListener("submit", (e) => { e.preventDefault(); if (ta.value.trim()) send(); else if (!S.edit && !ownChat(S.id)) startRec(); });
   $("#conv").dataset.net = cur()?.merged ? "" : netKey(cur()?.network);
   if (S.msgs.length) drawMsgs({ stick: true });   // sofort aus dem Speicher, Frisches kommt gleich
   if (!cur()) loadChats({ quiet: true }).then(() => { if (S.id && $(".chead")) { $(".chead").outerHTML = head(); refreshReadBar(); } });
@@ -1190,7 +1210,7 @@ function bubble(m, tail = true, stack = null, head = true) {
   const mc = cur()?.merged, net = mc ? netKey((mc.find((x) => x.id === (m.chat || target())) || {}).network) : null;
   return `${name}${m.reply_to && !m.deleted ? replyHead(m, net) : ""}<div class="bw ${m.mine ? "me" : ""} ${face ? "grp" : ""} ${m.reply_to && !m.deleted ? "isrep" : ""}"${net !== null ? ` data-net="${net}"` : ""} id="m-${esc(m.id)}" data-id="${esc(m.id)}"><span class="swipe ms">reply</span>${face}${tools}<div class="bcol">${quote}${split ? `<div class="b media ${m.mine ? "me" : ""}">${group}${files}</div>` : ""}<div class="b ${m.mine ? "me" : ""} ${share ? "sharebub" : ""} ${!m.mine && atMe(m) ? "atme" : ""} ${m.pending ? "pending" : ""} ${m.deleted ? "del" : ""} ${!split && visual && !m.text ? "media" : ""}">${split ? "" : group}${split ? "" : files}${prog}${body}${links}${rx}${tmLine(m)}</div>${more}</div><span class="st">${m.at && !m.pending ? fmtTime.format(new Date(m.at)) : ""}</span></div>`;
 }
-const NETS = [["ida", "ida"], ["snapchat", "snapchat"], ["instagram", "instagram"], ["whatsapp", "whatsapp"], ["signal", "signal"], ["telegram", "telegram"], ["discord", "discord"],
+const NETS = [["ida", "ida"], ["untis", "untis"], ["snapchat", "snapchat"], ["instagram", "instagram"], ["whatsapp", "whatsapp"], ["signal", "signal"], ["telegram", "telegram"], ["discord", "discord"],
   ["messenger", "messenger"], ["facebook", "messenger"], ["gmessages", "gmessages"], ["google messages", "gmessages"], ["googlechat", "googlechat"], ["google chat", "googlechat"],
   ["slack", "slack"], ["linkedin", "linkedin"], ["twitter", "x"], ["imessage", "imessage"], ["sms", "gmessages"]];
 const netKey = (n) => { n = String(n || "").toLowerCase(); return (NETS.find(([k]) => n.includes(k)) || [, ""])[1]; };
@@ -1286,7 +1306,7 @@ $("#conv").addEventListener("click", (e) => {
   if (!a) return;
   if (a.dataset.a === "back") return back();
   if (a.dataset.a === "gset") return groupSettings(cur());
-  if (a.dataset.a === "info") return isIda(S.id) ? window.open("https://ida.kulbarts.com/", "_blank", "noopener") : openInfo();
+  if (a.dataset.a === "info") return isIda(S.id) ? window.open("https://ida.kulbarts.com/", "_blank", "noopener") : isUntis(S.id) ? UNTIS.server && window.open(`https://${UNTIS.server}/today`, "_blank", "noopener") : openInfo();
   if (a.dataset.a === "older") return loadMsgs({ older: true });
   if (a.dataset.a === "reply") return setReply(S.msgs.find((m) => m.id === a.dataset.id));
   if (a.dataset.a === "seen") return markRead(cur());
@@ -1509,6 +1529,7 @@ const QUICK = ["❤️", "👍", "😂", "😮", "😢", "🙏"];
 const MORE = ["🔥", "👏", "🥰", "😍", "🤣", "😅", "😭", "😡", "🤔", "👀", "🎉", "💯", "✅", "❌", "🙈", "😎", "🤝", "💀"];
 function menu(m) {
   closeMenu();
+  if (matchMedia("(pointer: coarse)").matches) getSelection()?.removeAllRanges();   // langes Drücken: keine Markierung stehen lassen
   const src = document.getElementById(`m-${m.id}`)?.querySelector(".b");
   if (!src) return;
   const r = src.getBoundingClientRect(), mine = new Set((m.reactions || []).filter((x) => x.mine).map((x) => x.key));
@@ -1516,9 +1537,12 @@ function menu(m) {
   d.className = "ctx"; d.id = "ctx";
   const emo = (k) => `<button class="emo ${mine.has(k) ? "on" : ""}" data-r="${esc(k)}" aria-label="${esc(k)}">${esc(k)}</button>`;
   if (m.typing) return;
-  if (isIda(S.id)) {   // Chat mit Ida: nur Kopieren (Reaktionen, Bearbeiten, Löschen gibt es dort nicht)
+  if (ownChat(S.id)) {   // Ida / WebUntis: keine Reaktionen, kein Bearbeiten oder Löschen; bei Untis Antworten (auf genau diese Nachricht) und An Ida schicken
+    const un = isUntis(S.id) && !m.pending;
     d.innerHTML = `<div class="ctx-back"></div><div class="ctx-stack ${m.mine ? "me" : ""}"><div class="ctx-msg"></div><div class="ctx-box">
-      ${m.text ? '<button data-c="copy"><span class="ms">content_copy</span>Text kopieren</button>' : ""}</div></div>`;
+      ${un && !m.mine && m.can_reply !== false ? '<button data-c="reply"><span class="ms">reply</span>Antworten</button>' : ""}
+      ${m.text ? '<button data-c="copy"><span class="ms">content_copy</span>Text kopieren</button>' : ""}
+      ${un && IDA ? '<button data-c="ida"><span class="ms">auto_awesome</span>An Ida schicken</button>' : ""}</div></div>`;
   } else d.innerHTML = `<div class="ctx-back"></div><div class="ctx-stack ${m.mine ? "me" : ""}">
     ${m.pending || m.deleted ? "" : `<div class="ctx-rx">${QUICK.map(emo).join("")}<button class="emo plus" data-c="more" aria-label="Mehr"><span class="ms">add</span></button></div>
     <div class="ctx-more" hidden>${MORE.map(emo).join("")}</div>`}
@@ -1938,7 +1962,7 @@ async function send(override) {
 }
 function sendMode() {   // leeres Feld: Mikrofon (wie in Beeper), sonst Senden
   const b = $("#sendBtn"), ta = $("#txt"); if (!b || !ta) return;
-  const txt = !!ta.value.trim() || isIda(S.id);   // Ida: immer Senden (keine Sprachnachrichten)
+  const txt = !!ta.value.trim() || ownChat(S.id);   // Ida: immer Senden (keine Sprachnachrichten)
   b.classList.toggle("mic", !txt); b.querySelector(".ms").textContent = txt ? "send" : "mic";
   b.setAttribute("aria-label", txt ? "Senden" : "Sprachnachricht aufnehmen");
 }
@@ -2222,7 +2246,7 @@ function openSett(push = true) {
   if (push && !readSett()) pushView({ sett: true }, "", `${BASE}einstellungen`);
   const el = document.createElement("div"); el.className = "info sett"; el.id = "sett";
   $(".side").append(el); document.body.classList.add("setts");
-  redrawSett(); pushState(true); loadFcm(); loadSugg();
+  redrawSett(); pushState(true); loadFcm(); loadSugg(); loadUntisStatus();
 }
 function dropSett() {
   const el = $("#sett"); if (!el) return;
@@ -2247,6 +2271,11 @@ function redrawSett() {
       ${row(PUSH === "on" ? "notifications_active" : "notifications_off", "Benachrichtigungen", pushTxt, `data-s="push"${PUSH === "none" ? " disabled" : ""}`, `<span class="sw${PUSH === "on" ? " on" : ""}" aria-hidden="true"></span>`)}
       ${PUSH === "on" ? row("science", "Probemeldung", "Zeigt eine Benachrichtigung auf diesem Gerät", 'data-s="test"') : ""}
       <p class="ihint">Kostet keinen Akku: Der Server weckt das Handy nur, wenn eine Nachricht kommt.</p></div>
+    <div class="icard"><small>WebUntis</small>
+      ${UNTIS.on ? row("school", `Verbunden als ${esc(UNTIS.user || "")}`, esc([UNTIS.school, UNTIS.error ? `Gerade nicht erreichbar: ${UNTIS.error}` : `${UNTIS.items.length} ${UNTIS.items.length === 1 ? "Chat" : "Chats"}, ${UNTIS.teachers.length} Lehrkräfte`].filter(Boolean).join(" · ")), 'data-s="untis"')
+        + row("logout", "Abmelden", "Die Lehrer-Chats verschwinden aus der Liste", 'data-s="untisoff"')
+        : row("login", "Mit WebUntis anmelden", "Nachrichten deiner Lehrkräfte als Chats – lesen, antworten, neu schreiben", 'data-s="untis"')}
+      <p class="ihint">Pro Lehrkraft ein Chat. Schreiben antwortet auf ihre letzte Nachricht, gibt es keine, geht eine neue an sie (Betreff = Anfang des Textes). Lehrkräfte ohne Nachrichten findest du über die Suche. Die Anmeldedaten bleiben auf deinem Server.</p></div>
     <div class="icard"><small>Android-App</small>
       ${row(FCM.client ? "check_circle" : "upload_file", "google-services.json", FCM.client ? `Hochgeladen – Projekt ${esc(FCM.project)}${FCM.package ? `, App ${esc(FCM.package)}` : ""}` : "Aus Firebase: App hinzufügen → Datei herunterladen", 'data-s="fcmfile" data-k="client"')}
       ${row(FCM.account ? "check_circle" : "key", "Schlüssel des Dienstkontos", FCM.account ? `Hochgeladen – Projekt ${esc(FCM.account_project)}` : "Aus Firebase: Projekteinstellungen → Dienstkonten → Neuen privaten Schlüssel generieren", 'data-s="fcmfile" data-k="account"')}
@@ -2283,6 +2312,8 @@ document.addEventListener("click", (e) => {
   if (a === "fcmfile") return fcmUpload(t.dataset.k);
   if (a === "fcmdel") return fcmRemove();
   if (a === "snapjoin") return setPref("snap_join", !PREFS.snap_join);
+  if (a === "untis") return untisLogin();
+  if (a === "untisoff") return sure("Von WebUntis abmelden?", "Die Lehrer-Chats verschwinden aus der Liste. In WebUntis selbst bleibt alles.", "Abmelden", true).then((ok) => ok && untisOff());
   if (a === "mute") return muteMenu(c);
   if (a === "auto") return autoReadMenu(c);
   if (a === "netvis") return netVisMenu(t.dataset.net);
@@ -2322,6 +2353,47 @@ function fcmUpload(kind) {
 }
 async function fcmRemove() {
   try { FCM = await api("/fcm", { method: "DELETE" }); localStorage.removeItem(FCM_KEY); NATIVE?.pushOff(); redrawSett(); pushState(true); toast("Firebase-Dateien entfernt"); }
+  catch (e) { toast(`Ging nicht: ${e.message}`); }
+}
+// WebUntis: Schule suchen, Benutzername und Passwort – der Server prüft die Anmeldung sofort (chats/app/untis.py)
+async function loadUntisStatus() { try { const d = await api("/untis"); UNTIS = { ...UNTIS, ...d }; saveUntis(); redrawSett(); } catch { /* bleibt */ } }
+function untisLogin() {
+  closeMenu();
+  const d = document.createElement("div"); d.className = "ctx"; d.id = "ctx";
+  let pick = UNTIS.on ? { name: UNTIS.school, school: "", server: UNTIS.server } : null, qT;
+  d.innerHTML = `<div class="ctx-back"></div><form class="sheet namesheet untissheet"><b>Mit WebUntis anmelden</b>
+    <label class="search"><span class="ms">search</span><input name="q" placeholder="Schule suchen (Name oder Ort)" autocomplete="off" enterkeyhint="search"></label>
+    <div class="uschools" id="uschools"></div>
+    <label class="search"><span class="ms">person</span><input name="user" placeholder="Benutzername" autocomplete="username" autocapitalize="off" value="${esc(UNTIS.user || "")}"></label>
+    <label class="search"><span class="ms">key</span><input name="pw" type="password" placeholder="Passwort" autocomplete="current-password"></label>
+    <button class="btn" type="submit">Anmelden</button></form>`;
+  const f = d.querySelector("form"), box = d.querySelector("#uschools"), q = f.q;
+  const drawPick = () => { box.innerHTML = pick ? `<button type="button" class="irow on" data-u="re"><span class="ms">check_circle</span><span class="it"><b>${esc(pick.name)}</b><small>${esc(pick.address || pick.server)}</small></span></button>` : ""; };
+  drawPick();
+  q.oninput = () => { clearTimeout(qT); qT = setTimeout(async () => {
+    const v = q.value.trim(); if (v.length < 3) return drawPick();
+    try {
+      const r = await api(`/untis/schools?q=${encodeURIComponent(v)}`); if (q.value.trim() !== v) return;
+      box.innerHTML = r.items.length ? r.items.map((x, i) => `<button type="button" class="irow" data-u="${i}"><span class="ms">school</span><span class="it"><b>${esc(x.name)}</b><small>${esc(x.address || x.server)}</small></span></button>`).join("")
+        : `<p class="ihint">${esc(r.hint || "Keine Schule gefunden – anders schreiben oder den Ort dazu")}</p>`;
+      box.onclick = (e) => { const b = e.target.closest("[data-u]"); if (!b || b.dataset.u === "re") return; pick = r.items[+b.dataset.u]; q.value = ""; drawPick(); f.user.focus(); };
+    } catch (e) { box.innerHTML = `<p class="ihint">${esc(e.message)}</p>`; }
+  }, 300); };
+  f.onsubmit = async (e) => {
+    e.preventDefault();
+    if (!pick?.school && !(UNTIS.on && pick)) { toast("Erst die Schule suchen und antippen"); return q.focus(); }
+    if (!f.user.value.trim() || !f.pw.value) { toast("Benutzername und Passwort fehlen"); return; }
+    const btn = f.querySelector("button[type=submit]"); btn.disabled = true; btn.textContent = "Melde an …";
+    try {
+      const r = await api("/untis", { method: "PUT", body: JSON.stringify({ server: pick.server, school: pick.school || UNTIS.school_login || "", school_name: pick.name || "", user: f.user.value.trim(), password: f.pw.value }) });
+      UNTIS = { ...UNTIS, ...r, teachers: [] }; saveUntis(); closeMenu(); toast("Mit WebUntis verbunden"); loadUntis(); redrawSett();
+    } catch (err) { btn.disabled = false; btn.textContent = "Anmelden"; toast(err.message); }
+  };
+  d.querySelector(".ctx-back").onclick = closeMenu;
+  document.body.append(d); setTimeout(() => (pick ? f.user : q).focus(), 60);
+}
+async function untisOff() {
+  try { await api("/untis", { method: "DELETE" }); UNTIS = { on: false, items: [], teachers: [] }; saveUntis(); drawList(); redrawSett(); toast("Von WebUntis abgemeldet"); }
   catch (e) { toast(`Ging nicht: ${e.message}`); }
 }
 async function loadPrefs() {
@@ -2373,7 +2445,7 @@ function muteMenu(c) {
 // ---------------- Automatisch als gelesen (pro Chat; "Sofort" erledigt der Dienst, auch ohne offene App) ----------------
 const AR_TEXT = { "": "Aus – du markierst selbst", open: "Beim Öffnen des Chats", always: "Sofort, auch ohne Öffnen (keine Benachrichtigung)" };
 const arOf = (id) => AUTOREAD.get(id) || AUTOREAD.get(grpOf(id)?.id) || "";
-function autoRead() { const c = cur(); if (c && (arOf(c.id) || isIda(c.id)) && left(c) && document.visibilityState === "visible") markRead(c); }
+function autoRead() { const c = cur(); if (c && (arOf(c.id) || ownChat(c.id)) && left(c) && document.visibilityState === "visible") markRead(c); }
 async function loadAutoRead() {
   try { const r = await api("/autoread"); AUTOREAD = new Map(r.items.map((x) => [x.id, x.mode])); autoRead(); redrawSett(); } catch { /* bleibt */ }
 }

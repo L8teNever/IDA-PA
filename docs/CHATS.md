@@ -153,6 +153,27 @@ zeigt der Chat drei springende Punkte.
   Beeper-Chat-ID und bis zu 8 Nachrichten davor als Kontext (Sprachnachrichten mit Transkript). Ein Tipp auf den Hinweis öffnet den Ida-Chat.
 - Ohne `IDA_URL` gibt es den Chat nicht. Anhänge und Sprachnachrichten gehen im Ida-Chat (noch) nicht.
 
+## WebUntis-Nachrichten
+
+Einstellungen → **WebUntis** → „Mit WebUntis anmelden“: Schule suchen (öffentliches Untis-Verzeichnis), Benutzername, Passwort. Der Dienst
+meldet sich sofort an und speichert die Daten nur in `chats.db` (kv `untis_login`, nie im Repo; das Passwort geht nie zurück an die Seite).
+Code: `chats/app/untis.py`.
+
+- **Pro Lehrkraft ein Chat** (`untis:<name>`, Abzeichen mit Schulhut), nach Zeit zwischen den anderen Chats. Darin stehen ihre Nachrichten
+  (Betreff als erste Zeile, ganzer Text, Verlauf der Unterhaltung) und deine an sie. Lehrkräfte ohne Nachrichten findet die Suche – so
+  fängst du einen neuen Chat an.
+- **Schreiben:** antwortet auf ihre letzte Nachricht („AW: Betreff“). Mit „Antworten“ (Wischen oder Menü) auf eine bestimmte Nachricht.
+  Erlaubt sie keine Antworten oder gibt es noch keine Nachricht von ihr, geht eine **neue Nachricht** an sie; Betreff = erste Zeile des Textes.
+- **Gelesen:** Öffnen des Chats markiert ihre Nachrichten auch in WebUntis als gelesen (WebUntis tut das beim Abrufen des ganzen Textes).
+  Die Liste allein ändert nichts.
+- **Meldungen:** alle 2 Minuten (App offen: 30 s) schaut der Dienst ins Postfach; Neues meldet sich am Handy wie eine Chat-Nachricht.
+- Anhänge zeigt der Chat nur als Hinweis („in WebUntis öffnen“); senden kann man nur Text.
+
+Schnittstellen: dieselben, die die WebUntis-Webseite nutzt (aus ihrem Code abgelesen, nicht offiziell dokumentiert) – Anmeldung per
+JSON-RPC `authenticate`, dann JWT von `/api/token/new`; Postfach `v1/messages`, Gesendet `v1/messages/sent`, Lehrkräfte
+`v1/messages/recipients/static/teachers`, neu `POST v2/messages`, Antwort `POST v2/messages/{id}/reply` (multipart, Teil `request`).
+Ändert Untis daran etwas, bricht genau dieser Teil – der Rest der App läuft weiter.
+
 ## Startseite, Listen und Archiv
 
 Alles gilt auf allen Geräten (gespeichert im Dienst, `chats/app/org.py`, Tabellen `chat_vis`, `net_vis`, `labels`, `label_chats`);

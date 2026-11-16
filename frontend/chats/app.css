@@ -152,7 +152,13 @@ a.file small { color: var(--muted); }
 .bw.me .swipe { left: auto; right: -34px; }
 .bw.drag .swipe { opacity: 1; }
 .bw.armed .swipe { background: var(--accent); color: var(--on-accent); transform: scale(1.1); }
-@media (pointer: coarse) { .b { -webkit-touch-callout: none; user-select: none; -webkit-user-select: none; } .rep { display: none; } .vtext { user-select: text; -webkit-user-select: text; } }
+/* Am Handy: langes Drücken öffnet das Menü – nichts im Verlauf, Kopf oder Menü wird dabei markiert (auch keine Icons wie der Antwort-Pfeil) */
+@media (pointer: coarse) {
+  .msgs, .chead, .ctx, .readbar, .replybar { -webkit-touch-callout: none; user-select: none; -webkit-user-select: none; -webkit-tap-highlight-color: transparent; }
+  .msgs img, .msgs video, .ctx img { -webkit-user-drag: none; }
+  .rep { display: none; } .vtext { user-select: text; -webkit-user-select: text; }
+}
+.ms { user-select: none; -webkit-user-select: none; }
 .ctx { position: fixed; inset: 0; z-index: 80; }
 .ctx-back { position: absolute; inset: 0; background: rgba(0,0,0,.5); backdrop-filter: blur(14px) saturate(.8); -webkit-backdrop-filter: blur(14px) saturate(.8); animation: fade .16s ease-out; }
 .ctx-stack { position: absolute; display: grid; grid-auto-rows: auto; justify-items: start; gap: 8px; max-width: calc(100vw - 16px); }
@@ -259,6 +265,7 @@ a.file small { color: var(--muted); }
 [data-net=messenger]  { --nb: linear-gradient(135deg, #0099ff 0%, #a033ff 60%, #ff5280 100%); --nf: #fff; --nc: #a033ff; --no: rgba(255,255,255,.18); }
 [data-net=gmessages]  { --nb: #0b57d0; --nf: #fff; --nc: #0b57d0; --no: rgba(255,255,255,.18); }
 [data-net=googlechat] { --nb: #1e8e3e; --nf: #fff; --nc: #1e8e3e; --no: rgba(255,255,255,.18); }
+[data-net=untis]      { --nb: #f39200; --nf: #1b1200; --nc: #f39200; --no: rgba(0,0,0,.12); }
 [data-net=ida]        { --nb: var(--primary, #a8c7fa); --nf: var(--on-primary, #062e6f); --nc: var(--primary, #a8c7fa); --no: rgba(0,0,0,.12); }
 [data-net=slack]      { --na: #e01e5a; --nb: #4a154b; --nf: #fff; --nc: #4a154b; --no: rgba(255,255,255,.16); }
 [data-net=linkedin]   { --nb: #0a66c2; --nf: #fff; --nc: #0a66c2; --no: rgba(255,255,255,.18); }
@@ -900,3 +907,9 @@ body.setts .ldock { display: none; }
 .b.typing .dots i:nth-child(3) { animation-delay: .3s; }
 @keyframes tdot { 0%, 60%, 100% { transform: translateY(0); opacity: .4; } 30% { transform: translateY(-4px); opacity: .9; } }
 @media (prefers-reduced-motion: reduce) { .b.typing .dots i { animation: none; } }
+
+/* WebUntis-Anmeldung: Schulsuche mit Treffern im Blatt */
+.untissheet .uschools { display: flex; flex-direction: column; gap: 2px; max-height: 38vh; overflow-y: auto; }
+.untissheet .uschools:empty { display: none; }
+.untissheet .uschools .irow { width: 100%; height: auto; min-height: 56px; padding: 6px 8px; text-align: left; }
+.untissheet .uschools .irow.on .ms { color: var(--primary, #a8c7fa); }
