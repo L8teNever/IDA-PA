@@ -112,7 +112,7 @@ function openFromUrl() {
   const m = /^chat\/[^/]+\/(foto|video|bild|album|info|suche)(?:\/([^/]+))?(?:\/(\d+))?/.exec(location.pathname.slice(BASE.length));
   if (!m && readOv()) return history.replaceState(history.state, "", ovBase());
   if (!m || !S.id) return;
-  if (m[1] === "info") return $("#info") ? undefined : openInfo();
+  if (m[1] === "info") return $("#info") || isIda(S.id) ? undefined : openInfo();
   if (m[1] === "suche") return $("#srch") ? undefined : openSearch();
   const msg = m[2] && S.msgs.find((x) => x.id === decodeURIComponent(m[2]));
   if (m[1] === "album" && msg && albumView(msg.id)) return;
@@ -206,6 +206,7 @@ async function loadChats({ more = false, quiet = false, keep = quiet } = {}) {
     else if (keep && S.paged) S.chats = d.items.concat(S.chats.filter((c) => !got.has(c.id)));   // ältere Seiten bleiben, S.next auch
     else { S.chats = d.items; S.next = d.next; S.paged = false; }
     drawList(); cacheList();
+    if (!more && !S.q) loadIda();
     if (more) {   // die neu dazugekommenen Zeilen tauchen nacheinander auf
       const els = [...document.querySelectorAll("#list .row")].filter((el) => !had.has(el.dataset.id) && !had.has(grpOf(el.dataset.id)?.id)).slice(0, 14);
       els.forEach((el, i) => { el.style.animationDelay = `${i * 28}ms`; el.classList.add("rin"); });
@@ -332,7 +333,18 @@ async function loadMerges() {
     drawList();
   } catch { /* letzter Stand bleibt */ }
 }
-const known = (id) => S.chats.find((x) => x.id === id) || PINS.find((x) => x.id === id) || DIR.get(id) || orgStub(id);
+// Chat „Ida“ (chats/app/ida.py): direkt mit Ida schreiben, ihre Benachrichtigungen kommen auch hier an. Steht wie ein Chat in der Liste.
+let IDA = (() => { try { return JSON.parse(localStorage.getItem("chats-ida") || "null"); } catch { return null; } })();
+const isIda = (id) => id === "ida";
+async function loadIda() {
+  try {
+    const d = await api("/ida");
+    IDA = d.on ? d.chat || IDA : null;
+    try { localStorage.setItem("chats-ida", JSON.stringify(IDA)); } catch { /* egal */ }
+    drawList(); if (isIda(S.id) && $(".chead")) refreshReadBar();
+  } catch { /* letzter Stand bleibt */ }
+}
+const known = (id) => isIda(id) ? IDA : S.chats.find((x) => x.id === id) || PINS.find((x) => x.id === id) || DIR.get(id) || orgStub(id);
 
 // ---------------- Verzeichnis: jeder Chat, der einmal geladen war (Name, Netzwerk), im Browser gemerkt ----------------
 // Damit findet die Suche Leute sofort beim Tippen (Beepers Antwort kommt danach dazu), und Chats, die nicht mehr in der
@@ -678,7 +690,10 @@ function rowMenu(c) {
   closeMenu();
   const on = PINS.some((p) => p.id === c.id), d = document.createElement("div");
   d.className = "ctx"; d.id = "ctx";
-  d.innerHTML = `<div class="ctx-back"></div><div class="sheet">
+  if (isIda(c.id)) d.innerHTML = `<div class="ctx-back"></div><div class="sheet">
+    <button data-p="mute"><span class="ms">${isMuted(c.id) ? "notifications" : "notifications_off"}</span>${isMuted(c.id) ? "Stummschaltung ändern" : "Stummschalten"}</button>
+    ${left(c) ? '<button data-p="read"><span class="ms">done_all</span>Als gelesen markieren</button>' : ""}</div>`;
+  else d.innerHTML = `<div class="ctx-back"></div><div class="sheet">
     <button data-p="pin"><span class="ms">push_pin</span>${on ? "Nicht mehr anpinnen" : "Anpinnen"}</button>
     <button data-p="mute"><span class="ms">${isMuted(c.id) ? "notifications" : "notifications_off"}</span>${isMuted(c.id) ? "Stummschaltung ändern" : "Stummschalten"}</button>
     <button data-p="merge"><span class="ms">call_merge</span>Mit anderem Chat zusammenführen</button>
@@ -733,6 +748,7 @@ function drawList() {
   const pinGrp = new Set(pinned.map((c) => c.id));
   const all = collapse(showPins ? S.chats.filter((c) => !pinIds.has(c.id)) : S.chats).filter((c) => !pinGrp.has(c.id));
   const rest = all.filter(shown);
+  if (showPins && IDA) { const i = rest.findIndex((c) => (c.at || "") < (IDA.at || "")); rest.splice(i < 0 ? rest.length : i, 0, IDA); }
   // Listen und „Ausgeblendet“: Chats, die (noch) nicht geladen sind, kommen aus dem Gemerkten dazu
   const lb = labelOf();
   if (!S.q && (lb || S.f === "hidden")) {
@@ -741,7 +757,7 @@ function drawList() {
     for (const x of want) if (!have.has(x.id)) { const c = rowChat(grpOf(x.id)?.id || x.id) || { id: x.id, title: x.title, network: x.network, unread: 0 }; if (!rest.some((r) => r.id === c.id)) rest.push(c); }
   }
   // Zähler (Titel, App-Symbol): ausgeblendete Chats zählen nicht mit
-  const n = [...pinned, ...collapse(S.chats.filter((c) => !pinIds.has(c.id))).filter((c) => visOf(c) !== "hidden")].reduce((a, c) => a + left(c), 0);
+  const n = [...pinned, ...collapse(S.chats.filter((c) => !pinIds.has(c.id))).filter((c) => visOf(c) !== "hidden"), ...(IDA ? [IDA] : [])].reduce((a, c) => a + left(c), 0);
   document.title = n ? `(${n}) Chats` : "Chats";
   if (navigator.setAppBadge) (n ? navigator.setAppBadge(n) : navigator.clearAppBadge()).catch(() => {});
   if (!rest.length && !pinned.length && !S.next) {
@@ -875,7 +891,7 @@ function target() {
   return last?.chat || c.merged[0].id;
 }
 const NET_NAME = { snapchat: "Snapchat", instagram: "Instagram", whatsapp: "WhatsApp", signal: "Signal", telegram: "Telegram", discord: "Discord", messenger: "Messenger",
-  gmessages: "SMS", googlechat: "Google Chat", slack: "Slack", linkedin: "LinkedIn", x: "X", imessage: "iMessage" };
+  ida: "Ida", gmessages: "SMS", googlechat: "Google Chat", slack: "Slack", linkedin: "LinkedIn", x: "X", imessage: "iMessage" };
 const netName = (n) => NET_NAME[netKey(n)] || String(n || "Chat");
 // Kleine Logos der Apps fürs Abzeichen (eigene vereinfachte Zeichnungen, Farbe kommt aus [data-net] in app.css)
 const BUBBLE = "M12 3a9 9 0 0 0-7.8 13.5L3 21l4.6-1.2A9 9 0 1 0 12 3z";
@@ -889,6 +905,7 @@ const NET_SVG = {
   discord: '<path d="M6.8 6.2c3.3-1.4 7.1-1.4 10.4 0 1.8 2.7 2.7 5.6 2.5 9.1-1.5 1.2-3.1 1.9-4.7 2.3l-1-1.6c-2.7.7-5.3.7-8 0l-1 1.6c-1.6-.4-3.2-1.1-4.7-2.3-.2-3.5.7-6.4 2.5-9.1z" fill="currentColor"/><circle cx="9.2" cy="12.3" r="1.6" fill="#5865f2"/><circle cx="14.8" cy="12.3" r="1.6" fill="#5865f2"/>',
   gmessages: '<path d="M4 4h16a1 1 0 0 1 1 1v11a1 1 0 0 1-1 1H8l-4 4V5a1 1 0 0 1 1-1z" fill="currentColor"/>',
   imessage: `<path d="${BUBBLE}" fill="currentColor"/>`,
+  ida: '<path d="M12 2.5l2.3 6.2 6.2 2.3-6.2 2.3L12 19.5l-2.3-6.2L3.5 11l6.2-2.3z" fill="currentColor"/><path d="M19 15.5l.9 2.1 2.1.9-2.1.9-.9 2.1-.9-2.1-2.1-.9 2.1-.9z" fill="currentColor"/>',
 };
 const netMark = (n) => { const k = netKey(n); return NET_SVG[k] ? `<svg viewBox="0 0 24 24" aria-hidden="true">${NET_SVG[k]}</svg>` : esc(netName(n)[0]); };
 // Profilbild mit kleinem Abzeichen unten rechts (wie in Beeper): Logo der App – bei zusammengeführten Chats ein eigenes Zeichen
@@ -934,7 +951,7 @@ document.addEventListener("pointerdown", (e) => { if ($("#topanel") && !e.target
 function head() {
   const c = cur(), title = clean(c?.title || "Chat");
   return `<div class="chead"><button class="icon-btn back float" data-a="back" aria-label="Zurück"><span class="ms">arrow_back</span></button><div class="cinfo float" data-a="info" role="button" title="Info anzeigen">${avatar(title, c?.av || S.id)}
-    <div class="t"><b>${esc(title)}</b><small>${esc(c?.network || "")}${c?.type === "group" ? " · Gruppe" : ""}</small></div></div></div>`;
+    <div class="t"><b>${esc(title)}</b><small>${esc(c?.ida ? "Deine Assistentin" : c?.network || "")}${c?.type === "group" ? " · Gruppe" : ""}</small></div></div></div>`;
 }
 function readBar(c) {
   return left(c) ? `<div class="readbar" id="readbar"><button class="chip" data-a="seen">Als gelesen markieren</button></div>` : "";
@@ -970,6 +987,7 @@ async function openChat() {
     ta.value = t; ta.dispatchEvent(new Event("input")); hideFix(); ta.focus();   // Text antippen: Vorschlag ins Feld übernehmen
   });
   $("#attachBtn").onclick = attachMenu;
+  if (isIda(S.id)) { $("#attachBtn").hidden = true; ta.placeholder = "Nachricht an Ida"; sendMode(); }
   $("#toBtn").onclick = toMenu; toChip();
   $("#recbar").addEventListener("click", (e) => { const a = e.target.closest("[data-rec]")?.dataset.rec; if (a) recAction(a); });
   const conv = $("#conv");
@@ -977,7 +995,7 @@ async function openChat() {
   conv.ondragleave = (e) => { if (e.target === conv || !conv.contains(e.relatedTarget)) conv.classList.remove("drop"); };
   conv.ondrop = (e) => { conv.classList.remove("drop"); const f = [...(e.dataTransfer?.files || [])]; if (f.length) { e.preventDefault(); pickFiles(f); } };
   ta.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey && !matchMedia("(pointer: coarse)").matches) { e.preventDefault(); $("#form").requestSubmit(); } });
-  $("#form").addEventListener("submit", (e) => { e.preventDefault(); if (ta.value.trim()) send(); else if (!S.edit) startRec(); });
+  $("#form").addEventListener("submit", (e) => { e.preventDefault(); if (ta.value.trim()) send(); else if (!S.edit && !isIda(S.id)) startRec(); });
   $("#conv").dataset.net = cur()?.merged ? "" : netKey(cur()?.network);
   if (S.msgs.length) drawMsgs({ stick: true });   // sofort aus dem Speicher, Frisches kommt gleich
   if (!cur()) loadChats({ quiet: true }).then(() => { if (S.id && $(".chead")) { $(".chead").outerHTML = head(); refreshReadBar(); } });
@@ -1008,7 +1026,7 @@ async function loadMsgs({ first = false, quiet = false, older = false } = {}) {
     // Was im Zeitraum der geladenen Seite liegt, dort aber fehlt, gibt es nicht mehr (z. B. für mich gelöscht) – nicht aus dem Speicher zurückholen
     const lo = d.items[0]?.at, hi = d.items.at(-1)?.at, got = new Set(d.items.map((m) => m.id));
     const stale = (m) => !m.pending && m.at && lo && m.at >= lo && m.at <= hi && !got.has(m.id);
-    S.msgs = [...keep.values()].filter((m) => !stale(m) && (!m.pending || !landed(m))).sort((a, b) => (a.at || "").localeCompare(b.at || ""));
+    S.msgs = [...keep.values()].filter((m) => !stale(m) && (!m.pending || !landed(m)) && (!m.typing || got.has(m.id))).sort((a, b) => (a.at || "").localeCompare(b.at || ""));
     if (!keepOld) { S.more = d.more; S.oldest = d.oldest; }
     cacheMsgs();
     setTimeout(prefetchOlder, 300);
@@ -1147,6 +1165,7 @@ function lpHtml(l, pic = null) {   // pic: Vorschaubild aus dem Anhang (schärfe
   return `<div class="lp${pic ? " share" : ""}">${shot}<a class="lp-txt" href="${esc(l.url)}" target="_blank" rel="noopener noreferrer"><b>${esc(title)}</b>${l.summary ? `<i>${esc(l.summary)}</i>` : ""}<small>${esc(host(l.url))}</small></a></div>`;
 }
 function bubble(m, tail = true, stack = null, head = true) {
+  if (m.typing) return `<div class="bw" id="m-typing" data-id="typing"><div class="bcol"><div class="b typing" aria-label="Ida schreibt"><span class="dots"><i></i><i></i><i></i></span></div></div></div>`;
   // Geteilter Beitrag: nur der Link als Text und genau ein Bild (sein Vorschaubild) → eine Karte statt Bild + Link + zweitem Bild
   const sole = !m.deleted && soleLink(m);
   const share = sole && !stack && m.files.length === 1 && m.files[0].kind === "image" && !m.files[0].sticker && m.files[0].src && !m.pending ? m.files[0] : null;
@@ -1171,7 +1190,7 @@ function bubble(m, tail = true, stack = null, head = true) {
   const mc = cur()?.merged, net = mc ? netKey((mc.find((x) => x.id === (m.chat || target())) || {}).network) : null;
   return `${name}${m.reply_to && !m.deleted ? replyHead(m, net) : ""}<div class="bw ${m.mine ? "me" : ""} ${face ? "grp" : ""} ${m.reply_to && !m.deleted ? "isrep" : ""}"${net !== null ? ` data-net="${net}"` : ""} id="m-${esc(m.id)}" data-id="${esc(m.id)}"><span class="swipe ms">reply</span>${face}${tools}<div class="bcol">${quote}${split ? `<div class="b media ${m.mine ? "me" : ""}">${group}${files}</div>` : ""}<div class="b ${m.mine ? "me" : ""} ${share ? "sharebub" : ""} ${!m.mine && atMe(m) ? "atme" : ""} ${m.pending ? "pending" : ""} ${m.deleted ? "del" : ""} ${!split && visual && !m.text ? "media" : ""}">${split ? "" : group}${split ? "" : files}${prog}${body}${links}${rx}${tmLine(m)}</div>${more}</div><span class="st">${m.at && !m.pending ? fmtTime.format(new Date(m.at)) : ""}</span></div>`;
 }
-const NETS = [["snapchat", "snapchat"], ["instagram", "instagram"], ["whatsapp", "whatsapp"], ["signal", "signal"], ["telegram", "telegram"], ["discord", "discord"],
+const NETS = [["ida", "ida"], ["snapchat", "snapchat"], ["instagram", "instagram"], ["whatsapp", "whatsapp"], ["signal", "signal"], ["telegram", "telegram"], ["discord", "discord"],
   ["messenger", "messenger"], ["facebook", "messenger"], ["gmessages", "gmessages"], ["google messages", "gmessages"], ["googlechat", "googlechat"], ["google chat", "googlechat"],
   ["slack", "slack"], ["linkedin", "linkedin"], ["twitter", "x"], ["imessage", "imessage"], ["sms", "gmessages"]];
 const netKey = (n) => { n = String(n || "").toLowerCase(); return (NETS.find(([k]) => n.includes(k)) || [, ""])[1]; };
@@ -1267,7 +1286,7 @@ $("#conv").addEventListener("click", (e) => {
   if (!a) return;
   if (a.dataset.a === "back") return back();
   if (a.dataset.a === "gset") return groupSettings(cur());
-  if (a.dataset.a === "info") return openInfo();
+  if (a.dataset.a === "info") return isIda(S.id) ? window.open("https://ida.kulbarts.com/", "_blank", "noopener") : openInfo();
   if (a.dataset.a === "older") return loadMsgs({ older: true });
   if (a.dataset.a === "reply") return setReply(S.msgs.find((m) => m.id === a.dataset.id));
   if (a.dataset.a === "seen") return markRead(cur());
@@ -1496,7 +1515,11 @@ function menu(m) {
   const d = document.createElement("div");
   d.className = "ctx"; d.id = "ctx";
   const emo = (k) => `<button class="emo ${mine.has(k) ? "on" : ""}" data-r="${esc(k)}" aria-label="${esc(k)}">${esc(k)}</button>`;
-  d.innerHTML = `<div class="ctx-back"></div><div class="ctx-stack ${m.mine ? "me" : ""}">
+  if (m.typing) return;
+  if (isIda(S.id)) {   // Chat mit Ida: nur Kopieren (Reaktionen, Bearbeiten, Löschen gibt es dort nicht)
+    d.innerHTML = `<div class="ctx-back"></div><div class="ctx-stack ${m.mine ? "me" : ""}"><div class="ctx-msg"></div><div class="ctx-box">
+      ${m.text ? '<button data-c="copy"><span class="ms">content_copy</span>Text kopieren</button>' : ""}</div></div>`;
+  } else d.innerHTML = `<div class="ctx-back"></div><div class="ctx-stack ${m.mine ? "me" : ""}">
     ${m.pending || m.deleted ? "" : `<div class="ctx-rx">${QUICK.map(emo).join("")}<button class="emo plus" data-c="more" aria-label="Mehr"><span class="ms">add</span></button></div>
     <div class="ctx-more" hidden>${MORE.map(emo).join("")}</div>`}
     <div class="ctx-msg"></div>
@@ -1506,6 +1529,7 @@ function menu(m) {
       ${m.text ? '<button data-c="copy"><span class="ms">content_copy</span>Text kopieren</button>' : ""}
       ${m.mine && m.text && !m.files.length && !m.pending && !m.deleted ? '<button data-c="edit"><span class="ms">edit</span>Bearbeiten</button>' : ""}
       ${!m.pending && !m.deleted && (m.text || m.files.length) ? '<button data-c="fwd"><span class="ms">forward</span>Weiterleiten</button>' : ""}
+      ${IDA && !m.pending && (m.text || m.files.length || m.was) ? '<button data-c="ida"><span class="ms">auto_awesome</span>An Ida schicken</button>' : ""}
       ${m.files[0] ? '<button data-c="open"><span class="ms">open_in_new</span>Datei öffnen</button>' : ""}
       ${m.mine || m.pending ? "" : '<button data-c="unread"><span class="ms">mark_chat_unread</span>Ab hier ungelesen</button>'}
       ${m.deleted && m.was?.text ? '<button data-c="copywas"><span class="ms">content_copy</span>Text kopieren</button>' : ""}
@@ -1528,6 +1552,7 @@ function menu(m) {
     if (c === "info") msgInfo(m);
     if (c === "edit") setEdit(m);
     if (c === "fwd") forwardPick(m);
+    if (c === "ida") toIda(m);
     if (c === "copy") navigator.clipboard?.writeText(m.text).then(() => toast("Kopiert"), () => toast("Kopieren nicht möglich"));
     if (c === "unread") markUnread(m.chat ? { ...(known(m.chat) || { id: m.chat }), id: m.chat } : cur(), mid(m));
     if (c === "copywas") navigator.clipboard?.writeText(m.was.text).then(() => toast("Kopiert"), () => toast("Kopieren nicht möglich"));
@@ -1560,6 +1585,22 @@ function menu(m) {
   const onRs = () => (d.isConnected ? place() : removeEventListener("resize", onRs));
   addEventListener("resize", onRs);
   buzz(20);
+}
+// „An Ida schicken“: die Nachricht mit dem Chat und bis zu 8 Nachrichten davor geht sofort an Ida (chats/app/ida.py → /ida/forward)
+function lineOf(x) {
+  const f = x.deleted ? x.was : x, files = (f?.files || []).map((a) => a.transcript ? `[Sprachnachricht: ${a.transcript}]` : `[${{ image: "Bild", video: "Video", audio: "Audio" }[a.kind] || "Datei"}${a.name ? ` ${a.name}` : ""}]`);
+  const links = (x.links || []).filter((l) => l.title).map((l) => `[Link: ${l.title}]`);
+  return { who: clean(x.sender), mine: !!x.mine, at: x.at || "", text: [x.deleted ? "(gelöscht)" : "", f?.text || "", ...files, ...links].filter(Boolean).join(" ").slice(0, 3900) };
+}
+async function toIda(m) {
+  const c = cur(), src = m.chat ? known(m.chat) || { id: m.chat } : c, i = S.msgs.indexOf(m);
+  const before = S.msgs.slice(Math.max(0, i - 8), Math.max(0, i)).filter((x) => !x.pending && !x.typing && (!m.chat || x.chat === m.chat)).map(lineOf);
+  const body = { chat_id: cid(m), title: clean(c?.title || src?.title || ""), network: netName(src?.network || c?.network), group: c?.type === "group",
+    message: lineOf(m), before };
+  if (m.chat) body.chat_id = m.chat;
+  toast("Geht an Ida …");
+  try { await api("/ida/forward", { method: "POST", body: JSON.stringify(body) }); toast("An Ida geschickt – antippen zum Öffnen", () => go("ida")); loadIda(); }
+  catch (e) { toast(`Ging nicht an Ida: ${e.message}`); }
 }
 // Nachrichten-Info: wann gesendet, über welches Netzwerk und wer sie wann gelesen hat (statt "Gelesen von …" im Chat)
 function msgInfo(m) {
@@ -1897,7 +1938,7 @@ async function send(override) {
 }
 function sendMode() {   // leeres Feld: Mikrofon (wie in Beeper), sonst Senden
   const b = $("#sendBtn"), ta = $("#txt"); if (!b || !ta) return;
-  const txt = !!ta.value.trim();
+  const txt = !!ta.value.trim() || isIda(S.id);   // Ida: immer Senden (keine Sprachnachrichten)
   b.classList.toggle("mic", !txt); b.querySelector(".ms").textContent = txt ? "send" : "mic";
   b.setAttribute("aria-label", txt ? "Senden" : "Sprachnachricht aufnehmen");
 }
@@ -2332,7 +2373,7 @@ function muteMenu(c) {
 // ---------------- Automatisch als gelesen (pro Chat; "Sofort" erledigt der Dienst, auch ohne offene App) ----------------
 const AR_TEXT = { "": "Aus – du markierst selbst", open: "Beim Öffnen des Chats", always: "Sofort, auch ohne Öffnen (keine Benachrichtigung)" };
 const arOf = (id) => AUTOREAD.get(id) || AUTOREAD.get(grpOf(id)?.id) || "";
-function autoRead() { const c = cur(); if (c && arOf(c.id) && left(c) && document.visibilityState === "visible") markRead(c); }
+function autoRead() { const c = cur(); if (c && (arOf(c.id) || isIda(c.id)) && left(c) && document.visibilityState === "visible") markRead(c); }
 async function loadAutoRead() {
   try { const r = await api("/autoread"); AUTOREAD = new Map(r.items.map((x) => [x.id, x.mode])); autoRead(); redrawSett(); } catch { /* bleibt */ }
 }

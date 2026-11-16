@@ -259,6 +259,7 @@ a.file small { color: var(--muted); }
 [data-net=messenger]  { --nb: linear-gradient(135deg, #0099ff 0%, #a033ff 60%, #ff5280 100%); --nf: #fff; --nc: #a033ff; --no: rgba(255,255,255,.18); }
 [data-net=gmessages]  { --nb: #0b57d0; --nf: #fff; --nc: #0b57d0; --no: rgba(255,255,255,.18); }
 [data-net=googlechat] { --nb: #1e8e3e; --nf: #fff; --nc: #1e8e3e; --no: rgba(255,255,255,.18); }
+[data-net=ida]        { --nb: var(--primary, #a8c7fa); --nf: var(--on-primary, #062e6f); --nc: var(--primary, #a8c7fa); --no: rgba(0,0,0,.12); }
 [data-net=slack]      { --na: #e01e5a; --nb: #4a154b; --nf: #fff; --nc: #4a154b; --no: rgba(255,255,255,.16); }
 [data-net=linkedin]   { --nb: #0a66c2; --nf: #fff; --nc: #0a66c2; --no: rgba(255,255,255,.18); }
 [data-net=x]          { --nb: #e7e9ea; --nf: #0f1419; --nc: #e7e9ea; --no: rgba(0,0,0,.1); }
@@ -890,3 +891,12 @@ body.setts .ldock { display: none; }
 .sugg-btns { display: flex; gap: 8px; padding-top: 8px; }
 .sugg-btns .btn { flex: 1; justify-content: center; height: 48px; border-radius: 24px; }
 .sugg-btns .btn.ghost { background: var(--surface-high); color: var(--on-surface); }
+
+/* Chat „Ida“: drei springende Punkte, solange sie antwortet */
+.b.typing { padding: 12px 14px; }
+.b.typing .dots { display: inline-flex; gap: 4px; }
+.b.typing .dots i { width: 7px; height: 7px; border-radius: 50%; background: currentColor; opacity: .5; animation: tdot 1.2s infinite ease-in-out; }
+.b.typing .dots i:nth-child(2) { animation-delay: .15s; }
+.b.typing .dots i:nth-child(3) { animation-delay: .3s; }
+@keyframes tdot { 0%, 60%, 100% { transform: translateY(0); opacity: .4; } 30% { transform: translateY(-4px); opacity: .9; } }
+@media (prefers-reduced-motion: reduce) { .b.typing .dots i { animation: none; } }

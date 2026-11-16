@@ -138,6 +138,21 @@ beim Scrollen stehen. Ohne View Transitions im Browser oder bei „Bewegung redu
   (eigene Adresse `…/chat/<id>/album/<Nachricht>`, Zurück schließt sie). Tipp auf eine Kachel öffnet das Bild bzw. Video.
 
 
+## Chat „Ida“
+
+In der Liste steht ein eigener Chat **Ida** (nach Zeit einsortiert wie alle anderen). Darin schreibst du direkt mit Ida, dem Haupt-Agenten von IDA
+(`chats/app/ida.py`). Dahinter liegt ein normaler IDA-Chat: Er wird beim ersten Senden angelegt, seine ID steht in `chats.db` (kv `ida_chat`).
+Wird er in IDA gelöscht, legt das nächste Senden einen neuen an. Die Antwort läuft in IDA weiter, auch wenn die App zu ist; solange sie läuft,
+zeigt der Chat drei springende Punkte.
+
+- **Benachrichtigungen:** Alles, was in IDA an dich geht (Erinnerungen, `notify_user`, Antworten anderer Agenten), steht im selben Verlauf.
+  Der Dienst schaut alle 60 s (App offen: 20 s) ins IDA-Postfach und meldet Neues am Handy wie eine Chat-Nachricht. Idas Antworten melden sich
+  ebenfalls, wenn die App gerade nirgends offen ist. Stummschalten geht wie bei jedem Chat (lange drücken).
+- **Gelesen:** Öffnen markiert den Chat gelesen (auch die Meldungen im IDA-Postfach).
+- **An Ida schicken:** Nachricht in einem anderen Chat lange drücken → „An Ida schicken“. Sie geht sofort an Ida, mit Chatname, Netzwerk,
+  Beeper-Chat-ID und bis zu 8 Nachrichten davor als Kontext (Sprachnachrichten mit Transkript). Ein Tipp auf den Hinweis öffnet den Ida-Chat.
+- Ohne `IDA_URL` gibt es den Chat nicht. Anhänge und Sprachnachrichten gehen im Ida-Chat (noch) nicht.
+
 ## Startseite, Listen und Archiv
 
 Alles gilt auf allen Geräten (gespeichert im Dienst, `chats/app/org.py`, Tabellen `chat_vis`, `net_vis`, `labels`, `label_chats`);

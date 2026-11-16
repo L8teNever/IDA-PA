@@ -10,7 +10,7 @@ from fastapi import FastAPI
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import api, live, org, push
+from . import api, ida, live, org, push
 from .config import get_settings
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -40,9 +40,11 @@ def frontend_version(*dirs: Path) -> str:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     task = asyncio.create_task(live.loop())
+    ida_task = asyncio.create_task(ida.loop())   # Idas Benachrichtigungen (Chat „Ida“)
     log.info("Chats bereit")
     yield
     task.cancel()
+    ida_task.cancel()
     if api._beeper:
         await api._beeper.close()
 
@@ -50,6 +52,7 @@ async def lifespan(app: FastAPI):
 def create_app() -> FastAPI:
     s = get_settings()
     app = FastAPI(title="IDA Chats", version="1.0", lifespan=lifespan, docs_url="/api/docs", openapi_url="/api/openapi.json")
+    app.include_router(ida.router)   # vor api: /chats/ida/… ist der Chat mit Ida, nicht Beeper
     app.include_router(api.router)
     app.include_router(push.router)
     app.include_router(org.router)
