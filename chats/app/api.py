@@ -5,8 +5,10 @@ import difflib
 import html
 import json
 import logging
+import os
 import re
 import shutil
+import tempfile
 import time
 from urllib.parse import quote
 
@@ -1232,21 +1234,41 @@ async def mark_unread(chat_id: str, body: Unread | None = None):
 
 # ---------------- Dateien und Sprachnachrichten senden (REST-API von Beeper Desktop) ----------------
 UPLOAD_MAX = 95 * 1024 * 1024   # Cloudflare lässt pro Anfrage höchstens 100 MB durch
+# WhatsApp spielt eine Sprachnachricht nur ab, wenn der Typ genau so lautet. Mit nacktem "audio/ogg" kommt sie beim Empfänger mit Häkchen an,
+# lässt sich dort aber nicht öffnen (so gesehen am 17.11.2026; Beepers eigene Sprachnachrichten tragen "; codecs=opus").
+VOICE_MIME = "audio/ogg; codecs=opus"
 
 
 async def to_ogg(data: bytes) -> bytes | None:
-    """Sprachaufnahme aus dem Browser (WebM/MP4) → Ogg/Opus, das Format, das WhatsApp, Signal & Co. als Sprachnachricht erwarten."""
+    """Sprachaufnahme aus dem Browser (WebM/MP4) → Ogg/Opus, das Format, das WhatsApp, Signal & Co. als Sprachnachricht erwarten.
+    Über Dateien statt Pipes: So kann ffmpeg in der Aufnahme springen (MP4 mit moov am Ende, WebM ohne Längenangabe).
+    Geht es schief, steht der Grund im Log – None heißt: nicht umgewandelt."""
     if not shutil.which("ffmpeg"):
+        log.warning("Sprachnachricht: ffmpeg fehlt, nicht umgewandelt")
         return None
-    p = await asyncio.create_subprocess_exec("ffmpeg", "-hide_banner", "-loglevel", "error", "-i", "pipe:0", "-vn", "-ac", "1", "-ar", "48000",
-                                             "-c:a", "libopus", "-b:a", "32k", "-application", "voip", "-f", "ogg", "pipe:1",
-                                             stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
-    try:
-        out, _ = await asyncio.wait_for(p.communicate(data), 60)
-    except asyncio.TimeoutError:
-        p.kill()
+    with tempfile.TemporaryDirectory(prefix="voice-") as tmp:
+        src, dst = os.path.join(tmp, "in"), os.path.join(tmp, "out.ogg")
+        with open(src, "wb") as f:
+            f.write(data)
+        p = await asyncio.create_subprocess_exec("ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", src, "-vn", "-map", "0:a:0", "-ac", "1", "-ar", "48000",
+                                                 "-c:a", "libopus", "-b:a", "32k", "-application", "voip", "-f", "ogg", dst,
+                                                 stdin=asyncio.subprocess.DEVNULL, stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.PIPE)
+        try:
+            _, err = await asyncio.wait_for(p.communicate(), 60)
+        except asyncio.TimeoutError:
+            p.kill()
+            await p.wait()
+            log.warning("Sprachnachricht: ffmpeg nach 60 s abgebrochen (Aufnahme %d Bytes)", len(data))
+            return None
+        out = b""
+        if os.path.exists(dst):
+            with open(dst, "rb") as f:
+                out = f.read()
+    if p.returncode != 0 or not out.startswith(b"OggS"):
+        log.warning("Sprachnachricht: ffmpeg fehlgeschlagen (Code %s, Aufnahme %d Bytes, Anfang %r, Ergebnis %d Bytes): %s",
+                    p.returncode, len(data), data[:12], len(out), err.decode("utf-8", "replace").strip()[-300:])
         return None
-    return out if p.returncode == 0 and out else None
+    return out
 
 
 def att_type(mime: str, voice: bool) -> str:
@@ -1274,7 +1296,12 @@ async def upload(chat_id: str, file: UploadFile = File(...), text: str = Form(""
     if voice:
         ogg = await to_ogg(data)
         if ogg:
-            data, mime, name = ogg, "audio/ogg", "Sprachnachricht.ogg"
+            data, mime, name = ogg, VOICE_MIME, "Sprachnachricht.ogg"
+        elif data.startswith(b"OggS"):
+            mime = VOICE_MIME   # schon Ogg/Opus (Firefox): nur den Typ richtig setzen
+        else:
+            # Rohes WebM/MP4 als Sprachnachricht würde bei WhatsApp & Co. ankommen (Häkchen!), sich aber nicht abspielen lassen
+            raise HTTPException(422, "Die Aufnahme ließ sich nicht umwandeln – bitte nochmal aufnehmen")
     out = await send_attachment(chat_id, data, name, mime, att_type(mime, voice), duration=duration, text=text, reply_to=reply_to)
     return {"ok": True, "id": out.get("pendingMessageID"), "type": att_type(mime, voice)}
 

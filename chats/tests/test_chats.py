@@ -135,9 +135,43 @@ def test_bild_und_sprachnachricht_senden(client, fake, monkeypatch):
     r = client.post(f"{API}/chats/1/upload", files={"file": ("a.webm", b"webmdata", "audio/webm;codecs=opus")}, data={"voice": "true", "duration": "4.2"})
     assert r.json()["type"] == "voice-note"
     att = fake.rest[-1][2]["attachment"]
-    assert att == {"uploadID": "up1", "type": "voice-note", "mimeType": "audio/ogg", "fileName": "Sprachnachricht.ogg", "duration": 4.2}
+    assert att == {"uploadID": "up1", "type": "voice-note", "mimeType": "audio/ogg; codecs=opus", "fileName": "Sprachnachricht.ogg", "duration": 4.2}
     assert b"OggSwebmdata" in fake.rest[-2][2]["raw"]
     assert client.post(f"{API}/chats/1/upload", files={"file": ("x", b"", "text/plain")}).status_code == 400
+
+
+def test_sprachnachricht_nicht_umgewandelt_wird_nicht_gesendet(client, fake, monkeypatch):
+    """Schlägt ffmpeg fehl, darf kein rohes WebM/MP4 als Sprachnachricht rausgehen – der Empfänger (WhatsApp) könnte es nicht abspielen."""
+    from app import api
+
+    async def kein_ogg(data):
+        return None
+    monkeypatch.setattr(api, "to_ogg", kein_ogg)
+    vorher = len(fake.rest)
+    r = client.post(f"{API}/chats/1/upload", files={"file": ("a.webm", b"webmdata", "audio/webm;codecs=opus")}, data={"voice": "true", "duration": "4.2"})
+    assert r.status_code == 422 and "nochmal aufnehmen" in r.json()["detail"]
+    assert len(fake.rest) == vorher   # nichts hochgeladen, nichts gesendet
+    # Eine Aufnahme, die schon Ogg ist (Firefox), geht auch ohne Umwandlung raus
+    r = client.post(f"{API}/chats/1/upload", files={"file": ("a.ogg", b"OggSdata", "audio/ogg;codecs=opus")}, data={"voice": "true"})
+    att = fake.rest[-1][2]["attachment"]
+    assert r.status_code == 200 and att["type"] == "voice-note" and att["mimeType"] == "audio/ogg; codecs=opus"
+
+
+def test_to_ogg_mit_echtem_ffmpeg(caplog):
+    import asyncio
+    import shutil
+    import subprocess
+    import pytest
+    from app import api
+    if not shutil.which("ffmpeg"):
+        pytest.skip("ffmpeg fehlt")
+    webm = subprocess.run(["ffmpeg", "-loglevel", "error", "-f", "lavfi", "-i", "sine=frequency=440:duration=1", "-c:a", "libopus", "-f", "webm", "pipe:1"],
+                          capture_output=True, check=True).stdout
+    out = asyncio.run(api.to_ogg(webm))
+    assert out and out.startswith(b"OggS")
+    with caplog.at_level("WARNING", logger="ida.chats"):
+        assert asyncio.run(api.to_ogg(b"das ist keine audiodatei")) is None
+    assert "ffmpeg fehlgeschlagen" in caplog.text
 
 
 def test_bild_schon_bei_beeper_heruntergeladen(client, fake):

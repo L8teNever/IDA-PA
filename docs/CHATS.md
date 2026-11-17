@@ -39,6 +39,11 @@ Browser (chats.kulbarts.com, Cloudflare Access) ──> chats :8000 ──MCP─
   Antippen nimmt auf (Wellenform, Zeit, Pause, Verwerfen, höchstens 15 Minuten). `POST /api/v1/chats/{id}/upload` lädt die Datei per
   `POST /v1/assets/upload` zu Beeper und schickt sie mit `POST /v1/chats/{id}/messages` (`attachment.uploadID`, Typ `voice-note` für
   Sprachnachrichten). Aufnahmen wandelt ffmpeg im Image vorher in Ogg/Opus (mono, 32 kbit/s) – das Format, das WhatsApp & Co. als Sprachnachricht erwarten.
+  Das geschieht über Dateien statt Pipes (ffmpeg kann so in der Aufnahme springen). Klappt die Umwandlung nicht, schreibt der Dienst den Grund ins Log
+  (`Sprachnachricht: ffmpeg fehlgeschlagen …`) und sendet **nichts** – die App meldet „bitte nochmal aufnehmen“, statt dass beim Empfänger (WhatsApp)
+  eine Sprachnachricht mit Häkchen ankommt, die sich nicht abspielen lässt. Nur eine Aufnahme, die schon Ogg ist, geht ohne Umwandlung raus.
+  Der Typ der Sprachnachricht lautet immer `audio/ogg; codecs=opus` (wie bei Beepers eigenen): Mit nacktem `audio/ogg` kam sie bei WhatsApp mit Häkchen an,
+  ließ sich dort aber nicht abspielen (17.11.2026 an einer Nachricht an einen WhatsApp-Kontakt gesehen).
 * **Reaktionen:** langes Drücken → Reaktionsleiste; `POST`/`DELETE /api/v1/chats/{id}/messages/{msg}/react` → Beeper `…/reactions`. Anzeige als kleine Pille, die unten über den Rand der Blase ragt (fremde links, eigene rechts).
 * **Bearbeiten:** langes Drücken auf eine eigene Textnachricht → „Bearbeiten“; `PUT /api/v1/chats/{id}/messages/{msg}` → Beeper `PUT …/messages/{msg}`.
   Nur Text, keine Nachrichten mit Anhang; ob und wie lange es geht, entscheidet das Netzwerk (sonst kommt die Fehlermeldung von Beeper).
