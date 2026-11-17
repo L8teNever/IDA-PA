@@ -1031,16 +1031,23 @@ async def archive_chat(chat_id: str, body: Archive):
 async def mark_read(chat_id: str):
     """Chat in Beeper als gelesen markieren – damit auch in Beeper und (je nach Netzwerk) beim Absender."""
     check_ids(chat_id)
-    for c in group_members(chat_id) or [chat_id]:   # zusammengeführt: alle Chats der Gruppe
-        if c.startswith("untis:"):
-            from . import untis
-            await untis.read(c[len("untis:"):])
-        elif c == "ida":
-            from . import ida
-            await ida.ida_read()
-        else:
-            await beeper_read(c)
+    errs: list[Exception] = []
+    for c in group_members(chat_id) or [chat_id]:   # zusammengeführt: alle Chats der Gruppe – einer, der nicht geht, hält die anderen nicht auf
+        try:
+            if c.startswith("untis:"):
+                from . import untis
+                await untis.read(c[len("untis:"):])
+            elif c == "ida":
+                from . import ida
+                await ida.ida_read()
+            else:
+                await beeper_read(c)
+        except Exception as e:  # noqa: BLE001
+            log.warning("Chat %s gelesen markieren fehlgeschlagen: %s", c, getattr(e, "detail", e))
+            errs.append(e)
     asyncio.create_task(push.dismiss(chat_id if group_members(chat_id) else push.note_key(chat_id)))   # Meldung am Handy weg
+    if errs:
+        raise errs[0]
     return {"ok": True}
 
 
@@ -1058,7 +1065,47 @@ async def newest_incoming(chat_id: str) -> tuple[str | None, str]:
     return None, net
 
 
+async def merged_parts(chat_id: str) -> list[tuple[str, bool]]:
+    """Beeper-Sammelchat (mehrere Chats in Beeper zu einem verbunden, Feld „merge“): die Chats dahinter als (ID, noch ungelesen).
+    Auf dem Sammelchat selbst lässt Beeper „gelesen“ nicht zu (500, ohne Ungelesenes 404) – nur auf den Chats dahinter.
+    Leer = normaler Chat."""
+    try:
+        r = await rest_get(f"/v1/chats/{quote(chat_id, safe='')}")
+        subs = [x for x in ((r.json().get("merge") or {}).get("chatIDs") or []) if isinstance(x, str)] if r.status_code < 400 else []
+    except (HTTPException, ValueError):
+        return []
+
+    async def part(sid: str) -> tuple[str, bool] | None:
+        try:
+            g = await rest_get(f"/v1/chats/{quote(sid, safe='')}")
+            if g.status_code == 404:
+                return None   # Beeper kennt den Chat nicht mehr (z. B. verwaister Instagram-Bridge-Chat) – nichts zu lesen
+            d = g.json() if g.status_code < 400 else {}
+        except (HTTPException, ValueError):
+            d = {}
+        # Weiß man es nicht, wird der Chat sicherheitshalber gelesen markiert
+        return str(d.get("localChatID") or sid), not d or bool(d.get("unreadCount")) or bool(d.get("isMarkedUnread"))
+    return [p for p in await asyncio.gather(*(part(x) for x in subs)) if p]
+
+
 async def beeper_read(chat_id: str) -> None:
+    """In Beeper gelesen markieren. Ein Sammelchat von Beeper (mehrere Chats zu einem) wird über die Chats dahinter gelesen markiert,
+    die noch Ungelesenes haben; geht einer nicht, kommen die übrigen trotzdem dran, danach der erste Fehler."""
+    errs: list[HTTPException] = []
+    todo = await merged_parts(chat_id) or [(chat_id, True)]
+    for sub, unread in todo:
+        if not unread:
+            continue
+        try:
+            await read_chat(sub)
+        except HTTPException as e:
+            log.warning("Chat %s (Teil von %s) gelesen markieren fehlgeschlagen: %s", sub, chat_id, e.detail)
+            errs.append(e)
+    if errs:
+        raise errs[0]
+
+
+async def read_chat(chat_id: str) -> None:
     """In Beeper gelesen markieren – ausdrücklich bis zur neuesten Nachricht. Snapchat reicht das nicht: dort gilt ein Snap
     erst als geöffnet, wenn der Chat in Beeper Desktop wirklich aufgeht, und zwar solange er noch ungelesen ist. Deshalb
     öffnet open_in_beeper den Chat ZUERST und markiert erst danach als gelesen."""

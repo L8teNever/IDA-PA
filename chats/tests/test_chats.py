@@ -386,6 +386,68 @@ def test_snap_oeffnen(monkeypatch):
                      ("/v1/chats/7/read", {"messageID": "2"}), ("/v1/focus", {"chatID": "5"})]
 
 
+def test_beeper_sammelchat_ueber_die_chats_dahinter_lesen(monkeypatch):
+    """Auf einem Sammelchat von Beeper (Feld „merge“) antwortet /read mit 500 – gelesen wird über die Chats dahinter, die Ungelesenes haben."""
+    import asyncio
+    from app import api
+    calls = []
+
+    class R:
+        status_code = 200
+
+        def __init__(self, data):
+            self._d = data
+
+        def json(self):
+            return self._d
+
+    chats = {"9": {"id": "!m:x", "localChatID": "9", "merge": {"chatIDs": ["!a:x", "!b:x", "!c:x", "!weg:x"]}, "unreadCount": 3},
+             "!a:x": {"id": "!a:x", "localChatID": "11", "unreadCount": 2},
+             "!b:x": {"id": "!b:x", "localChatID": "12", "unreadCount": 0},
+             "!c:x": {"id": "!c:x", "localChatID": "13", "unreadCount": 1}}
+
+    async def rest_get(path, **params):
+        if path.endswith("/messages"):
+            return R({"items": [{"id": "5", "isSender": False, "accountID": "whatsapp.1"}]})
+        d = chats.get(path.rsplit("/", 1)[1].replace("%21", "!").replace("%3A", ":"))
+        if d is None:   # Beeper kennt den Chat nicht mehr
+            r = R({})
+            r.status_code = 404
+            return r
+        return R(d)
+
+    async def rest_call(method, path, body=None):
+        calls.append(path)
+        if path == "/v1/chats/13/read":
+            raise api.HTTPException(502, "Beeper: kaputt")
+        return {}
+    monkeypatch.setattr(api, "rest_get", rest_get)
+    monkeypatch.setattr(api, "rest_call", rest_call)
+
+    async def run():
+        try:
+            await api.beeper_read("9")
+        except api.HTTPException as e:
+            return e
+    err = asyncio.run(run())
+    # nur die Chats mit Ungelesenem, nie der Sammelchat selbst, der unbekannte (404) wird übersprungen; der Fehler von 13 kommt erst nach dem Rest
+    assert calls == ["/v1/chats/11/read", "/v1/chats/13/read"] and err and err.status_code == 502
+
+
+def test_gruppe_lesen_ein_fehler_haelt_die_anderen_nicht_auf(client, monkeypatch):
+    from app import api
+    done = []
+
+    async def fake_read(c):
+        done.append(c)
+        if c == "1":
+            raise api.HTTPException(502, "Beeper: kaputt")
+    monkeypatch.setattr(api, "beeper_read", fake_read)
+    monkeypatch.setattr(api, "group_members", lambda cid: ["1", "2", "3"] if cid == "g" else [])
+    r = client.post(f"{API}/chats/g/read")
+    assert done == ["1", "2", "3"] and r.status_code == 502
+
+
 def test_snaps_still(client, monkeypatch):
     """Einstellung „Snaps nicht als neue Nachricht“: Snapchat-Chats zählen nur echte Nachrichten (Zeit, Ungelesen, Vorschau)."""
     from app import api
