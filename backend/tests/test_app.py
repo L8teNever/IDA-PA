@@ -560,6 +560,26 @@ def test_chat_effort_reaches_claude(client):
         client.delete(f"{API}/chats/{c['id']}")
 
 
+def test_chat_advisor_reaches_claude(client):
+    """The advisor picked in the model menu goes to the CLI as --advisor; its call shows as tool "advisor"
+    and the models that worked on the answer end up in the message meta."""
+    ev = chat(client, text="Hallo", advisor="claude-opus-5-5")
+    tool = next(e["tool"] for e in ev if "tool" in e)
+    assert tool["name"] == "advisor" and tool["input"]["model"] == "claude-opus-5-5"
+    res = next(e["tool_result"] for e in ev if "tool_result" in e)
+    assert not res["error"] and "verschlüsselt" in res["content"]
+    done = next(e["done"] for e in ev if "done" in e)
+    assert done["advisor"] == "claude-opus-5-5" and "claude-opus-5-5" in done["models"]
+    cid = next(e["chat"]["id"] for e in ev if "chat" in e)
+    msg = client.get(f"{API}/chats/{cid}").json()["messages"][-1]
+    assert msg["meta"]["advisor"] == "claude-opus-5-5" and len(msg["meta"]["models"]) == 2
+    ev = chat(client, text="Hallo")  # without one: no advisor
+    assert not any("tool" in e for e in ev)
+    assert client.post(f"{API}/chat", json={"text": "x", "advisor": "opus; rm -rf /"}).status_code == 422
+    for c in client.get(f"{API}/chats").json():
+        client.delete(f"{API}/chats/{c['id']}")
+
+
 def test_stop_button_ends_running_answer(client):
     """While the agent is thinking, the stop button ends the run right away; the chat stays usable."""
     import threading

@@ -326,7 +326,7 @@ async def _kick(db, chat_id: str) -> None:
         try:
             await chat_service.start_chat(chat_id=chat_id, agent_id=None, text=item.get("text") or "", model=item.get("model"),
                                           account_id=item.get("account_id"), skill_id=item.get("skill"), effort=item.get("effort"),
-                                          file_ids=item.get("files") or [])
+                                          advisor=item.get("advisor"), file_ids=item.get("files") or [])
         except Exception as e:
             await chat_queue.put_back(chat_id, item, str(e) or e.__class__.__name__)
             raise

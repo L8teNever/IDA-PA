@@ -7,6 +7,12 @@ Der Code-Bereich (Projekte, Threads, Änderungen, Dateien, Vorschau) läuft als 
 * **Gleicher Look wie Kalender und Wiki**: dieselben Design-Dateien (`frontend/css/tokens.css`, `components.css`) und Schriften, Leiste links, Bereich rechts für Änderungen und Dateien.
 * **Eigenständige PWA** unter `https://code.kulbarts.com` hinter **Cloudflare Zero Trust** (keine eigene Anmeldemaske).
 
+## Advisor, Subagents und benutzte Modelle
+
+* **Advisor**: Im Modell-Menü unter „Advisor“ lässt sich ein stärkeres Claude-Modell wählen. Claude darf es während der Aufgabe um Rat fragen (CLI-Flag `--advisor`). Die Wahl gilt für alle weiteren Nachrichten, auch die in der Warteschlange, bis du „Aus“ wählst. Bei Antigravity-Accounts bleibt der Advisor aus. Ist das Advisor-Modell nicht stärker als das Hauptmodell, hängt die CLI es von selbst nicht an.
+* **Im Thread**: Jeder Advisor-Aufruf erscheint als Karte „Advisor · <Modell> um Rat gefragt“. Seinen Rat schickt die API verschlüsselt nur an Claude, deshalb ist er nicht lesbar. Subagents (`Agent`/`Task`) erscheinen als Karte „Subagent · <Typ> · <Modell>“. Ohne eigenes Modell steht dort „wie Hauptmodell“.
+* **Unter der Antwort** stehen alle Modelle, die mitgearbeitet haben (aus `modelUsage` der CLI). Die Liste erscheint, sobald es mehr als eins war oder ein Advisor gewählt ist. Sie wird in `meta.models` bzw. `meta.advisor` der Nachricht gespeichert.
+
 ## Einrichtung
 
 1. In `.env` (siehe `.env.example`):

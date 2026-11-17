@@ -57,6 +57,7 @@ class ChatSend(BaseModel):
     account_id: str | None = None
     skill: str | None = None
     effort: Literal["low", "medium", "high", "xhigh", "max"] | None = None  # Claude: how much it thinks
+    advisor: str | None = Field(None, max_length=80, pattern=r"^[\w.\-\[\]]+$")  # Claude: stronger model it may consult
     files: list[str] = Field(default_factory=list)  # ids from POST /uploads (pictures, PDFs, text files)
     project_id: str | None = None  # code area: start a new thread of this project
     permission_mode: Literal["ask", "edits", "full"] | None = None  # code threads: rights (ask = every edit/command needs an OK)
@@ -306,6 +307,7 @@ class ChatDraftItem(BaseModel):
     model: str | None = None
     account_id: str | None = None
     effort: str | None = None
+    advisor: str | None = Field(None, max_length=80, pattern=r"^[\w.\-\[\]]+$")
     files: list[str] = Field(default_factory=list, max_length=20)
 
 
@@ -324,6 +326,7 @@ class QueueItem(BaseModel):
     model: str | None = None
     account_id: str | None = None
     effort: str | None = None
+    advisor: str | None = Field(None, max_length=80, pattern=r"^[\w.\-\[\]]+$")
     skill: str | None = None
     files: list[str] = Field(default_factory=list, max_length=20)
 

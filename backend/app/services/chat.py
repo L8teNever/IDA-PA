@@ -185,7 +185,7 @@ async def _run_queued(chat_id: str, item: dict) -> None:
     try:
         await start_chat(chat_id=chat_id, agent_id=None, text=item.get("text") or "", model=item.get("model"),
                          account_id=item.get("account_id"), skill_id=None, effort=item.get("effort"),
-                         file_ids=item.get("files") or [], _queued=True)
+                         advisor=item.get("advisor"), file_ids=item.get("files") or [], _queued=True)
     except Exception as e:  # noqa: BLE001 – the message must not get lost
         log.warning("queued message for %s did not start: %s", chat_id, e)
         await chat_queue.put_back(chat_id, item, str(e) or e.__class__.__name__)
@@ -196,6 +196,7 @@ async def _run_queued(chat_id: str, item: dict) -> None:
 async def start_chat(*, chat_id: str | None, agent_id: str | None, text: str, model: str | None, account_id: str | None,
                      skill_id: str | None, effort: str | None = None, file_ids: list[str] | None = None,
                      project_id: str | None = None, permission_mode: str | None = None, _queued: bool = False,
+                     advisor: str | None = None,
                      shown: str | None = None, extra_meta: dict | None = None) -> dict:
     """Saves the message and starts the answer in the background; returns the chat (follow it with follow()).
     project_id: a new thread of this code project; permission_mode: rights of a code thread (ask | edits | full).
@@ -211,7 +212,8 @@ async def start_chat(*, chat_id: str | None, agent_id: str | None, text: str, mo
 
     async def drive():
         try:
-            async for ev in _answer(state, order, prompt, skill_id, effort or (state["route"] or {}).get("effort"), stopped, attachments):
+            async for ev in _answer(state, order, prompt, skill_id, effort or (state["route"] or {}).get("effort"), stopped, attachments,
+                                      advisor=advisor):
                 await live.push(ev)
         except Exception as e:  # noqa: BLE001 – the browser must always get an end
             log.exception("chat answer %s failed", state["chat_id"])
@@ -249,11 +251,12 @@ def _keep(task: asyncio.Task) -> None:
 async def stream_chat(*, chat_id: str | None, agent_id: str | None, text: str, model: str | None,
                       account_id: str | None, skill_id: str | None, effort: str | None = None,
                       file_ids: list[str] | None = None, project_id: str | None = None,
-                      permission_mode: str | None = None, shown: str | None = None, extra_meta: dict | None = None) -> AsyncIterator[dict]:
+                      permission_mode: str | None = None, shown: str | None = None, extra_meta: dict | None = None,
+                      advisor: str | None = None) -> AsyncIterator[dict]:
     """Start + follow: {"chat": …} first, then the answer's events. Leaving early does not stop the answer."""
     info = await start_chat(chat_id=chat_id, agent_id=agent_id, text=text, model=model, account_id=account_id,
                             skill_id=skill_id, effort=effort, file_ids=file_ids, project_id=project_id, permission_mode=permission_mode,
-                            shown=shown, extra_meta=extra_meta)
+                            shown=shown, extra_meta=extra_meta, advisor=advisor)
     yield {"chat": info}
     async for ev in follow(info["id"]):
         yield ev
@@ -373,7 +376,7 @@ async def _code_run(db, project: CodeProject, chat: Chat, permission_mode: str |
 
 
 async def _answer(state: dict, order: list[Account], text: str, skill_id: str | None, effort: str | None,
-                  stopped: asyncio.Event, attachments: list[dict] | None = None) -> AsyncIterator[dict]:
+                  stopped: asyncio.Event, attachments: list[dict] | None = None, advisor: str | None = None) -> AsyncIterator[dict]:
     prompt_text = text or "(Wende den Skill auf das bisherige Gespräch bzw. deine letzte Antwort an.)"
     t0 = time.monotonic()  # how long the answer took (shown under it)
     parts: list[dict] = []
@@ -392,7 +395,8 @@ async def _answer(state: dict, order: list[Account], text: str, skill_id: str | 
             agent = await db.get(Agent, state["agent_id"])
             skill = await db.get(Skill, skill_id) if skill_id else None
             p = await runs.prepare(db, agent, prompt, model=state["model"], account=acc, interactive=True, forced_skill=skill,
-                                   session_id=resume, fork=bool(resume and state.get("fork")), persist=True, effort=effort, code=state.get("code"), chat_id=state["chat_id"])
+                                   session_id=resume, fork=bool(resume and state.get("fork")), persist=True, effort=effort, code=state.get("code"), chat_id=state["chat_id"],
+                                   advisor=advisor if getattr(acc, "provider", "claude") == "claude" else None)
         p.spec.attachments = list(attachments or [])
         if state.get("code"):  # tools the user allowed for good in this thread
             p.spec.allow += approvals.always(state["chat_id"])
@@ -433,7 +437,8 @@ async def _answer(state: dict, order: list[Account], text: str, skill_id: str | 
     ms = int((time.monotonic() - t0) * 1000)
     async with session_scope() as db:
         chat = await db.get(Chat, state["chat_id"])
-        meta = {"model": state["model"], "account": used.name if used else None, "ms": ms, **({"route": route} if route else {})}
+        meta = {"model": state["model"], "account": used.name if used else None, "ms": ms, **({"route": route} if route else {}),
+                **({"advisor": advisor} if advisor else {}), **({"models": result["models"]} if result.get("models") else {})}
         if result.get("stopped"):
             meta["stopped"] = True
             chat.session_id = None  # the cut-off turn is not in Claude's session – the next message carries the history
@@ -448,4 +453,5 @@ async def _answer(state: dict, order: list[Account], text: str, skill_id: str | 
         chat.updated_at = utcnow()
         await db.flush()
         mid = msg.id
-    yield {"done": {"ok": result["ok"], "message_id": mid, "ms": ms, "model": state["model"], "account": used.name if used else None, **({"stopped": True} if result.get("stopped") else {} if result["ok"] else {"error": result["result"][:800]})}}
+    yield {"done": {"ok": result["ok"], "message_id": mid, "ms": ms, "model": state["model"], "account": used.name if used else None,
+                    **({"models": result["models"]} if result.get("models") else {}), **({"advisor": advisor} if advisor else {}), **({"stopped": True} if result.get("stopped") else {} if result["ok"] else {"error": result["result"][:800]})}}

@@ -260,6 +260,8 @@ a { color: inherit; }
 .toolcall.err summary .ms { color: var(--err); }
 .toolcall pre { margin: 0; padding: 8px 12px; border-top: 1px solid var(--border-subtle); max-height: 280px; overflow: auto; font-family: var(--mono); font-size: 12px; white-space: pre-wrap; word-break: break-word; }
 .toolcall pre.out { color: var(--muted); }
+.toolcall summary .tool-model { color: var(--accent); font-weight: 500; flex: none; }
+.toolcall.tool-adv, .toolcall.tool-sub { border-color: rgba(var(--accent-rgb), 0.35); }
 .approval { background: color-mix(in srgb, var(--warn) 9%, var(--surface)); border: 1px solid color-mix(in srgb, var(--warn) 40%, transparent); border-radius: 18px; padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; }
 .approval.decided { background: var(--surface); border-color: var(--border-subtle); padding: 8px 12px; }
 .ap-head { display: flex; align-items: center; gap: 8px; }
@@ -704,6 +706,7 @@ body.pane-resizing iframe { pointer-events: none; }
 
 /* Auto: gewähltes Modell und Bewertung unter der Antwort */
 .msg-note.msg-meta { gap: 4px; }
+.msg-note .msg-models { display: inline-flex; align-items: center; gap: 4px; margin-right: 10px; cursor: help; }
 .msg-note .msg-route { display: inline-flex; align-items: center; gap: 4px; color: var(--accent); margin-right: 10px; cursor: help; }
 .route-rate { display: inline-flex; align-items: center; gap: 2px; margin-right: 10px; }
 .route-rate button { background: none; border: 0; padding: 2px 4px; border-radius: 6px; color: var(--muted); cursor: pointer; opacity: .6; }

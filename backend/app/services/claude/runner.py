@@ -73,6 +73,7 @@ class RunSpec:
     agent_id: str | None = None  # whose run this is (shown as the mascot's mood)
     kind: str = "run"  # chat | run
     effort: str | None = None  # low … max; None = the model's default
+    advisor: str | None = None  # --advisor: a stronger model Claude may consult during the task (None = off)
     # pictures / PDFs for the model: [{"kind": "image"|"pdf", "mime", "path", "name"}] (text files are in the prompt)
     attachments: list[dict] = field(default_factory=list)
     code: "CodeRun | None" = None  # code thread: real tools in the project folder
@@ -127,7 +128,9 @@ def _command(args: list[str]) -> list[str]:
 async def stream(spec: RunSpec) -> AsyncIterator[dict]:
     """Yields normalised events:
     {"type":"text","text"}, {"type":"tool","id","server","name","input"},
-    {"type":"tool_result","id","error","content"}, {"type":"done","ok","result","session_id"}.
+    {"type":"tool_result","id","error","content"}, {"type":"done","ok","result","session_id","models"?}.
+    The advisor shows up as tool "advisor" (its advice is encrypted – only that it was asked), subagents as
+    tool "Agent"/"Task" with subagent_type and model in the input; "models" lists every model the run used.
     Antigravity accounts run through the agy CLI (services/antigravity.py) with the same events.
     """
     from .. import antigravity
@@ -172,6 +175,8 @@ async def _stream(spec: RunSpec) -> AsyncIterator[dict]:
             args += ["--permission-prompt-tool", APPROVE_TOOL]
     if spec.effort:
         args += ["--effort", spec.effort]
+    if spec.advisor and re.fullmatch(r"[\w.\-\[\]]+", spec.advisor):
+        args += ["--advisor", spec.advisor]
     if spec.attachments:  # the message as JSON with picture/document blocks instead of plain text
         args += ["--input-format", "stream-json"]
     if not spec.persist:
@@ -225,13 +230,22 @@ async def _stream(spec: RunSpec) -> AsyncIterator[dict]:
                             m = re.match(r"^mcp__(.+?)__(.+)$", b.get("name", ""))
                             yield {"type": "tool", "id": b.get("id"), "server": m.group(1) if m else "",
                                    "name": m.group(2) if m else b.get("name"), "input": b.get("input")}
+                        elif b.get("type") == "server_tool_use" and b.get("name") == "advisor":
+                            yield {"type": "tool", "id": b.get("id"), "server": "", "name": "advisor",
+                                   "input": {"model": spec.advisor, **(b.get("input") or {})}}
+                        elif b.get("type") == "advisor_tool_result":
+                            c = b.get("content") or {}
+                            text = c.get("text") if isinstance(c, dict) else None
+                            yield {"type": "tool_result", "id": b.get("tool_use_id"), "error": isinstance(c, dict) and "error" in str(c.get("type")),
+                                   "content": (text or "Rat erhalten – der Inhalt geht verschlüsselt nur an Claude")[:4000]}
                         elif b.get("type") == "tool_result":
                             c = b.get("content")
                             text = "\n".join(x.get("text", "") for x in c) if isinstance(c, list) else str(c or "")
                             yield {"type": "tool_result", "id": b.get("tool_use_id"), "error": bool(b.get("is_error")), "content": text[:4000]}
                 elif t == "result":
                     done = True
-                    yield {"type": "done", "ok": not ev.get("is_error"), "result": str(ev.get("result") or ""), "session_id": ev.get("session_id")}
+                    yield {"type": "done", "ok": not ev.get("is_error"), "result": str(ev.get("result") or ""), "session_id": ev.get("session_id"),
+                           "models": [m for m in (ev.get("modelUsage") or {})]}
     except TimeoutError:
         _kill(proc)
         yield {"type": "done", "ok": False, "result": f"Abgebrochen: länger als {s.run_timeout_s} s", "session_id": None}

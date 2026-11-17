@@ -9,7 +9,7 @@ import { bindQueue, enqueue } from "./queue.js";
 import { bindDraft, draftSent } from "./draft.js";
 import { $, esc, popMenu, toast } from "./ui.js";
 
-let sel = JSON.parse(localStorage.getItem("code-model") || "null"); // { model, account, effort }
+let sel = JSON.parse(localStorage.getItem("code-model") || "null"); // { model, account, effort, advisor }
 let files = []; // { key, name, kind, url, id?, state: "up"|"ok" }
 let seq = 0;
 
@@ -24,6 +24,8 @@ function effortsOf(id) {
   return Object.keys(EFFORTS);
 }
 const effortDefault = (id) => (/opus-5-5|haiku-5-5/.test(id) ? "medium" : "high");
+// Advisor: ein stärkeres Claude-Modell, das Claude während der Aufgabe um Rat fragen darf (--advisor)
+const advisorModels = () => (state.boot?.models || []).filter((x) => !x.startsWith("agy:") && x !== "auto" && !/haiku/.test(x));
 const levelOf = (name) => { const m = /^(.*) \((low|medium|high)\)$/i.exec(name); return m ? [m[1], m[2].toLowerCase()] : [name, null]; };
 
 // gewählt: Modell, Account (muss das Modell können) und Denktiefe
@@ -31,13 +33,14 @@ export function current() {
   const models = state.boot?.models || [];
   const accs = accounts();
   const a = mainAgent();
-  if (sel?.model === "auto") return { model: "auto", account: null, effort: null }; // der Server wählt Modell, Account und Stärke
+  const advisor = advisorModels().includes(sel?.advisor) ? sel.advisor : null;
+  if (sel?.model === "auto") return { model: "auto", account: null, effort: null, advisor }; // der Server wählt Modell, Account und Stärke
   const model = models.includes(sel?.model) ? sel.model : a?.model || state.boot?.default_model;
   const fits = (x) => x && (x.provider === "antigravity") === String(model || "").startsWith("agy:");
   const wanted = accs.find((x) => x.id === sel?.account) || accs.find((x) => x.id === a?.account_id);
   const account = fits(wanted) ? wanted : accs.find(fits) || wanted || accs[0];
   const effort = effortsOf(model || "").includes(sel?.effort) && !String(model).startsWith("agy:") ? sel.effort : null;
-  return { model, account, effort };
+  return { model, account, effort, advisor: String(model).startsWith("agy:") ? null : advisor };
 }
 
 export function composerHtml(placeholder) {
@@ -59,11 +62,11 @@ export function composerHtml(placeholder) {
 }
 
 function renderChip() {
-  const { model, account, effort } = current();
+  const { model, account, effort, advisor } = current();
   if (!$("modelBtn")) return;
   const m = modelInfo(model);
   $("modelIcon").textContent = m.icon;
-  $("modelName").textContent = (model ? m.name : "Modell") + (effort ? ` · ${EFFORTS[effort]}` : "") + (account && accounts().length > 1 ? ` · ${account.name.split("@")[0]}` : "");
+  $("modelName").textContent = (model ? m.name : "Modell") + (effort ? ` · ${EFFORTS[effort]}` : "") + (advisor ? ` + ${modelInfo(advisor).name}` : "") + (account && accounts().length > 1 ? ` · ${account.name.split("@")[0]}` : "");
   const p = account ? state.usage[account.id] : null;
   $("limNow").innerHTML = p == null ? "" : `<i style="--p:${p};--c:${limColor(p)}"></i>${p} %`;
 }
@@ -96,7 +99,7 @@ function openModelMenu() {
   };
   const draw = () => {
     const accs = accounts();
-    const { model, account, effort } = current();
+    const { model, account, effort, advisor } = current();
     if (!menuTab || !accs.some((a) => a.id === menuTab)) menuTab = account?.id || accs[0]?.id;
     const tabAcc = accs.find((a) => a.id === menuTab);
     const agyTab = tabAcc?.provider === "antigravity";
@@ -129,7 +132,12 @@ function openModelMenu() {
           ${lv.length ? `<span class="mm-lvl">${lv.map((k) => `<button type="button" data-m="${esc(g.ids[k])}" class="${on && model === g.ids[k] ? "on" : ""}">${LEVELS[k]}</button>`).join("")}</span>`
             : ef.length ? `<span class="mm-lvl">${ef.map((k) => `<button type="button" data-m="${esc(pick)}" data-eff="${k}" class="${cur === k ? "on" : ""}">${EFFORTS[k]}</button>`).join("")}</span>`
             : on ? `<span class="ms pop-check">check</span>` : ""}</div>`;
-      }).join("") : `<div class="pane-empty">${agyTab ? "Noch keine Modelle – den Antigravity-Account in IDA anmelden." : "Keine Modelle."}</div>`}`;
+      }).join("") : `<div class="pane-empty">${agyTab ? "Noch keine Modelle – den Antigravity-Account in IDA anmelden." : "Keine Modelle."}</div>`}
+      ${agyTab || !advisorModels().length ? "" : `<div class="pop-head">Advisor</div>
+      <div class="mm-item mm-adv ${advisor ? "sel" : ""}" title="Claude darf an kniffligen Stellen ein stärkeres Modell um Rat fragen. Ist es nicht stärker als das gewählte Modell, bleibt es aus.">
+        <span class="ms mm-ic">school</span><span class="pop-txt"><b>${advisor ? esc(modelInfo(advisor).name) : "Aus"}</b><small>Stärkeres Modell, das Claude bei der Aufgabe um Rat fragt</small></span>
+        <span class="mm-lvl"><button type="button" data-adv="" class="${advisor ? "" : "on"}">Aus</button>${advisorModels().map((id) =>
+          `<button type="button" data-adv="${esc(id)}" class="${advisor === id ? "on" : ""}">${esc(modelInfo(id).name)}</button>`).join("")}</span></div>`}`;
     place();
   };
   draw();
@@ -137,9 +145,17 @@ function openModelMenu() {
   m.onclick = (e) => {
     const t = e.target.closest("[data-tab]");
     if (t) { menuTab = t.dataset.tab; draw(); return; }
+    const a = e.target.closest("[data-adv]");
+    if (a) { // Advisor an/aus: Menü bleibt offen
+      sel = { ...(sel || {}), advisor: a.dataset.adv || null };
+      localStorage.setItem("code-model", JSON.stringify(sel));
+      draw();
+      renderChip();
+      return;
+    }
     const b = e.target.closest("[data-m]");
     if (!b) return;
-    sel = { model: b.dataset.m, account: b.dataset.m === "auto" ? null : menuTab, effort: b.dataset.eff || null };
+    sel = { model: b.dataset.m, account: b.dataset.m === "auto" ? null : menuTab, effort: b.dataset.eff || null, advisor: sel?.advisor || null };
     localStorage.setItem("code-model", JSON.stringify(sel));
     close();
     renderChip();
@@ -305,8 +321,8 @@ export function bindComposer() {
     grow();
     draftSent();
     renderSlash();
-    const { model, account, effort } = current();
-    const body = text ? withQuote(text) : text, opts = { model, accountId: account?.id, effort, skill, files: ready };
+    const { model, account, effort, advisor } = current();
+    const body = text ? withQuote(text) : text, opts = { model, accountId: account?.id, effort, advisor, skill, files: ready };
     if (ctx.busy) { enqueue(body, opts); updateSend(); } // die KI arbeitet noch: die Nachricht wartet in der Schlange
     else send(body, opts);
   };
@@ -321,8 +337,8 @@ document.addEventListener("code:busy", updateSend);
 document.addEventListener("code:done", updateSend);
 // ein geöffneter Thread bringt sein Modell/seinen Account mit
 document.addEventListener("code:model", (e) => {
-  if (e.detail?.model === "auto") sel = { model: "auto", account: null, effort: null };
-  else if (e.detail?.model) sel = { model: e.detail.model, account: e.detail.account, effort: sel?.effort || null };
+  if (e.detail?.model === "auto") sel = { model: "auto", account: null, effort: null, advisor: sel?.advisor || null };
+  else if (e.detail?.model) sel = { model: e.detail.model, account: e.detail.account, effort: sel?.effort || null, advisor: sel?.advisor || null };
   renderChip();
 });
 export const refreshChip = renderChip;

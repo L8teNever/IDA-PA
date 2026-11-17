@@ -190,7 +190,7 @@ async def send(body: ChatSend):
     The answer runs on the server: closing the page does not stop it (GET /chats/{id}/live follows it again)."""
     gen = stream_chat(chat_id=body.chat_id, agent_id=body.agent_id, text=body.text, model=body.model,
                       account_id=body.account_id, skill_id=body.skill, effort=body.effort, file_ids=body.files,
-                      project_id=body.project_id, permission_mode=body.permission_mode)
+                      project_id=body.project_id, permission_mode=body.permission_mode, advisor=body.advisor)
     first = await gen.__anext__()  # validation errors surface as normal HTTP errors
     return _ndjson(first, gen)
 

@@ -95,6 +95,11 @@ if "LIMIT" in prompt and account == "a1":
     out({"type": "result", "is_error": True, "result": "You've hit your session limit · resets 3pm", "session_id": session})
     sys.exit(1)
 
+if arg("--advisor"):  # the advisor is asked once (server tool, its advice comes encrypted) and both models are in the usage
+    out({"type": "assistant", "message": {"content": [{"type": "server_tool_use", "id": "srv1", "name": "advisor", "input": {}}]}})
+    out({"type": "assistant", "message": {"content": [{"type": "advisor_tool_result", "tool_use_id": "srv1",
+                                                       "content": {"type": "advisor_redacted_result", "encrypted_content": "x"}}]}})
+
 if "TOOL " in prompt:
     line = prompt[prompt.index("TOOL "):].splitlines()[0]
     _, name, raw = line.split(" ", 2)
@@ -111,4 +116,5 @@ if "SLOW" in prompt:
     time.sleep(4)
 for i in range(0, len(text), 40):
     out({"type": "stream_event", "event": {"delta": {"type": "text_delta", "text": text[i:i + 40]}}})
-out({"type": "result", "is_error": False, "result": text, "session_id": session})
+usage = {arg("--model") or "fake": {}, **({arg("--advisor"): {}} if arg("--advisor") else {})}
+out({"type": "result", "is_error": False, "result": text, "session_id": session, "modelUsage": usage})

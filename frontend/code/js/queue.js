@@ -9,14 +9,14 @@ import { restoreFiles } from "./composer.js";
 import { appendDraft } from "./draft.js";
 import { $, attempt, esc } from "./ui.js";
 
-let items = []; // vom Server: { id, text, model, account_id, effort, files, attachments }
+let items = []; // vom Server: { id, text, model, account_id, effort, advisor, files, attachments }
 let local = []; // neuer Thread, der noch keine ID hat: wartet hier, bis er eine bekommt
 let error = null; // die nächste konnte nicht starten (Grund vom Server)
 let steer = false; // „Jetzt senden“ gedrückt
 let loadedFor = null;
 
 const url = (id) => `/code/queue/${encodeURIComponent(id)}`;
-const toServer = (text, opts = {}) => ({ text, model: opts.model || null, account_id: opts.accountId || null, effort: opts.effort || null, skill: opts.skill || null,
+const toServer = (text, opts = {}) => ({ text, model: opts.model || null, account_id: opts.accountId || null, effort: opts.effort || null, advisor: opts.advisor || null, skill: opts.skill || null,
   files: (opts.files || []).map((f) => f.id) });
 
 // zurück ins Eingabefeld, samt Dateien
@@ -139,7 +139,7 @@ document.addEventListener("code:thread", async () => {
   const wait = local;
   local = [];
   for (const x of wait) {
-    const q = await attempt(() => api.post(url(ctx.id), { text: x.text, model: x.model, account_id: x.account_id, effort: x.effort, files: x.files }));
+    const q = await attempt(() => api.post(url(ctx.id), { text: x.text, model: x.model, account_id: x.account_id, effort: x.effort, advisor: x.advisor, files: x.files }));
     if (q) apply(q);
     else giveBack(x.text, x.attachments);
   }

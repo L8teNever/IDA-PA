@@ -145,10 +145,21 @@ function toolTitle(p) {
   if (i.pattern) return `<code>${esc(i.pattern)}</code>`;
   return "";
 }
+// Subagents (Agent/Task) und der Advisor: wer arbeitet mit welchem Modell
+const SUB_MODELS = { opus: "Opus", sonnet: "Sonnet", haiku: "Haiku", fable: "Fable", inherit: "wie Hauptmodell" };
+const subModel = (m) => (!m ? "wie Hauptmodell" : SUB_MODELS[m] || modelInfo(m).name);
+function helperOf(p) {
+  const i = p.input || {};
+  if (!p.server && p.name === "advisor") return { cls: "adv", label: "Advisor", title: `<span class="tool-model">${esc(i.model ? modelInfo(i.model).name : "Advisor")}</span> um Rat gefragt` };
+  if (!p.server && (p.name === "Agent" || p.name === "Task"))
+    return { cls: "sub", label: "Subagent", title: `<span class="tool-model">${esc(i.subagent_type || "general-purpose")} · ${esc(subModel(i.model))}</span>${i.description ? ` ${esc(String(i.description).slice(0, 80))}` : ""}${i.run_in_background ? " · im Hintergrund" : ""}` };
+  return null;
+}
 function toolHtml(p) {
   const status = p.out === undefined ? "progress_activity" : p.error ? "error" : "check_circle";
-  return `<details class="toolcall ${p.error ? "err" : ""}"><summary><span class="ms ${p.out === undefined ? "spin" : ""}">${status}</span>
-    <b>${esc(p.server ? `${p.server} › ` : "")}${esc(p.name)}</b>${toolTitle(p)}</summary>
+  const h = helperOf(p);
+  return `<details class="toolcall ${p.error ? "err" : ""} ${h ? `tool-${h.cls}` : ""}"><summary><span class="ms ${p.out === undefined ? "spin" : ""}">${status}</span>
+    <b>${h ? h.label : esc(p.server ? `${p.server} › ` : "") + esc(p.name)}</b>${h ? h.title : toolTitle(p)}</summary>
     <pre>${esc(JSON.stringify(p.input ?? {}, null, 2))}</pre>${p.out !== undefined ? `<pre class="out">${esc(p.out)}</pre>` : ""}</details>`;
 }
 
@@ -233,8 +244,12 @@ function renderBot(el, parts, text, meta) {
     <span class="route-better">${r.better ? `→ ${esc(modelInfo(r.better).name)}` : ""}</span></span>` : "";
   const routed = r ? `<span class="msg-route" title="${esc(r.reason || "")}"><span class="ms">auto_awesome</span>Auto → ${esc(modelInfo(r.model).name)}${r.effort ? ` · ${EFFORT_NAMES[r.effort] || r.effort}` : ""}</span>${rate}` : "";
   const branch = meta?.id ? `<button type="button" class="msg-branch" data-branch="${esc(meta.id)}" title="Ab hier abzweigen: neuer Thread mit allem bis zu dieser Antwort – danach getrennt" aria-label="Ab hier abzweigen"><span class="ms">call_split</span>Abzweigen</button>` : "";
-  if (meta?.ms != null || routed || branch)
-    el.insertAdjacentHTML("beforeend", `<div class="msg-note msg-meta">${routed}${meta?.ms != null ? `<span title="So lange hat die Antwort gedauert"><span class="ms">timer</span>${fmtDur(meta.ms)}</span>` : ""}${branch}</div>`);
+  // welche Modelle wirklich gelaufen sind (Hauptmodell, Subagents, Advisor) – nur wenn es mehr als eins war oder ein Advisor gewählt ist
+  const used = meta?.models || [];
+  const models = used.length > 1 || meta?.advisor
+    ? `<span class="msg-models" title="Diese Modelle haben an der Antwort mitgearbeitet${meta?.advisor ? ` – Advisor: ${esc(modelInfo(meta.advisor).name)}` : ""}"><span class="ms">hub</span>${esc((used.length ? used : [meta.advisor]).map((m) => modelInfo(m).name).join(" · "))}</span>` : "";
+  if (meta?.ms != null || routed || branch || models)
+    el.insertAdjacentHTML("beforeend", `<div class="msg-note msg-meta">${routed}${models}${meta?.ms != null ? `<span title="So lange hat die Antwort gedauert"><span class="ms">timer</span>${fmtDur(meta.ms)}</span>` : ""}${branch}</div>`);
 }
 
 const EFFORT_NAMES = { low: "Niedrig", medium: "Mittel", high: "Hoch", xhigh: "Extra", max: "Max" };
@@ -376,6 +391,8 @@ async function follow(start, since = null) {
       ok = ev.done.ok;
       if (ev.done.message_id) meta.id = ctx.lastId = ev.done.message_id;
       if (ev.done.ms != null) meta.ms = ev.done.ms;
+      if (ev.done.models) meta.models = ev.done.models;
+      if (ev.done.advisor) meta.advisor = ev.done.advisor;
       if (ev.done.stopped) meta.stopped = true;
       else if (!ok) meta.error = ev.done.error;
     }
@@ -411,14 +428,14 @@ async function follow(start, since = null) {
   }
 }
 
-export async function send(text, { model, accountId, effort, skill, files = [] } = {}) {
+export async function send(text, { model, accountId, effort, advisor, skill, files = [] } = {}) {
   if (ctx.busy) return toast("Die Antwort läuft noch …");
   const agent = mainAgent();
   if (!agent) return toast("Kein Agent in IDA gefunden");
   box().querySelector(".code-intro")?.remove();
   if (!box().querySelector(".chat-day")) box().insertAdjacentHTML("afterbegin", `<div class="chat-day">${new Date().toLocaleString("de-DE", { weekday: "long", hour: "2-digit", minute: "2-digit" })}</div>`);
   addUser(text, files);
-  const body = { chat_id: ctx.id, agent_id: agent.id, text, model, account_id: accountId, effort, skill: skill || null, files: files.map((f) => f.id),
+  const body = { chat_id: ctx.id, agent_id: agent.id, text, model, account_id: accountId, effort, advisor: advisor || null, skill: skill || null, files: files.map((f) => f.id),
     project_id: ctx.id ? null : ctx.project.id, permission_mode: ctx.mode };
   await follow((onEvent, signal) => streamChat(body, onEvent, signal));
 }
