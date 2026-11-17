@@ -8,7 +8,7 @@ const COLORS = ["rot", "orange", "gelb", "salbei", "gruen", "tuerkis", "blau", "
 let AUTOREAD = new Map();   // automatisch gelesen: ID → "open" (beim Öffnen) oder "always" (sofort, ohne Öffnen)
 let PREFS = { snaps_quiet: false, snap_join: true };   // Einstellungen für alle Geräte (im Dienst gespeichert)
 let MUTES = new Map();   // stummgeschaltete Chats: ID → bis (ms, 0 = bis du es aufhebst)
-const S = { chats: [], next: null, q: "", f: "all", id: null, msgs: [], more: false, oldest: null, seq: 0, sending: false, reply: null, edit: null, voice: {}, vopen: {} };
+const S = { chats: [], next: null, q: "", f: "all", id: null, only: "", msgs: [], more: false, oldest: null, seq: 0, sending: false, reply: null, edit: null, voice: {}, vopen: {} };
 
 const fmtDay = new Intl.DateTimeFormat("de-DE", { weekday: "long", day: "2-digit", month: "long" });
 const fmtDayY = new Intl.DateTimeFormat("de-DE", { weekday: "short", day: "2-digit", month: "long", year: "numeric" });
@@ -150,6 +150,7 @@ function routeNow() {
   const c = id && MC.get(id);
   TS.open = false; TS.sx = 0;
   S.id = id; S.msgs = c ? c.msgs.slice() : []; S.more = c ? c.more : false; S.oldest = c ? c.oldest : null; S.reply = null; S.edit = null; S.to = null;
+  S.only = id && filterKeep() ? FILT[id] || "" : "";   // Filter: gemerkt oder – beim Verlassen des Chats – zurückgesetzt
   document.querySelectorAll("#list .row").forEach((r) => r.classList.toggle("sel", r.dataset.id === id));
   if (!$("#list .row")) drawList();
   if (id) { openChat(); clearNotes(id); } else $("#conv").innerHTML = `<div class="conv-empty"><span class="ms">forum</span><p>Wähle einen Chat aus.</p></div>`;
@@ -935,6 +936,7 @@ const cid = (m) => m?.chat || S.id, mid = (m) => m?.mid || m?.id;
 function target() {
   const c = cur(); if (!c?.merged) return S.id;
   if (S.to && c.merged.some((x) => x.id === S.to)) return S.to;
+  if (activeOnly()) return S.only;   // nur WhatsApp gezeigt → auch darüber schreiben
   const g = grpOf(c.id); if (g?.send && c.merged.some((x) => x.id === g.send)) return g.send;
   const last = [...S.msgs].reverse().find((m) => m.chat && !m.mine) || [...S.msgs].reverse().find((m) => m.chat);
   return last?.chat || c.merged[0].id;
@@ -1000,8 +1002,38 @@ function toMenu() {
 document.addEventListener("pointerdown", (e) => { if ($("#topanel") && !e.target.closest("#topanel, #toBtn")) closeTo(); }, true);
 function head() {
   const c = cur(), title = clean(c?.title || "Chat");
+  const sub = [c?.ida ? "Deine Assistentin" : c?.untis ? "WebUntis" : "", c?.type === "group" ? "Gruppe" : ""].filter(Boolean).join(" · ");   // kein App-Name unter dem Namen (WhatsApp, Snapchat …)
   return `<div class="chead"><button class="icon-btn back float" data-a="back" aria-label="Zurück"><span class="ms">arrow_back</span></button><div class="cinfo float" data-a="info" role="button" title="Info anzeigen">${avatar(title, c?.av || S.id)}
-    <div class="t"><b>${esc(title)}</b><small>${esc(c?.ida ? "Deine Assistentin" : c?.untis ? "WebUntis" : c?.network || "")}${c?.type === "group" ? " · Gruppe" : ""}</small></div></div></div>`;
+    <div class="t"><b>${esc(title)}</b>${sub ? `<small>${esc(sub)}</small>` : ""}</div></div>${c?.merged ? filterBtn() : ""}</div>`;
+}
+// Filter oben rechts (nur bei zusammengeführten Chats): zeigt nur die Nachrichten einer App. Ob er beim Verlassen des Chats zurückgesetzt wird,
+// stellt man in den Einstellungen ein („Filter merken“, nur auf diesem Gerät; aus = zurücksetzen).
+const FK_KEEP = "chats-filter-keep", FK_MAP = "chats-filter";
+const filterKeep = () => { try { return localStorage.getItem(FK_KEEP) === "1"; } catch { return false; } };
+const FILT = (() => { try { return JSON.parse(localStorage.getItem(FK_MAP) || "{}"); } catch { return {}; } })();   // Chat → gewähltes Netzwerk (nur bei „Filter merken“)
+const saveFilt = () => { try { localStorage.setItem(FK_MAP, JSON.stringify(filterKeep() ? FILT : {})); } catch { /* egal */ } };
+function activeOnly() { const c = cur(); return c?.merged && S.only && c.merged.some((x) => x.id === S.only) ? S.only : ""; }
+function filterBtn() {
+  const o = activeOnly(), x = o && cur().merged.find((m) => m.id === o);
+  return `<button class="icon-btn filt float${o ? " on" : ""}" data-a="filter" aria-label="Filter" title="${o ? `Nur ${esc(netName(x.network))}` : "Filter"}"><span class="ms">filter_list</span>${o ? "<i></i>" : ""}</button>`;
+}
+function setOnly(id) {
+  S.only = id || ""; S.to = null;
+  if (S.id && filterKeep()) { if (S.only) FILT[S.id] = S.only; else delete FILT[S.id]; saveFilt(); }   // ohne „Filter merken“ gilt er nur, bis man den Chat verlässt
+  const h = $(".chead"); if (h) h.outerHTML = head();
+  drawMsgs({ stick: true }); toChip();
+}
+function filterMenu() {
+  const c = cur(); if (!c?.merged) return;
+  const same = (n) => c.merged.filter((x) => netName(x.network) === n).length > 1;   // zwei Chats derselben App: den Namen dazuschreiben
+  sheetPick([["", "forum", "Alle Apps", "Alle Nachrichten zusammen"],
+    ...c.merged.map((x) => [x.id, "chat", netName(x.network), same(netName(x.network)) ? clean(x.title) : "Nur diese Nachrichten"])], activeOnly(), (v) => setOnly(v));
+}
+function setFilterKeep(on) {
+  try { localStorage.setItem(FK_KEEP, on ? "1" : "0"); } catch { /* egal */ }
+  if (!on) for (const k in FILT) delete FILT[k];
+  else if (S.id && S.only) FILT[S.id] = S.only;
+  saveFilt(); redrawSett();
 }
 function readBar(c) {
   return left(c) ? `<div class="readbar" id="readbar"><button class="chip" data-a="seen">Als gelesen markieren</button></div>` : "";
@@ -1276,43 +1308,44 @@ const CAS_N = 16, CAS_STEP = 22;
 function drawMsgs({ stick = false, keepTop = false } = {}) {
   const box = $("#msgs"); if (!box) return;
   ogApply();
-  const fresh = drawn.id === S.id && !keepTop ? S.msgs.slice(-6).filter((m) => !drawn.ids.has(m.id)) : [];
+  const only = activeOnly(), L = only ? S.msgs.filter((m) => !m.chat || m.chat === only) : S.msgs;   // Filter oben rechts: nur ein Netzwerk eines zusammengeführten Chats
+  const fresh = drawn.id === S.id && !keepTop ? L.slice(-6).filter((m) => !drawn.ids.has(m.id)) : [];
   const prevH = box.scrollHeight, prevTop = box.scrollTop;
   S.replies = new Map();
   for (const m of S.msgs) if (m.reply_to) S.replies.set(m.reply_to, [...(S.replies.get(m.reply_to) || []), m.id]);
   let last = "", html = S.more ? '<button class="older" id="older" data-a="older" aria-label="Ältere laden"><span class="ms">refresh</span></button>' : "";
-  if (!S.msgs.length) html += '<div class="empty">Noch keine Nachrichten.</div>';
-  const lastMine = [...S.msgs].reverse().find((m) => m.mine && !m.deleted && !m.pending)?.id;
+  if (!L.length) html += `<div class="empty">${only ? `Keine Nachrichten über ${esc(netName((cur().merged.find((x) => x.id === only) || {}).network))} – oben rechts den Filter ändern.` : "Noch keine Nachrichten."}</div>`;
+  const lastMine = [...L].reverse().find((m) => m.mine && !m.deleted && !m.pending)?.id;
   // Trennlinie über der ersten ungelesenen Nachricht (wie in Beeper), solange der Chat nicht als gelesen markiert ist
   let unFrom = -1;
-  { const cc = cur(), nu = left(cc); if (nu) { let k = 0; for (let x = S.msgs.length - 1; x >= 0; x--) { if (S.msgs[x].mine) { unFrom = x + 1; break; } unFrom = x; if (++k === nu) break; } if (unFrom >= S.msgs.length) unFrom = -1; } }
-  for (let i = 0; i < S.msgs.length; i++) {
-    const m = S.msgs[i];
+  { const cc = cur(), nu = only ? 0 : left(cc); if (nu) { let k = 0; for (let x = L.length - 1; x >= 0; x--) { if (L[x].mine) { unFrom = x + 1; break; } unFrom = x; if (++k === nu) break; } if (unFrom >= L.length) unFrom = -1; } }
+  for (let i = 0; i < L.length; i++) {
+    const m = L[i];
     if (unFrom >= 0 && i >= unFrom) { html += `<div class="unsep" id="unsep"><span>${left(cur())} ungelesen</span></div>`; unFrom = -1; }
     const k = m.at ? dayKey(m.at) : last;
     if (k !== last) { last = k; html += `<div class="day">${esc(fmtDay.format(new Date(m.at)))}</div>`; }
     let j = i, files = null;   // Bilder-/Video-Folge vom selben Absender innerhalb von 3 Minuten → ein Stapel
     CLIPS.delete(m.id); ALBUMS.delete(m.id);
     if (snapClip(m)) {   // nur Snapchat: Stücke desselben Absenders (im zusammengeführten Chat: desselben Netzwerks) werden ein Video
-      while (snapClip(S.msgs[j + 1]) && S.msgs[j + 1].sender_id === m.sender_id && S.msgs[j + 1].mine === m.mine && Date.parse(S.msgs[j + 1].at) - Date.parse(S.msgs[j].at) < 90000 && dayKey(S.msgs[j + 1].at) === k) j++;
-      if (j > i) CLIPS.set(m.id, S.msgs.slice(i, j + 1).map((x) => x.files[0]));
+      while (snapClip(L[j + 1]) && L[j + 1].sender_id === m.sender_id && L[j + 1].mine === m.mine && Date.parse(L[j + 1].at) - Date.parse(L[j].at) < 90000 && dayKey(L[j + 1].at) === k) j++;
+      if (j > i) CLIPS.set(m.id, L.slice(i, j + 1).map((x) => x.files[0]));
     } else if (picOnly(m)) {
-      while (picOnly(S.msgs[j + 1]) && S.msgs[j + 1].sender_id === m.sender_id && S.msgs[j + 1].mine === m.mine && Date.parse(S.msgs[j + 1].at) - Date.parse(S.msgs[j].at) < 180000 && dayKey(S.msgs[j + 1].at) === k) j++;
-      files = S.msgs.slice(i, j + 1).flatMap((x) => x.files);
+      while (picOnly(L[j + 1]) && L[j + 1].sender_id === m.sender_id && L[j + 1].mine === m.mine && Date.parse(L[j + 1].at) - Date.parse(L[j].at) < 180000 && dayKey(L[j + 1].at) === k) j++;
+      files = L.slice(i, j + 1).flatMap((x) => x.files);
       if (files.length < 2) files = null; else ALBUMS.set(m.id, files);
     }
-    const n = S.msgs[j + 1];   // Bild nur an der letzten Nachricht einer Folge vom selben Absender (wie in Beeper)
-    const p = S.msgs[i - 1];   // Name nur an der ersten Nachricht einer Folge vom selben Absender
-    const lm = S.msgs.slice(i, j + 1).some((x) => x.id === lastMine);
+    const n = L[j + 1];   // Bild nur an der letzten Nachricht einer Folge vom selben Absender (wie in Beeper)
+    const p = L[i - 1];   // Name nur an der ersten Nachricht einer Folge vom selben Absender
+    const lm = L.slice(i, j + 1).some((x) => x.id === lastMine);
     html += bubble(m, !n || n.mine || n.sender_id !== m.sender_id || (n.at && dayKey(n.at) !== k), files, !p || p.mine || p.sender_id !== m.sender_id || (p.at && dayKey(p.at) !== k));
-    if (lm) html += seenRow(S.msgs.find((x) => x.id === lastMine));
+    if (lm) html += seenRow(L.find((x) => x.id === lastMine));
     i = j;
   }
   box.innerHTML = html;
   // Chat geht auf: die Nachrichten tauchen von unten nach oben nacheinander auf. Kommt währenddessen Frisches und der Verlauf wird
   // neu gezeichnet, läuft der Auftritt an derselben Stelle weiter (negative Verzögerung) statt neu zu starten oder zu springen.
-  if (drawn.id !== S.id && S.msgs.length && !keepTop) cascade = { id: S.id, t0: performance.now() };
-  drawn = { id: S.id, ids: new Set(S.msgs.map((m) => m.id)) };
+  if (drawn.id !== S.id && L.length && !keepTop) cascade = { id: S.id, t0: performance.now() };
+  drawn = { id: S.id, ids: new Set(L.map((m) => m.id)) };
   for (const m of fresh) document.getElementById(`m-${m.id}`)?.classList.add("in");
   if (cascade && cascade.id === S.id && performance.now() - cascade.t0 < CAS_N * CAS_STEP + 300) {
     const gone = performance.now() - cascade.t0;
@@ -1353,6 +1386,7 @@ $("#conv").addEventListener("click", (e) => {
   if (a.dataset.a === "back") return back();
   if (a.dataset.a === "gset") return groupSettings(cur());
   if (a.dataset.a === "info") return openInfo();
+  if (a.dataset.a === "filter") return filterMenu();
   if (a.dataset.a === "older") return loadMsgs({ older: true });
   if (a.dataset.a === "reply") return setReply(S.msgs.find((m) => m.id === a.dataset.id));
   if (a.dataset.a === "ida-opt") {
@@ -2365,6 +2399,9 @@ function redrawSett() {
       ${row("photo_camera", "Snaps nicht als neue Nachricht", PREFS.snaps_quiet ? "An – nur Textnachrichten melden sich und schieben den Chat nach oben" : "Aus – jeder Snap zählt wie eine Nachricht", 'data-s="snaps"', `<span class="sw${PREFS.snaps_quiet ? " on" : ""}" aria-hidden="true"></span>`)}
       ${row("movie", "Video-Stücke zusammenfügen", PREFS.snap_join ? "An – Snapchat teilt lange Videos in Stücke, hier werden sie ein Video" : "Aus – jedes Stück steht einzeln da", 'data-s="snapjoin"', `<span class="sw${PREFS.snap_join ? " on" : ""}" aria-hidden="true"></span>`)}
       <p class="ihint">Gilt auf allen Geräten. Snaps siehst du weiter: im Chat und in der Liste als kleines gelbes Kamera-Zeichen, nur ohne Meldung und ohne Hochrutschen.</p></div>
+    <div class="icard"><small>Filter im Chat</small>
+      ${row("filter_list", "Filter merken", filterKeep() ? "An – der Filter bleibt pro Chat, bis du ihn änderst" : "Aus – der Filter springt auf „Alle Apps“ zurück, sobald du den Chat verlässt", 'data-s="fkeep"', `<span class="sw${filterKeep() ? " on" : ""}" aria-hidden="true"></span>`)}
+      <p class="ihint">Den Filter findest du oben rechts in zusammengeführten Chats: Er zeigt dort nur die Nachrichten einer App, zum Beispiel nur WhatsApp. Geschrieben wird dann auch darüber. Gilt auf diesem Gerät.</p></div>
     <div class="icard"><small>Startseite</small>
       ${nets().map((n) => row(ORG.nets[n] ? "visibility_off" : "visibility", `${esc(netName(n))}-Chats`, VIS_TEXT[ORG.nets[n] || ""], `data-s="netvis" data-net="${n}"`)).join("")}
       <p class="ihint">Ausgeblendete Chats findest du über den Filter „Ausgeblendet“ und die Suche. Zusammengeführte Chats bleiben immer auf der Startseite – darin schreibst du weiter auch über ein ausgeblendetes Netzwerk. Benachrichtigungen ändert das nicht, dafür gibt es Stummschalten.</p></div>
@@ -2392,6 +2429,7 @@ document.addEventListener("click", (e) => {
   if (a === "fcmfile") return fcmUpload(t.dataset.k);
   if (a === "fcmdel") return fcmRemove();
   if (a === "snapjoin") return setPref("snap_join", !PREFS.snap_join);
+  if (a === "fkeep") return setFilterKeep(!filterKeep());
   if (a === "untis") return untisLogin();
   if (a === "untisoff") return sure("Von WebUntis abmelden?", "Die Lehrer-Chats verschwinden aus der Liste. In WebUntis selbst bleibt alles.", "Abmelden", true).then((ok) => ok && untisOff());
   if (a === "mute") return muteMenu(c);

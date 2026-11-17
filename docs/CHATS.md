@@ -67,6 +67,10 @@ Browser (chats.kulbarts.com, Cloudflare Access) ──> chats :8000 ──MCP─
   alle Chats als einen Verlauf; jede Nachricht hat `chat` und `mid` (echte ID), `id` ist `chat~mid`, der Cursor merkt sich pro Chat den Stand.
   Gesendet wird über den Chip im Eingabefeld (Standard: Chat der letzten eingehenden Nachricht), Antworten gehen in den Chat der zitierten Nachricht – der Chip springt dabei auf dessen Netzwerk.
   Eingabefeld und Senden-Knopf tragen die Farbe des Netzwerks, über das gerade gesendet wird.
+  **Filter:** In einem zusammengeführten Chat sitzt oben rechts ein Filter-Knopf (`filterBtn()`, `filterMenu()`): „Alle Apps“ oder nur eine App (z. B. nur WhatsApp). `drawMsgs()` zeichnet dann
+  nur die Nachrichten dieses Chats (`m.chat`), `S.msgs` bleibt vollständig, ebenso Zwischenspeicher und Nachladen; geschrieben wird mit Filter über dieselbe App (`target()`).
+  Der Knopf ist hervorgehoben, solange gefiltert wird. Einstellungen → „Filter im Chat“ → „Filter merken“ (nur auf diesem Gerät, `localStorage` `chats-filter-keep`/`chats-filter`):
+  aus (Standard) = beim Verlassen des Chats springt der Filter auf „Alle Apps“ zurück, an = er bleibt pro Chat, bis man ihn ändert.
   Aufheben bzw. einen Chat herausnehmen fragt vorher nach (eigenes Blatt `sure()`, kein `confirm()` – das zeigt die WebView der APK nicht sicher).
   In der Liste trägt das Profilbild unten rechts das Logo der App (`NET_SVG`, eigene vereinfachte Zeichnungen), Zusammengeführte ein eigenes Zeichen.
 * **Vorschläge zum Zusammenführen** (Einstellungen): `GET /api/v1/merges/suggestions` sucht in den neuesten 200 Chats dieselbe Person in

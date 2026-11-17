@@ -430,6 +430,10 @@ body.kb .composer, body.kb .recbar { padding-bottom: 8px; }
   background: linear-gradient(to bottom, color-mix(in srgb, var(--surface) 70%, transparent), transparent); }
 .chead > * { pointer-events: auto; }
 .chead .back.float { width: 48px; height: 48px; border-radius: 50%; flex: none; }
+.chead .filt.float { margin-left: auto; width: 48px; height: 48px; border-radius: 50%; flex: none; position: relative; }
+.chead .filt.on { color: var(--accent); }
+.chead .filt i { position: absolute; top: 11px; right: 11px; width: 9px; height: 9px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 2px var(--surface-high); }
+.chead:has(.filt) .cinfo.float { max-width: calc(100% - 116px); }
 .chead .cinfo.float { flex: 0 1 auto; max-width: calc(100% - 60px); height: 48px; border-radius: 24px; padding: 4px 18px 4px 4px; margin: 0; gap: 10px; }
 .chead .cinfo .av { width: 40px; height: 40px; }
 .chead .cinfo .t { flex: 0 1 auto; min-width: 0; }
