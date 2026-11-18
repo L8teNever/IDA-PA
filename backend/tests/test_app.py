@@ -150,7 +150,14 @@ def test_delegate_wakes_agent_and_reply_comes_back(client):
 
 
 def test_account_fallback(client):
-    client.post(f"{API}/accounts", json={"name": "Zweit"})
+    zweit = client.post(f"{API}/accounts", json={"name": "Zweit"}).json()["id"]
+    try:
+        _account_fallback(client)
+    finally:
+        client.delete(f"{API}/accounts/{zweit}")
+
+
+def _account_fallback(client):
     ev = chat(client, text="LIMIT bitte")
     assert any("weiter mit Zweit" in e.get("sys", "") for e in ev)
     assert "".join(e.get("text", "") for e in ev).startswith("[a2|")

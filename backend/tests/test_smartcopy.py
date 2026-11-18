@@ -35,9 +35,10 @@ def test_leer_und_zu_lang(client, login):
 
 def test_limit_naechster_account(client, login):
     zweit = client.post("/api/v1/accounts", json={"name": "SmartZweit"}).json()["id"]
+    erster = client.get("/api/v1/accounts").json()[0]["name"]
     try:
-        d = ask(client, "Code 123456 LIMIT")   # der erste Account meldet das Limit, der nächste antwortet
-        assert d["ok"] and d["account"] == "SmartZweit"
+        d = ask(client, "Code 123456 LIMIT")   # der erste Account meldet das Limit, ein späterer antwortet (andere Tests lassen Accounts zurück)
+        assert d["ok"] and d["account"] and d["account"] != erster
     finally:
         client.delete(f"/api/v1/accounts/{zweit}")
 
