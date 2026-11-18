@@ -2602,10 +2602,11 @@ async function startRec() {
   if (R.rec) return;
   if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) return toast("Aufnehmen geht in diesem Browser nicht");
   try {
-    R.stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+    // Echounterdrückung aus: beim Aufnehmen läuft nichts, und sie macht die Stimme dumpf und blechern. Rauschfilter und Pegel bleiben.
+    R.stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, sampleRate: 48000, echoCancellation: false, noiseSuppression: true, autoGainControl: true } });
   } catch { return toast("Kein Zugriff aufs Mikrofon – in den Browser-Einstellungen erlauben"); }
   const mime = recMime();
-  R.rec = new MediaRecorder(R.stream, mime ? { mimeType: mime, audioBitsPerSecond: 48000 } : undefined);
+  R.rec = new MediaRecorder(R.stream, mime ? { mimeType: mime, audioBitsPerSecond: 128000 } : undefined);
   R.chunks = []; R.levels = []; R.start = Date.now(); R.paused = 0; R.pauseAt = 0;
   R.rec.ondataavailable = (e) => e.data.size && R.chunks.push(e.data);
   R.rec.start(250);

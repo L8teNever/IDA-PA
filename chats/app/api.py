@@ -1412,8 +1412,11 @@ async def to_ogg(data: bytes) -> bytes | None:
         src, dst = os.path.join(tmp, "in"), os.path.join(tmp, "out.ogg")
         with open(src, "wb") as f:
             f.write(data)
-        p = await asyncio.create_subprocess_exec("ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", src, "-vn", "-map", "0:a:0", "-ac", "1", "-ar", "48000",
-                                                 "-c:a", "libopus", "-b:a", "32k", "-application", "voip", "-f", "ogg", dst,
+        # Wie WhatsApps eigene Sprachnachrichten: 120-ms-Pakete, keine Zusatzangaben (Sprache, Encoder). Die Aufnahme kommt mit 128 kbit/s,
+        # hier 48 kbit/s – mit 32 kbit/s nach zweimal Verlustkompression klang es dumpf.
+        p = await asyncio.create_subprocess_exec("ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", src, "-vn", "-map", "0:a:0", "-map_metadata", "-1", "-fflags", "+bitexact", "-flags:a", "+bitexact",
+                                                 "-ac", "1", "-ar", "48000", "-c:a", "libopus", "-b:a", "48k", "-application", "voip", "-frame_duration", "120",
+                                                 "-f", "ogg", dst,
                                                  stdin=asyncio.subprocess.DEVNULL, stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.PIPE)
         try:
             _, err = await asyncio.wait_for(p.communicate(), 60)
