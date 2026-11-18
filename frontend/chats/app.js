@@ -5,10 +5,11 @@ const API = "/api/v1";
 const $ = (s) => document.querySelector(s);
 const BASE = "/";
 const COLORS = ["rot", "orange", "gelb", "salbei", "gruen", "tuerkis", "blau", "lavendel", "lila", "koralle"];
-let AUTOREAD = new Map();   // automatisch gelesen: ID → "open" (beim Öffnen) oder "always" (sofort, ohne Öffnen)
-let PREFS = { snaps_quiet: false, snap_join: true };   // Einstellungen für alle Geräte (im Dienst gespeichert)
+let AUTOREAD = new Map();   // automatisch gelesen: ID → "open" (beim Öffnen), "always" (sofort, ohne Öffnen) oder "off" (trotz App-Regel aus)
+let ARNET = {};             // dasselbe pro App (z. B. gmessages = SMS): Netzwerk → "open" oder "always"
+let PREFS = { snaps_quiet: false, snap_join: true, stt_local: false, stt_auto: false };   // Einstellungen für alle Geräte (im Dienst gespeichert)
 let MUTES = new Map();   // stummgeschaltete Chats: ID → bis (ms, 0 = bis du es aufhebst)
-const S = { chats: [], next: null, q: "", f: "all", id: null, only: "", msgs: [], more: false, oldest: null, seq: 0, sending: false, reply: null, edit: null, voice: {}, vopen: {} };
+const S = { chats: [], next: null, q: "", f: "all", id: null, only: "", pins: [], pinI: 0, pinNote: "", msgs: [], more: false, oldest: null, seq: 0, sending: false, reply: null, edit: null, voice: {}, vopen: {} };
 
 const fmtDay = new Intl.DateTimeFormat("de-DE", { weekday: "long", day: "2-digit", month: "long" });
 const fmtDayY = new Intl.DateTimeFormat("de-DE", { weekday: "short", day: "2-digit", month: "long", year: "numeric" });
@@ -150,6 +151,7 @@ function routeNow() {
   const c = id && MC.get(id);
   TS.open = false; TS.sx = 0;
   S.id = id; S.msgs = c ? c.msgs.slice() : []; S.more = c ? c.more : false; S.oldest = c ? c.oldest : null; S.reply = null; S.edit = null; S.to = null;
+  S.pins = []; S.pinI = 0; S.pinNote = ""; $("#conv")?.classList.remove("haspin");
   S.only = id && filterKeep() ? FILT[id] || "" : "";   // Filter: gemerkt oder – beim Verlassen des Chats – zurückgesetzt
   document.querySelectorAll("#list .row").forEach((r) => r.classList.toggle("sel", r.dataset.id === id));
   if (!$("#list .row")) drawList();
@@ -422,7 +424,7 @@ function orgStub(id) {
   return x && x.title ? { id, title: x.title, network: x.network, type: "single", at: "", unread: 0 } : undefined;
 }
 const VIS_TEXT = { "": "Immer", show: "Immer", new: "Nur bei neuen Nachrichten", hidden: "Ausgeblendet" };
-const netVis = (c) => c.merged || grpOf(c.id) ? "" : ORG.nets[netKey(c.network)] || "";   // Netzwerk-Regel gilt nicht für Zusammengeführte
+const netVis = (c) => c.merged || grpOf(c.id) || String(c.network).includes("|") ? "" : ORG.nets[netKey(c.network)] || "";   // Netzwerk-Regel gilt nicht für Zusammengeführte
 const ownVis = (c) => VIS.get(c.id)?.mode || VIS.get(grpOf(c.id)?.id)?.mode || "";
 const visOf = (c) => { if (!c) return ""; const v = ownVis(c); return v === "show" ? "" : v || netVis(c); };
 const labelOf = () => S.f.startsWith("l:") ? ORG.labels.find((l) => l.id === S.f.slice(2)) : null;
@@ -582,7 +584,7 @@ function infoHtml(c, d) {
     <div class="icard">
       ${expiry ? row("timer", "Selbstlöschende Nachrichten", `Nach ${per(expiry)}`) : ""}
       ${row(isMuted(c.id) ? "notifications_off" : "notifications", isMuted(c.id) ? "Stummgeschaltet" : "Stummschalten", isMuted(c.id) ? muteText(c.id) : "Keine Benachrichtigungen aufs Handy", 'data-i="mute"')}
-      ${!ownChat(c.id) ? row("mark_chat_read", "Automatisch als gelesen", AR_TEXT[arOf(c.id)], 'data-i="autoread"') : ""}
+      ${!ownChat(c.id) ? row("mark_chat_read", "Automatisch als gelesen", esc(AR_TEXT[arOf(c.id)] + (!arOwn(c.id) && arNet(c.id) ? ` (wie alle ${netName(c.network)}-Chats)` : "")), 'data-i="autoread"') : ""}
       ${row(visOf(c) ? "visibility_off" : "visibility", "Auf der Startseite", esc(VIS_TEXT[visOf(c)] + (!ownVis(c) && netVis(c) ? ` (wie alle ${netName(c.network)}-Chats)` : "")), 'data-i="vis"')}
       ${row("label", "Listen", esc(ORG.labels.filter((l) => inLabel(l, c)).map((l) => l.name).join(", ") || "In keiner Liste"), 'data-i="lists"')}
       ${!ownChat(c.id) ? row("archive", "Archivieren", "In Beeper archivieren – taucht bei einer neuen Nachricht wieder auf", 'data-i="arch"') : ""}
@@ -821,7 +823,7 @@ function drawList() {
   }
   const row = (c, pin) => `<div class="row ${left(c) ? "unread" : ""} ${c.id === S.id ? "sel" : ""}" data-id="${esc(c.id)}">
       ${pickAv(c)}<div class="rmain"><div class="rtop"><span class="rtitle">${esc(clean(c.title))}</span><span class="rtime">${when(c.at)}</span></div>
-      <div class="rsub"><span class="last">${lastLine(c)}</span>${isMuted(c.id) ? '<span class="ms mute">notifications_off</span>' : ""}${pin ? '<span class="ms pin">push_pin</span>' : ""}${left(c) ? `<span class="cnt">${c.unread}</span>` : c.snaps && !(c.id in seen && (c.at || "") <= seen[c.id]) ? `<span class="snapchip" title="Neue Snaps (ohne Meldung)"><span class="ms">photo_camera</span>${c.snaps > 1 ? c.snaps : ""}</span>` : ""}</div></div></div>`;
+      <div class="rsub"><span class="last">${lastLine(c)}</span>${schedPending(c.id) ? '<span class="ms sch" title="Geplante Nachricht">schedule_send</span>' : ""}${isMuted(c.id) ? '<span class="ms mute">notifications_off</span>' : ""}${pin ? '<span class="ms pin">push_pin</span>' : ""}${left(c) ? `<span class="cnt">${c.unread}</span>` : c.snaps && !(c.id in seen && (c.at || "") <= seen[c.id]) ? `<span class="snapchip" title="Neue Snaps (ohne Meldung)"><span class="ms">photo_camera</span>${c.snaps > 1 ? c.snaps : ""}</span>` : ""}</div></div></div>`;
   // Angepinnte Chats: große runde Bilder nebeneinander ganz oben (wie in Beeper), darunter die übrige Liste
   const tile = (c) => `<button type="button" class="ptile ${left(c) ? "unread" : ""} ${c.id === S.id ? "sel" : ""}" data-id="${esc(c.id)}">
       <span class="pav">${pickAv(c)}${left(c) ? `<span class="cnt">${c.unread}</span>` : ""}</span>
@@ -943,7 +945,7 @@ function target() {
 }
 const NET_NAME = { snapchat: "Snapchat", instagram: "Instagram", whatsapp: "WhatsApp", signal: "Signal", telegram: "Telegram", discord: "Discord", messenger: "Messenger",
   ida: "Ida", untis: "WebUntis", gmessages: "SMS", googlechat: "Google Chat", slack: "Slack", linkedin: "LinkedIn", x: "X", imessage: "iMessage" };
-const netName = (n) => NET_NAME[netKey(n)] || String(n || "Chat");
+const netName = (n) => [...new Set(String(n || "").split("|").map((p) => NET_NAME[netKey(p)] || p || "Chat"))].join(" + ");
 // Kleine Logos der Apps fürs Abzeichen (eigene vereinfachte Zeichnungen, Farbe kommt aus [data-net] in app.css)
 const BUBBLE = "M12 3a9 9 0 0 0-7.8 13.5L3 21l4.6-1.2A9 9 0 1 0 12 3z";
 const NET_SVG = {
@@ -995,11 +997,72 @@ function toMenu() {
   drawTo();
   p.addEventListener("click", (e) => {
     const t = e.target.closest("[data-to]")?.dataset.to;
-    if (t) { S.to = t; buzz(10); if (S.reply?.chat && S.reply.chat !== t) setReply(null); toChip(); setTimeout(closeTo, 160); $("#txt")?.focus(); }
+    if (t) {
+      S.to = t; buzz(10); if (S.reply?.chat && S.reply.chat !== t) setReply(null);
+      if (activeOnly() && t !== S.only) setOnly(t); else toChip();   // nur Snapchat gezeigt, WhatsApp zum Senden gewählt → der Filter wechselt auf WhatsApp mit
+      setTimeout(closeTo, 160); $("#txt")?.focus();
+    }
     if (e.target.closest("[data-set]")) { closeTo(); groupSettings(c); }
   });
 }
 document.addEventListener("pointerdown", (e) => { if ($("#topanel") && !e.target.closest("#topanel, #toBtn")) closeTo(); }, true);
+// Angepinnte Nachrichten: Leiste unter dem Kopf (wie WhatsApp), Antippen springt zur Nachricht, bei mehreren der Reihe nach.
+// Beeper meldet nur „Pinned a message“ – Aufheben und Ablaufen sieht der Dienst nicht, deshalb zählen nur Pins der letzten 7 Tage.
+const isPinNote = (m) => !!m && (m.sys || m.type === "NOTICE") && /^pinned a message\.?$/i.test((m.text || "").trim());
+const pinText = (p) => (p.text || "").replace(/\s+/g, " ").trim() || ({ image: "Foto", video: "Video", audio: "Sprachnachricht" }[p.files?.[0]?.kind] || (p.files?.length ? "Datei" : "Nachricht"));
+async function loadMsgPins() {
+  const id = S.id; if (!id || ownChat(id)) return;
+  try {
+    const d = await api(`/chats/${encodeURIComponent(id)}/pins`);
+    if (id !== S.id) return;
+    S.pins = d.items || []; S.pinI = 0; pinBar();
+  } catch { /* dann eben ohne Leiste */ }
+}
+function pinBar() {
+  const old = $("#pinbar"), conv = $("#conv"), pins = S.pins || [];
+  if (conv) conv.classList.toggle("haspin", !!pins.length);
+  if (!pins.length) return old?.remove();
+  const p = pins[S.pinI % pins.length], n = pins.length;
+  const html = `<button class="pinbar float" id="pinbar" type="button" data-a="pin" aria-label="Angepinnte Nachricht anzeigen"><span class="ms">push_pin</span><span class="pt">${esc(pinText(p).slice(0, 140))}</span>${n > 1 ? `<span class="pn">${S.pinI % n + 1}/${n}</span>` : ""}</button>`;
+  if (old) old.outerHTML = html; else $(".chead")?.insertAdjacentHTML("afterend", html);
+}
+// Code-Banner: kam in den letzten 3 Minuten eine Nachricht mit Bestätigungscode, steht der Code oben zum Kopieren da. Reine Regel-Erkennung (wie chats/app/smartcopy.py), keine KI.
+const CODE_KEY = "(?:\\w*code|\\w*kode|pin|tan|otp|kennwort|passwort|password|token|verifizierung\\w*|bestätigung\\w*|verification|confirmation)", CODE_VAL = "(?:[A-Z]-\\d{4,8}|\\d{3}[ -]\\d{3}|\\d{4,8})";
+const CODE_AFTER = new RegExp(`\\b${CODE_KEY}\\b[^\\d\\n]{0,30}?(?<![\\w-])(${CODE_VAL})(?![\\w])`, "i"), CODE_BEFORE = new RegExp(`(?<![\\w-])(${CODE_VAL})(?![\\w])[^\\n\\d]{0,40}?\\b${CODE_KEY}\\b`, "i");
+const CODE_MS = 3 * 60 * 1000;
+let codeTimer = 0;
+function findCode() {
+  const only = typeof activeOnly === "function" ? activeOnly() : null, now = Date.now();
+  for (let i = S.msgs.length - 1; i >= 0; i--) {
+    const m = S.msgs[i], t = m.at ? Date.parse(m.at) : NaN;
+    if (isNaN(t) || now - t > CODE_MS) { if (!isNaN(t) && now - t > CODE_MS) break; continue; }
+    if (m.mine || m.pending || m.typing || m.deleted || !m.text || (only && m.chat && m.chat !== only)) continue;
+    const x = CODE_AFTER.exec(m.text) || CODE_BEFORE.exec(m.text);
+    if (x) return { id: m.id, code: x[1].trim(), left: CODE_MS - (now - t) };
+  }
+  return null;
+}
+function codeBar() {
+  clearTimeout(codeTimer);
+  const old = $("#codebar"), conv = $("#conv"), f = S.id && S.id !== "ida" && !ownChat(S.id) ? findCode() : null;
+  if (conv) conv.classList.toggle("hascode", !!f);
+  if (!f) return old?.remove();
+  const html = `<button class="codebar float" id="codebar" type="button" data-a="code" data-v="${esc(f.code)}" aria-label="Code kopieren"><span class="ms">key</span><span class="cl">Code</span><b class="pt">${esc(f.code)}</b><span class="cc">Antippen zum Kopieren</span><span class="ms">content_copy</span></button>`;
+  if (old && old.dataset.v === f.code) { /* bleibt */ } else if (old) old.outerHTML = html; else $(".chead")?.insertAdjacentHTML("afterend", html);
+  codeTimer = setTimeout(codeBar, Math.min(f.left + 200, 30000));
+}
+async function jumpPin() {
+  const pins = S.pins || []; if (!pins.length) return;
+  const p = pins[S.pinI % pins.length], id = S.id;
+  S.pinI = (S.pinI + 1) % pins.length; pinBar();
+  for (let i = 0; i < 8 && id === S.id; i++) {   // ist die Nachricht älter als das Geladene: Verlauf Stück für Stück nachladen
+    const el = document.getElementById(`m-${p.id}`);
+    if (el) { el.scrollIntoView({ block: "center", behavior: "smooth" }); el.classList.add("flash"); setTimeout(() => el.classList.remove("flash"), 1200); return; }
+    if (!S.more) break;
+    await loadMsgs({ older: true });
+  }
+  if (id === S.id) toast("Die angepinnte Nachricht ist nicht mehr im Verlauf zu finden");
+}
 function head() {
   const c = cur(), title = clean(c?.title || "Chat");
   const sub = [c?.ida ? "Deine Assistentin" : c?.untis ? "WebUntis" : "", c?.type === "group" ? "Gruppe" : ""].filter(Boolean).join(" · ");   // kein App-Name unter dem Namen (WhatsApp, Snapchat …)
@@ -1078,14 +1141,36 @@ async function openChat() {
   conv.ondrop = (e) => { conv.classList.remove("drop"); const f = [...(e.dataTransfer?.files || [])]; if (f.length) { e.preventDefault(); pickFiles(f); } };
   ta.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey && !matchMedia("(pointer: coarse)").matches) { e.preventDefault(); $("#form").requestSubmit(); } });
   $("#form").addEventListener("submit", (e) => { e.preventDefault(); if (ta.value.trim()) send(); else if (!S.edit && !ownChat(S.id)) startRec(); });
+  bindSchedPress();
   $("#conv").dataset.net = cur()?.merged ? "" : netKey(cur()?.network);
   if (S.msgs.length) drawMsgs({ stick: true });   // sofort aus dem Speicher, Frisches kommt gleich
   if (!cur()) loadChats({ quiet: true }).then(() => { if (S.id && $(".chead")) { $(".chead").outerHTML = head(); refreshReadBar(); } });
   await loadMsgs({ first: true });
+  S.pinNote = S.msgs.filter(isPinNote).at(-1)?.id || ""; loadMsgPins();
   autoRead();
   if (cur()?.type === "group" && !ABOUT.get(S.id)) { const id = S.id; loadPeople(id).then(() => { if (S.id === id && $("#msgs")) drawMsgs({ stick: atBottom }); }); }
   if (!OV) openFromUrl();
   if (matchMedia("(pointer: fine)").matches) ta.focus();
+}
+// Was im Zeitraum der geladenen Seite liegt, dort aber fehlt, gibt es nicht mehr (z. B. für mich gelöscht) – nicht aus dem Speicher zurückholen.
+// Der Zeitraum gilt je Chat: Ein zusammengeführter Chat lädt von jedem seiner Chats die neueste Seite, und die reichen verschieden weit zurück (ein reger Chat
+// nur ein paar Tage, ein ruhiger ein Jahr). Mit einem gemeinsamen Zeitraum hielte die Seite alles Ältere des regen Chats für gelöscht und warf es raus –
+// der Verlauf wurde kürzer und man wurde beim Hochwischen nach unten geschoben. Beim Nachladen älterer Seiten wird nie etwas entfernt.
+// Reicht der geladene Verlauf (bei einem der Chats) weiter zurück als die neueste Seite? Dann bleibt der Stand für „Ältere laden“, statt beim Abgleich zurückzuspringen.
+// Je Chat verglichen, aus demselben Grund wie oben: In zusammengeführten Chats hat jeder Chat seine eigene älteste Nachricht.
+function deeper(msgs, items) {
+  const oldest = (l) => { const o = new Map(); for (const m of l) { if (!m.at || m.pending) continue; const c = m.chat || ""; if (!o.has(c) || m.at < o.get(c)) o.set(c, m.at); } return o; };
+  const a = oldest(msgs);
+  return [...oldest(items)].some(([c, at]) => a.has(c) && a.get(c) < at);
+}
+function staleTest(items, older) {
+  const rng = new Map(), got = new Set(items.map((m) => m.id));
+  for (const m of items) {
+    if (!m.at) continue;
+    const r = rng.get(m.chat || "");
+    if (!r) rng.set(m.chat || "", [m.at, m.at]); else { if (m.at < r[0]) r[0] = m.at; if (m.at > r[1]) r[1] = m.at; }
+  }
+  return (m) => { const r = !older && !m.pending && m.at && rng.get(m.chat || ""); return !!r && m.at >= r[0] && m.at <= r[1] && !got.has(m.id); };
 }
 async function loadMsgs({ first = false, quiet = false, older = false } = {}) {
   if (older) { if (olderBusy) return; olderBusy = true; }
@@ -1097,21 +1182,20 @@ async function loadMsgs({ first = false, quiet = false, older = false } = {}) {
     if (pk) PRE.delete(pk);
     if (id !== S.id || seq !== S.seq) return;
     // Liegen aus dem Speicher schon ältere Nachrichten vor als die neueste Seite, bleibt deren Stand für "Ältere laden"
-    const keepOld = !older && S.oldest && S.msgs.length && d.items.length && (S.msgs[0].at || "") < (d.items[0].at || "");
+    const keepOld = !older && S.oldest && deeper(S.msgs, d.items);
     const box = $("#msgs"), atEnd = !box || box.scrollHeight - box.scrollTop - box.clientHeight < 120;
     const keep = new Map(S.msgs.map((m) => [m.id, m]));
     for (const m of d.items) keep.set(m.id, m);
-    const sig = (l) => l.map((m) => `${m.id}|${m.text}|${m.edited ? 1 : 0}|${(m.read_by || []).length}|${(m.reactions || []).map((r) => r.key + r.n).join()}|${m.deleted}${m.was ? 1 : 0}|${m.pending ? 1 : 0}|${(m.options || []).join(",")}`).join(";");
+    const sig = (l) => l.map((m) => `${m.id}|${m.text}|${m.edited ? 1 : 0}${(m.prev || []).length}|${(m.read_by || []).length}|${(m.reactions || []).map((r) => r.key + r.n).join()}|${m.deleted}${m.was ? 1 : 0}|${m.pending ? 1 : 0}|${(m.options || []).join(",")}`).join(";");
     const before = sig(S.msgs);
     const landed = (m) => m.pendingFile ? m.sentAt && d.items.some((x) => x.mine && x.files.length && Date.parse(x.at) >= Date.parse(m.at) - 10000)
       : m.pendingFwd ? d.items.some((x) => x.mine && x.ida_kind === "forward" && Date.parse(x.at) >= Date.parse(m.at) - 15000)
       : d.items.some((x) => x.mine && x.text === m.text);
-    // Was im Zeitraum der geladenen Seite liegt, dort aber fehlt, gibt es nicht mehr (z. B. für mich gelöscht) – nicht aus dem Speicher zurückholen
-    const lo = d.items[0]?.at, hi = d.items.at(-1)?.at, got = new Set(d.items.map((m) => m.id));
-    const stale = (m) => !m.pending && m.at && lo && m.at >= lo && m.at <= hi && !got.has(m.id);
+    const stale = staleTest(d.items, older);
     S.msgs = [...keep.values()].filter((m) => !stale(m) && (!m.pending || !landed(m)) && (!m.typing || got.has(m.id))).sort((a, b) => (a.at || "").localeCompare(b.at || ""));
     if (!keepOld) { S.more = d.more; S.oldest = d.oldest; }
     cacheMsgs();
+    { const pn = S.msgs.filter(isPinNote).at(-1)?.id || ""; if (pn && pn !== S.pinNote && !first) { S.pinNote = pn; loadMsgPins(); } }   // neuer Pin, während der Chat offen ist
     setTimeout(prefetchOlder, 300);
     if (quiet && !first && !older && before === sig(S.msgs) && $("#msgs")?.children.length) return;   // nichts Neues: nicht neu zeichnen (Scrollstand, Player)
     if (first && !older && before === sig(S.msgs) && $("#msgs .bw")) return;   // aus dem Speicher schon richtig gezeichnet
@@ -1141,11 +1225,11 @@ function fileHtml(f, clips = null) {
     return `<img class="pic ${f.sticker ? "stk" : ""}" loading="lazy" data-a="zoom" data-src="${src}" alt="${esc(f.name || "Bild")}"${r} src="${mediaUrl(f)}">`;
   }
   if (f.kind === "audio") {
-    const t = f.transcript || S.voice[f.src];
+    const t = f.transcript || S.voice[f.src], open = S.vopen[f.src] ?? (PREFS.stt_auto && !!t);   // bei „Automatisch umwandeln“ steht der Text gleich da, bis man ihn zuklappt
     return `<div class="voice" data-src="${src}" data-mime="${esc(f.mime)}" data-dur="${f.duration || 0}"><button class="play" data-a="play" aria-label="Abspielen"><span class="ms">play_arrow</span></button>
-      <div class="wave" data-a="seek">${bars(f.src).map((h) => `<i style="height:${h.toFixed(0)}%"></i>`).join("")}</div>
+      <div class="wave" role="slider" aria-label="Position in der Sprachnachricht" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">${bars(f.src).map((h) => `<i style="height:${h.toFixed(0)}%"></i>`).join("")}<b class="knob"></b></div>
       <span class="dur">${f.duration ? mmss(f.duration) : ""}</span><button class="spd" data-a="speed" aria-label="Tempo">1×</button>
-      <button class="vtbtn ${t ? "has" : ""}" data-a="vtext" data-src="${src}" aria-label="Als Text" title="Als Text anzeigen"><span class="ms">notes</span></button></div>${S.vopen[f.src] && t ? `<div class="vtext">${esc(t)}</div>` : ""}`;
+      <button class="vtbtn ${t ? "has" : ""}" data-a="vtext" data-src="${src}" aria-label="Als Text" title="Als Text anzeigen"><span class="ms">notes</span></button></div>${open && t ? `<div class="vtext">${esc(t)}</div>` : ""}`;
   }
   if (f.kind === "video") {
     const r = f.w && f.h ? ` style="aspect-ratio:${f.w}/${f.h}"` : "";
@@ -1173,14 +1257,14 @@ function replyHead(m, net = null) {   // net: im gemeinsamen Verlauf die Farbe d
     ? (f.kind === "image" || f.poster ? `<img class="rq-th" loading="lazy" alt="" src="${mediaUrl(f.kind === "image" ? f : { src: f.poster })}">`
       : `<video class="rq-th" preload="metadata" muted playsinline src="${mediaUrl(f)}#t=0.1"></video>`) + (f.kind === "video" ? '<span class="ms">play_arrow</span>' : "") : "";
   if (th) return `<div class="rqrow ${q.mine ? "r" : "l"} ${m.mine ? "me" : "them"} ${cur()?.type === "group" && !m.mine ? "grp" : ""}"${dn} data-a="jump" data-id="${esc(m.reply_to)}"><span class="rqline"></span><span class="rq-b th">${th}</span></div>`;
-  const what = !q ? "Nachricht" : q.deleted ? "Gelöschte Nachricht" : q.text ? esc(q.text.replace(/\s+/g, " ").slice(0, 200))
+  const what = !q ? "Nachricht" : q.deleted ? "Gelöschte Nachricht" : q.text ? esc(quoteText(q).replace(/\s+/g, " ").slice(0, 200))
     : f ? ({ audio: "🎤 Sprachnachricht", video: "🎬 Video", image: f.sticker ? "Sticker" : "📷 Foto" }[f.kind] || `📎 ${esc(f.name || "Datei")}`) : "Nachricht";
   const side = q ? (q.mine ? "r" : "l") : (m.mine ? "r" : "l");   // die Pille steht dort, wo die zitierte Nachricht steht
   const grp = cur()?.type === "group" && !m.mine;
   return `<div class="rqrow ${side} ${m.mine ? "me" : "them"} ${grp ? "grp" : ""}"${dn} data-a="jump" data-id="${esc(m.reply_to)}"><span class="rqline"></span><span class="rq-b">${what}</span></div>`;
 }
 function tmLine(m) {   // klein in der Blase: "bearbeitet", Häkchen – das Netzwerk zeigt die Farbe, die Uhrzeit kommt beim Wischen nach links
-  const bits = m.edited && !m.deleted ? "bearbeitet" : "";
+  const bits = m.edited && !m.deleted ? (m.prev?.length ? `<button class="edtog" data-a="edits" data-id="${esc(m.id)}">bearbeitet${S.openEdits?.has(m.id) ? " ▴" : " ▾"}</button>` : "bearbeitet") : "";
   const t = ticks(m);
   return bits || t ? `<span class="tm">${bits}${t}</span>` : "";
 }
@@ -1244,6 +1328,31 @@ function soleLink(m) {
   return us.sort((a, b) => a.length - b.length)[0].replace(/[.,!?:;]+$/, "");
 }
 const host = (u) => { try { return new URL(u).hostname.replace(/^www\./, ""); } catch { return ""; } };
+// Geteilter Instagram-Beitrag: Beeper schickt ihn als EINE Nachricht – das Bild des Beitrags als Datei und als Text „Benutzername Beschreibung“, direkt dahinter (ohne Leerzeichen)
+// der Link und gleich noch einmal „(Link?…)“. Daran erkennt man das Teilen (getippte Links haben die Klammer nicht). Reine Links (Reels) macht soleLink().
+const IG_SHARE = /^([\s\S]*?)(https?:\/\/(?:www\.)?instagram\.com\/(p|reels?|tv)\/([\w-]+)\/?)(?:\?[^\s)]*)?\s*\(\s*https?:\/\/(?:www\.)?instagram\.com\/[^\s)]+\s*\)\s*$/i;
+function igShare(m) {
+  if (!m || m.deleted || m.pending || !m.text) return null;
+  const x = IG_SHARE.exec(m.text), pre = x && x[1].trim();
+  if (!pre) return null;
+  const who = /^([a-z0-9._]{1,30})(?:\s+([\s\S]*))?$/.exec(pre);   // der Benutzername steht vorn (Instagram: nur Kleinbuchstaben, Ziffern, Punkt, Unterstrich)
+  return { url: x[2].replace(/\/?$/, "/"), kind: x[3].toLowerCase(), author: who ? who[1] : "", caption: (who ? who[2] || "" : pre).trim() };
+}
+// Text einer Nachricht für Zitate und die Antwortleiste: bei einem geteilten Beitrag „Name · Beschreibung“ statt zwei roher Links
+const quoteText = (m) => { const g = igShare(m); return g ? [g.author, g.caption].filter(Boolean).join(" · ") || "Instagram-Beitrag" : m.text || ""; };
+const igPic = (m) => igShare(m) && m.files.length === 1 && m.files[0].kind === "image" && !m.files[0].sticker && m.files[0].src ? m.files[0] : null;   // das echte Bild des Beitrags
+const IGOPEN = new Set();   // Beschreibungen, die aufgeklappt sind (Nachrichten-IDs)
+function igHtml(m, ig, pic) {   // eine Karte: Bild in echtem Seitenverhältnis, darunter Name und Beschreibung (nicht das zugeschnittene Vorschaubild der Seite und nicht die Link-Zeilen)
+  const e = embedOf(ig.url), l = !pic && (m.links || []).find((x) => lk(x.url) === lk(ig.url) && (x.img || x.title));
+  const img = pic ? mediaUrl(pic) : l?.img ? (l.ext || mediaUrl({ src: l.img })) : "";
+  const w = pic ? pic.w : l?.w, h = pic ? pic.h : l?.h, r = w && h ? ` style="aspect-ratio:${w}/${h}"` : "";
+  const shot = !img ? "" : pic ? (e?.videoUrl
+    ? `<button type="button" class="lp-pic" data-a="igvideo" data-url="${esc(ig.url)}"><img loading="lazy" alt=""${r} src="${img}"><span class="ms">play_arrow</span></button>`
+    : `<button type="button" class="lp-pic" data-a="zoom" data-src="${esc(pic.src)}"><img loading="lazy" alt=""${r} src="${img}"></button>`)
+    : `<a class="lp-pic" href="${esc(ig.url)}" target="_blank" rel="noopener noreferrer"><img loading="lazy" alt=""${r} src="${img}"></a>`;
+  const cap = ig.caption ? `<p class="ig-cap${IGOPEN.has(m.id) ? " open" : ""}" data-a="igcap" data-id="${esc(m.id)}">${autolink(esc(ig.caption))}</p>` : "";
+  return `<div class="lp share igcard">${shot}<div class="ig-txt"><a class="ig-head" href="${esc(ig.url)}" target="_blank" rel="noopener noreferrer"><span class="ig-ic" aria-hidden="true">${netMark("instagram")}</span><b>${esc(ig.author || "Instagram")}</b><span class="ms" aria-label="Auf Instagram öffnen">open_in_new</span></a>${cap}<small>Instagram-${e?.play ? "Video" : "Beitrag"}</small></div></div>`;
+}
 function lpHtml(l, pic = null) {   // pic: Vorschaubild aus dem Anhang (schärfer als das der Webseite)
   const e = embedOf(l.url), img = pic ? mediaUrl(pic) : l.img ? (l.ext || mediaUrl({ src: l.img })) : "";
   const w = pic ? pic.w : l.w, h = pic ? pic.h : l.h, r = w && h ? ` style="aspect-ratio:${w}/${h}"` : "";
@@ -1253,25 +1362,37 @@ function lpHtml(l, pic = null) {   // pic: Vorschaubild aus dem Anhang (schärfe
   const title = l.title || (e ? `${e.name}-${e.play ? "Video" : "Beitrag"}` : host(l.url));
   return `<div class="lp${pic ? " share" : ""}">${shot}<a class="lp-txt" href="${esc(l.url)}" target="_blank" rel="noopener noreferrer"><b>${esc(title)}</b>${l.summary ? `<i>${esc(l.summary)}</i>` : ""}<small>${esc(host(l.url))}</small></a></div>`;
 }
+// Systemhinweis („X left the chat“, „You and Y started a Snapstreak“ – der Dienst setzt m.sys): keine Blase, nur eine kleine graue Zeile in der Mitte
+const isSys = (m) => !!m && (m.sys || m.type === "NOTICE") && !m.deleted && !!m.text && !m.pending && !ownChat(S.id);
+function sysIcon(t) {
+  t = String(t).toLowerCase();
+  return /\bpinned\b/.test(t) ? "push_pin" : /streak/.test(t) ? "local_fire_department" : /\b(left|removed|kicked)\b|verlassen|entfernt/.test(t) ? "logout"
+    : /\b(joined|added|invited)\b|beigetreten|hinzugefügt|eingeladen/.test(t) ? "person_add" : /\bcall\b|anruf/.test(t) ? "call"
+    : /\b(name|photo|picture|icon|description|avatar)\b|bild|beschreibung/.test(t) ? "edit" : /encrypt|disappearing|security|verschlüssel|sicher/.test(t) ? "lock" : "info";
+}
 function bubble(m, tail = true, stack = null, head = true) {
+  if (isSys(m)) return `<div class="sysrow" id="m-${esc(m.id)}" data-id="${esc(m.id)}"><span class="ms" aria-hidden="true">${sysIcon(m.text)}</span><span>${esc(m.text)}</span></div>`;
   if (m.typing) return `<div class="bw" id="m-typing" data-id="typing"><div class="bcol"><div class="b typing" aria-label="Ida schreibt"><span class="dots"><i></i><i></i><i></i></span></div></div></div>`;
   // Geteilter Beitrag: nur der Link als Text und genau ein Bild (sein Vorschaubild) → eine Karte statt Bild + Link + zweitem Bild
   const sole = !m.deleted && soleLink(m);
   const share = sole && !stack && m.files.length === 1 && m.files[0].kind === "image" && !m.files[0].sticker && m.files[0].src && !m.pending ? m.files[0] : null;
   const hasVid = !m.deleted && m.files.some((f) => f.kind === "video");
   const hideSoleVid = !!(sole && hasVid && embedOf(sole));
-  const visual = !share && !m.deleted && m.files.length && m.files.every((f) => (f.kind === "image" || f.kind === "video") && !f.sticker);
-  const files = share ? "" : stack ? stackHtml(stack) : visual && !m.pending ? `<div class="mwrap"><div class="mcol">${m.files.map((f) => fileHtml(f, CLIPS.get(m.id) || null)).join("")}</div></div>` : m.files.map((f) => fileHtml(f)).join("");
-  const prev = hideSoleVid ? [] : (m.links || []).filter((l) => l.title || l.img);
-  const onlyLink = !!sole && (share || hideSoleVid || prev.some((l) => lk(l.url) === lk(sole)));
+  const ig = !m.deleted && !stack ? igShare(m) : null, igFile = ig ? igPic(m) : null;
+  const igOn = !!ig && (!!igFile || !m.files.length);   // Beitragskarte: mit dem Bild des Beitrags, sonst (ganz ohne Datei) mit dem Vorschaubild der Seite
+  const visual = !share && !igOn && !m.deleted && m.files.length && m.files.every((f) => (f.kind === "image" || f.kind === "video") && !f.sticker);
+  const files = share || igOn ? "" : stack ? stackHtml(stack) : visual && !m.pending ? `<div class="mwrap"><div class="mcol">${m.files.map((f) => fileHtml(f, CLIPS.get(m.id) || null)).join("")}</div></div>` : m.files.map((f) => fileHtml(f)).join("");
+  const prev = hideSoleVid || igOn ? [] : (m.links || []).filter((l) => l.title || l.img);
+  const onlyLink = igOn || (!!sole && (share || hideSoleVid || prev.some((l) => lk(l.url) === lk(sole))));
   const split = visual && !stack && ((m.text && !onlyLink) || prev.length > 0);   // Bild/Video und Text: zwei Blasen
   // Gelöscht: Hinweis – und darunter, was drinstand, wenn der Dienst die Nachricht vorher schon gesehen hatte
+  const prevHtml = !m.deleted && m.prev?.length && S.openEdits?.has(m.id) ? `<div class="was prevs">${m.prev.map((t) => `<span class="tx old">${autolink(esc(t))}</span>`).join("")}</div>` : "";
   const was = m.deleted && m.was ? `<div class="was">${(m.was.files || []).map((f) => fileHtml(f)).join("")}${m.was.text ? `<span class="tx">${autolink(esc(m.was.text))}</span>` : ""}</div>` : "";
   // Ungeöffneter Snap: Beeper liefert ihn ohne Bild und Text – statt einer leeren Blase ein Hinweis
   const snapPh = !m.deleted && !m.text && !m.files.length && !m.pending && (m.type === "IMAGE" || m.type === "VIDEO") && msgNet(m) === "snapchat"
     ? `<span class="snapph"><span class="ms">${m.type === "VIDEO" ? "videocam" : "photo_camera"}</span>${m.mine ? "Snap gesendet" : `Neuer Snap${m.type === "VIDEO" ? " (Video)" : ""} – öffnen in Snapchat`}</span>` : "";
-  const body = snapPh ? snapPh : m.deleted ? `<span class="gone"><span class="ms">block</span>${m.mine ? "Du hast diese Nachricht gelöscht" : "Diese Nachricht wurde gelöscht"}</span>${was}` : m.text && !onlyLink ? `<span class="tx">${mentionHtml(autolink(esc(m.text)))}</span>` : "";
-  const links = m.deleted ? "" : share ? lpHtml(prev.find((l) => lk(l.url) === lk(sole)) || { url: sole }, share) : prev.map((l) => lpHtml(l)).join("");
+  const body = snapPh ? snapPh : m.deleted ? `<span class="gone"><span class="ms">block</span>${m.mine ? "Du hast diese Nachricht gelöscht" : "Diese Nachricht wurde gelöscht"}</span>${was}` : m.text && !onlyLink ? `<span class="tx">${mentionHtml(autolink(esc(m.text)))}</span>${prevHtml}` : "";
+  const links = m.deleted ? "" : igOn ? igHtml(m, ig, igFile) : share ? lpHtml(prev.find((l) => lk(l.url) === lk(sole)) || { url: sole }, share) : prev.map((l) => lpHtml(l)).join("");
   const ikind = isIda(S.id) ? (m.ida_kind || (m.notice ? "notice" : "chat")) : "";
   const itag = ikind === "notice" ? `<span class="ikind-tag"><span class="ms">notifications</span>${esc(m.sender && m.sender !== "Ida" ? `Mitteilung · ${clean(m.sender)}` : "Mitteilung von Ida")}</span>`
     : ikind === "forward" ? `<span class="ikind-tag"><span class="ms">forward</span>${m.mine ? "Weitergeleitet an Ida" : "Antwort zur Weiterleitung"}</span>` : "";
@@ -1286,12 +1407,13 @@ function bubble(m, tail = true, stack = null, head = true) {
   const face = cur()?.type === "group" && !m.mine ? (tail ? avatar(clean(m.sender), cid(m), m.sender_id) : '<span class="av gap"></span>') : "";
   const prog = m.pendingFile ? `<div class="prog"><i style="width:${Math.round((m.progress || 0) * 100)}%"></i></div>` : "";
   const mc = cur()?.merged, net = mc ? netKey((mc.find((x) => x.id === (m.chat || target())) || {}).network) : null;
-  return `${name}${m.reply_to && !m.deleted ? replyHead(m, net) : ""}<div class="bw ${m.mine ? "me" : ""} ${face ? "grp" : ""} ${m.reply_to && !m.deleted ? "isrep" : ""}"${net !== null ? ` data-net="${net}"` : ""}${ikind ? ` data-ikind="${esc(ikind)}"` : ""} id="m-${esc(m.id)}" data-id="${esc(m.id)}"><span class="swipe ms">reply</span>${face}${tools}<div class="bcol">${quote}${split ? `<div class="b media ${m.mine ? "me" : ""}">${group}${files}</div>` : ""}<div class="b ${m.mine ? "me" : ""} ${share ? "sharebub" : ""} ${!m.mine && atMe(m) ? "atme" : ""} ${m.pending ? "pending" : ""} ${m.pendingFwd ? "pfwd" : ""} ${m.deleted ? "del" : ""} ${!split && visual && (!m.text || onlyLink) ? "media" : ""}"${ikind ? ` data-ikind="${esc(ikind)}"` : ""}>${itag}${split ? "" : group}${split ? "" : files}${prog}${body}${fwdLoad}${links}${rx}${tmLine(m)}</div>${more}</div><span class="st">${m.at && !m.pending ? fmtTime.format(new Date(m.at)) : ""}</span></div>`;
+  return `${name}${m.reply_to && !m.deleted ? replyHead(m, net) : ""}<div class="bw ${m.mine ? "me" : ""} ${face ? "grp" : ""} ${m.reply_to && !m.deleted ? "isrep" : ""}"${net !== null ? ` data-net="${net}"` : ""}${ikind ? ` data-ikind="${esc(ikind)}"` : ""} id="m-${esc(m.id)}" data-id="${esc(m.id)}"><span class="swipe ms">reply</span>${face}${tools}<div class="bcol">${quote}${split ? `<div class="b media ${m.mine ? "me" : ""}">${group}${files}</div>` : ""}<div class="b ${m.mine ? "me" : ""} ${share || igOn ? "sharebub" : ""} ${!m.mine && atMe(m) ? "atme" : ""} ${m.pending ? "pending" : ""} ${m.pendingFwd ? "pfwd" : ""} ${m.deleted ? "del" : ""} ${!split && visual && (!m.text || onlyLink) ? "media" : ""}"${ikind ? ` data-ikind="${esc(ikind)}"` : ""}>${itag}${split ? "" : group}${split ? "" : files}${prog}${body}${fwdLoad}${links}${rx}${tmLine(m)}</div>${more}</div><span class="st">${m.at && !m.pending ? fmtTime.format(new Date(m.at)) : ""}</span></div>`;
 }
 const NETS = [["ida", "ida"], ["untis", "untis"], ["snapchat", "snapchat"], ["instagram", "instagram"], ["whatsapp", "whatsapp"], ["signal", "signal"], ["telegram", "telegram"], ["discord", "discord"],
   ["messenger", "messenger"], ["facebook", "messenger"], ["gmessages", "gmessages"], ["google messages", "gmessages"], ["googlechat", "googlechat"], ["google chat", "googlechat"],
   ["slack", "slack"], ["linkedin", "linkedin"], ["twitter", "x"], ["imessage", "imessage"], ["sms", "gmessages"]];
-const netKey = (n) => { n = String(n || "").toLowerCase(); return (NETS.find(([k]) => n.includes(k)) || [, ""])[1]; };
+// Beeper-Sammelchat: „konto1|konto2“ (siehe beeper_nets im Dienst) – fürs Abzeichen zählt das erste Konto, der Name nennt alle
+const netKey = (n) => { n = String(n || "").toLowerCase().split("|")[0]; return (NETS.find(([k]) => n.includes(k)) || [, ""])[1]; };
 // Steht der Chat am Ende? Nur dann darf nachladendes (Bilder, Tastatur) ans Ende schieben – wer hochgescrollt hat, bleibt dort.
 let atBottom = true;
 document.addEventListener("scroll", (e) => { const b = e.target; if (b.id === "msgs") atBottom = b.scrollHeight - b.scrollTop - b.clientHeight < 150; }, { capture: true, passive: true });
@@ -1315,7 +1437,7 @@ function drawMsgs({ stick = false, keepTop = false } = {}) {
   for (const m of S.msgs) if (m.reply_to) S.replies.set(m.reply_to, [...(S.replies.get(m.reply_to) || []), m.id]);
   let last = "", html = S.more ? '<button class="older" id="older" data-a="older" aria-label="Ältere laden"><span class="ms">refresh</span></button>' : "";
   if (!L.length) html += `<div class="empty">${only ? `Keine Nachrichten über ${esc(netName((cur().merged.find((x) => x.id === only) || {}).network))} – oben rechts den Filter ändern.` : "Noch keine Nachrichten."}</div>`;
-  const lastMine = [...L].reverse().find((m) => m.mine && !m.deleted && !m.pending)?.id;
+  const lastMine = [...L].reverse().find((m) => m.mine && !m.deleted && !m.pending && !isSys(m))?.id;
   // Trennlinie über der ersten ungelesenen Nachricht (wie in Beeper), solange der Chat nicht als gelesen markiert ist
   let unFrom = -1;
   { const cc = cur(), nu = only ? 0 : left(cc); if (nu) { let k = 0; for (let x = L.length - 1; x >= 0; x--) { if (L[x].mine) { unFrom = x + 1; break; } unFrom = x; if (++k === nu) break; } if (unFrom >= L.length) unFrom = -1; } }
@@ -1337,10 +1459,11 @@ function drawMsgs({ stick = false, keepTop = false } = {}) {
     const n = L[j + 1];   // Bild nur an der letzten Nachricht einer Folge vom selben Absender (wie in Beeper)
     const p = L[i - 1];   // Name nur an der ersten Nachricht einer Folge vom selben Absender
     const lm = L.slice(i, j + 1).some((x) => x.id === lastMine);
-    html += bubble(m, !n || n.mine || n.sender_id !== m.sender_id || (n.at && dayKey(n.at) !== k), files, !p || p.mine || p.sender_id !== m.sender_id || (p.at && dayKey(p.at) !== k));
+    html += bubble(m, !n || isSys(n) || n.mine || n.sender_id !== m.sender_id || (n.at && dayKey(n.at) !== k), files, !p || isSys(p) || p.mine || p.sender_id !== m.sender_id || (p.at && dayKey(p.at) !== k));
     if (lm) html += seenRow(L.find((x) => x.id === lastMine));
     i = j;
   }
+  html += schedHtml();   // Später senden: Geplantes steht als gestrichelte Blase ganz unten
   box.innerHTML = html;
   // Chat geht auf: die Nachrichten tauchen von unten nach oben nacheinander auf. Kommt währenddessen Frisches und der Verlauf wird
   // neu gezeichnet, läuft der Auftritt an derselben Stelle weiter (negative Verzögerung) statt neu zu starten oder zu springen.
@@ -1349,7 +1472,7 @@ function drawMsgs({ stick = false, keepTop = false } = {}) {
   for (const m of fresh) document.getElementById(`m-${m.id}`)?.classList.add("in");
   if (cascade && cascade.id === S.id && performance.now() - cascade.t0 < CAS_N * CAS_STEP + 300) {
     const gone = performance.now() - cascade.t0;
-    [...box.querySelectorAll(".bw, .day, .unsep, .seenrow")].slice(-CAS_N).reverse().forEach((el, i) => { if (!el.classList.contains("in")) { el.style.animationDelay = `${Math.round(i * CAS_STEP - gone)}ms`; el.classList.add("cin"); } });
+    [...box.querySelectorAll(".bw, .sysrow, .day, .unsep, .seenrow")].slice(-CAS_N).reverse().forEach((el, i) => { if (!el.classList.contains("in")) { el.style.animationDelay = `${Math.round(i * CAS_STEP - gone)}ms`; el.classList.add("cin"); } });
   } else cascade = null;
   if (cascade) { const c0 = cascade; setTimeout(() => { if (cascade === c0) { cascade = null; const o = $("#older"); if (o && olderObs) { olderObs.unobserve(o); olderObs.observe(o); } } }, CAS_N * CAS_STEP + 320); }
   $("#conv").dataset.net = cur()?.merged ? "" : netKey(cur()?.network);   // eigene Nachrichten in Netzwerkfarbe, eingehende mit Akzenten in Netzwerkfarbe
@@ -1362,11 +1485,12 @@ function drawMsgs({ stick = false, keepTop = false } = {}) {
   if ($("#older")) { olderObs = new IntersectionObserver((es) => { if (es.some((x) => x.isIntersecting) && !keepBusy()) loadMsgs({ older: true }); }, { root: box, rootMargin: "400px 0px 0px 0px" }); olderObs.observe($("#older")); }
   if (!box.dataset.pin) { box.dataset.pin = 1; for (const ev of ["load", "loadedmetadata", "error"]) box.addEventListener(ev, pinEnd, true); }
   ogFetch();
+  codeBar();
 }
 // Link-Vorschau selbst holen, wenn Beeper keine mitliefert (z. B. bei Snapchat): Bild, Titel, Text der Seite.
 // Einmal pro Adresse, gemerkt für die Sitzung; nur die letzten 40 Nachrichten, damit beim Hochscrollen nicht alles auf einmal lädt.
 const OG = new Map();
-const urlOf = (m) => !m || m.deleted || (m.links || []).some((l) => l.title || l.img) ? "" : soleLink(m) || ((m.text || "").match(/https?:\/\/[^\s<>"')\]]+/) || [""])[0].replace(/[.,!?:;]+$/, "");
+const urlOf = (m) => !m || m.deleted || (m.links || []).some((l) => l.title || l.img) || igPic(m) ? "" : soleLink(m) || ((m.text || "").match(/https?:\/\/[^\s<>"')\]]+/) || [""])[0].replace(/[.,!?:;]+$/, "");
 function ogApply() {
   for (const m of S.msgs) {
     const u = urlOf(m), c = u && OG.get(u);
@@ -1387,6 +1511,9 @@ $("#conv").addEventListener("click", (e) => {
   if (a.dataset.a === "gset") return groupSettings(cur());
   if (a.dataset.a === "info") return openInfo();
   if (a.dataset.a === "filter") return filterMenu();
+  if (a.dataset.a === "pin") return jumpPin();
+  if (a.dataset.a === "code") return copyText(a.dataset.v);
+  if (a.dataset.a === "sched") return schedMenu(a.dataset.id);
   if (a.dataset.a === "older") return loadMsgs({ older: true });
   if (a.dataset.a === "reply") return setReply(S.msgs.find((m) => m.id === a.dataset.id));
   if (a.dataset.a === "ida-opt") {
@@ -1404,14 +1531,15 @@ $("#conv").addEventListener("click", (e) => {
     if (el) { el.scrollIntoView({ block: "center", behavior: "smooth" }); el.classList.add("flash"); setTimeout(() => el.classList.remove("flash"), 1200); }
     return;
   }
+  if (a.dataset.a === "edits") { (S.openEdits ||= new Set()); const i = a.dataset.id; S.openEdits.has(i) ? S.openEdits.delete(i) : S.openEdits.add(i); drawMsgs(); return; }
   if (a.dataset.a === "jump") { const el = document.getElementById(`m-${a.dataset.id}`); if (el) { el.scrollIntoView({ block: "center", behavior: "smooth" }); el.classList.add("flash"); setTimeout(() => el.classList.remove("flash"), 1200); } return; }
   if (a.dataset.a === "play") return togglePlay(a.closest(".voice"));
   if (a.dataset.a === "igvideo") return playVideo(a);
   if (a.dataset.a === "embed") return playEmbed(a);
   if (a.dataset.a === "speed") return cycleSpeed(a);
-  if (a.dataset.a === "seek") return seek(a.closest(".voice"), e);
   if (a.dataset.a === "vtext") return voiceText(a);
   if (a.dataset.a === "album") { const m = bubbleMsg(a); return m && albumView(m.id); }
+  if (a.dataset.a === "igcap") { if (e.target.closest("a")) return; const id = a.dataset.id; IGOPEN.has(id) ? IGOPEN.delete(id) : IGOPEN.add(id); return drawMsgs(); }   // Tipp auf die Beschreibung: ganz/gekürzt (Links darin öffnen sich normal)
   if (a.dataset.a === "zoom") return a.dataset.src ? gallery(a.dataset.src) : lightbox(a.src);
   if (a.dataset.a === "video") return playVideo(a);
 });
@@ -1420,14 +1548,18 @@ const audio = new Audio();
 audio.preload = "none";
 let cur$ = null, speed = 1;   // cur$ = Adresse der laufenden Nachricht
 const voiceEl = (src) => [...document.querySelectorAll(".voice")].find((v) => v.dataset.src === src);
+// Verschieben: Wellenbild antippen oder ziehen (wie in WhatsApp). Beim Ziehen zeigen Balken, Griff und Zeit die Stelle, losgelassen wird dorthin gesprungen –
+// läuft die Nachricht, spielt sie von dort weiter. Senkrechtes Wischen scrollt weiter den Chat (touch-action: pan-y), das bricht das Verschieben ab.
+const SCRUB = { v: null, id: 0, p: 0 };
 function paint() {   // Zustand der Player nach jedem Neuzeichnen und bei jedem Tick
   document.querySelectorAll(".voice").forEach((v) => {
-    const on = v.dataset.src === cur$, d = on && isFinite(audio.duration) ? audio.duration : +v.dataset.dur || 0;
-    const p = on && d ? audio.currentTime / d : 0;
+    const on = v.dataset.src === cur$, scrub = v === SCRUB.v, d = on && isFinite(audio.duration) ? audio.duration : +v.dataset.dur || 0;
+    const p = scrub ? SCRUB.p : on && d ? audio.currentTime / d : 0;
     v.classList.toggle("playing", on && !audio.paused);
     v.querySelector(".play .ms").textContent = on && !audio.paused ? "pause" : "play_arrow";
     v.querySelectorAll(".wave i").forEach((b, i, all) => b.classList.toggle("on", i / all.length < p));
-    v.querySelector(".dur").textContent = d ? mmss(on && audio.currentTime > 0 ? audio.currentTime : d) : "";
+    const kn = v.querySelector(".knob"); if (kn) kn.style.left = `${(p * 100).toFixed(1)}%`;
+    v.querySelector(".dur").textContent = d ? mmss(scrub ? p * d : on && audio.currentTime > 0 ? audio.currentTime : d) : "";
     v.querySelector(".spd").textContent = `${speed}×`.replace("1.5", "1,5");
   });
 }
@@ -1450,18 +1582,46 @@ function cycleSpeed(btn) {
   speed = speed === 1 ? 1.5 : speed === 1.5 ? 2 : 1;
   audio.playbackRate = speed; paint();
 }
-function seek(v, e) {
+function seekTo(v, p) {   // zu einem Anteil (0–1) der Nachricht springen; gehört sie nicht zur laufenden, wird sie geladen und gespielt
   if (v.dataset.src !== cur$) togglePlay(v);
-  const r = v.querySelector(".wave").getBoundingClientRect(), p = Math.min(1, Math.max(0, (e.clientX - r.left) / r.width));
   const go = () => { if (isFinite(audio.duration)) audio.currentTime = audio.duration * p; };
-  isFinite(audio.duration) ? go() : audio.addEventListener("loadedmetadata", go, { once: true });
+  isFinite(audio.duration) && audio.readyState >= 1 ? go() : audio.addEventListener("loadedmetadata", go, { once: true });
+}
+const wavePos = (v, e) => { const r = v.querySelector(".wave").getBoundingClientRect(); return r.width ? Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)) : 0; };
+document.addEventListener("pointerdown", (e) => {
+  const w = e.target.closest?.("#msgs .voice .wave"); if (!w || e.button) return;
+  const v = w.closest(".voice");
+  Object.assign(SCRUB, { v, id: e.pointerId, p: wavePos(v, e) });
+  try { w.setPointerCapture(e.pointerId); } catch { /* ältere WebView */ }
+  v.classList.add("scrub"); buzz(8); paint();
+});
+document.addEventListener("pointermove", (e) => { if (SCRUB.v && e.pointerId === SCRUB.id) { SCRUB.p = wavePos(SCRUB.v, e); paint(); } });
+function scrubEnd(e, commit) {
+  if (!SCRUB.v || e.pointerId !== SCRUB.id) return;
+  const v = SCRUB.v, p = SCRUB.p;
+  SCRUB.v = null; v.classList.remove("scrub");
+  try { v.querySelector(".wave")?.releasePointerCapture(e.pointerId); } catch { /* egal */ }
+  if (commit) seekTo(v, p);
+  paint();
+}
+document.addEventListener("pointerup", (e) => scrubEnd(e, true));
+document.addEventListener("pointercancel", (e) => scrubEnd(e, false));   // z. B. wenn der Chat zu scrollen beginnt
+// Lokal auf dem Prozessor dauert eine Nachricht eine Weile: der Dienst antwortet nach ~50 s mit „pending“ (sonst bricht Cloudflare bei ~100 s ab) – dann einfach noch einmal fragen
+async function transcript(src, mime) {
+  const until = Date.now() + 10 * 60000;
+  for (;;) {
+    const r = await api(`/transcript?src=${encodeURIComponent(src)}&mime=${encodeURIComponent(mime)}`);
+    if (!r.pending) return r.text;
+    if (Date.now() > until) throw new Error("Das Umwandeln dauert gerade zu lange – gleich noch einmal versuchen");
+    await new Promise((ok) => setTimeout(ok, 3000));
+  }
 }
 async function voiceText(btn) {
-  const src = btn.dataset.src, f = S.msgs.flatMap((m) => m.files).find((x) => x.src === src);
-  S.vopen[src] = !S.vopen[src];
-  if (S.vopen[src] && !(f?.transcript || S.voice[src])) {
+  const src = btn.dataset.src, f = S.msgs.flatMap((m) => m.files).find((x) => x.src === src), have = f?.transcript || S.voice[src];
+  S.vopen[src] = !(S.vopen[src] ?? (PREFS.stt_auto && !!have));
+  if (S.vopen[src] && !have) {
     btn.disabled = true;
-    try { S.voice[src] = (await api(`/transcript?src=${encodeURIComponent(src)}`)).text || "(kein Text erkannt)"; } catch (e) { S.vopen[src] = false; toast(e.message); }
+    try { S.voice[src] = (await transcript(src, f?.mime || "")) || "(kein Text erkannt)"; } catch (e) { S.vopen[src] = false; toast(e.message); }
   }
   drawMsgs();
 }
@@ -1616,6 +1776,16 @@ function bubbleMsg(el) { const w = el.closest(".bw"); return w ? S.msgs.find((m)
 // darüber die Reaktionen, darunter die Aktionen – wie in Beeper am Handy.
 const QUICK = ["❤️", "👍", "😂", "😮", "😢", "🙏"];
 const MORE = ["🔥", "👏", "🥰", "😍", "🤣", "😅", "😭", "😡", "🤔", "👀", "🎉", "💯", "✅", "❌", "🙈", "😎", "🤝", "💀"];
+// Sicherheitsabstand oben (Statusleiste) und unten (Gestenleiste) in Pixeln. env() gibt es nur im CSS – ein unsichtbarer Messfühler liest es aus.
+// (Früher stand hier eine nie gesetzte Variable --sat: der Abstand war immer 0 und die Reaktionsleiste rutschte unter die Statusleiste, wo man nicht tippen kann.)
+function inset(side) {
+  const p = document.createElement("div");
+  p.style.cssText = `position:fixed;left:0;top:0;visibility:hidden;pointer-events:none;padding-${side}:env(safe-area-inset-${side})`;
+  document.body.append(p);
+  const v = parseFloat(getComputedStyle(p)[side === "top" ? "paddingTop" : "paddingBottom"]) || 0;
+  p.remove();
+  return v;
+}
 function menu(m) {
   closeMenu();
   if (matchMedia("(pointer: coarse)").matches) getSelection()?.removeAllRanges();   // langes Drücken: keine Markierung stehen lassen
@@ -1630,7 +1800,7 @@ function menu(m) {
     const un = isUntis(S.id) && !m.pending;
     d.innerHTML = `<div class="ctx-back"></div><div class="ctx-stack ${m.mine ? "me" : ""}"><div class="ctx-msg"></div><div class="ctx-box">
       ${un && !m.mine && m.can_reply !== false ? '<button data-c="reply"><span class="ms">reply</span>Antworten</button>' : ""}
-      ${m.text ? '<button data-c="copy"><span class="ms">content_copy</span>Text kopieren</button>' : ""}
+      ${m.text ? '<button data-c="copy" title="Gedrückt halten: Smart Copy"><span class="ms">content_copy</span>Text kopieren<span class="ms sc-hint" aria-hidden="true">auto_awesome</span></button>' : ""}
       ${!m.pending && (m.text || m.files.length) ? '<button data-c="fwd"><span class="ms">forward</span>Weiterleiten</button>' : ""}
       ${un && IDA ? '<button data-c="ida"><span class="ms">auto_awesome</span>An Ida schicken</button>' : ""}
       ${m.files[0] ? '<button data-c="open"><span class="ms">open_in_new</span>Datei öffnen</button>' : ""}</div></div>`;
@@ -1641,7 +1811,7 @@ function menu(m) {
     <div class="ctx-box">
       <button data-c="reply"><span class="ms">reply</span>Antworten</button>
       ${m.pending ? "" : '<button data-c="info"><span class="ms">info</span>Info</button>'}
-      ${m.text ? '<button data-c="copy"><span class="ms">content_copy</span>Text kopieren</button>' : ""}
+      ${m.text ? '<button data-c="copy" title="Gedrückt halten: Smart Copy"><span class="ms">content_copy</span>Text kopieren<span class="ms sc-hint" aria-hidden="true">auto_awesome</span></button>' : ""}
       ${m.mine && m.text && !m.files.length && !m.pending && !m.deleted ? '<button data-c="edit"><span class="ms">edit</span>Bearbeiten</button>' : ""}
       ${!m.pending && !m.deleted && (m.text || m.files.length) ? '<button data-c="fwd"><span class="ms">forward</span>Weiterleiten</button>' : ""}
       ${IDA && !m.pending && (m.text || m.files.length || m.was) ? '<button data-c="ida"><span class="ms">auto_awesome</span>An Ida schicken</button>' : ""}
@@ -1675,6 +1845,16 @@ function menu(m) {
     if (c === "delme") deleteMsg(m, false);
     if (c === "open") window.open(mediaUrl(m.files[0]), "_blank", "noopener");
   });
+  // „Text kopieren“ gedrückt halten (am PC Rechtsklick) → Smart Copy. Das Blatt ignoriert Klicks, solange der Finger noch unten ist und kurz danach – sonst schließt das Loslassen es gleich wieder.
+  const copyBtn = d.querySelector('[data-c="copy"]');
+  if (copyBtn) {
+    let t = 0, fired = false;
+    const fire = () => { fired = true; buzz(15); scGuard = Infinity; for (const ev of ["pointerup", "pointercancel"]) addEventListener(ev, () => { scGuard = performance.now() + 450; }, { once: true, capture: true }); smartCopy(m); };
+    copyBtn.addEventListener("pointerdown", (e) => { if (e.button) return; fired = false; clearTimeout(t); t = setTimeout(fire, 450); });
+    for (const ev of ["pointerup", "pointercancel", "pointerleave"]) copyBtn.addEventListener(ev, () => clearTimeout(t));
+    copyBtn.addEventListener("contextmenu", (e) => { e.preventDefault(); clearTimeout(t); if (!fired) { fired = true; smartCopy(m); } });
+    copyBtn.addEventListener("click", (e) => { if (fired) { fired = false; e.stopImmediatePropagation(); e.preventDefault(); } });   // nach langem Drücken nicht auch noch normal kopieren
+  }
   document.body.append(d);
   src.closest(".bw").classList.add("lifted");
   const stack = d.querySelector(".ctx-stack");
@@ -1683,16 +1863,17 @@ function menu(m) {
   const fade = () => box.classList.toggle("more", box.scrollHeight - box.scrollTop - box.clientHeight > 4);
   box.addEventListener("scroll", fade, { passive: true });
   function place() {   // so nah wie möglich an der echten Stelle, aber ganz im Bild
-    const sat = parseFloat(getComputedStyle(document.body).getPropertyValue("--sat")) || 0;
+    // Oben mindestens die Statusleiste (in der Android-App notfalls 28 px, falls das Handy keinen Wert meldet) – sonst liegt die Reaktionsleiste darunter und lässt sich nicht antippen
+    const sat = Math.max(inset("top"), NATIVE ? 28 : 0), sab = inset("bottom");
     // Platz = Bildschirm minus Reaktionsleiste, Menü und Abstände (direkt gemessen, nicht über die Stapelhöhe)
     const rest = [...stack.children].filter((x) => x !== box && x.offsetParent).reduce((a, x) => a + x.offsetHeight + 8, 0);
     // feste Höhe statt max-height: natürliche Höhe der Blase, höchstens so viel wie frei ist (nichts kann sie mehr zusammendrücken)
     box.style.height = "auto";
-    box.style.height = `${Math.min(box.scrollHeight, Math.max(160, innerHeight - 24 - sat - rest))}px`;
+    box.style.height = `${Math.min(box.scrollHeight, Math.max(160, innerHeight - 24 - sat - sab - rest))}px`;
     box.scrollTop = 0;
     fade();
     const h = stack.offsetHeight, w = stack.offsetWidth, top0 = r.top - (stack.querySelector(".ctx-msg").offsetTop);
-    const top = Math.max(12 + sat, Math.min(top0, innerHeight - h - 12));
+    const top = Math.max(12 + sat, Math.min(top0, innerHeight - sab - h - 12));
     const left = m.mine ? Math.min(r.right, innerWidth - 8) - w : Math.max(8, r.left);
     stack.style.top = `${top}px`; stack.style.left = `${Math.max(8, Math.min(left, innerWidth - w - 8))}px`;
   }
@@ -1700,6 +1881,48 @@ function menu(m) {
   const onRs = () => (d.isConnected ? place() : removeEventListener("resize", onRs));
   addEventListener("resize", onRs);
   buzz(20);
+}
+// ---------------- Smart Copy ----------------
+// „Text kopieren“ im Menü gedrückt halten: die Nachricht wird in alles zerlegt, was man einzeln kopieren könnte – Code, E-Mail, Telefon, Adresse, Link, IBAN, Datum, Uhrzeit, Betrag, Nummer –, jedes mit einem Tipp kopierbar.
+// Sofort zeigt die einfache Erkennung des Dienstes, was sie findet; währenddessen liest Claude Haiku die Nachricht (Dienst → IDA) und liefert mehr, mit Namen („Bestätigungscode von Epic Games“).
+const SC_ICON = { code: "pin", email: "mail", phone: "call", address: "location_on", link: "link", iban: "account_balance", date: "event", time: "schedule", amount: "payments", number: "numbers", other: "tag" };
+const SC = new Map();   // Text → fertiges Ergebnis (zweites Öffnen sofort)
+let scGuard = 0;
+function copyText(v, shown = v) {
+  navigator.clipboard?.writeText(v).then(() => toast(`Kopiert: ${shown.length > 36 ? `${shown.slice(0, 34)}…` : shown}`), () => toast("Kopieren nicht möglich"));
+  buzz(10);
+}
+function smartCopy(m) {
+  closeMenu();
+  const text = (m.text || "").trim(); if (!text) return;
+  const d = document.createElement("div"); d.className = "ctx"; d.id = "ctx";
+  d.innerHTML = `<div class="ctx-back"></div><div class="sheet sc-sheet"><b class="sc-title">Smart Copy</b>
+    <button class="sc-row all" data-i="-1"><span class="sc-tx"><small>Ganze Nachricht</small><b>${esc(text)}</b></span><span class="ms">content_copy</span></button>
+    <div class="sc-list"></div><small class="sc-by"></small></div>`;
+  let items = [], res = null, fail = false;
+  const draw = () => {
+    const rows = items.map((x, i) => `<button class="sc-row" data-i="${i}"><span class="ms sc-ic" aria-hidden="true">${SC_ICON[x.type] || "tag"}</span><span class="sc-tx"><small>${esc(x.label)}</small><b>${esc(x.value)}</b></span><span class="ms">content_copy</span></button>`).join("");
+    const wait = !res && !fail ? '<div class="sc-wait"><span class="ms spin" aria-hidden="true">progress_activity</span>Claude Haiku liest die Nachricht …</div>' : "";
+    const none = (res || fail) && !items.length ? `<p class="sc-none">${fail ? "Konnte die Nachricht nicht auswerten." : "Nichts Einzelnes zum Kopieren gefunden."}</p>` : "";
+    d.querySelector(".sc-list").innerHTML = rows + wait + none;
+    d.querySelector(".sc-by").textContent = res?.engine === "haiku" ? `Ausgewertet mit ${res.model || "Haiku"}` : res ? "Einfache Erkennung – Haiku war gerade nicht erreichbar" : "";
+  };
+  d.addEventListener("click", (e) => {
+    if (performance.now() < scGuard) return;
+    const b = e.target.closest("[data-i]");
+    if (!b) { if (e.target.classList.contains("ctx-back")) closeMenu(); return; }
+    const i = +b.dataset.i, x = items[i];
+    closeMenu();
+    if (i < 0) copyText(text, text.replace(/\s+/g, " ")); else if (x) copyText(x.value);
+  });
+  document.body.append(d);
+  const hit = SC.get(text);
+  if (hit) { res = hit; items = hit.items; return draw(); }
+  draw();
+  const ask = (fast) => api("/smartcopy", { method: "POST", body: JSON.stringify({ text: text.slice(0, 4000), fast }) });
+  ask(true).then((r) => { if (!res && d.isConnected) { items = r.items; draw(); } }, () => {});
+  ask(false).then((r) => { if (r.engine === "haiku") { SC.set(text, r); if (SC.size > 100) SC.delete(SC.keys().next().value); } if (d.isConnected) { res = r; items = r.items; draw(); } },
+    () => { if (d.isConnected) { fail = true; draw(); } });
 }
 // „An Ida schicken“: sofort in den Ida-Chat wechseln, Platzhalter mit Lade-Animation zeigen, dann Nachricht + Verlauf schicken (chats/app/ida.py → /ida/forward)
 function lineOf(x) {
@@ -1863,6 +2086,7 @@ document.addEventListener("touchend", tsEnd); document.addEventListener("touchca
 document.addEventListener("contextmenu", (e) => {   // Rechtsklick am PC, langes Drücken am Handy (falls der Browser es meldet)
   const w = e.target.closest?.("#msgs .bw");
   if (!w || e.target.closest("video")) return;
+  if (e.target.closest(".wave")) return e.preventDefault();   // Halten und Ziehen im Wellenbild: kein Menü
   const m = bubbleMsg(w);
   if (m && !m.pending) { e.preventDefault(); menu(m); }
 });
@@ -1884,12 +2108,12 @@ async function saveEdit() {
   if (text === m.text) return setEdit(null);
   const old = m.text, was = m.edited;
   S.sending = true;
-  m.text = text; m.edited = true; setEdit(null); drawMsgs();
+  m.text = text; m.edited = true; m.prev = [...(m.prev || []), old]; setEdit(null); drawMsgs();
   try {
     await api(`/chats/${encodeURIComponent(cid(m))}/messages/${encodeURIComponent(mid(m))}`, { method: "PUT", body: JSON.stringify({ text }) });
     cacheMsgs();
   } catch (e) {
-    m.text = old; m.edited = was;
+    m.text = old; m.edited = was; m.prev = (m.prev || []).slice(0, -1);
     if (id === S.id) { drawMsgs(); setEdit(m); $("#txt").value = text; $("#txt").dispatchEvent(new Event("input")); }
     toast(`Bearbeiten ging nicht: ${e.message}`);
   }
@@ -1983,7 +2207,7 @@ function setReply(m) {
   if (m?.chat && cur()?.merged?.some((x) => x.id === m.chat) && S.to !== m.chat) { S.to = m.chat; toChip(); }
   const bar = $("#replybar"); if (!bar) return;
   bar.hidden = !m;
-  if (m) { bar.innerHTML = `<span class="ms">reply</span><div><b>${esc(m.mine ? "Du" : clean(m.sender))}</b>${esc((m.text || (m.files[0] ? "Anhang" : "")).slice(0, 100))}</div><button class="icon-btn" data-a="cancel" aria-label="Abbrechen"><span class="ms">close</span></button>`; $("#txt").focus(); }
+  if (m) { bar.innerHTML = `<span class="ms">reply</span><div><b>${esc(m.mine ? "Du" : clean(m.sender))}</b>${esc((quoteText(m) || (m.files[0] ? "Anhang" : "")).slice(0, 100))}</div><button class="icon-btn" data-a="cancel" aria-label="Abbrechen"><span class="ms">close</span></button>`; $("#txt").focus(); }
 }
 // ---------------- Erwähnungen (@): beim Tippen Mitglieder vorschlagen, in Blasen hervorheben ----------------
 // Gesendet wird "@Name" plus die Liste der Gewählten; der Dienst macht daraus die echte Erwähnung im Netzwerk.
@@ -2079,29 +2303,210 @@ function sendMode() {   // leeres Feld: Mikrofon (wie in Beeper), sonst Senden
   const txt = !!ta.value.trim() || ownChat(S.id);   // Ida: immer Senden (keine Sprachnachrichten)
   b.classList.toggle("mic", !txt); b.querySelector(".ms").textContent = txt ? "send" : "mic";
   b.setAttribute("aria-label", txt ? "Senden" : "Sprachnachricht aufnehmen");
+  b.title = txt && !ownChat(S.id) ? "Senden – gedrückt halten für „Später senden“" : "";
+}
+
+// ---------------- Später senden ----------------
+// Beeper kann das nicht – der Dienst (schedule.py) schickt die Nachricht zur Zeit ab, auch bei geschlossener App. Langes Drücken auf Senden: Zeit wählen und auf Wunsch
+// „nur senden, wenn ich bis dahin nichts geschrieben habe“. Geplantes steht unten im Chat als gestrichelte Blase (Antippen: jetzt senden, Zeit ändern, zurück ins
+// Eingabefeld, abbrechen), in der Liste als Symbol und in den Einstellungen als Übersicht.
+let SCHED = [];
+const fmtWhen = new Intl.DateTimeFormat("de-DE", { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+const whenText = (iso) => fmtWhen.format(new Date(iso));
+const SILENT_KEY = "chats-sched-silent";
+const schedSilent = () => { try { return localStorage.getItem(SILENT_KEY) === "1"; } catch { return false; } };
+async function loadSched() {
+  try {
+    const items = (await api("/scheduled")).items || [];
+    const sig = (l) => JSON.stringify(l.map((x) => [x.id, x.at, x.status, x.silent, x.text, x.note]));
+    if (sig(items) === sig(SCHED)) return;
+    SCHED = items;
+    if ($("#msgs") && S.id) drawMsgs({ stick: false });
+    drawList(); if ($("#sett")) redrawSett();
+  } catch { /* bleibt */ }
+}
+const schedHere = () => { const o = activeOnly(); return SCHED.filter((x) => x.chat === S.id && (!o || x.target === o)); };
+const schedPending = (id) => SCHED.some((x) => x.chat === id && x.status === "pending");
+function schedHtml() {
+  return schedHere().map((x) => {
+    const st = x.status;
+    const head = st === "pending" ? `<span class="ms">schedule</span>Geplant · ${esc(whenText(x.at))}`
+      : `<span class="ms">${st === "skipped" ? "block" : "error"}</span>${esc(x.note || (st === "skipped" ? "Nicht gesendet" : st === "missed" ? "Verpasst" : "Fehlgeschlagen"))}`;
+    const cond = st === "pending" ? (x.silent ? '<span class="sc"><span class="ms">person_off</span>Nur, wenn du bis dahin nichts schreibst</span>' : "")
+      : `<span class="sc">Eigentlich ${esc(whenText(x.at))} · Antippen: senden oder neu planen</span>`;
+    return `<div class="schedrow st-${st}" id="s-${esc(x.id)}" data-a="sched" data-id="${esc(x.id)}" role="button"><div class="b me sched"><span class="sh">${head}</span><span class="tx">${esc(x.text)}</span>${cond}</div></div>`;
+  }).join("");
+}
+// Zeit wählen: Schnellwahl, eigene Zeit, „nur wenn ich nichts schreibe“. done({ at, silent })
+function pickWhen({ silent = false, title = "Später senden" }, done) {
+  closeMenu();
+  const now = new Date(), pad = (n) => String(n).padStart(2, "0");
+  const local = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  const at = (days, h) => { const d = new Date(now); d.setDate(d.getDate() + days); d.setHours(h, 0, 0, 0); return d; };
+  const opts = [["hourglass_top", "In 1 Stunde", new Date(now.getTime() + 3600e3)]];
+  if (at(0, 20) - now > 30 * 60e3) opts.push(["wb_twilight", "Heute Abend", at(0, 20)]);
+  opts.push(["light_mode", "Morgen früh", at(1, 8)]);
+  if (now.getDay() === 5 || now.getDay() === 6) opts.push(["event", "Montag früh", at(now.getDay() === 5 ? 3 : 2, 8)]);
+  const nextHour = new Date(now); nextHour.setMinutes(0, 0, 0); nextHour.setHours(nextHour.getHours() + 1);
+  let sil = silent;
+  const d = document.createElement("div"); d.className = "ctx"; d.id = "ctx";
+  d.innerHTML = `<div class="ctx-back"></div><div class="sheet sched-sheet">
+    <div class="sh-title"><span class="ms">schedule_send</span>${esc(title)}</div>
+    <button type="button" class="sw-row" data-w="silent"><span class="ms">person_off</span><span class="it"><b>Nur, wenn ich nichts schreibe</b><small>Nicht senden, falls du bis dahin selbst in den Chat schreibst</small></span><span class="sw${sil ? " on" : ""}" aria-hidden="true"></span></button>
+    ${opts.map(([ic, t, dt], i) => `<button type="button" data-w="q" data-i="${i}"><span class="ms">${ic}</span>${esc(t)}<small>${esc(fmtWhen.format(dt))}</small></button>`).join("")}
+    <button type="button" data-w="custom"><span class="ms">edit_calendar</span>Datum und Uhrzeit wählen …</button>
+    <div class="sh-custom" hidden><input type="datetime-local" min="${local(new Date(now.getTime() + 60e3))}" value="${local(nextHour)}"><button type="button" class="chip" data-w="ok">Planen</button></div></div>`;
+  d.addEventListener("click", (e) => {
+    if (e.target.closest(".ctx-back")) return closeMenu();
+    const b = e.target.closest("[data-w]"), w = b?.dataset.w; if (!w) return;
+    if (w === "silent") { sil = !sil; d.querySelector(".sw").classList.toggle("on", sil); return; }
+    if (w === "custom") { d.querySelector(".sh-custom").hidden = false; d.querySelector("input").focus(); return; }
+    let t;
+    if (w === "q") t = opts[+b.dataset.i][2];
+    else { const v = d.querySelector("input").value; t = v ? new Date(v) : null; if (!t || isNaN(t) || t.getTime() < Date.now() + 5000) return toast("Bitte eine Zeit in der Zukunft wählen"); }
+    try { localStorage.setItem(SILENT_KEY, sil ? "1" : "0"); } catch { /* egal */ }
+    closeMenu(); done({ at: t.toISOString(), silent: sil });
+  });
+  document.body.append(d);
+}
+async function scheduleText(w) {   // den Text im Eingabefeld für später vormerken
+  const ta = $("#txt"), text = ta?.value.trim(); if (!text || ownChat(S.id)) return;
+  const rep = S.reply;
+  try {
+    const x = await api(`/chats/${encodeURIComponent(S.id)}/schedule`, { method: "POST", body: JSON.stringify({ text, at: w.at, silent: w.silent, target: rep?.chat || target(), reply_to: rep ? mid(rep) : null,
+      mentions: (S.ments || []).filter((m) => text.includes(`@${m.name}`)) }) });
+    SCHED = [...SCHED.filter((s) => s.id !== x.id), x];
+    ta.value = ""; ta.style.height = "auto"; sendMode(); hideFix(); if ($("#mentbox")) $("#mentbox").hidden = true; S.ments = []; setReply(null);
+    drawMsgs({ stick: true }); drawList();
+    toast(`Geplant für ${whenText(x.at)}${x.silent ? " – falls du nichts schreibst" : ""}`);
+  } catch (e) { toast(`Planen ging nicht: ${e.message}`); }
+}
+function schedMenu(id) {   // Antippen einer geplanten Nachricht
+  const x = SCHED.find((s) => s.id === id); if (!x) return;
+  const pending = x.status === "pending";
+  sheetPick([["now", "send", "Jetzt senden", ""], ["when", "edit_calendar", pending ? "Zeit ändern" : "Neu planen", whenText(x.at)],
+    ...(pending ? [["silent", "person_off", x.silent ? "Auch senden, wenn ich schreibe" : "Nur senden, wenn ich nichts schreibe", x.silent ? "Gerade: nur wenn du nichts schreibst" : "Gerade: wird immer gesendet"]] : []),
+    ["edit", "edit", "Zurück ins Eingabefeld", "Der Plan wird gelöscht, du bearbeitest den Text"], ["del", "delete", pending ? "Abbrechen" : "Verwerfen", pending ? "Wird nicht gesendet" : ""]], "", async (a) => {
+    const call = (path, opt) => api(path, opt).then(() => loadSched()).catch((e) => toast(`Ging nicht: ${e.message}`));
+    if (a === "now") { await call(`/scheduled/${encodeURIComponent(id)}/send`, { method: "POST" }); setTimeout(() => loadMsgs({ quiet: true }), 600); }
+    else if (a === "when") pickWhen({ silent: x.silent, title: pending ? "Zeit ändern" : "Neu planen" }, (w) => call(`/scheduled/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(w) }).then(() => toast(`Geplant für ${whenText(w.at)}`)));
+    else if (a === "silent") call(`/scheduled/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify({ silent: !x.silent }) });
+    else if (a === "del") call(`/scheduled/${encodeURIComponent(id)}`, { method: "DELETE" });
+    else if (a === "edit") {
+      const ta = $("#txt");
+      if (ta?.value.trim()) return toast("Das Eingabefeld ist nicht leer");
+      await call(`/scheduled/${encodeURIComponent(id)}`, { method: "DELETE" });
+      if (ta) { ta.value = x.text; ta.dispatchEvent(new Event("input")); ta.focus(); }
+    }
+  });
+}
+function bindSchedPress() {   // Senden-Knopf lange drücken (oder Rechtsklick) → Zeit wählen
+  const sb = $("#sendBtn"); if (!sb) return;
+  let t = null, fired = false;
+  const can = () => !!$("#txt")?.value.trim() && !ownChat(S.id) && !S.edit;
+  const stop = () => { clearTimeout(t); t = null; };
+  const fire = () => { fired = true; stop(); buzz(15); pickWhen({ silent: schedSilent() }, scheduleText); };
+  sb.addEventListener("pointerdown", () => { fired = false; stop(); if (can()) t = setTimeout(fire, 450); });
+  for (const ev of ["pointerup", "pointerleave", "pointercancel"]) sb.addEventListener(ev, stop);
+  sb.addEventListener("click", (e) => { if (fired) { e.preventDefault(); e.stopImmediatePropagation(); fired = false; } }, true);   // das Loslassen nach dem langen Drücken sendet nicht
+  sb.addEventListener("contextmenu", (e) => { if (can()) { e.preventDefault(); if (!fired) fire(); } });
 }
 
 // ---------------- Anhänge senden ----------------
-function attachMenu() {
+// ---------------- Plus-Menü: unter dem Eingabefeld eine Leiste (Galerie, Kamera, Dateien); in der Android-App darunter die letzten Fotos ----------------
+// Das Plus wird zum Kreuz. Die Fotos kommen über die Brücke der App (window.IDAChatsNative.media…, Media.kt) – eine Webseite darf die Galerie nicht lesen.
+// Ohne die Brücke (Browser, ältere App) gibt es nur die Leiste.
+function attachMenu() { return $("#attpanel") ? closeAtt() : openAtt(); }
+function closeAtt() {
+  $("#attpanel")?.remove(); attIO?.disconnect(); attQ.length = 0;
+  const b = $("#attachBtn");
+  if (b) { b.classList.remove("open"); const i = b.querySelector(".ms"); if (i) i.textContent = "add"; b.setAttribute("aria-label", "Anhängen"); }
+}
+function openAtt() {
   closeMenu();
-  const d = document.createElement("div");
-  d.className = "ctx"; d.id = "ctx";
-  d.innerHTML = `<div class="ctx-back"></div><div class="sheet">
-    <button data-p="media"><span class="ms" style="color:var(--ev-violet, #c6a0ff)">photo_library</span>Fotos & Videos</button>
-    <button data-p="camera"><span class="ms" style="color:var(--ev-pink, #ff9ecf)">photo_camera</span>Kamera</button>
-    <button data-p="file"><span class="ms" style="color:var(--ev-blue, #8ab4ff)">description</span>Datei</button></div>`;
-  d.addEventListener("click", (e) => {
-    const p = e.target.closest("[data-p]")?.dataset.p;
-    closeMenu();
-    if (!p) return;
+  const dock = $("#dock"), b = $("#attachBtn"); if (!dock || !b) return;
+  $("#txt")?.blur();
+  const native = !!NATIVE?.mediaList;
+  const p = document.createElement("div"); p.className = "attpanel"; p.id = "attpanel";
+  p.innerHTML = `<div class="attchips">
+    <button type="button" class="attchip" data-p="media"><span class="ms" style="color:var(--ev-violet, #c6a0ff)">photo_library</span>Galerie</button>
+    <button type="button" class="attchip" data-p="camera"><span class="ms" style="color:var(--ev-pink, #ff9ecf)">photo_camera</span>Kamera</button>
+    <button type="button" class="attchip" data-p="file"><span class="ms" style="color:var(--ev-blue, #8ab4ff)">folder_open</span>Dateien</button></div>${native ? '<div class="attgrid" id="attgrid"></div>' : ""}`;
+  dock.append(p);
+  b.classList.add("open"); b.querySelector(".ms").textContent = "close"; b.setAttribute("aria-label", "Schließen");
+  $("#txt")?.addEventListener("focus", closeAtt, { once: true });   // wer zu tippen anfängt, braucht das Menü nicht mehr
+  p.addEventListener("click", (e) => {
+    const t = e.target.closest("[data-p], [data-id]"); if (!t) return;
+    if (t.dataset.id) return pickNative(t);
+    const k = t.dataset.p;
+    if (k === "allow") return attAllow();
     const inp = document.createElement("input");
-    inp.type = "file"; inp.multiple = p !== "camera";
-    if (p === "media") inp.accept = "image/*,video/*";
-    if (p === "camera") { inp.accept = "image/*"; inp.capture = "environment"; }
-    inp.onchange = () => pickFiles([...inp.files]);
+    inp.type = "file"; inp.multiple = k !== "camera";
+    if (k === "media") inp.accept = "image/*,video/*";
+    if (k === "camera") { inp.accept = "image/*"; inp.capture = "environment"; }
+    inp.onchange = () => { if (inp.files.length) { closeAtt(); pickFiles([...inp.files]); } };
     inp.click();
   });
-  document.body.append(d);
+  if (native) attGrid();
+}
+let attIO = null; const attQ = []; let attBusy = false;
+function attGrid() {
+  const g = $("#attgrid"); if (!g || !NATIVE?.mediaList) return;
+  if (NATIVE.mediaState() !== "yes") {   // noch keine Erlaubnis: einmal fragen
+    g.classList.add("ask");
+    g.innerHTML = '<div class="attask"><span class="ms">photo_library</span><b>Deine letzten Fotos hier zeigen</b><small>Dafür braucht die App Zugriff auf deine Fotos und Videos.</small><button type="button" class="chip" data-p="allow">Zugriff erlauben</button></div>';
+    return;
+  }
+  g.classList.remove("ask");
+  let list = []; try { list = JSON.parse(NATIVE.mediaList(60) || "[]"); } catch { /* dann leer */ }
+  g.innerHTML = '<button type="button" class="atile cam" data-p="camera" aria-label="Foto aufnehmen"><span class="ms">photo_camera</span></button>'
+    + list.map((x) => `<button type="button" class="atile" data-id="${esc(x.id)}" data-v="${x.video ? 1 : 0}" aria-label="${x.video ? "Video" : "Foto"} senden"><img alt="" hidden>${x.video ? `<span class="dur"><span class="ms">play_arrow</span>${x.dur ? mmss(x.dur) : ""}</span>` : ""}</button>`).join("");
+  attIO?.disconnect();
+  attIO = new IntersectionObserver((es) => { for (const e of es) if (e.isIntersecting) { attIO.unobserve(e.target); attQ.push(e.target); } attPump(); }, { root: g, rootMargin: "240px" });
+  g.querySelectorAll(".atile[data-id]").forEach((t) => attIO.observe(t));
+}
+function attPump() {   // Vorschaubilder nacheinander holen, damit die Oberfläche flüssig bleibt
+  if (attBusy) return; attBusy = true;
+  const step = () => {
+    const t = attQ.shift();
+    if (!t) { attBusy = false; return; }
+    if (t.isConnected) {
+      try { const s = NATIVE.mediaThumb(t.dataset.id, t.dataset.v === "1"), im = t.querySelector("img"); if (s && im) { im.src = `data:image/jpeg;base64,${s}`; im.hidden = false; } }
+      catch { /* Kachel bleibt leer */ }
+    }
+    setTimeout(step, 0);
+  };
+  step();
+}
+function attAllow() {
+  NATIVE.mediaAsk();
+  let n = 0;
+  const t = setInterval(() => {   // die Erlaubnis kommt nicht als Ereignis zurück: ein paar Sekunden nachfragen
+    if (!$("#attpanel") || ++n > 75) return clearInterval(t);
+    if (NATIVE.mediaState() === "yes") { clearInterval(t); attGrid(); }
+  }, 800);
+}
+async function pickNative(t) {   // Foto/Video antippen: aus der Galerie holen und in die Vorschau mit Bildunterschrift
+  if (t.classList.contains("busy")) return;
+  const id = t.dataset.id, video = t.dataset.v === "1";
+  t.classList.add("busy");
+  try {
+    const info = JSON.parse(NATIVE.mediaInfo(id, video) || "{}");
+    if (!info.size) throw new Error("leer");
+    if (info.size > MAX_UP) return toast(`${info.name || "Datei"} zu groß (höchstens 95 MB)`);
+    const parts = [], CH = 1048576;
+    for (let off = 0, i = 0; off < info.size; off += CH, i++) {
+      const b64 = NATIVE.mediaChunk(id, video, off, Math.min(CH, info.size - off));
+      if (!b64) throw new Error("abgebrochen");
+      const bin = atob(b64), u = new Uint8Array(bin.length);
+      for (let k = 0; k < bin.length; k++) u[k] = bin.charCodeAt(k);
+      parts.push(u);
+      if (i % 4 === 3) await new Promise((r) => setTimeout(r));   // bei Videos zwischendurch Luft für die Oberfläche
+    }
+    closeAtt();
+    pickFiles([new File(parts, info.name || "datei", { type: info.mime || "" })]);
+  } catch { toast("Das ließ sich nicht aus der Galerie lesen"); }
+  finally { t.classList.remove("busy"); }
 }
 const MAX_UP = 95 * 1024 * 1024;
 function pickFiles(files) {
@@ -2248,7 +2653,9 @@ function live(on) {
   es.onmessage = (e) => {
     let d = {};
     try { d = JSON.parse(e.data); } catch { return; }
+    if (d.type === "sched") { loadSched(); setTimeout(() => { if (S.id) loadMsgs({ quiet: true }); }, 500); return; }   // Geplantes wurde gesendet/geändert
     const gid = d.id && (grpOf(d.id)?.id || d.id);
+    if (d.type === "stt") { if (S.id && gid === S.id) loadMsgs({ quiet: true }); return; }   // eine Sprachnachricht wurde umgewandelt: Text laden
     if (d.type === "chat" && d.new && gid !== S.id) toast(`Neue Nachricht von ${clean(d.title)}`, () => go(gid));
     clearTimeout(rT);
     rT = setTimeout(() => { loadChats({ quiet: true }); loadPins(); if (S.id && (!d.id || gid === S.id)) loadMsgs({ quiet: true }).then(autoRead); }, 250);
@@ -2266,7 +2673,7 @@ document.addEventListener("visibilitychange", () => {
   poll(!document.hidden);
   if (document.hidden) return live(false);
   loadChats({ quiet: true }); if (S.id) { loadMsgs({ quiet: true }); clearNotes(S.id); }
-  loadMutes(); loadOrg(); live(true); checkVersion();
+  loadMutes(); loadOrg(); loadSched(); live(true); checkVersion();
 });
 // Nach einem Update: ein offener Tab hätte sonst noch den alten Code im Speicher. Beim Zurückholen (höchstens einmal pro Minute)
 // kurz die Version abfragen und neu laden, wenn sie sich geändert hat und gerade nichts getippt wird.
@@ -2360,7 +2767,7 @@ function openSett(push = true) {
   if (push && !readSett()) pushView({ sett: true }, "", `${BASE}einstellungen`);
   const el = document.createElement("div"); el.className = "info sett"; el.id = "sett";
   $(".side").append(el); document.body.classList.add("setts");
-  redrawSett(); pushState(true); loadFcm(); loadSugg(); loadUntisStatus();
+  redrawSett(); pushState(true); loadFcm(); loadSugg(); loadUntisStatus(); loadStt();
 }
 function dropSett() {
   const el = $("#sett"); if (!el) return;
@@ -2395,10 +2802,17 @@ function redrawSett() {
       ${row(FCM.account ? "check_circle" : "key", "Schlüssel des Dienstkontos", FCM.account ? `Hochgeladen – Projekt ${esc(FCM.account_project)}` : "Aus Firebase: Projekteinstellungen → Dienstkonten → Neuen privaten Schlüssel generieren", 'data-s="fcmfile" data-k="account"')}
       ${FCM.client || FCM.account ? row("delete", "Firebase-Dateien entfernen", `${FCM.devices} ${FCM.devices === 1 ? "Gerät" : "Geräte"} angemeldet – werden mit abgemeldet`, 'data-s="fcmdel"') : ""}
       <p class="ihint">${FCM.client && FCM.account && FCM.project !== FCM.account_project ? "Achtung: Die beiden Dateien gehören zu verschiedenen Firebase-Projekten. " : ""}Für Benachrichtigungen in der Android-App. Beide Dateien bleiben auf deinem Server – sie stehen weder im Repo noch in der APK, der Schlüssel wird nie wieder ausgegeben.</p></div>
+    <div class="icard"><small>Sprachnachrichten als Text</small>
+      ${row("graphic_eq", "Umwandeln mit", PREFS.stt_local ? `Lokal – ${esc(sttLocal())}` : "Beeper – die Umwandlung von Beeper Desktop", 'data-s="sttengine"', '<span class="ms" aria-hidden="true">chevron_right</span>')}
+      ${row("bolt", "Automatisch umwandeln", PREFS.stt_auto ? "An – neue Sprachnachrichten werden von selbst umgewandelt, auch wenn die App zu ist" : "Aus – erst, wenn du auf das Text-Symbol an der Sprachnachricht tippst", 'data-s="sttauto"', `<span class="sw${PREFS.stt_auto ? " on" : ""}" aria-hidden="true"></span>`)}
+      <p class="ihint">Jeder Text wird nur einmal umgewandelt und dann auf dem Server gespeichert${STT.saved ? ` (bisher ${STT.saved})` : ""} – er bleibt bei Updates erhalten und steht auf allen Geräten. Automatisch gilt für neue Sprachnachrichten anderer, die nach dem Einschalten kommen (bis 10 Minuten Länge); ältere wandelst du per Antippen um. Lokal läuft auf dem Prozessor und braucht für eine Nachricht einen Moment. Gilt auf allen Geräten.</p></div>
     <div class="icard"><small>Snapchat</small>
       ${row("photo_camera", "Snaps nicht als neue Nachricht", PREFS.snaps_quiet ? "An – nur Textnachrichten melden sich und schieben den Chat nach oben" : "Aus – jeder Snap zählt wie eine Nachricht", 'data-s="snaps"', `<span class="sw${PREFS.snaps_quiet ? " on" : ""}" aria-hidden="true"></span>`)}
       ${row("movie", "Video-Stücke zusammenfügen", PREFS.snap_join ? "An – Snapchat teilt lange Videos in Stücke, hier werden sie ein Video" : "Aus – jedes Stück steht einzeln da", 'data-s="snapjoin"', `<span class="sw${PREFS.snap_join ? " on" : ""}" aria-hidden="true"></span>`)}
       <p class="ihint">Gilt auf allen Geräten. Snaps siehst du weiter: im Chat und in der Liste als kleines gelbes Kamera-Zeichen, nur ohne Meldung und ohne Hochrutschen.</p></div>
+    <div class="icard"><small>Geplante Nachrichten</small>
+      ${SCHED.length ? SCHED.map((x) => person(chatOf(x.chat), `${x.status === "pending" ? "" : "Nicht gesendet · "}${whenText(x.at)}${x.silent && x.status === "pending" ? " · nur wenn du nichts schreibst" : ""} – ${x.text.replace(/\s+/g, " ").slice(0, 60)}`, `data-s="schedgo" data-id="${esc(x.chat)}"`)).join("") : '<p class="ihint">Nichts geplant. Zum Planen im Chat den Senden-Knopf gedrückt halten.</p>'}
+      <p class="ihint">Der Dienst schickt sie zur Zeit ab, auch wenn die App zu ist. Bei „nur wenn ich nichts schreibe“ bleibt sie liegen, sobald du bis dahin selbst in den Chat schreibst.</p></div>
     <div class="icard"><small>Filter im Chat</small>
       ${row("filter_list", "Filter merken", filterKeep() ? "An – der Filter bleibt pro Chat, bis du ihn änderst" : "Aus – der Filter springt auf „Alle Apps“ zurück, sobald du den Chat verlässt", 'data-s="fkeep"', `<span class="sw${filterKeep() ? " on" : ""}" aria-hidden="true"></span>`)}
       <p class="ihint">Den Filter findest du oben rechts in zusammengeführten Chats: Er zeigt dort nur die Nachrichten einer App, zum Beispiel nur WhatsApp. Geschrieben wird dann auch darüber. Gilt auf diesem Gerät.</p></div>
@@ -2416,7 +2830,10 @@ function redrawSett() {
       ${row("new_label", "Neue Liste", "Zum Beispiel „Tagesmutter“ – erscheint im Filter unten links", 'data-s="labelnew"')}</div>
     <div class="icard"><small>Stummgeschaltet</small>
       ${muted.length ? muted.map((c) => person(c, muteText(c.id), `data-s="mute" data-id="${esc(c.id)}"`)).join("") : '<p class="ihint">Kein Chat stumm. Stummschalten: Chat öffnen, oben auf den Namen tippen.</p>'}</div>
-    ${auto.length ? `<div class="icard"><small>Automatisch als gelesen</small>${auto.map((c) => person(c, AR_TEXT[arOf(c.id)], `data-s="auto" data-id="${esc(c.id)}"`)).join("")}</div>` : ""}
+    <div class="icard"><small>Automatisch als gelesen</small>
+      ${nets().filter((n) => n !== "ida" && n !== "untis").map((n) => row(ARNET[n] ? "mark_chat_read" : "block", `${esc(netName(n))}-Chats`, esc(AR_TEXT[ARNET[n] || ""]), `data-s="netauto" data-net="${n}"`)).join("")}
+      ${auto.map((c) => person(c, `${AR_TEXT[AUTOREAD.get(c.id)]}${AUTOREAD.get(c.id) === "off" && arNet(c.id) ? ` (trotz „${netName(c.network)}-Chats“)` : ""}`, `data-s="auto" data-id="${esc(c.id)}"`)).join("")}
+      <p class="ihint">Pro App: alle Chats der App gelten beim Öffnen oder sofort als gelesen – in Beeper und beim Absender, soweit die App das kann. „Sofort“ meldet sich nicht aufs Handy. Einen einzelnen Chat nimmst du über Chat öffnen → oben auf den Namen → „Automatisch als gelesen“ aus oder stellst ihn anders. Zusammengeführte Chats folgen der App-Regel nicht. Gilt auf allen Geräten.</p></div>
   </div>`;
 }
 document.addEventListener("click", (e) => {
@@ -2429,11 +2846,15 @@ document.addEventListener("click", (e) => {
   if (a === "fcmfile") return fcmUpload(t.dataset.k);
   if (a === "fcmdel") return fcmRemove();
   if (a === "snapjoin") return setPref("snap_join", !PREFS.snap_join);
+  if (a === "sttengine") { loadStt(); return sttMenu(); }
+  if (a === "sttauto") return setPref("stt_auto", !PREFS.stt_auto);
   if (a === "fkeep") return setFilterKeep(!filterKeep());
+  if (a === "schedgo") { closeSett(); return go(t.dataset.id); }
   if (a === "untis") return untisLogin();
   if (a === "untisoff") return sure("Von WebUntis abmelden?", "Die Lehrer-Chats verschwinden aus der Liste. In WebUntis selbst bleibt alles.", "Abmelden", true).then((ok) => ok && untisOff());
   if (a === "mute") return muteMenu(c);
   if (a === "auto") return autoReadMenu(c);
+  if (a === "netauto") return netAutoReadMenu(t.dataset.net);
   if (a === "netvis") return netVisMenu(t.dataset.net);
   if (a === "vis") return visMenu(c);
   if (a === "label") return labelMenu(ORG.labels.find((l) => l.id === t.dataset.l));
@@ -2456,6 +2877,16 @@ async function clearNotes(id) {
 // Firebase-Dateien für die Android-App: Stand anzeigen, hochladen, entfernen
 let FCM = { client: false, account: false, project: "", account_project: "", package: "", devices: 0 };
 async function loadFcm() { try { FCM = await api("/fcm"); redrawSett(); } catch { /* bleibt */ } }
+// Sprachnachrichten als Text: Zustand des lokalen Whisper-Dienstes (Modell bereit/lädt) und wie viele Texte gespeichert sind
+let STT = { configured: false, status: "", model: "", error: "", saved: 0 };
+const STT_STATE = { bereit: "bereit", "lädt": "lädt noch das Modell", fehler: "Fehler beim Modell", offline: "gerade nicht erreichbar", aus: "nicht eingerichtet" };
+const sttLocal = () => `Whisper ${STT.model || "large-v3-turbo"} auf deinem Server${STT.status ? ` · ${STT_STATE[STT.status] || STT.status}` : ""}`;
+async function loadStt() { try { STT = await api("/stt/local"); redrawSett(); } catch { /* bleibt */ } }
+function sttMenu() {
+  sheetPick([["beeper", "cloud", "Beeper", "Die Umwandlung von Beeper Desktop – Beeper schaltet sie bald ab"],
+    ["local", "memory", "Lokal mit Whisper", STT.configured ? sttLocal() : "Nicht eingerichtet (WHISPER_URL im Dienst fehlt)"]],
+  PREFS.stt_local ? "local" : "beeper", (v) => setPref("stt_local", v === "local"));
+}
 function fcmUpload(kind) {
   const inp = document.createElement("input"); inp.type = "file"; inp.accept = "application/json,.json";
   inp.onchange = async () => {
@@ -2515,13 +2946,13 @@ async function untisOff() {
   catch (e) { toast(`Ging nicht: ${e.message}`); }
 }
 async function loadPrefs() {
-  try { const was = PREFS.snap_join; PREFS = { ...PREFS, ...(await api("/prefs")) }; redrawSett(); if (was !== PREFS.snap_join && $("#msgs") && S.msgs.length) drawMsgs(); } catch { /* bleibt */ }
+  try { const was = [PREFS.snap_join, PREFS.stt_auto]; PREFS = { ...PREFS, ...(await api("/prefs")) }; redrawSett(); if ((was[0] !== PREFS.snap_join || was[1] !== PREFS.stt_auto) && $("#msgs") && S.msgs.length) drawMsgs(); } catch { /* bleibt */ }
 }
 async function setPref(k, v) {
   const was = PREFS[k]; PREFS = { ...PREFS, [k]: v }; redrawSett();
   try { PREFS = { ...PREFS, ...(await api("/prefs", { method: "PUT", body: JSON.stringify({ [k]: v }) })) }; loadChats({ quiet: true }); }
   catch (e) { PREFS = { ...PREFS, [k]: was }; toast(`Ging nicht: ${e.message}`); }
-  redrawSett(); if (k === "snap_join" && $("#msgs") && S.msgs.length) drawMsgs();
+  redrawSett(); if ((k === "snap_join" || k === "stt_auto") && $("#msgs") && S.msgs.length) drawMsgs();
 }
 
 // ---------------- Stummschalten (nur Benachrichtigungen; Beeper bleibt unberührt) ----------------
@@ -2561,34 +2992,56 @@ function muteMenu(c) {
   document.body.append(d);
 }
 // ---------------- Automatisch als gelesen (pro Chat; "Sofort" erledigt der Dienst, auch ohne offene App) ----------------
-const AR_TEXT = { "": "Aus – du markierst selbst", open: "Beim Öffnen des Chats", always: "Sofort, auch ohne Öffnen (keine Benachrichtigung)" };
-const arOf = (id) => AUTOREAD.get(id) || AUTOREAD.get(grpOf(id)?.id) || "";
+const AR_TEXT = { "": "Aus – du markierst selbst", off: "Aus – du markierst selbst", open: "Beim Öffnen des Chats", always: "Sofort, auch ohne Öffnen (keine Benachrichtigung)" };
+const arOwn = (id) => AUTOREAD.get(id) || AUTOREAD.get(grpOf(id)?.id) || "";   // eigene Einstellung des Chats ("off" zählt mit)
+const arNet = (id) => { const c = known(id); return !c || c.merged || grpOf(id) || ownChat(id) || String(c.network).includes("|") ? "" : ARNET[netKey(c.network)] || ""; };   // wie alle Chats der App (Zusammengeführte folgen ihr nicht)
+const arOf = (id) => { const o = arOwn(id); return o ? (o === "off" ? "" : o) : arNet(id); };   // wirksam: "", "open" oder "always"
 function autoRead() { const c = cur(); if (c && (arOf(c.id) || ownChat(c.id)) && left(c) && document.visibilityState === "visible") markRead(c); }
 async function loadAutoRead() {
-  try { const r = await api("/autoread"); AUTOREAD = new Map(r.items.map((x) => [x.id, x.mode])); autoRead(); redrawSett(); } catch { /* bleibt */ }
+  try { const r = await api("/autoread"); AUTOREAD = new Map(r.items.map((x) => [x.id, x.mode])); ARNET = r.nets || {}; autoRead(); redrawSett(); } catch { /* bleibt */ }
 }
 async function setAutoRead(c, mode) {
-  const was = arOf(c.id);
+  const was = arOwn(c.id);
   if (mode) AUTOREAD.set(c.id, mode); else AUTOREAD.delete(c.id);
   redrawInfo();
   try {
     await api(`/chats/${encodeURIComponent(c.id)}/autoread`, { method: "PUT", body: JSON.stringify({ mode }) });
-    toast(mode ? `Automatisch gelesen: ${mode === "open" ? "beim Öffnen" : "sofort"}` : "Automatisch gelesen aus");
-    if (mode) autoRead();
+    toast(mode === "open" ? "Automatisch gelesen: beim Öffnen" : mode === "always" ? "Automatisch gelesen: sofort" : !mode && arNet(c.id) ? `Wie alle ${netName(c.network)}-Chats` : "Automatisch gelesen aus");
+    if (arOf(c.id)) autoRead();
   } catch (e) { if (was) AUTOREAD.set(c.id, was); else AUTOREAD.delete(c.id); toast(`Ging nicht: ${e.message}`); }
   redrawInfo();
 }
 function autoReadMenu(c) {
   closeMenu();
-  const now = arOf(c.id), d = document.createElement("div");
+  const own = arOwn(c.id), net = arNet(c.id), d = document.createElement("div");
   d.className = "ctx"; d.id = "ctx";
-  d.innerHTML = `<div class="ctx-back"></div><div class="sheet">${[["", "block", "Aus"], ["open", "visibility", "Beim Öffnen"], ["always", "bolt", "Sofort"]].map(([k, ic, t]) =>
-    `<button data-r="${k}"${k === now ? ' class="on"' : ""}><span class="ms">${k === now ? "check" : ic}</span>${t}<small>${esc(AR_TEXT[k])}</small></button>`).join("")}</div>`;
+  // Gibt es eine Regel für die ganze App, heißt „keine eigene Einstellung“ = „wie alle“ und „Aus“ nimmt den Chat davon aus
+  const items = [...(net ? [["", "settings", `Wie alle ${netName(c.network)}-Chats`, AR_TEXT[net]]] : []), [net ? "off" : "", "block", "Aus", AR_TEXT[""]],
+    ["open", "visibility", "Beim Öffnen", AR_TEXT.open], ["always", "bolt", "Sofort", AR_TEXT.always]];
+  const on = own === "off" && !net ? "" : own;
+  d.innerHTML = `<div class="ctx-back"></div><div class="sheet">${items.map(([k, ic, t, sm]) =>
+    `<button data-r="${k}"${k === on ? ' class="on"' : ""}><span class="ms">${k === on ? "check" : ic}</span>${t}<small>${esc(sm)}</small></button>`).join("")}</div>`;
   d.addEventListener("click", (e) => {
     const r = e.target.closest("[data-r]")?.dataset.r; closeMenu();
-    if (r !== undefined && r !== now) setAutoRead(c, r);
+    if (r !== undefined && r !== own) setAutoRead(c, r);
   });
   document.body.append(d);
+}
+// Ganze App (z. B. alle SMS-Chats): gilt auf allen Geräten, Zusammengeführte folgen ihr nicht; ein Chat kann sich mit „Aus“ ausnehmen
+async function setNetAutoRead(net, mode) {
+  const was = ARNET[net] || "";
+  if (mode) ARNET[net] = mode; else delete ARNET[net];
+  redrawSett(); redrawInfo();
+  try {
+    await api(`/nets/${net}/autoread`, { method: "PUT", body: JSON.stringify({ mode }) });
+    toast(mode ? `${netName(net)}: automatisch gelesen – ${mode === "open" ? "beim Öffnen" : "sofort"}` : `${netName(net)}: automatisch gelesen aus`);
+    autoRead();
+  } catch (e) { if (was) ARNET[net] = was; else delete ARNET[net]; toast(`Ging nicht: ${e.message}`); }
+  redrawSett(); redrawInfo();
+}
+function netAutoReadMenu(n) {
+  sheetPick([["", "block", "Aus", AR_TEXT[""]], ["open", "visibility", "Beim Öffnen", `Jeder ${netName(n)}-Chat gilt beim Öffnen als gelesen`],
+    ["always", "bolt", "Sofort", `Neue ${netName(n)}-Nachrichten gelten gleich als gelesen – ohne Benachrichtigung`]], ARNET[n] || "", (mode) => setNetAutoRead(n, mode));
 }
 // ---------------- Startseite, Listen, Archiv ----------------
 // Netzwerke für die Einstellungen: alle, die in geladenen oder gemerkten Chats vorkommen, plus die schon eingestellten
@@ -2715,5 +3168,6 @@ if (window.visualViewport && matchMedia("(pointer: coarse)").matches) {
   vv.addEventListener("resize", fit); vv.addEventListener("scroll", fit);
 }
 loadPins();
+loadSched();
 loadMerges();
 if (NATIVE) { const p = NATIVE.pendingChat(); if (p) go(p); }   // App über eine Meldung gestartet: gleich in den Chat

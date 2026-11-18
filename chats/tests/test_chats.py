@@ -448,6 +448,57 @@ def test_gruppe_lesen_ein_fehler_haelt_die_anderen_nicht_auf(client, monkeypatch
     assert done == ["1", "2", "3"] and r.status_code == 502
 
 
+def test_angepinnte_nachrichten(client, monkeypatch):
+    """Beeper hat kein Pin-Feld – nur den Hinweis „Pinned a message“ mit Verweis auf die Nachricht. Gelöschtes und Hinweise ohne Verweis zählen nicht."""
+    from app import api
+
+    class R:
+        status_code = 200
+
+        def __init__(self, data, code=200):
+            self._d, self.status_code = data, code
+
+        def json(self):
+            return self._d
+    notes = [
+        {"id": "9", "type": "NOTICE", "text": "Pinned a message", "linkedMessageID": "5", "timestamp": "2026-11-17T16:20:52.000Z", "senderName": "Maurice"},
+        {"id": "8", "type": "NOTICE", "text": "Pinned a message", "linkedMessageID": "4", "timestamp": "2026-11-16T10:00:00.000Z", "senderName": "Finja"},
+        {"id": "7", "type": "NOTICE", "text": "Pinned a message", "timestamp": "2026-11-15T10:00:00.000Z"},                      # ohne Verweis
+        {"id": "6", "type": "NOTICE", "text": "Pinned a message", "linkedMessageID": "3", "timestamp": "2026-11-14T10:00:00.000Z"},   # Nachricht gelöscht
+        {"id": "5", "type": "TEXT", "text": "pinned sessions are great", "linkedMessageID": "2", "timestamp": "2026-11-17T09:00:00.000Z"},   # nur das Wort, kein Hinweis
+    ]
+    targets = {"5": {"id": "5", "senderID": "@me:x", "isSender": True, "text": "Wer wäre bei Kino dabei", "isDeleted": False, "timestamp": "2026-11-17T16:17:49.000Z"},
+               "4": {"id": "4", "senderID": "@f:x", "senderName": "Finja", "type": "TEXT", "text": "Treffpunkt 18 Uhr", "isDeleted": False, "timestamp": "2026-11-16T09:00:00.000Z"},
+               "3": {"id": "3", "type": "TEXT", "text": "weg", "isDeleted": True}}
+    seen = []
+
+    async def rest_get(path, **params):
+        seen.append((path, params))
+        if path == "/v1/messages/search":
+            return R({"items": notes})
+        mid = path.rsplit("/", 1)[1]
+        return R(targets[mid]) if mid in targets else R({}, 404)
+    monkeypatch.setattr(api, "rest_get", rest_get)
+    d = client.get(f"{API}/chats/9/pins").json()
+    assert [(x["id"], x["text"], x["pinned_by"]) for x in d["items"]] == [("5", "Wer wäre bei Kino dabei", "Maurice"), ("4", "Treffpunkt 18 Uhr", "Finja")]
+    assert d["items"][0]["pinned_at"] == "2026-11-17T16:20:52.000Z" and d["days"] == api.PIN_DAYS
+    srch = seen[0][1]
+    assert srch["chatIDs"] == ["9"] and srch["dateAfter"].endswith("Z")   # nur die letzten Tage
+
+
+def test_systemhinweise_erkennen():
+    """Hinweise des Netzwerks (Snapstreak, „left the chat“) sind keine Nachrichten von jemandem – Beeper schickt sie als NOTICE oder ganz ohne Typ."""
+    from app import api
+    assert api.is_system({"type": "NOTICE", "text": "You and Sophia started a Snapstreak", "isDeleted": False})
+    assert api.is_system({"text": "Abi. Jeyaseelan left the chat", "senderName": "@signal_ddf1da39:beeper.local"})   # Signal: ganz ohne type und isDeleted
+    assert api.is_system({"text": "Disappearing messages turned off"})
+    assert not api.is_system({"type": "TEXT", "text": "Hi", "isDeleted": False})
+    assert not api.is_system({"text": "Neu im Kino: Wild Horse Nine", "isDeleted": True})   # WhatsApp-Bot: ohne type, aber echter Inhalt
+    assert not api.is_system({"type": "NOTICE", "text": ""}) and not api.is_system({"text": "  "})
+    assert api.message({"id": "1", "text": "x left the chat"})["sys"] is True
+    assert api.message({"id": "2", "type": "TEXT", "text": "hallo", "isDeleted": False})["sys"] is False
+
+
 def test_snaps_still(client, monkeypatch):
     """Einstellung „Snaps nicht als neue Nachricht“: Snapchat-Chats zählen nur echte Nachrichten (Zeit, Ungelesen, Vorschau)."""
     from app import api
@@ -464,10 +515,10 @@ def test_snaps_still(client, monkeypatch):
         return msgs
     monkeypatch.setattr(api, "fetch_messages", fake_fetch)
     api._snap_cache.clear()
-    assert client.get(f"{API}/prefs").json() == {"snaps_quiet": False, "snap_join": True}
+    assert client.get(f"{API}/prefs").json() == {"snaps_quiet": False, "snap_join": True, "stt_local": False, "stt_auto": False}
     assert [c["id"] for c in client.get(f"{API}/chats").json()["items"]] == ["1", "2"] and not calls   # aus: wie Beeper
-    assert client.put(f"{API}/prefs", json={"snaps_quiet": True}).json() == {"snaps_quiet": True, "snap_join": True}
-    assert client.put(f"{API}/prefs", json={"snap_join": False}).json() == {"snaps_quiet": True, "snap_join": False}
+    assert client.put(f"{API}/prefs", json={"snaps_quiet": True}).json() == {"snaps_quiet": True, "snap_join": True, "stt_local": False, "stt_auto": False}
+    assert client.put(f"{API}/prefs", json={"snap_join": False}).json() == {"snaps_quiet": True, "snap_join": False, "stt_local": False, "stt_auto": False}
     client.put(f"{API}/prefs", json={"snap_join": True})
     items = client.get(f"{API}/chats").json()["items"]
     assert [c["id"] for c in items] == ["2", "1"]   # der Snap schiebt den Chat nicht mehr nach oben
@@ -612,3 +663,152 @@ def test_vorschlaege_zusammenfuehren(client):
     assert ("i1", "w1") in nope
     assert all({"w1", "i1"} - {c["id"] for c in s["chats"]} for s in org.suggest(chats, set(), nope))
     assert client.post(f"{API}/merges/suggestions/dismiss", json={"chats": ["w1"]}).status_code == 422
+
+
+def _future(seconds=3600):
+    from datetime import datetime, timedelta, timezone
+    return (datetime.now(timezone.utc) + timedelta(seconds=seconds)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def test_spaeter_senden_anlegen_aendern_loeschen(client):
+    from datetime import datetime, timedelta, timezone
+    r = client.post(f"{API}/chats/1/schedule", json={"text": "  Guten Morgen  ", "at": _future(), "silent": True, "reply_to": "5"})
+    assert r.status_code == 200
+    x = r.json()
+    assert (x["chat"], x["target"], x["text"], x["status"], x["silent"], x["reply_to"]) == ("1", "1", "Guten Morgen", "pending", True, "5")
+    assert any(i["id"] == x["id"] for i in client.get(f"{API}/scheduled").json()["items"])
+    # ändern: Zeit und „nur wenn ich nichts schreibe“
+    new = (datetime.now(timezone.utc) + timedelta(days=1)).isoformat()
+    y = client.patch(f"{API}/scheduled/{x['id']}", json={"at": new, "silent": False}).json()
+    assert y["silent"] is False and y["at"] != x["at"]
+    # Fehler: Vergangenheit, Ida/WebUntis, leer, fremder Zielchat, Unsinn
+    assert client.post(f"{API}/chats/1/schedule", json={"text": "x", "at": "2020-01-01T00:00:00Z"}).status_code == 400
+    assert client.post(f"{API}/chats/ida/schedule", json={"text": "x", "at": _future()}).status_code == 400
+    assert client.post(f"{API}/chats/1/schedule", json={"text": "   ", "at": _future()}).status_code == 400
+    assert client.post(f"{API}/chats/1/schedule", json={"text": "x", "at": _future(), "target": "2"}).status_code == 400
+    assert client.post(f"{API}/chats/1/schedule", json={"text": "x", "at": "morgen"}).status_code == 400
+    assert client.delete(f"{API}/scheduled/{x['id']}").status_code == 200
+    assert not any(i["id"] == x["id"] for i in client.get(f"{API}/scheduled").json()["items"])
+    assert client.delete(f"{API}/scheduled/{x['id']}").status_code == 404
+
+
+def test_spaeter_senden_takt(client, monkeypatch):
+    """Der Takt sendet Fälliges; mit „nur wenn ich nichts schreibe“ nur, wenn man bis dahin nicht selbst geschrieben hat."""
+    import asyncio
+    import time
+    from app import api, schedule
+    sent, mine = [], []
+
+    async def fake_send(chat_id, body):
+        if body.text == "kaputt":
+            raise api.HTTPException(502, "Beeper nicht erreichbar")
+        sent.append((chat_id, body.text, body.reply_to))
+        return {"ok": True}
+
+    async def fake_fetch(chat_id, cursor, direction):
+        return {"items": mine}
+    monkeypatch.setattr(api, "send", fake_send)
+    monkeypatch.setattr(api, "fetch_messages", fake_fetch)
+
+    def make(text, silent=False, secs=120):
+        r = client.post(f"{API}/chats/1/schedule", json={"text": text, "at": _future(secs), "silent": silent}).json()
+        return r["id"], schedule._get(r["id"])["due"]
+
+    def status(sid):
+        return next((i for i in client.get(f"{API}/scheduled").json()["items"] if i["id"] == sid), None)
+
+    # 1) normal: gesendet, danach nicht mehr in der Liste (ist jetzt eine echte Nachricht)
+    a, due = make("Hallo")
+    asyncio.run(schedule.run_due(now=due - 10))
+    assert sent == [] and status(a)["status"] == "pending"   # noch nicht fällig
+    asyncio.run(schedule.run_due(now=due + 1))
+    assert sent == [("1", "Hallo", None)] and status(a) is None
+    # 2) nur wenn ich nichts schreibe – nichts dazwischen: gesendet; Eigenes von VOR dem Planen und Reaktionen zählen nicht
+    mine[:] = [{"isSender": True, "type": "TEXT", "text": "alt", "timestamp": "2020-01-01T00:00:00.000Z"},
+               {"isSender": True, "type": "REACTION", "timestamp": "2099-01-01T00:00:00.000Z"}]
+    b, due = make("Ruhig", silent=True)
+    asyncio.run(schedule.run_due(now=due + 1))
+    assert sent[-1][1] == "Ruhig"
+    # 3) selbst geschrieben, nachdem geplant wurde: nicht gesendet, bleibt als „übersprungen“ sichtbar
+    mine[:] = [{"isSender": True, "type": "TEXT", "text": "bin schon da", "timestamp": "2099-01-01T00:00:00.000Z"}]
+    n = len(sent)
+    c, due = make("Zu spät", silent=True)
+    asyncio.run(schedule.run_due(now=due + 1))
+    assert len(sent) == n and status(c)["status"] == "skipped" and "selbst geschrieben" in status(c)["note"]
+    #    … und „Jetzt senden“ geht trotzdem
+    assert client.post(f"{API}/scheduled/{c}/send").status_code == 200 and sent[-1][1] == "Zu spät" and status(c) is None
+    # 4) Dienst war aus: viel zu spät → verpasst, nicht mehr gesendet
+    d, due = make("Viel zu spät")
+    n = len(sent)
+    asyncio.run(schedule.run_due(now=due + schedule.GRACE_S + 60))
+    assert len(sent) == n and status(d)["status"] == "missed"
+    #    neu planen setzt es wieder auf „steht aus“
+    assert client.patch(f"{API}/scheduled/{d}", json={"at": _future(600)}).json()["status"] == "pending"
+    # 5) Senden schlägt fehl: noch zweimal versucht, dann „fehlgeschlagen“
+    e, due = make("kaputt")
+    now = due + 1
+    for _ in range(schedule.MAX_TRIES):
+        asyncio.run(schedule.run_due(now=now))
+        now += schedule.RETRY_S + 1
+    assert status(e)["status"] == "failed" and "Beeper nicht erreichbar" in status(e)["note"]
+    for sid in (d, e):
+        client.delete(f"{API}/scheduled/{sid}")
+
+
+def test_automatisch_gelesen_pro_app(client):
+    from app import push
+    sms = "gmessages.l8tenever@gmail.com/1782000966145"   # so steht SMS (Google Messages) in Beeper
+    assert client.put("/api/v1/nets/gmessages/autoread", json={"mode": "bogus"}).status_code == 400
+    assert client.put("/api/v1/nets/Evil!/autoread", json={"mode": "open"}).status_code == 400
+    assert client.put("/api/v1/nets/gmessages/autoread", json={"mode": "always"}).status_code == 200
+    assert client.get("/api/v1/autoread").json()["nets"] == {"gmessages": "always"}
+    assert push.autoread_of("c1", network=sms) == "always"          # App-Regel greift …
+    assert push.autoread_of("c1", network="whatsapp") == ""         # … nur für diese App
+    assert push.autoread_of("c1") == ""                             # ohne Netzwerk nichts
+    assert client.put("/api/v1/chats/c1/autoread", json={"mode": "off"}).status_code == 200
+    assert push.autoread_of("c1", network=sms) == ""                # "off" am Chat schlägt die App-Regel
+    assert client.put("/api/v1/chats/c1/autoread", json={"mode": "open"}).status_code == 200
+    assert push.autoread_of("c1", network=sms) == "open"            # eigene Einstellung schlägt die App-Regel
+    client.put("/api/v1/chats/c1/autoread", json={"mode": ""})
+    assert push.autoread_of("c1", network=sms) == "always"          # zurück auf „wie alle“
+    client.post("/api/v1/merges", json={"chats": [{"id": "c1", "title": "A", "network": "gmessages"}, {"id": "c2", "network": "whatsapp"}]})
+    assert push.autoread_of("c1", network=sms) == ""                # zusammengeführte Chats folgen keiner App-Regel
+    client.delete("/api/v1/merges/c1")
+    client.put("/api/v1/nets/gmessages/autoread", json={"mode": ""})
+    assert client.get("/api/v1/autoread").json()["nets"] == {}
+
+
+def test_beeper_sammelchat_netzwerke(client, monkeypatch):
+    """Beeper-Sammelchat hat selbst kein Netzwerk („Chat“): es kommen die Konten der Chats dahinter, ein normaler Chat bleibt unberührt."""
+    from app import api
+    import asyncio
+
+    class R:
+        def __init__(self, d, code=200):
+            self._d, self.status_code = d, code
+
+        def json(self):
+            return self._d
+
+    chats = {"66675": {"accountID": "matrix", "merge": {"chatIDs": ["!i:x", "!w:x", "!i2:x"]}},
+             "!i:x": {"accountID": "instagramgo.1"}, "!w:x": {"accountID": "whatsapp.2"}, "!i2:x": {"accountID": "instagramgo.1"}}
+
+    async def rest_get(path, **params):
+        d = chats.get(path.rsplit("/", 1)[1].replace("%21", "!").replace("%3A", ":"))
+        return R(d) if d is not None else R({}, 404)
+    monkeypatch.setattr(api, "rest_get", rest_get)
+    api._nets_cache.clear()
+
+    items = [{"id": "66675", "network": ""}, {"id": "5", "network": "whatsapp.2"}, {"id": "66637", "network": ""}, {"id": "ida", "network": ""}]
+    out = asyncio.run(api.fill_nets(items))
+    assert [c["network"] for c in out] == ["instagramgo.1|whatsapp.2", "whatsapp.2", "", ""]   # doppelte Konten einmal, Unbekanntes bleibt leer
+
+
+def test_bearbeitet_zeigt_fruehere_fassungen(client, fake):
+    from app.api import keep_deleted
+    m = {"id": "e1", "at": "2026-11-12T10:00:00Z", "text": "Eins", "files": [], "deleted": False, "edited": False}
+    keep_deleted("c8", [dict(m)])
+    assert keep_deleted("c8", [{**m, "text": "Zwei", "edited": True}])[0]["prev"] == ["Eins"]
+    out = keep_deleted("c8", [{**m, "text": "Drei", "edited": True}])[0]
+    assert out["prev"] == ["Eins", "Zwei"]
+    assert keep_deleted("c8", [{**m, "text": "Drei", "edited": True}])[0]["prev"] == ["Eins", "Zwei"]

@@ -4,6 +4,7 @@ import json
 import logging
 import sqlite3
 import threading
+import time
 
 from .config import get_settings
 
@@ -23,6 +24,10 @@ def db() -> sqlite3.Connection:
             log.warning("Kein Speicher unter %s (%s) – Nachrichten nur im Arbeitsspeicher", d, e)
             _db = sqlite3.connect(":memory:", check_same_thread=False)
         _db.execute("CREATE TABLE IF NOT EXISTS msgs (chat TEXT, id TEXT, at TEXT, text TEXT, files TEXT, hidden INTEGER DEFAULT 0, PRIMARY KEY (chat, id))")
+        # Frühere Fassungen bearbeiteter Nachrichten (älteste zuerst)
+        _db.execute("CREATE TABLE IF NOT EXISTS edits (chat TEXT, id TEXT, n INTEGER, text TEXT, PRIMARY KEY (chat, id, n))")
+        # Sprachnachrichten als Text (Beeper oder lokales Whisper): einmal umgewandelt, bleibt der Text hier im Volume liegen
+        _db.execute("CREATE TABLE IF NOT EXISTS transcripts (src TEXT PRIMARY KEY, text TEXT NOT NULL, engine TEXT DEFAULT '', lang TEXT DEFAULT '', at REAL)")
         _db.commit()
     return _db
 
@@ -32,6 +37,14 @@ def remember(chat: str, items: list[dict]) -> None:
             for m in items if m.get("id") and (m.get("text") or m.get("files"))]
     if rows:
         with _lock:
+            # Hat sich der Text einer gemerkten Nachricht geändert (Bearbeitung), wandert die alte Fassung in den Verlauf
+            old = {i: t for i, t in db().execute(f"SELECT id, text FROM msgs WHERE chat=? AND id IN ({','.join('?' * len(rows))})", [chat, *[r[1] for r in rows]])}
+            for _, i, _, t, _ in rows:
+                if old.get(i) and t and old[i] != t:
+                    n = db().execute("SELECT COALESCE(MAX(n), 0) FROM edits WHERE chat=? AND id=?", (chat, i)).fetchone()[0]
+                    last = db().execute("SELECT text FROM edits WHERE chat=? AND id=? AND n=?", (chat, i, n)).fetchone()
+                    if not last or last[0] != old[i]:
+                        db().execute("INSERT INTO edits (chat, id, n, text) VALUES (?,?,?,?)", (chat, i, n + 1, old[i]))
             db().executemany("INSERT INTO msgs (chat, id, at, text, files) VALUES (?,?,?,?,?) "
                              "ON CONFLICT (chat, id) DO UPDATE SET text=excluded.text, files=excluded.files", rows)
             db().commit()
@@ -46,11 +59,71 @@ def recall(chat: str, ids: list[str]) -> dict[str, dict]:
         return {i: {"text": t, "files": json.loads(f or "[]"), "hidden": bool(h)} for i, t, f, h in cur}
 
 
+def history(chat: str, ids: list[str]) -> dict[str, list[str]]:
+    """{Nachrichten-ID: [frühere Fassungen, älteste zuerst]} für bearbeitete Nachrichten."""
+    out: dict[str, list[str]] = {}
+    if not ids:
+        return out
+    with _lock:
+        for i, t in db().execute(f"SELECT id, text FROM edits WHERE chat=? AND id IN ({','.join('?' * len(ids))}) ORDER BY id, n", [chat, *map(str, ids)]):
+            out.setdefault(i, []).append(t)
+    return out
+
+
 def hide(chat: str, msg_id: str) -> None:
     with _lock:
         db().execute("INSERT INTO msgs (chat, id, at, text, files, hidden) VALUES (?,?,'','','[]',1) "
                      "ON CONFLICT (chat, id) DO UPDATE SET hidden=1, text='', files='[]'", (chat, str(msg_id)))
         db().commit()
+
+
+# ---------------- Sprachnachrichten als Text ----------------
+MAX_TRANSCRIPT = 20000
+
+
+def tkey(src: str) -> str:
+    """Schlüssel einer Sprachnachricht: ihre Adresse ohne die Verschlüsselungsangaben nach dem „?“ (die Datei bleibt dieselbe)."""
+    return str(src).split("?", 1)[0][:300]
+
+
+def transcripts(srcs: list[str]) -> dict[str, str]:
+    """{Schlüssel: Text} für alles, was zu diesen Sprachnachrichten schon gespeichert ist. Ein leerer Text heißt: umgewandelt, aber nichts erkannt."""
+    keys = list({tkey(s) for s in srcs if s})
+    out: dict[str, str] = {}
+    with _lock:
+        for i in range(0, len(keys), 400):   # SQLite verträgt nur begrenzt viele Platzhalter
+            part = keys[i:i + 400]
+            out.update(db().execute(f"SELECT src, text FROM transcripts WHERE src IN ({','.join('?' * len(part))})", part).fetchall())
+    return out
+
+
+def save_transcript(src: str, text: str, engine: str, lang: str = "") -> None:
+    """Text sichern. Ein vorhandener Text bleibt; nur ein leerer wird ersetzt (z. B. wenn Beeper den Text später nachliefert)."""
+    with _lock:
+        db().execute("INSERT INTO transcripts (src, text, engine, lang, at) VALUES (?,?,?,?,?) ON CONFLICT (src) DO UPDATE SET "
+                     "text=excluded.text, engine=excluded.engine, lang=excluded.lang, at=excluded.at WHERE transcripts.text = ''",
+                     (tkey(src), (text or "").strip()[:MAX_TRANSCRIPT], engine, lang, time.time()))
+        db().commit()
+
+
+def count_transcripts() -> int:
+    with _lock:
+        return db().execute("SELECT COUNT(*) FROM transcripts").fetchone()[0]
+
+
+def sync_transcripts(items: list[dict]) -> None:
+    """Sprachnachrichten in geladenen Nachrichten: den gespeicherten Text einsetzen. Bringt Beeper selbst einen mit und er ist noch nicht gesichert,
+    wird er jetzt gesichert – Beeper schaltet die Umwandlung bald ab, danach wäre er sonst weg."""
+    files = [f for m in items for f in m.get("files") or [] if f.get("kind") == "audio" and f.get("src")]
+    if not files:
+        return
+    got = transcripts([f["src"] for f in files])
+    for f in files:
+        saved = got.get(tkey(f["src"]))
+        if saved:
+            f["transcript"] = saved
+        elif f.get("transcript"):
+            save_transcript(f["src"], f["transcript"], "beeper")
 
 
 # ---------------- Zusammengeführte Chats (nur in IDA Chats; Beeper bleibt unberührt) ----------------

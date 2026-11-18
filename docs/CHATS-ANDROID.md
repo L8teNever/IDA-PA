@@ -38,6 +38,15 @@ höhere Versionsnummer).
 4. `tauri android build --apk`, dann `zipalign` und `apksigner`.
 5. Die fertige `ida-chats.apk` wird als Release `android-v1.0.<Laufnummer>` abgelegt.
 
+## Fotos im Plus-Menü
+
+Das Plus-Menü der Chats-Seite zeigt in der App die letzten Fotos und Videos (`android/kotlin/Media.kt`, Methoden `media…` der Brücke `window.IDAChatsNative`):
+`mediaState`/`mediaAsk` (Erlaubnis), `mediaList(limit)` (IDs, neueste zuerst), `mediaThumb`, `mediaInfo`, `mediaChunk` (Datei in Stücken zu höchstens 2 MB als Base64, so kommt auch ein Video durch).
+Die Seite nennt nur eine ID, die Adresse baut `Media.kt` selbst aus `MediaStore` – beliebige Pfade lassen sich darüber nicht lesen. Jeder Aufruf prüft, dass die Seite auf `*.kulbarts.com` läuft
+(auf dem UI-Thread, weil `WebView.getUrl` nur dort erlaubt ist), und gibt bei jedem Fehler eine leere Antwort statt abzustürzen.
+Rechte: ab Android 13 `READ_MEDIA_IMAGES`/`READ_MEDIA_VIDEO` (ab 14 auch „nur ausgewählte Fotos“, `READ_MEDIA_VISUAL_USER_SELECTED`), davor `READ_EXTERNAL_STORAGE`; gefragt wird erst beim
+ersten Öffnen des Menüs („Zugriff erlauben“). Das braucht eine neue APK; die ältere App zeigt weiter nur die Leiste.
+
 ## Name, Symbol und Links
 
 - Die App heißt auf dem Handy nur **„Chats“** (`productName` in `android/src-tauri/tauri.conf.json`).

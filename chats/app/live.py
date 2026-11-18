@@ -37,12 +37,12 @@ async def check(state: dict) -> None:
         return
     fresh: list[dict] = []
     gone: list[str] = []
-    ar = push.autoreads()
+    ar, ar_nets = push.autoreads(), push.net_autoreads()
     for c in items:
         before = old.get(c["id"])
         if before != sig[c["id"]]:
             more_unread = c["unread"] > (before[1] if before else 0)
-            if more_unread and push.autoread_of(c["id"], ar) == "always":   # sofort gelesen: keine Meldung, in Beeper gelesen
+            if more_unread and push.autoread_of(c["id"], ar, c.get("network", ""), ar_nets) == "always":   # sofort gelesen: keine Meldung, in Beeper gelesen
                 try:
                     await api.beeper_read(c['id'])
                     c["unread"] = 0

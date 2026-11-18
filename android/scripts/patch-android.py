@@ -18,9 +18,11 @@ def fail(msg):
 # ---- Manifest: Rechte, Dienst für FCM, Start-Einrichtung ----
 mf = APP / "src/main/AndroidManifest.xml"
 m = mf.read_text()
-for perm in ("RECORD_AUDIO", "MODIFY_AUDIO_SETTINGS", "CAMERA", "POST_NOTIFICATIONS"):
+for perm in ("RECORD_AUDIO", "MODIFY_AUDIO_SETTINGS", "CAMERA", "POST_NOTIFICATIONS", "READ_MEDIA_IMAGES", "READ_MEDIA_VIDEO", "READ_MEDIA_VISUAL_USER_SELECTED"):
     if f'android.permission.{perm}"' not in m:
         m = m.replace("<application", f'<uses-permission android:name="android.permission.{perm}" />\n    <application', 1)
+if "READ_EXTERNAL_STORAGE" not in m:   # Fotos für das Plus-Menü: ab Android 13 gelten die READ_MEDIA_*-Rechte, davor dieses
+    m = m.replace("<application", '<uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />\n    <application', 1)
 if "PushService" not in m:
     if "</application>" not in m:
         fail("kein </application> im Manifest")
@@ -67,6 +69,7 @@ if not SRC.is_dir():
     fail(f"{SRC} fehlt – anderer Paketname?")
 shutil.copy("kotlin/Push.kt", SRC / "Push.kt")
 shutil.copy("kotlin/Links.kt", SRC / "Links.kt")
+shutil.copy("kotlin/Media.kt", SRC / "Media.kt")
 
 # ---- Links: fremde Seiten nicht in der App laden, sondern in der passenden App/im Browser öffnen (Links.kt) ----
 # RustWebViewClient.kt gibt es hier noch nicht: wry erzeugt sie erst beim Rust-Build innerhalb von Gradle (rustBuild…). Deshalb

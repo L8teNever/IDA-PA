@@ -3,6 +3,7 @@ import base64
 import json
 import os
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
@@ -40,6 +41,7 @@ class FakeBeeper:
         self.rest: list[tuple] = []
         self.pinned: set[str] = {"2"}
         self.chats = CHATS
+        self.msgs = MSGS
         outer = self
 
         class H(BaseHTTPRequestHandler):
@@ -53,7 +55,7 @@ class FakeBeeper:
                     self.send_response(401); self.end_headers(); return
                 if u.path == "/v1/chats/1/messages":
                     outer.calls.append(("rest_messages", {k: v[0] for k, v in parse_qs(u.query).items()}))
-                    out, ct = json.dumps(MSGS).encode(), "application/json"
+                    out, ct = json.dumps(outer.msgs).encode(), "application/json"
                 elif u.path == "/v1/chats":
                     out, ct = json.dumps({"items": [{"id": i, "title": f"Chat {i}", "accountID": "whatsapp", "type": "single", "lastActivity": "2026-11-12T10:00:00Z",
                                                      "unreadCount": 2, "isMuted": False, "isPinned": i in outer.pinned} for i in ("1", "2", "3", "4", "5")]}).encode(), "application/json"
@@ -121,7 +123,7 @@ class FakeBeeper:
                     if n == "search_chats":
                         res = {"content": [{"type": "text", "text": outer.chats}]}
                     elif n == "list_messages":
-                        res = {"content": [{"type": "text", "text": json.dumps(MSGS)}]}
+                        res = {"content": [{"type": "text", "text": json.dumps(outer.msgs)}]}
                     elif n == "get_attachment_image" and "voice" in a["srcURL"]:
                         res = {"content": [{"type": "audio", "data": base64.b64encode(bytes(range(200))).decode(), "mimeType": "audio/ogg"}]}
                     elif n == "get_attachment_image" and "page" in a["srcURL"]:
@@ -146,14 +148,53 @@ class FakeBeeper:
         return next(a for n, a in reversed(self.calls) if n == name)
 
 
+class FakeWhisper:
+    """Ersatz für den Dienst whisper: nimmt rohes Audio, antwortet {text, language}; `status` stellt 503 (Modell lädt) o. Ä. nach."""
+
+    def __init__(self):
+        self.calls: list[dict] = []
+        self.status = 200
+        self.text = "Hallo aus Whisper"
+        self.delay = 0.0
+        outer = self
+
+        class H(BaseHTTPRequestHandler):
+            def log_message(self, *a):
+                pass
+
+            def reply(self, code, obj):
+                out = json.dumps(obj).encode()
+                self.send_response(code); self.send_header("content-type", "application/json"); self.send_header("content-length", str(len(out))); self.end_headers(); self.wfile.write(out)
+
+            def do_GET(self):
+                self.reply(200, {"ok": True, "status": "bereit", "error": "", "model": "large-v3-turbo"})
+
+            def do_POST(self):
+                raw = self.rfile.read(int(self.headers["content-length"]))
+                outer.calls.append({"path": self.path, "size": len(raw), "ct": self.headers["content-type"]})
+                time.sleep(outer.delay)
+                if outer.status != 200:
+                    return self.reply(outer.status, {"detail": "Modell lädt"})
+                self.reply(200, {"text": outer.text, "language": "de", "duration": 1.0, "took": 0.1})
+
+        self.srv = ThreadingHTTPServer(("127.0.0.1", 0), H)
+        self.url = f"http://127.0.0.1:{self.srv.server_port}"
+        threading.Thread(target=self.srv.serve_forever, daemon=True).start()
+
+
 @pytest.fixture(scope="session")
 def fake():
     return FakeBeeper()
 
 
 @pytest.fixture(scope="session")
-def client(fake):
-    os.environ.update({"BEEPER_MCP_URL": fake.url, "BEEPER_MCP_TOKEN": "tok", "LIVE_POLL_S": "0.2", "ARCHIVE_POLL_S": "0", "IDA_URL": "", "DATA_DIR": __import__("tempfile").mkdtemp(),
+def whisper():
+    return FakeWhisper()
+
+
+@pytest.fixture(scope="session")
+def client(fake, whisper):
+    os.environ.update({"BEEPER_MCP_URL": fake.url, "BEEPER_MCP_TOKEN": "tok", "WHISPER_URL": whisper.url, "LIVE_POLL_S": "0.2", "ARCHIVE_POLL_S": "0", "IDA_URL": "", "DATA_DIR": __import__("tempfile").mkdtemp(),
                        "FRONTEND_DIR": os.path.join(os.path.dirname(__file__), "..", "..", "frontend")})
     from fastapi.testclient import TestClient
 

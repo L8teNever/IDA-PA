@@ -7,15 +7,18 @@ Unterhaltungen lesen, Nachrichten schreiben, auf Nachrichten antworten, Bilder s
 Browser (chats.kulbarts.com, Cloudflare Access) ──> chats :8000 ──MCP──> Beeper Desktop (beeper.kulbarts.com/v0/mcp)
 ```
 
-* **Fast kein eigener Speicher.** Chats und Nachrichten liegen in Beeper Desktop; der Dienst merkt sich nur gesehene Nachrichten (siehe „Löschen und gelöschte Nachrichten“). Der Dienst spricht dessen MCP-Adresse an (`BEEPER_MCP_URL`) mit dem Bearer-Token `BEEPER_MCP_TOKEN` an – dem Zugang, den IDA beim Beeper-Anbieter speichert.
+* **Fast kein eigener Speicher.** Chats und Nachrichten liegen in Beeper Desktop; der Dienst merkt sich nur gesehene Nachrichten (siehe „Löschen und gelöschte Nachrichten“) und die Texte umgewandelter Sprachnachrichten (siehe „Sprachnachrichten“). Der Dienst spricht dessen MCP-Adresse an (`BEEPER_MCP_URL`) mit dem Bearer-Token `BEEPER_MCP_TOKEN` an – dem Zugang, den IDA beim Beeper-Anbieter speichert.
   dieselbe wie beim Beeper-Anbieter in IDA).
 * **Live, aber sparsam:** Nur solange die App irgendwo offen (und sichtbar) ist, fragt der Dienst alle `LIVE_POLL_S` Sekunden (Standard 5)
   die 30 zuletzt aktiven Chats ab und meldet geänderte per Server-Sent Events (`/api/v1/stream`). Ohne offene App fragt er nichts ab.
 * **Medien:** Bilder, Sprachnachrichten und Videos holt der Dienst über `get_attachment_image` (liefert die Datei als Binärteil) und reicht
   sie unter `/api/v1/media` mit Range-Unterstützung (Spulen, iPhone) weiter; bis 60 MB je Datei, im Speicher zwischengehalten (120 MB).
   Nur Bild-, Audio- und Videotypen werden angezeigt, alles andere (HTML, SVG …) nur als Download.
-* **Sprachnachrichten:** eigener Player (Wellenform, Tempo 1×/1,5×/2×, Spulen). Den Text liefert Beeper oft schon mit; sonst wandelt ihn das
-  lokale Whisper-Modell in Beeper um (`/api/v1/transcript`).
+* **Sprachnachrichten:** eigener Player (Wellenform, Tempo 1×/1,5×/2×, Spulen). Den Text liefert Beeper oft schon mit; sonst wandelt ihn je nach Einstellung Beeper
+  oder das **lokale Whisper-Modell** (Dienst `whisper`, large-v3-turbo, docs/WHISPER.md) um (`/api/v1/transcript`). Einstellungen → **Sprachnachrichten als Text**: „Umwandeln mit“ (Beeper oder Lokal) und
+  „Automatisch umwandeln“ (neue Sprachnachrichten von selbst, sonst erst beim Antippen des Text-Symbols; bei „Automatisch“ steht der Text gleich unter der Nachricht). **Jeder Text wird einmal
+  umgewandelt und in `chats.db` gesichert** (Tabelle `transcripts`, Volume `chats-data`; `stt.py`, `store.sync_transcripts()`), bleibt also bei Updates erhalten und gilt auf allen Geräten.
+  Texte, die Beeper schon mitliefert, werden beim Laden gleich mitgesichert. Dauert die Umwandlung über 50 s, antwortet `/transcript` mit `pending` und die Seite fragt weiter an (Cloudflare-Limit ~100 s). Die Automatik läuft auf dem Server (auch bei geschlossener App) nur für neue, höchstens einen Tag alte Nachrichten anderer.
 * **Bedienung:** Fremde Nachrichten nach rechts, eigene nach links wischen (oder Pfeil am PC) antwortet darauf; langes Drücken am Handy bzw. Rechtsklick am PC öffnet das
   Menü (Antworten, Text kopieren, Datei öffnen); Tippen aufs Bild öffnet die Vollansicht.
 * **Adressen für Bild und Video:** Ein geöffnetes Bild bekommt `/chat/<id>/foto/<Nachricht>` (bei mehreren Bildern in einer Nachricht `/<Nr>`),
@@ -56,12 +59,54 @@ Browser (chats.kulbarts.com, Cloudflare Access) ──> chats :8000 ──MCP─
   **Sammelchats von Beeper** (mehrere Chats in Beeper zu einem verbunden, REST-Feld `merge.chatIDs`; nicht zu verwechseln mit dem Zusammenführen nur in IDA Chats): Auf dem Sammelchat selbst
   lehnt Beeper `/read` ab (500, ohne Ungelesenes 404). Der Dienst markiert deshalb die Chats dahinter als gelesen (nur die mit Ungelesenem; ein Chat, den Beeper nicht mehr kennt, wird
   übersprungen). Geht einer nicht, kommen die übrigen trotzdem dran und erst danach kommt der Fehler – so auch bei in IDA Chats zusammengeführten Chats. Der Knopf „Als gelesen markieren“ sitzt wie in Beeper als Pille unten über dem Eingabefeld, über der ersten ungelesenen Nachricht steht eine Trennlinie „N ungelesen“. Umfragen sind noch nicht eingebaut.
+  **Netzwerk eines Sammelchats:** Er hat selbst keins (Konto `matrix`, in der Liste leer – die App hätte „Chat“ gezeigt). Der Dienst (`beeper_nets`, 1 h gemerkt) setzt bei Chats ohne Netzwerk die Konten der Chats dahinter als `konto1|konto2` ein (Liste, Pins, Chat-Info, Zusammenführungen). Die App nimmt das erste Konto fürs Abzeichen und nennt alle („Instagram + WhatsApp“); App-Regeln („Automatisch als gelesen“, „Auf der Startseite“ pro App) gelten für solche Chats nicht. Chats, die Beeper nicht mehr kennt, bleiben bei „Chat“.
 * **Schnell laden:** Nachrichten kommen über die REST-API (`GET /v1/chats/{id}/messages`, ~100 ms), nur wenn die nicht geht über MCP.
   Ältere Seiten hält der Dienst 10 Minuten im Speicher; die Seite holt die nächste ältere Seite schon im Hintergrund („Ältere laden“ ist sofort da)
   und merkt sich pro Chat die letzten 150 Nachrichten (40 Chats, `localStorage`), so steht ein Chat beim Öffnen sofort da und wird dann aufgefrischt.
   Geladene Profilbilder werden beim Neuzeichnen nicht neu eingeblendet.
 * **Anpinnen:** Langes Drücken (am PC Rechtsklick) auf einen Chat in der Liste → „Anpinnen“, höchstens 3. Das sind echte Beeper-Pins
   (`PATCH /v1/chats/{id}` mit `isPinned`), sie stehen also auch in Beeper oben. In der Liste erscheinen sie ganz oben als große runde Profilbilder nebeneinander (Name darunter, Zähler am Bild) und nicht mehr als Zeilen. Welche angepinnt sind, liest `GET /api/v1/pins` aus `GET /v1/chats` (60 s gemerkt).
+* **Systemhinweise:** Hinweise des Netzwerks erkennt der Dienst als `sys` (`is_system()`): Typ `NOTICE` (Snapstreak gestartet/beendet, Verlauf gesendet …) oder eine Nachricht ganz ohne
+  `type` und ohne `isDeleted` (Signal und Snapchat-Gruppen: „… left/joined the chat“, „… was invited …“, „Disappearing messages turned off“; die Kino-News des WhatsApp-Bots haben auch kein
+  `type`, aber `isDeleted` – das sind echte Inhalte). `bubble()` zeichnet sie nicht als Blase, sondern als kleine
+  graue Zeile in der Mitte mit Symbol (`isSys()`, `sysIcon()`, Klasse `.sysrow`) – ohne Absender, ohne Menü und ohne Wischen zum Antworten. Die Texte bleiben, wie Beeper sie liefert (englisch).
+* **Sprachnachrichten verschieben:** Das Wellenbild antippen oder ziehen springt an die Stelle (`seekTo()`, Zeiger-Ereignisse auf `.wave`, wie in WhatsApp). Beim Ziehen zeigen Balken, ein Griff (`.knob`) und die Zeit
+  die Stelle; losgelassen wird dorthin gesprungen, eine laufende Nachricht spielt von dort weiter, eine fremde wird geladen und gespielt. Senkrechtes Wischen scrollt weiter den Chat und bricht das Ziehen ab;
+  Halten im Wellenbild öffnet kein Nachrichten-Menü.
+* **Später senden:** Beeper kann das in seiner API nicht – der Dienst übernimmt es (`app/schedule.py`, Tabelle `scheduled` in `chats.db`, Takt alle 10 s auch bei geschlossener App).
+  Senden-Knopf lange drücken (oder Rechtsklick) → Fenster `pickWhen()`: In 1 Stunde, Heute Abend (20:00), Morgen früh (08:00), am Wochenende Montag früh oder eigene Zeit; Schalter
+  **„Nur, wenn ich nichts schreibe“** (merkt sich die Wahl auf dem Gerät). Gesendet wird über denselben Weg wie jede Nachricht (`api.send`), mit Antwort-Bezug und Erwähnungen; bei
+  zusammengeführten Chats über das gerade gewählte Netzwerk. `POST /api/v1/chats/{id}/schedule`, `GET /api/v1/scheduled`, `PATCH`/`DELETE /api/v1/scheduled/{id}`, `POST …/{id}/send` (jetzt senden).
+  **Nur wenn ich nichts schreibe:** Beim Fälligwerden prüft der Takt die neuesten Nachrichten des Chats (bei Zusammenführung aller Chats der Gruppe): Hat der Nutzer seit dem Planen selbst etwas
+  geschickt (Reaktionen und Hinweise zählen nicht, ebenso nicht, was der Takt selbst aus Geplantem gesendet hat), wird nicht gesendet (Status `skipped`). Lässt sich das nicht prüfen, wird später
+  erneut versucht. **Stati:** `pending` (steht aus), `sent` (jetzt eine normale Nachricht, verschwindet aus der Liste), `skipped`, `missed` (der Dienst war länger als 30 Minuten über die Zeit hinaus aus –
+  nicht mehr senden), `failed` (3 Versuche im Abstand von 30 s). Nicht Gesendetes bleibt 3 Tage sichtbar, bis man es verwirft oder neu plant. Im Chat steht Geplantes als gestrichelte Blase ganz unten
+  (Antippen: jetzt senden, Zeit ändern, „nur wenn ich nichts schreibe“ umschalten, zurück ins Eingabefeld, abbrechen), in der Liste ein Symbol, in den Einstellungen eine Übersicht. Der Dienst meldet
+  Änderungen per SSE (`type: sched`). Nur Text (keine Anhänge), nicht für Ida und WebUntis.
+* **Plus-Menü:** Das Plus unter dem Eingabefeld öffnet unter dem Feld eine Leiste (Galerie, Kamera, Dateien) und wird zum Kreuz (`attachMenu()`, `#attpanel`). In der Android-App steht darunter ein
+  Raster der letzten 60 Fotos und Videos, die erste Kachel ist die Kamera. Antippen holt die Datei über die Brücke und öffnet die Vorschau mit Bildunterschrift (`pickNative()`, `pickFiles()`).
+  Ein Browser darf die Galerie nicht lesen – ohne die Brücke (`NATIVE.mediaList`) gibt es nur die Leiste. Mehrere Dateien auf einmal: Chip „Galerie“. Details der Brücke: `docs/CHATS-ANDROID.md`.
+* **Angepinnte Nachrichten:** Beeper hat dafür kein Feld, nur den Hinweis `NOTICE` „Pinned a message“ mit `linkedMessageID` auf die Nachricht. `GET /api/v1/chats/{id}/pins` sucht diese Hinweise
+  (`/v1/messages/search`, Wort „pinned“, `dateAfter`) und holt die Nachrichten dazu; die Oberfläche zeigt unter dem Kopf eine Leiste (`pinBar()`), Antippen springt zur Nachricht (lädt bei Bedarf
+  den Verlauf nach), bei mehreren der Reihe nach. **Grenze:** Aufheben und Ablaufen eines Pins meldet Beeper nicht (es gibt keinen „Unpinned“-Hinweis) – darum zählen nur Pins der letzten
+  `PIN_DAYS` = 7 Tage (WhatsApp-Standard), neueste zuerst, höchstens 3.
+* **Geteilte Instagram-Beiträge:** Beeper schickt einen geteilten Beitrag als **eine** Nachricht: das Bild des Beitrags als Datei und als Text `Benutzername Beschreibung` mit dem Link direkt dahinter
+  (ohne Leerzeichen) und gleich noch einmal `(Link?is_sponsored=…)` – die Klammer unterscheidet ihn von einem getippten Link. `igShare()` erkennt das, `bubble()` zeichnet daraus **eine Karte** (`igHtml()`, Klasse `igcard`):
+  das echte Bild in seinem Seitenverhältnis (Tipp öffnet es groß), darunter Instagram-Symbol, Benutzername (Tipp öffnet den Beitrag bei Instagram) und die Beschreibung (6 Zeilen, Tipp klappt auf), kein Rohtext mit
+  zwei Links und nicht mehr das zugeschnittene Vorschaubild der Seite zusätzlich. Ohne Datei (reiner Text-Beitrag) gibt es die Karte mit dem Vorschaubild der Seite, mit mehreren Dateien bleibt es beim alten Bild. Reels als
+  reiner Link bleiben die bisherige Linkkarte mit Abspielen (`soleLink()`). Zitate und die Antwortleiste zeigen „Name · Beschreibung“ (`quoteText()`).
+* **Menü beim langen Drücken:** Reaktionsleiste, Nachricht und Aktionen stehen so nah an der echten Stelle wie möglich, aber ganz im Bild – oben unterhalb der Statusleiste, unten oberhalb der Gestenleiste
+  (`inset()` misst `env(safe-area-inset-*)`; in der Android-App oben mindestens 28 px). Früher las `place()` eine nie gesetzte Variable `--sat`: der Abstand war 0, und bei einer Nachricht ganz oben lag die
+  Reaktionsleiste unter der Statusleiste, wo man nicht tippen kann.
+* **Smart Copy:** Im Nachrichten-Menü „Text kopieren“ **gedrückt halten** (450 ms, am PC Rechtsklick; ein kleiner Funken am Knopf zeigt es an) → Blatt „Smart Copy“ (`smartCopy()`): oben die ganze Nachricht,
+  darunter jeder kopierbare Teil als eigene Zeile mit Symbol und Name – Bestätigungscode, E-Mail-Adresse, Telefonnummer, Adresse, Link, IBAN, Datum, Uhrzeit, Betrag, Nummer (Bestell-, Rechnungs-, Sendungsnummer, Kennungen, Nummern in Blöcken), Sonstiges (Benutzernamen, WLAN …). Bewusst großzügig: alles Sinnvolle, nur kleine Zahlen im Fließtext („3 Katzen“) nicht. Ein Tipp kopiert genau diesen Wert und schließt das Blatt.
+  Ablauf: Die einfache Erkennung des Dienstes (`smartcopy.local_items()`, Regeln für Codes mit Stichwort, E-Mail, Telefon, deutsche Straße + PLZ/Ort, Links, IBAN mit Prüfsumme, Datum, Uhrzeit, Betrag, Nummern ab 4 Ziffern oder Buchstaben+Ziffern) zeigt ihre Treffer sofort
+  (`POST /api/v1/smartcopy` mit `fast`), während **Claude Haiku** (`cheap_model`, „Claude Haiku 5.5“) die Nachricht liest: der Dienst fragt IDA (`IDA_URL`, `POST /api/v1/smartcopy/haiku`, `backend/app/api/smartcopy.py`,
+  bei Limit der nächste Claude-Account) nach einem JSON-Array `{type, label, value}`. **Haikus Werte zählen nur, wenn sie wörtlich in der Nachricht stehen** (`present()`: Codes, Telefon-/sonstige Nummern und IBANs als ganze Zahl,
+  nur Leerzeichen/Bindestriche dürfen anders stehen) – Erfundenes fliegt raus. Das Ergebnis ist die Vereinigung beider (Haikus Namen zuerst, gleiche Werte nur einmal, höchstens 20), eine Stunde gemerkt;
+  ein Fehler wird nicht gemerkt. Ist Haiku nicht erreichbar oder am Limit, bleibt die einfache Erkennung („Einfache Erkennung – Haiku war gerade nicht erreichbar“). Die Nachricht geht dafür an Claude.
+* **Umfragen:** Beeper liefert von einer Umfrage nur die Frage als Text, ohne Typ, ohne Optionen und ohne Stimmen (REST-`Message` hat keine Umfragefelder, der Chat nur die Fähigkeit `poll`;
+  die Matrix-Ereignisse sind verschlüsselt und lassen sich Beepers Nachrichten-IDs nicht zuordnen). Eine Umfrage ist darum von einer gewöhnlichen Nachricht nicht zu unterscheiden und erscheint als Text.
 * **Zusammenführen:** Langes Drücken auf einen Chat → „Mit anderem Chat zusammenführen“. Das passiert nur in IDA Chats (Tabelle `merges` in
   `chats.db`), Beeper bleibt unberührt. Die Gruppe heißt nach dem ersten Chat, ihre ID ist dessen ID. `GET /api/v1/chats/{gruppe}/messages` liefert
   alle Chats als einen Verlauf; jede Nachricht hat `chat` und `mid` (echte ID), `id` ist `chat~mid`, der Cursor merkt sich pro Chat den Stand.
@@ -69,6 +114,10 @@ Browser (chats.kulbarts.com, Cloudflare Access) ──> chats :8000 ──MCP─
   Eingabefeld und Senden-Knopf tragen die Farbe des Netzwerks, über das gerade gesendet wird.
   **Filter:** In einem zusammengeführten Chat sitzt oben rechts ein Filter-Knopf (`filterBtn()`, `filterMenu()`): „Alle Apps“ oder nur eine App (z. B. nur WhatsApp). `drawMsgs()` zeichnet dann
   nur die Nachrichten dieses Chats (`m.chat`), `S.msgs` bleibt vollständig, ebenso Zwischenspeicher und Nachladen; geschrieben wird mit Filter über dieselbe App (`target()`).
+  Wählt man unten im Eingabefeld ein anderes Sendeziel, solange gefiltert wird, wechselt der Filter auf dieses Netzwerk mit.
+  **Nachladen und Abgleich rechnen je Chat:** Die neueste Seite eines zusammengeführten Chats besteht aus der neuesten Seite *jedes* Chats der Gruppe, und die reichen verschieden weit zurück. Darum gelten der
+  Zeitraum, in dem Fehlendes als gelöscht zählt (`staleTest()` in `loadMsgs()`), und die Frage, ob der Verlauf schon tiefer geladen ist als die neueste Seite (`deeper()`), pro Chat (`m.chat`) – sonst warf der Abgleich alle 5 s
+  den nachgeladenen Verlauf des regen Chats heraus und schob beim Hochwischen nach unten. Beim Nachladen älterer Seiten wird nie etwas entfernt.
   Der Knopf ist hervorgehoben, solange gefiltert wird. Einstellungen → „Filter im Chat“ → „Filter merken“ (nur auf diesem Gerät, `localStorage` `chats-filter-keep`/`chats-filter`):
   aus (Standard) = beim Verlassen des Chats springt der Filter auf „Alle Apps“ zurück, an = er bleibt pro Chat, bis man ihn ändert.
   Aufheben bzw. einen Chat herausnehmen fragt vorher nach (eigenes Blatt `sure()`, kein `confirm()` – das zeigt die WebView der APK nicht sicher).
@@ -90,13 +139,13 @@ Browser (chats.kulbarts.com, Cloudflare Access) ──> chats :8000 ──MCP─
 
 ## Einrichten
 
-1. `.env`: `BEEPER_MCP_URL=https://beeper.kulbarts.com/v0/mcp`, `BEEPER_MCP_TOKEN=…`, `CHATS_PORT=10.7.0.1:8454`, optional `CHATS_PUBLIC_URL`. `docker compose up -d chats korrektur`.
+1. `.env`: `BEEPER_MCP_URL=https://beeper.kulbarts.com/v0/mcp`, `BEEPER_MCP_TOKEN=…`, `CHATS_PORT=10.7.0.1:8454`, optional `CHATS_PUBLIC_URL`. `docker compose up -d chats korrektur whisper`.
 2. Cloudflare: Access-App für `chats.kulbarts.com` (wie IDA), dann Tunnel-Route → `http://10.7.0.1:8454` (über das Dashboard).
 
 ## API (für die Oberfläche)
 
 `GET /api/v1/chats?q=&unread=&inbox=&cursor=` · `GET /api/v1/chats/{id}/messages?cursor=&direction=` ·
-`POST /api/v1/chats/{id}/send` `{text, reply_to}` · `GET /api/v1/image?src=` · `GET /api/v1/transcript?src=` · `GET /api/v1/stream` (SSE)
+`POST /api/v1/chats/{id}/send` `{text, reply_to}` · `GET /api/v1/image?src=` · `GET /api/v1/transcript?src=&mime=` · `GET /api/v1/stt/local` · `GET /api/v1/stream` (SSE; auch `{type: "stt"}`, wenn die Automatik einen Text fertig hat)
 
 ## Löschen und gelöschte Nachrichten
 
@@ -106,6 +155,9 @@ Browser (chats.kulbarts.com, Cloudflare Access) ──> chats :8000 ──MCP─
 - **Gelöschtes bleibt lesbar:** Der Dienst merkt sich jede Nachricht, die er einmal gesehen hat (`chats.db` im Volume `chats-data`,
   `DATA_DIR=/data`). Meldet Beeper eine Nachricht später als gelöscht, steht in der Blase „Diese Nachricht wurde gelöscht“ und darunter
   der frühere Inhalt. Anhänge sind nur noch da, solange Beeper die Datei noch liefert.
+- **Bearbeitete Nachrichten:** Ändert sich der Text einer gemerkten Nachricht, legt der Dienst die alte Fassung in `chats.db` (Tabelle `edits`) ab und
+  liefert sie als `prev` (älteste zuerst). In der Blase ist „bearbeitet ▾“ antippbar und zeigt die früheren Fassungen durchgestrichen darunter.
+  Nur was der Dienst vor der Bearbeitung schon gesehen hatte, ist dabei.
 - **Merken im Hintergrund:** Auch bei geschlossener App fragt der Dienst alle `ARCHIVE_POLL_S` Sekunden (Standard 60, 0 = aus) die
   30 zuletzt aktiven Chats ab und lädt geänderte einmal. Was innerhalb dieser Zeit geschickt und wieder gelöscht wird, fehlt.
 
@@ -219,6 +271,21 @@ Beeper bleibt unberührt – außer beim Archivieren. Benachrichtigungen ändert
 selbst 0 meldet (dauert ein paar Sekunden, bei Snapchat länger) oder eine neue Nachricht kommt. Früher wurde der Merker nach der
 Antwort des Dienstes gelöscht; lieferte Beeper kurz danach noch die alte Zahl, sprang der Chat zurück auf ungelesen. Leiste und
 Trennlinie „… ungelesen“ blenden sanft aus.
+
+### Automatisch als gelesen
+
+Pro Chat (Chat öffnen → oben auf den Namen → „Automatisch als gelesen“) und pro App (Einstellungen → „Automatisch als gelesen“,
+z. B. alle SMS-Chats). Zwei Stufen: **Beim Öffnen** (die Seite markiert den Chat gelesen, sobald er offen ist) und **Sofort** (der Dienst
+markiert neue Nachrichten in Beeper gleich als gelesen, auch ohne offene App – keine Meldung aufs Handy; schon Ungelesenes bleibt, bis
+etwas Neues kommt).
+
+- **Reihenfolge:** eigene Einstellung des Chats → Einstellung seiner Gruppe → Regel der App. Am Chat nimmt **Aus** ihn von der App-Regel
+  aus (gespeichert als `off`), „Wie alle SMS-Chats“ löscht seine eigene Einstellung.
+- **Zusammengeführte Chats** folgen der App-Regel nicht (wie bei „Auf der Startseite“); sie haben nur eine eigene Einstellung.
+- **Schnittstellen:** `GET /autoread` → `{items, nets}`, `PUT /chats/{id}/autoread` mit `mode` = `open` | `always` | `off` | `""`,
+  `PUT /nets/{app}/autoread` mit `mode` = `open` | `always` | `""` (App = Schlüssel wie `gmessages` für SMS, `whatsapp`, …). Gespeichert in
+  `chats.db` (Tabellen `autoread`, `autoread_net`), gilt auf allen Geräten. Der Dienst ordnet Beepers Konto-Text (`gmessages.…`) mit
+  `org.net_key` derselben App zu wie die Seite mit `netKey`.
 
 ## Geteilte Beiträge und Links
 

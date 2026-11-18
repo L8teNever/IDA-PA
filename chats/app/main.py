@@ -10,7 +10,7 @@ from fastapi import FastAPI
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import api, ida, live, org, push, untis
+from . import api, ida, live, org, push, schedule, smartcopy, stt, untis
 from .config import get_settings
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -42,11 +42,13 @@ async def lifespan(app: FastAPI):
     task = asyncio.create_task(live.loop())
     ida_task = asyncio.create_task(ida.loop())   # Idas Benachrichtigungen (Chat „Ida“)
     untis_task = asyncio.create_task(untis.loop())   # neue WebUntis-Nachrichten
+    sched_task = asyncio.create_task(schedule.loop())   # „Später senden“: Geplantes zur Zeit abschicken
     log.info("Chats bereit")
     yield
     task.cancel()
     ida_task.cancel()
     untis_task.cancel()
+    sched_task.cancel()
     if api._beeper:
         await api._beeper.close()
 
@@ -57,6 +59,9 @@ def create_app() -> FastAPI:
     app.include_router(ida.router)   # vor api: /chats/ida/… ist der Chat mit Ida, nicht Beeper
     app.include_router(untis.router)   # vor api: /chats/untis:…/… sind WebUntis-Nachrichten
     app.include_router(api.router)
+    app.include_router(schedule.router)
+    app.include_router(stt.router)
+    app.include_router(smartcopy.router)
     app.include_router(push.router)
     app.include_router(org.router)
 

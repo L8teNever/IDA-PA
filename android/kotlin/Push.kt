@@ -19,6 +19,7 @@ import android.graphics.PorterDuffXfermode
 import android.graphics.Rect
 import android.net.Uri
 import android.os.Build
+import android.os.Looper
 import android.webkit.CookieManager
 import android.webkit.JavascriptInterface
 import android.webkit.WebView
@@ -223,6 +224,31 @@ class Bridge(private val act: MainActivity, private val web: WebView) {
     @JavascriptInterface fun dismiss(chat: String) = act.runOnUiThread { if (own()) Push.dismiss(act, chat) }
 
     @JavascriptInterface fun pendingChat(): String { val p = Push.pending.orEmpty(); Push.pending = null; return p }
+
+    // --- Letzte Fotos und Videos fürs Plus-Menü (Media.kt). Die Seite ruft das von einem anderen Thread: Die Adressprüfung läuft deshalb auf
+    // dem UI-Thread (WebView.getUrl darf nur dort aufgerufen werden); Fehler kommen nie bis zur Seite durch, sondern als leere Antwort. ---
+    private fun ownSync(): Boolean {
+        if (Looper.myLooper() == Looper.getMainLooper()) return own()
+        val ok = java.util.concurrent.atomic.AtomicBoolean(false)
+        val done = java.util.concurrent.CountDownLatch(1)
+        act.runOnUiThread { try { ok.set(own()) } finally { done.countDown() } }
+        return done.await(2, java.util.concurrent.TimeUnit.SECONDS) && ok.get()
+    }
+
+    private fun media(empty: String, run: () -> String): String =
+        try { if (ownSync() && Media.allowed(act)) run() else empty } catch (e: Throwable) { empty }
+
+    @JavascriptInterface fun mediaState(): String = if (try { ownSync() && Media.allowed(act) } catch (e: Throwable) { false }) "yes" else "no"
+
+    @JavascriptInterface fun mediaAsk() = act.runOnUiThread { if (own()) Media.ask(act) }
+
+    @JavascriptInterface fun mediaList(limit: Int): String = media("[]") { Media.list(act, limit.coerceIn(1, 120)) }
+
+    @JavascriptInterface fun mediaThumb(id: String, video: Boolean): String = media("") { Media.thumb(act, id.toLong(), video) }
+
+    @JavascriptInterface fun mediaInfo(id: String, video: Boolean): String = media("{}") { Media.info(act, id.toLong(), video) }
+
+    @JavascriptInterface fun mediaChunk(id: String, video: Boolean, off: Int, len: Int): String = media("") { Media.chunk(act, id.toLong(), video, off, len) }
 
     fun open(chat: String) = act.runOnUiThread { event("ida-open", JSONObject().put("chat", chat)) }
 }

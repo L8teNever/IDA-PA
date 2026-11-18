@@ -10,6 +10,7 @@ import re
 import shutil
 import tempfile
 import time
+from datetime import datetime, timedelta, timezone
 from urllib.parse import quote
 
 import httpx
@@ -35,7 +36,6 @@ SRC = re.compile(r"^(mxc|localmxc|beeper-mcp)://[\w./:%@!~+=?&-]{1,4000}$")
 LOCAL = re.compile(r"^file:///[A-Za-z]:/Users/[^/\\]{1,100}/AppData/Roaming/BeeperTexts/media/[\w.@!~+=-]{1,200}(/[\w.@!~+=-]{1,200}){0,4}$")
 
 _beeper: Beeper | None = None
-_voice: dict[str, str] = {}
 
 
 def beeper() -> Beeper:
@@ -153,11 +153,19 @@ def media_src(src) -> str:
     return src if isinstance(src, str) and (SRC.match(src) or is_local(src)) else ""
 
 
+def is_system(m: dict) -> bool:
+    """Hinweis des Netzwerks statt Nachricht von jemandem: Beeper-Typ NOTICE (Snapstreak gestartet/beendet, Verlauf gesendet …) oder – so kommen bei
+    Signal und in Snapchat-Gruppen „X left the chat“, „joined“, „was invited“, „Disappearing messages turned off“ an – eine Nachricht ganz ohne
+    Typ und ohne isDeleted. Echte Inhalte haben beides (auch die des WhatsApp-Bots, die ohne Typ kommen, aber isDeleted tragen)."""
+    t = (m.get("type") or "").upper()
+    return bool((m.get("text") or "").strip()) and (t == "NOTICE" or (not t and "isDeleted" not in m))
+
+
 def message(m: dict, me: set[str] | None = None, names: dict[str, str] | None = None) -> dict:
     return {
         "read_by": seen_by(m, me or set(), names or {}), "sender_id": m.get("senderID") or "",
         "id": m.get("id"), "at": m.get("timestamp"), "mine": bool(m.get("isSender")), "sender": m.get("senderName") or "",
-        "type": (m.get("type") or "TEXT").upper(), "text": plain(m.get("text") or ""), "deleted": bool(m.get("isDeleted")), "edited": bool(m.get("editedTimestamp")),
+        "type": (m.get("type") or "TEXT").upper(), "sys": is_system(m), "text": plain(m.get("text") or ""), "deleted": bool(m.get("isDeleted")), "edited": bool(m.get("editedTimestamp")),
         "reply_to": m.get("linkedMessageID") or None, "reactions": reactions(m, me),
         # Erwähnungen: wen (IDs) – und ob du gemeint bist (auch @room = alle)
         "mentions": [x for x in m.get("mentions") or [] if isinstance(x, str)][:50],
@@ -222,6 +230,7 @@ async def chats(q: str = "", unread: bool = False, inbox: str = "primary", curso
         prev = {}
     for c in items:
         c["last"] = preview(prev.get(c["id"]), c.get("type") == "group")
+    await fill_nets(items)
     if push.snaps_quiet():
         items = await quiet_snaps(items)
         if unread:
@@ -301,6 +310,48 @@ async def rest_chats() -> list[dict]:
     return _chats_cache[1]
 
 
+# Sammelchats von Beeper (mehrere Chats in Beeper zu einem verbunden) haben selbst kein Netzwerk (Konto „matrix“, in der Liste leer) –
+# die App hätte „Chat“ gezeigt. Stattdessen: die Konten der Chats dahinter, getrennt mit „|“ („whatsapp.49…|instagramgo.178…“).
+# Reihenfolge wie bei Beeper; das Frontend nimmt das erste fürs Abzeichen und zählt alle auf. Auch ein Chat, den Beeper nicht mehr kennt, bleibt leer.
+BEEPER_ONLY = ("", "matrix", "beeper", "hungryserv")
+_nets_cache: dict[str, tuple[float, str]] = {}
+NETS_TTL = 3600
+_nets_sem = asyncio.Semaphore(6)
+
+
+async def beeper_nets(chat_id: str) -> str:
+    """„konto1|konto2“ eines Beeper-Sammelchats, sonst „“ (kein Sammelchat / nicht gefunden)."""
+    hit = _nets_cache.get(chat_id)
+    if hit and time.monotonic() - hit[0] < (NETS_TTL if hit[1] else 600):
+        return hit[1]
+    out = ""
+    try:
+        async with _nets_sem:
+            r = await rest_get(f"/v1/chats/{quote(chat_id, safe='')}")
+            subs = [x for x in ((r.json().get("merge") or {}).get("chatIDs") or []) if isinstance(x, str)] if r.status_code < 400 else []
+
+            async def acc(sid: str) -> str:
+                g = await rest_get(f"/v1/chats/{quote(sid, safe='')}")
+                return str((g.json() if g.status_code < 400 else {}).get("accountID") or "").lower()
+            nets = [a for a in await asyncio.gather(*(acc(s) for s in subs)) if a and a not in BEEPER_ONLY]
+        out = "|".join(dict.fromkeys(nets))
+    except (HTTPException, ValueError):
+        return ""   # nicht merken: beim nächsten Mal noch einmal versuchen
+    if len(_nets_cache) > 2000:
+        _nets_cache.clear()
+    _nets_cache[chat_id] = (time.monotonic(), out)
+    return out
+
+
+async def fill_nets(items: list[dict]) -> list[dict]:
+    """Setzt bei Beeper-Sammelchats ohne eigenes Netzwerk die Konten der Chats dahinter (siehe beeper_nets)."""
+    todo = [c for c in items if (c.get("network") or "").lower() in BEEPER_ONLY and re.fullmatch(r"\d{1,12}", str(c.get("id") or ""))]
+    for c, n in zip(todo, await asyncio.gather(*(beeper_nets(str(c["id"])) for c in todo))):
+        if n:
+            c["network"] = n
+    return items
+
+
 def preview(p, group: bool) -> dict | None:
     if not isinstance(p, dict):
         return None
@@ -352,16 +403,23 @@ def shape_messages(d: dict, chat_id: str = "") -> dict:
     names = {m["senderID"]: m["senderName"] for m in raw if m.get("senderID") and m.get("senderName") and not m.get("isSender")}
     items = [message(m, me, names) for m in raw]
     items.reverse()   # Beeper liefert neueste zuerst; die Seite will alt → neu
+    try:
+        store.sync_transcripts(items)   # Sprachnachrichten: gespeicherten Text einsetzen, Beepers eigenen sichern (stt.py)
+    except Exception as e:  # noqa: BLE001 – der Merkzettel darf das Laden nie verhindern
+        log.warning("Umwandlungen nicht lesbar: %s", e)
     if chat_id:
         items = keep_deleted(chat_id, items)
+        from . import stt   # erst hier: stt braucht api
+        stt.auto(chat_id, items)   # „Automatisch umwandeln“: neue Sprachnachrichten im Hintergrund
     return {"items": items, "more": bool(d.get("hasMore")), "oldest": d.get("oldestCursor"), "newest": d.get("newestCursor")}
 
 
 def keep_deleted(chat_id: str, items: list[dict]) -> list[dict]:
-    """Merkt sich alle Nachrichten; bei gelöschten hängt es an, was vorher drinstand ("was"). Für mich Gelöschtes fällt raus."""
+    """Merkt sich alle Nachrichten; bei gelöschten hängt es an, was vorher drinstand ("was"), bei bearbeiteten die früheren Fassungen ("prev"). Für mich Gelöschtes fällt raus."""
     try:
         known = store.recall(chat_id, [m["id"] for m in items if m.get("id")])
         store.remember(chat_id, [m for m in items if not m["deleted"]])
+        past = store.history(chat_id, [m["id"] for m in items if m.get("id") and m.get("edited")])
     except Exception:  # noqa: BLE001 – der Merkzettel darf das Laden nie verhindern
         return items
     out = []
@@ -369,12 +427,67 @@ def keep_deleted(chat_id: str, items: list[dict]) -> list[dict]:
         k = known.get(str(m["id"]))
         if k and k["hidden"]:
             continue
+        if past.get(str(m["id"])) and not m["deleted"]:
+            m["prev"] = past[str(m["id"])]   # frühere Fassungen einer bearbeiteten Nachricht, älteste zuerst
         if m["deleted"]:
             was = k if k and (k["text"] or k["files"]) else m
             m["was"] = {"text": was["text"], "files": was["files"]} if was["text"] or was["files"] else None
             m["text"], m["files"] = "", []
         out.append(m)
     return out
+
+
+# ---------------- Angepinnte Nachrichten (Leiste oben im Chat, wie in WhatsApp) ----------------
+PIN_DAYS = 7    # WhatsApp lässt Pins standardmäßig 7 Tage stehen (24 Std., 7 oder 30 Tage wählbar)
+PIN_MAX_SHOWN = 3
+PIN_NOTICE = re.compile(r"^pinned a message\.?$", re.I)
+MSG_ID = re.compile(r"^[\w!:.@=+$-]{1,300}$")
+
+
+@router.get("/chats/{chat_id}/pins")
+async def message_pins(chat_id: str):
+    """Angepinnte Nachrichten eines Chats. Beeper hat dafür kein Feld – nur den Hinweis „Pinned a message“ (Typ NOTICE) mit Verweis auf die
+    Nachricht (linkedMessageID). Dass ein Pin aufgehoben wurde oder abgelaufen ist, meldet Beeper nicht: darum zählen nur Pins der letzten
+    PIN_DAYS Tage, neueste zuerst. Bei zusammengeführten Chats tragen die Nachrichten `chat` und die ID chat~id wie im Verlauf."""
+    check_ids(chat_id)
+    members = group_members(chat_id)
+    after = (datetime.now(timezone.utc) - timedelta(days=PIN_DAYS)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    async def one(c: str) -> list[dict]:
+        if c.startswith("untis:") or c == "ida":
+            return []
+        try:
+            r = await rest_get("/v1/messages/search", query="pinned", chatIDs=[c], dateAfter=after, limit=20, excludeLowPriority="false")
+            hits = r.json().get("items", []) if r.status_code == 200 else []
+        except (HTTPException, ValueError):
+            return []
+        notes = sorted((m for m in hits if isinstance(m, dict) and (m.get("type") or "").upper() == "NOTICE" and PIN_NOTICE.match((m.get("text") or "").strip())
+                        and MSG_ID.match(str(m.get("linkedMessageID") or ""))), key=lambda m: m.get("timestamp") or "", reverse=True)
+        out, done = [], set()
+        for n in notes:
+            lid = str(n["linkedMessageID"])
+            if lid in done:
+                continue
+            done.add(lid)
+            try:
+                r = await rest_get(f"/v1/chats/{quote(c, safe='')}/messages/{quote(lid, safe='')}")
+                raw = r.json() if r.status_code == 200 else None
+            except (HTTPException, ValueError):
+                raw = None
+            if not isinstance(raw, dict) or raw.get("isDeleted"):
+                continue
+            x = message(raw, {raw["senderID"]} if raw.get("isSender") and raw.get("senderID") else set())
+            if members:
+                x["chat"], x["mid"], x["id"] = c, x["id"], f"{c}~{x['id']}"
+            x["pinned_at"], x["pinned_by"] = n.get("timestamp"), n.get("senderName") or ""
+            out.append(x)
+            if len(out) >= PIN_MAX_SHOWN:
+                break
+        return out
+
+    items = [x for part in await asyncio.gather(*(one(c) for c in members or [chat_id])) for x in part]
+    items.sort(key=lambda x: x.get("pinned_at") or "", reverse=True)
+    return {"items": items[:PIN_MAX_SHOWN], "days": PIN_DAYS}
 
 
 # ---------------- Suche im Chat (Text, Medien, Tag; bei zusammengeführten Chats auf Wunsch nur ein Netzwerk) ----------------
@@ -520,7 +633,9 @@ class Merge(BaseModel):
 @router.get("/merges")
 async def merges():
     meta = store.metas()
-    return {"items": [{"id": g, "chats": m, **meta.get(g, {"name": "", "avatar": "", "send": ""})} for g, m in store.groups().items()]}
+    groups = store.groups()
+    await fill_nets([m for ms in groups.values() for m in ms])   # gespeichert ist ggf. noch „“ von einem Beeper-Sammelchat
+    return {"items": [{"id": g, "chats": m, **meta.get(g, {"name": "", "avatar": "", "send": ""})} for g, m in groups.items()]}
 
 
 class MergeMeta(BaseModel):
@@ -1228,7 +1343,7 @@ async def pinned() -> list[dict]:
     except HTTPException:
         b_pins = []
     seen = {x["id"] for x in loc}
-    out = (loc + [x for x in b_pins if x["id"] not in seen])[:PIN_MAX]
+    out = await fill_nets((loc + [x for x in b_pins if x["id"] not in seen])[:PIN_MAX])
     _pins = (time.monotonic(), out)
     return out
 
@@ -1475,7 +1590,10 @@ async def about_one(chat_id: str) -> dict:
     people = [{"id": p["id"], "name": (p.get("fullName") or "").strip(), "phone": p.get("phoneNumber") or "", "username": p.get("username") or "",
                "email": p.get("email") or "", "admin": bool(p.get("isAdmin")), "self": bool(p.get("isSelf")), "bot": bool(p.get("isNetworkBot"))}
               for p in (d.get("participants") or {}).get("items", []) if isinstance(p, dict) and p.get("id")]
-    return {"id": chat_id, "title": (d.get("title") or "").strip(), "network": d.get("network") or d.get("accountID") or "",
+    net = d.get("network") or d.get("accountID") or ""
+    if (d.get("accountID") or "").lower() in BEEPER_ONLY:
+        net = await beeper_nets(chat_id) or net
+    return {"id": chat_id, "title": (d.get("title") or "").strip(), "network": net,
             "description": plain(d.get("description") or "")[:2000], "type": d.get("type") or "", "muted": bool(d.get("isMuted")),
             "archived": bool(d.get("isArchived")), "pinned": bool(d.get("isPinned")), "expiry": d.get("messageExpirySeconds") or 0,
             "total": int((d.get("participants") or {}).get("total") or len(people)), "people": people[:300]}
@@ -1529,18 +1647,6 @@ async def avatar(chat_id: str, user: str = ""):
     if not got:
         return Response(status_code=404, headers={"cache-control": "private, max-age=3600"})
     return Response(got[0], media_type=got[1], headers={"cache-control": "private, max-age=86400", "x-content-type-options": "nosniff"})
-
-
-@router.get("/transcript")
-async def transcript(src: str):
-    """Sprachnachricht als Text (lokales Whisper-Modell in Beeper)."""
-    check_src(src)
-    if src not in _voice:
-        text = (await call(beeper().text, "transcribe_voice_message", {"srcURL": src})).strip()
-        if len(_voice) > 300:
-            _voice.pop(next(iter(_voice)))
-        _voice[src] = text
-    return {"text": _voice[src]}
 
 
 @router.get("/stream")

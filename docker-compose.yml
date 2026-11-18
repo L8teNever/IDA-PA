@@ -136,7 +136,7 @@ services:
       com.centurylinklabs.watchtower.enable: "true"
 
   # IDA Chats – deine Beeper-Chats im IDA-Stil (lesen, schreiben, antworten, Bilder, Sprachnachrichten als Text, live). Chats liegen in Beeper Desktop,
-  # im Volume chats-data merkt er sich nur gesehene Nachrichten; der Dienst spricht dessen MCP-Adresse an (BEEPER_MCP_URL + Bearer-Token BEEPER_MCP_TOKEN).
+  # im Volume chats-data (chats.db) merkt er sich gesehene Nachrichten und die Texte umgewandelter Sprachnachrichten; der Dienst spricht dessen MCP-Adresse an (BEEPER_MCP_URL + Bearer-Token BEEPER_MCP_TOKEN).
   # Davor gehört Cloudflare Access (z. B. chats.kulbarts.com). Siehe docs/CHATS.md
   chats:
     image: ${CHATS_IMAGE:-ghcr.io/l8tenever/ida-chats:latest}
@@ -148,9 +148,10 @@ services:
       CHATS_PUBLIC_URL: ${CHATS_PUBLIC_URL:-}
       VOICE_PUBLIC_URL: ${VOICE_PUBLIC_URL:-}   # Mikrofon-Knopf in der Leiste unten: öffnet die Live-App (Stella) und startet das Gespräch
       KORREKTUR_URL: ${KORREKTUR_URL:-http://korrektur:8000}   # leer = keine Korrekturvorschläge
+      WHISPER_URL: ${WHISPER_URL:-http://whisper:8000}         # lokale Umwandlung von Sprachnachrichten (Dienst whisper); leer = nur Beeper
       IDA_URL: ${CHATS_IDA_URL:-http://app:8000}   # Tippfehler per Claude Haiku (Einstellungen → Tippfehler in IDA); leer = nur das lokale T5-Modell
     volumes:
-      - chats-data:/data       # chats.db: gemerkte Nachrichten (Gelöschtes bleibt lesbar)
+      - chats-data:/data       # chats.db: gemerkte Nachrichten (Gelöschtes bleibt lesbar), umgewandelte Sprachnachrichten (Text bleibt gesichert), Einstellungen, Geplantes
     ports:
       - "${CHATS_PORT:-8095}:8000"
     labels:
@@ -167,6 +168,23 @@ services:
     volumes:
       - korrektur-data:/data   # hf/: das heruntergeladene Modell
     mem_limit: ${KORREKTUR_MEM:-3g}
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"
+
+  # IDA Whisper – wandelt Sprachnachrichten aus IDA Chats lokal in Text um (Whisper large-v3-turbo, nur Prozessor). Kein Port nach außen:
+  # nur "chats" schickt hier die Audiodatei her (Einstellungen → Sprachnachrichten in IDA Chats: Beeper oder lokal). Das Modell (~1,6 GB)
+  # lädt beim ersten Start ins Volume whisper-data. Siehe docs/WHISPER.md
+  whisper:
+    image: ${WHISPER_IMAGE:-ghcr.io/l8tenever/ida-whisper:latest}
+    pull_policy: always
+    restart: unless-stopped
+    environment:
+      WHISPER_MODEL: ${WHISPER_MODEL:-large-v3-turbo}
+      WHISPER_THREADS: ${WHISPER_THREADS:-4}
+      WHISPER_LANGUAGE: ${WHISPER_LANGUAGE:-}    # leer = Sprache pro Nachricht erkennen; sonst z. B. de
+    volumes:
+      - whisper-data:/data     # hf/: das heruntergeladene Modell
+    mem_limit: ${WHISPER_MEM:-4g}
     labels:
       com.centurylinklabs.watchtower.enable: "true"
 
@@ -482,6 +500,7 @@ volumes:
   tasks-data:
   chats-data:
   korrektur-data:
+  whisper-data:
   docs-data:
   launcher-data:
   google-data:

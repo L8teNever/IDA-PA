@@ -20,6 +20,7 @@ class Settings(BaseSettings):
     page_size: int = 40
     data_dir: Path = Path("/data")  # chats.db: gemerkte Nachrichten (damit Gelöschtes lesbar bleibt)
     korrektur_url: str = ""         # Dienst "korrektur" (Tippfehler-Vorschläge beim Tippen); leer = aus
+    whisper_url: str = ""           # Dienst "whisper" (Sprachnachrichten lokal in Text umwandeln, Einstellungen → Sprachnachrichten); leer = nur Beeper
     ida_url: str = "http://app:8000"  # IDA (intern): Tippfehler per Claude Haiku + Engine-Einstellung; leer = nur T5
     push_poll_s: float = 10.0       # so oft fragt er, wenn ein Handy für Benachrichtigungen angemeldet ist (App zu); 0 = keine Benachrichtigungen
     android_package: str = "com.kulbarts.chats"   # Paketname der Android-App (android/), passend zur App in Firebase

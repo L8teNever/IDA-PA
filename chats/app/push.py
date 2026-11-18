@@ -17,6 +17,7 @@ from pydantic import BaseModel, Field
 
 from . import store
 from .config import get_settings
+from .org import net_key
 
 log = logging.getLogger("chats.push")
 router = APIRouter(prefix="/api/v1")
@@ -28,6 +29,7 @@ def _db():
     d.execute("CREATE TABLE IF NOT EXISTS push_subs (endpoint TEXT PRIMARY KEY, p256dh TEXT, auth TEXT, at REAL)")
     d.execute("CREATE TABLE IF NOT EXISTS mutes (chat TEXT PRIMARY KEY, until REAL)")
     d.execute("CREATE TABLE IF NOT EXISTS autoread (chat TEXT PRIMARY KEY, mode TEXT)")
+    d.execute("CREATE TABLE IF NOT EXISTS autoread_net (net TEXT PRIMARY KEY, mode TEXT)")
     d.execute("CREATE TABLE IF NOT EXISTS fcm_tokens (token TEXT PRIMARY KEY, at REAL)")
     return d
 
@@ -103,7 +105,10 @@ def unmute(chat: str) -> None:
 
 
 # ---------------- Automatisch gelesen: "open" = beim Öffnen, "always" = sofort, ohne dass du den Chat öffnest ----------------
+# Pro Chat und pro App (z. B. alle SMS-Chats). Reihenfolge: eigene Einstellung des Chats → seiner Gruppe → seiner App.
+# "off" am Chat nimmt ihn aus einer App-Regel aus. Zusammengeführte Chats folgen keiner App-Regel (wie bei der Startseite).
 AUTOREAD = ("open", "always")
+CHAT_AUTOREAD = AUTOREAD + ("off",)
 
 
 def autoreads() -> dict[str, str]:
@@ -111,25 +116,46 @@ def autoreads() -> dict[str, str]:
         return {c: m for c, m in _db().execute("SELECT chat, mode FROM autoread")}
 
 
-def autoread_of(chat: str, a: dict[str, str] | None = None) -> str:
+def net_autoreads() -> dict[str, str]:
+    with store._lock:
+        return {n: m for n, m in _db().execute("SELECT net, mode FROM autoread_net")}
+
+
+def autoread_of(chat: str, a: dict[str, str] | None = None, network: str = "", nets: dict[str, str] | None = None) -> str:
+    """Wirksame Einstellung ("", "open" oder "always"); "network" ist der Netzwerk-Text des Chats aus Beeper."""
     a = autoreads() if a is None else a
     grp = store.group_of(chat)
-    return a.get(chat) or (a.get(grp, "") if grp else "")
+    own = a.get(chat) or (a.get(grp, "") if grp else "")
+    if own:
+        return "" if own == "off" else own
+    if grp or not network:
+        return ""
+    return (net_autoreads() if nets is None else nets).get(net_key(network), "")
 
 
 def set_autoread(chat: str, mode: str) -> None:
     with store._lock:
-        if mode in AUTOREAD:
+        if mode in CHAT_AUTOREAD:
             _db().execute("INSERT OR REPLACE INTO autoread (chat, mode) VALUES (?, ?)", (chat, mode))
         else:
             _db().execute("DELETE FROM autoread WHERE chat=?", (chat,))
         _db().commit()
 
 
+def set_net_autoread(net: str, mode: str) -> None:
+    with store._lock:
+        if mode in AUTOREAD:
+            _db().execute("INSERT OR REPLACE INTO autoread_net (net, mode) VALUES (?, ?)", (net, mode))
+        else:
+            _db().execute("DELETE FROM autoread_net WHERE net=?", (net,))
+        _db().commit()
+
+
 # ---------------- Einstellungen (für alle Geräte gleich) ----------------
 # snaps_quiet: Snapchat-Snaps zählen nicht als neue Nachricht (keine Meldung, Chat rutscht nicht nach oben)
 # snap_join: Snapchat-Videostücke desselben Absenders zeigt die Oberfläche als ein Video
-PREFS = {"snaps_quiet": False, "snap_join": True}
+# stt_local: Sprachnachrichten lokal mit Whisper in Text umwandeln (aus = Beeper), stt_auto: neue Sprachnachrichten von selbst umwandeln (aus = erst beim Antippen)
+PREFS = {"snaps_quiet": False, "snap_join": True, "stt_local": False, "stt_auto": False}
 
 
 def prefs() -> dict[str, bool]:
@@ -143,9 +169,12 @@ def snaps_quiet() -> bool:
 
 
 def set_prefs(new: dict[str, bool]) -> dict[str, bool]:
+    was_auto = prefs()["stt_auto"] if "stt_auto" in new else True
     with store._lock:
         _db().executemany("INSERT OR REPLACE INTO kv (k, v) VALUES (?, ?)", [(f"pref_{k}", "1" if v else "0") for k, v in new.items() if k in PREFS])
         _db().commit()
+    if new.get("stt_auto") and not was_auto:   # ab jetzt zählen neue Sprachnachrichten – der Rückstand von früher wird nicht umgewandelt
+        _kv_set("stt_auto_since", str(int(time.time())))
     return prefs()
 
 
@@ -368,7 +397,7 @@ class Unsub(BaseModel):
 
 
 class AutoRead(BaseModel):
-    mode: str = Field(default="", max_length=10)   # "", "open" oder "always"
+    mode: str = Field(default="", max_length=10)   # "", "open" oder "always"; am Chat auch "off" (trotz App-Regel aus)
 
 
 class Mute(BaseModel):
@@ -405,6 +434,8 @@ async def unsubscribe(body: Unsub):
 class Prefs(BaseModel):
     snaps_quiet: bool | None = None
     snap_join: bool | None = None
+    stt_local: bool | None = None
+    stt_auto: bool | None = None
 
 
 @router.get("/prefs")
@@ -414,6 +445,8 @@ async def get_prefs():
 
 @router.put("/prefs")
 async def put_prefs(body: Prefs):
+    if body.stt_local and not get_settings().whisper_url:
+        raise HTTPException(409, "Der Whisper-Dienst ist nicht eingerichtet (WHISPER_URL)")
     return set_prefs({k: v for k, v in body.model_dump().items() if v is not None})
 
 
@@ -534,13 +567,23 @@ async def del_mute(chat_id: str):
 
 @router.get("/autoread")
 async def list_autoread():
-    return {"items": [{"id": c, "mode": m} for c, m in autoreads().items()]}
+    return {"items": [{"id": c, "mode": m} for c, m in autoreads().items()], "nets": net_autoreads()}
 
 
 @router.put("/chats/{chat_id}/autoread")
 async def put_autoread(chat_id: str, body: AutoRead):
     _check_id(chat_id)
-    if body.mode and body.mode not in AUTOREAD:
+    if body.mode and body.mode not in CHAT_AUTOREAD:
         raise HTTPException(400, "Unbekannte Einstellung")
     set_autoread(chat_id, body.mode)
     return {"id": chat_id, "mode": body.mode}
+
+
+@router.put("/nets/{net}/autoread")
+async def put_net_autoread(net: str, body: AutoRead):
+    if not re.match(r"^[a-z]{2,20}$", net):
+        raise HTTPException(400, "Unbekanntes Netzwerk")
+    if body.mode and body.mode not in AUTOREAD:
+        raise HTTPException(400, "Unbekannte Einstellung")
+    set_net_autoread(net, body.mode)
+    return {"net": net, "mode": body.mode}
