@@ -1414,8 +1414,10 @@ async def to_ogg(data: bytes) -> bytes | None:
             f.write(data)
         # Wie WhatsApps eigene Sprachnachrichten: 120-ms-Pakete, keine Zusatzangaben (Sprache, Encoder). Die Aufnahme kommt mit 128 kbit/s,
         # hier 48 kbit/s – mit 32 kbit/s nach zweimal Verlustkompression klang es dumpf.
+        # asetpts zählt die Zeit ab 0 neu: Browser-Aufnahmen beginnen manchmal knapp vor 0, dann beginnt auch die Ogg-Datei bei −0,5 ms,
+        # und WhatsApp auf Android lehnt sie ab („mit der Audiodatei stimmt etwas nicht“).
         p = await asyncio.create_subprocess_exec("ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", src, "-vn", "-map", "0:a:0", "-map_metadata", "-1", "-fflags", "+bitexact", "-flags:a", "+bitexact",
-                                                 "-ac", "1", "-ar", "48000", "-c:a", "libopus", "-b:a", "48k", "-application", "voip", "-frame_duration", "120",
+                                                 "-ac", "1", "-ar", "48000", "-af", "asetpts=N/SR/TB", "-c:a", "libopus", "-b:a", "48k", "-application", "voip", "-frame_duration", "120",
                                                  "-f", "ogg", dst,
                                                  stdin=asyncio.subprocess.DEVNULL, stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.PIPE)
         try:
