@@ -734,11 +734,22 @@ async function openHit(m, el) {
     const pics = SR.items.flatMap((x) => x.files.filter((y) => y.kind === "image" && !y.sticker && y.src).map((y) => ({ src: y.src, url: mediaUrl(y), at: x.at, sub: "bild", m: { ...x, chat: x.chat || S.id }, name: y.name, who: x.mine ? "Du" : clean(x.sender) || clean(cur()?.title || "") })));
     return lightbox(null, pics, Math.max(0, pics.findIndex((p) => p.src === f.src)));
   }
-  // sonst: zur Nachricht im Verlauf springen (ältere Seiten nachladen, bis sie da ist)
-  const find = () => document.getElementById(`m-${m.id}`);
-  let n = 0;
-  while (!S.msgs.some((x) => x.id === m.id) && S.more && n++ < 25) await loadMsgs({ older: true });
-  if (!S.msgs.some((x) => x.id === m.id)) return toast("Diese Nachricht liegt zu weit zurück");
+  // sonst: zur Nachricht im Verlauf springen (ältere Seiten nachladen, bis sie da ist).
+  // Im zusammengeführten Verlauf heißt jede Nachricht „chat~id“ (siehe group_messages), in den Treffern nur „id“ mit „chat“ daneben.
+  const id = S.id, key = cur()?.merged && m.chat && !String(m.id).includes("~") ? `${m.chat}~${m.id}` : m.id;
+  const have = () => S.msgs.some((x) => x.id === key), find = () => document.getElementById(`m-${key}`);
+  const wait = (ms) => new Promise((ok) => setTimeout(ok, ms));
+  if (!have() && S.more) toast("Suche die Nachricht im Verlauf …");
+  let n = 0, still = 0;
+  while (!have() && S.more && S.id === id && n++ < 200 && still < 6) {
+    while (olderBusy) await wait(80);   // läuft schon ein Nachladen (z. B. beim Scrollen), erst das abwarten – sonst kehrt loadMsgs sofort zurück
+    const before = S.oldest;
+    await loadMsgs({ older: true });
+    still = S.oldest === before ? still + 1 : 0;   // Seite verworfen (Hintergrund-Abgleich dazwischen) → nochmal, aber nicht endlos
+    if (n % 10 === 0 && !have() && S.more) toast(`Suche die Nachricht im Verlauf … (${S.msgs.length} Nachrichten geladen)`);
+  }
+  if (S.id !== id) return;
+  if (!have()) return toast(S.more ? "Die Nachricht liegt zu weit zurück" : "Die Nachricht ist im Verlauf nicht mehr da");
   if (history.state?.srch && history.state?.info && $("#info")) { history.go(-2); dropSrch(); dropInfo(); }   // Suche kam aus der Info-Seite: beide zu
   else { closeSrch(); if ($("#info")) closeInfo(); }
   setTimeout(() => { const b = find(); if (!b) return; b.scrollIntoView({ block: "center" }); b.classList.add("flash"); setTimeout(() => b.classList.remove("flash"), 1600); }, 260);
