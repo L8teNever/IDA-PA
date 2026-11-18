@@ -812,3 +812,53 @@ def test_bearbeitet_zeigt_fruehere_fassungen(client, fake):
     out = keep_deleted("c8", [{**m, "text": "Drei", "edited": True}])[0]
     assert out["prev"] == ["Eins", "Zwei"]
     assert keep_deleted("c8", [{**m, "text": "Drei", "edited": True}])[0]["prev"] == ["Eins", "Zwei"]
+
+
+def test_beeper_sammelchat_wird_aufgeteilt(client, monkeypatch):
+    """Ein Sammelchat von Beeper (Instagram + WhatsApp in einem) erscheint als die Chats dahinter, jeder mit eigenem Netzwerk;
+    Gruppen, die ihn noch enthalten, bekommen an seiner Stelle die Chats dahinter."""
+    import asyncio
+    from app import api, store
+    asked = []
+
+    class R:
+        def __init__(self, data, code=200):
+            self._d, self.status_code = data, code
+
+        def json(self):
+            return self._d
+    chats = {"9": {"id": "!m:x", "localChatID": "9", "accountID": "matrix", "title": "Nils", "merge": {"chatIDs": ["!ig:x", "!wa:x", "!weg:x"]},
+                   "preview": {"id": "50", "chatID": "!wa:x", "text": "Ja", "timestamp": "2026-11-18T16:16:17Z", "isSender": False}},
+             "!ig:x": {"id": "!ig:x", "localChatID": "11", "accountID": "instagramgo.1", "title": "Nils", "type": "single", "lastActivity": "2026-07-29T01:41:24Z", "unreadCount": 0},
+             "!wa:x": {"id": "!wa:x", "localChatID": "12", "accountID": "whatsapp.49", "title": "Nils Primel", "type": "single", "lastActivity": "2026-11-18T16:16:17Z", "unreadCount": 2}}
+
+    async def rest_get(path, **params):
+        asked.append(path)
+        d = chats.get(path.rsplit("/", 1)[1].replace("%21", "!").replace("%3A", ":"))
+        return R(d) if d else R({}, 404)
+
+    async def msgs(chat_id, cursor, direction):
+        return {"items": [{"id": "7", "text": "Hey", "timestamp": "2026-07-29T01:41:24Z"}] if chat_id == "11" else []}
+    monkeypatch.setattr(api, "rest_get", rest_get)
+    monkeypatch.setattr(api, "fetch_messages", msgs)
+    monkeypatch.setattr(api, "_subs_cache", {})
+    monkeypatch.setattr(api, "_last_cache", {})
+    items = [{"id": "1", "title": "Luka", "network": "snapchat", "type": "single", "at": "2026-11-18T10:00:00Z", "unread": 0},
+             {"id": "9", "title": "Nils", "network": "", "type": "single", "at": "2026-11-18T16:16:17Z", "unread": 2}]
+    out = asyncio.run(api.split_merged([dict(c) for c in items], with_last=True))
+    assert [(c["id"], c["network"], c["unread"]) for c in out] == [("12", "whatsapp.49", 2), ("1", "snapchat", 0), ("11", "instagramgo.1", 0)]
+    assert out[0]["last"]["text"] == "Ja" and out[2]["last"]["text"] == "Hey" and out[0]["title"] == "Nils Primel"
+    n = len(asked)
+    asyncio.run(api.split_merged([dict(c) for c in items]))   # unverändert: aus dem Gedächtnis, keine neuen Aufrufe
+    assert len(asked) == n
+    # kein Sammelchat (404 / ohne merge): bleibt, wie er ist
+    assert asyncio.run(api.split_merged([{"id": "5", "network": "", "at": "", "unread": 0}])) == [{"id": "5", "network": "", "at": "", "unread": 0}]
+
+    # alte Gruppe mit dem Sammelchat als Profilbild und Standard: die Chats dahinter rücken an seine Stelle
+    store.merge([{"id": "9", "title": "Nils", "network": ""}, {"id": "30", "title": "Nils", "network": "snapchat"}])
+    store.set_meta("9", avatar="9", send="9")
+    monkeypatch.setattr(api, "rest_chats", lambda: asyncio.sleep(0, []))
+    r = client.get(f"{API}/merges").json()["items"]
+    assert [[m["id"] for m in g["chats"]] for g in r] == [["11", "12", "30"]] and r[0]["id"] == "9"
+    assert r[0]["avatar"] == "11" and r[0]["send"] == ""
+    store.split("9")

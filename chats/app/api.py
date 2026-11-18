@@ -230,11 +230,12 @@ async def chats(q: str = "", unread: bool = False, inbox: str = "primary", curso
         prev = {}
     for c in items:
         c["last"] = preview(prev.get(c["id"]), c.get("type") == "group")
+    items = await split_merged(items, with_last=True)
     await fill_nets(items)
     if push.snaps_quiet():
         items = await quiet_snaps(items)
-        if unread:
-            items = [c for c in items if c["unread"]]
+    if unread:
+        items = [c for c in items if c["unread"]]
     return {"items": items, "next": nxt}
 
 
@@ -298,6 +299,14 @@ async def quiet_snaps(items: list[dict]) -> list[dict]:
 _chats_cache: tuple[float, list[dict]] | None = None
 
 
+async def rest_chats_safe() -> list[dict]:
+    """rest_chats mit lokaler ID als „id“; leer, wenn Beeper gerade nicht antwortet."""
+    try:
+        return [{**c, "id": str(c.get("localChatID") or c["id"])} for c in await rest_chats() if c.get("id")]
+    except HTTPException:
+        return []
+
+
 async def rest_chats() -> list[dict]:
     """Die neuesten 200 Chats aus der REST-API (Vorschau, Pins) – 5 s gemerkt, die Liste lädt oft hintereinander."""
     global _chats_cache
@@ -350,6 +359,102 @@ async def fill_nets(items: list[dict]) -> list[dict]:
         if n:
             c["network"] = n
     return items
+
+
+# Beeper-Sammelchats aufteilen: Beeper führt Chats derselben Person selbst zusammen (Nils auf Instagram und WhatsApp → ein Chat
+# „Nils“ ohne eigenes Netzwerk). Die App zeigt stattdessen die Chats dahinter einzeln – zusammenführen kann man sie dann selbst
+# (store.merge), mit Wahl, worüber gesendet wird. Beeper selbst bleibt unberührt. Gemerkt pro Sammelchat, solange sich dessen
+# letzte Aktivität und Ungelesen-Zahl nicht ändern – die Live-Abfrage alle paar Sekunden kostet so keine zusätzlichen Aufrufe.
+_subs_cache: dict[str, tuple[str, list[dict] | None]] = {}
+_last_cache: dict[str, tuple[str, dict | None]] = {}   # Unterchat → (letzte Aktivität, letzte Nachricht)
+
+
+def maybe_merged(c: dict) -> bool:
+    return (c.get("network") or "").lower() in BEEPER_ONLY and bool(re.fullmatch(r"\d{1,12}", str(c.get("id") or "")))
+
+
+async def _sub_last(sid: str, at: str) -> dict | None:
+    """Letzte Nachricht eines Unterchats (für die Vorschau) – Beeper liefert sie dort nicht mit."""
+    hit = _last_cache.get(sid)
+    if hit and hit[0] == at:
+        return hit[1]
+    try:
+        d = await fetch_messages(sid, "", "before")
+        msgs = sorted((m for m in d.get("items", []) if isinstance(m, dict) and (m.get("type") or "").upper() != "REACTION"),
+                      key=lambda m: m.get("timestamp") or "", reverse=True)
+        out = msgs[0] if msgs else None
+    except HTTPException:
+        return None
+    if len(_last_cache) > 1000:
+        _last_cache.clear()
+    _last_cache[sid] = (at, out)
+    return out
+
+
+async def beeper_subs(c: dict) -> list[dict] | None:
+    """Die Chats hinter einem Beeper-Sammelchat als eigene Listeneinträge; None = kein Sammelchat oder nicht lesbar (dann bleibt er)."""
+    key = f'{c.get("at") or ""}|{c.get("unread") or 0}'
+    hit = _subs_cache.get(str(c["id"]))
+    if hit and hit[0] == key:
+        return [dict(x) for x in hit[1]] if hit[1] else None
+    try:
+        async with _nets_sem:
+            r = await rest_get(f"/v1/chats/{quote(str(c['id']), safe='')}")
+        top = r.json() if r.status_code < 400 else {}
+        ids = [x for x in ((top.get("merge") or {}).get("chatIDs") or []) if isinstance(x, str)]
+        if not ids:
+            out = None
+        else:
+            async def one(sid: str) -> dict | None:
+                async with _nets_sem:
+                    g = await rest_get(f"/v1/chats/{quote(sid, safe='')}")
+                if g.status_code == 404:
+                    return None   # verwaister Chat, den Beeper nicht mehr kennt
+                if g.status_code >= 400:
+                    raise HTTPException(502, "Beeper: Chat nicht lesbar")
+                return g.json()
+            subs = [d for d in await asyncio.gather(*(one(s) for s in ids)) if isinstance(d, dict) and d.get("id")]
+            pv = top.get("preview") if isinstance(top.get("preview"), dict) else None
+            out = []
+            for d in subs:
+                at = d.get("lastActivity") or ""
+                last = pv if pv and pv.get("chatID") == d["id"] else await _sub_last(str(d.get("localChatID") or d["id"]), at)
+                out.append({"id": str(d.get("localChatID") or d["id"]), "title": (d.get("title") or "").strip() or c.get("title") or "",
+                            "network": str(d.get("accountID") or d.get("network") or "").lower(), "type": d.get("type") or c.get("type") or "",
+                            "at": at, "unread": int(d.get("unreadCount") or 0) or (1 if d.get("isMarkedUnread") else 0),
+                            "muted": bool(d.get("isMuted")), "_last": last, "beeper_merged": str(c["id"])})
+            out = out or None
+    except (HTTPException, ValueError, httpx.HTTPError):
+        return None   # nicht merken: beim nächsten Mal noch einmal versuchen
+    if len(_subs_cache) > 500:
+        _subs_cache.clear()
+    _subs_cache[str(c["id"])] = (key, out)
+    return [dict(x) for x in out] if out else None
+
+
+async def split_merged(items: list[dict], with_last: bool = False, sort: bool = True, extra: dict | None = None) -> list[dict]:
+    """Beeper-Sammelchats in der Liste durch die Chats dahinter ersetzen (doppelte raus, mit sort neu nach Aktivität sortiert).
+    with_last: Vorschau („last“) der Unterchats mitliefern; extra: Felder, die jeder Unterchat zusätzlich bekommt (z. B. pinned)."""
+    todo = [c for c in items if maybe_merged(c)]
+    if not todo:
+        return items
+    got = dict(zip([c["id"] for c in todo], await asyncio.gather(*(beeper_subs(c) for c in todo))))
+    if not any(got.values()):
+        return items
+    out: list[dict] = []
+    seen: set[str] = set()
+    for c in items:
+        for x in got.get(c["id"]) or [c]:
+            if x["id"] in seen:
+                continue
+            seen.add(x["id"])
+            last = x.pop("_last", None)
+            if "beeper_merged" in x:
+                if with_last:
+                    x["last"] = preview(last, x.get("type") == "group")
+                x.update(extra or {})
+            out.append(x)
+    return sorted(out, key=lambda c: c.get("at") or "", reverse=True) if sort else out
 
 
 def preview(p, group: bool) -> dict | None:
@@ -632,8 +737,18 @@ class Merge(BaseModel):
 
 @router.get("/merges")
 async def merges():
-    meta = store.metas()
     groups = store.groups()
+    # Früher zusammengeführt, als Beeper-Sammelchats noch ein Eintrag waren: an ihrer Stelle jetzt die Chats dahinter (siehe split_merged)
+    old = [m for ms in groups.values() for m in ms if maybe_merged(m)]
+    if old:
+        cur = {c["id"]: c for c in await rest_chats_safe()}
+        swap = await asyncio.gather(*(beeper_subs({**m, "at": cur.get(m["id"], {}).get("lastActivity", ""),
+                                                   "unread": cur.get(m["id"], {}).get("unreadCount", 0)}) for m in old))
+        for m, subs in zip(old, swap):
+            if subs:
+                store.replace_member(m["id"], subs)
+        groups = store.groups()
+    meta = store.metas()
     await fill_nets([m for ms in groups.values() for m in ms])   # gespeichert ist ggf. noch „“ von einem Beeper-Sammelchat
     return {"items": [{"id": g, "chats": m, **meta.get(g, {"name": "", "avatar": "", "send": ""})} for g, m in groups.items()]}
 
@@ -1342,6 +1457,7 @@ async def pinned() -> list[dict]:
                   for c in await rest_chats() if c.get("isPinned") and c.get("id")]
     except HTTPException:
         b_pins = []
+    b_pins = await split_merged(b_pins, with_last=True, sort=False, extra={"pinned": True})
     seen = {x["id"] for x in loc}
     out = await fill_nets((loc + [x for x in b_pins if x["id"] not in seen])[:PIN_MAX])
     _pins = (time.monotonic(), out)

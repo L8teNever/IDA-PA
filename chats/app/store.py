@@ -194,6 +194,34 @@ def merge(chats: list[dict]) -> str:
     return grp
 
 
+def replace_member(old: str, new: list[dict]) -> None:
+    """Einen Chat einer Gruppe durch andere ersetzen, an seiner Stelle (Beeper-Sammelchat → die Chats dahinter). Die Gruppe behält ihre ID.
+    Chats, die schon in einer anderen Gruppe sind, bleiben dort."""
+    with _lock:
+        d = _merges()
+        r = d.execute("SELECT grp, pos FROM merges WHERE chat=?", (old,)).fetchone()
+        if not r:
+            return
+        grp, pos = r
+        taken = {c for (c,) in d.execute(f"SELECT chat FROM merges WHERE chat IN ({','.join('?' * len(new))})", [n["id"] for n in new])} if new else set()
+        new = [n for n in new if n["id"] not in taken]
+        rows = [c for (c,) in d.execute("SELECT chat FROM merges WHERE grp=? ORDER BY pos", (grp,))]
+        d.execute("DELETE FROM merges WHERE chat=?", (old,))
+        d.executemany("INSERT INTO merges (chat, grp, title, network, pos) VALUES (?,?,?,?,?)",
+                      [(n["id"], grp, n.get("title") or "", n.get("network") or "", 0) for n in new])
+        order = [c for c in rows if c != old]
+        i = rows.index(old) if old in rows else len(order)
+        order[i:i] = [n["id"] for n in new]
+        d.executemany("UPDATE merges SET pos=? WHERE chat=?", [(k, c) for k, c in enumerate(order)])
+        # war der alte Chat Profilbild oder Standard zum Senden: Profilbild vom ersten neuen, Senden zurück auf automatisch
+        d.execute("UPDATE merge_meta SET avatar=CASE WHEN avatar=? THEN ? ELSE avatar END, send=CASE WHEN send=? THEN '' ELSE send END WHERE grp=?",
+                  (old, new[0]["id"] if new else "", old, grp))
+        if d.execute("SELECT COUNT(*) FROM merges WHERE grp=?", (grp,)).fetchone()[0] < 2:
+            d.execute("DELETE FROM merges WHERE grp=?", (grp,))
+            d.execute("DELETE FROM merge_meta WHERE grp=?", (grp,))
+        d.commit()
+
+
 def split(grp: str, chat: str | None = None) -> None:
     """Ganze Gruppe auflösen oder nur einen Chat herausnehmen."""
     with _lock:

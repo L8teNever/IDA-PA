@@ -24,6 +24,7 @@ async def remember(ids: list[str]) -> None:
 
 async def check(state: dict) -> None:
     items, _ = parse_chats(await beeper().text("search_chats", {"limit": 30, "inbox": "primary"}))
+    items = await api.split_merged(items)   # Beeper-Sammelchats: die Chats dahinter, wie in der Liste der App
     if push.snaps_quiet():   # neue Snaps ändern nichts: keine Meldung, kein Hochrutschen
         items = await api.quiet_snaps(items)
     sig = {c["id"]: (c["at"], c["unread"]) for c in items}
@@ -101,6 +102,8 @@ async def notify(chats: list[dict]) -> None:
     metas = store.metas()
     for c in chats:
         p = prev.get(c["id"]) if isinstance(prev.get(c["id"]), dict) else {}
+        if not p and c.get("beeper_merged"):   # Chat hinter einem Beeper-Sammelchat: steht nicht in der REST-Liste
+            p = await api._sub_last(c["id"], c["at"]) or {}
         if "snapchat" in (c.get("network") or "") and (st := api._snap_cache.get(c["id"])) and st[1].get("last") and push.snaps_quiet():
             p = st[1]["last"]   # nicht den Snap danach melden, sondern die echte Nachricht
         if p.get("isSender"):

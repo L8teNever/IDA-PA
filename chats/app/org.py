@@ -272,7 +272,9 @@ async def merge_suggestions():
     from . import api
     raw = await api.rest_chats()
     chats = [{"id": str(c.get("localChatID") or c["id"]), "title": c.get("title") or "", "network": c.get("accountID") or c.get("network") or "",
-              "type": c.get("type") or ""} for c in raw if c.get("id") and not c.get("isArchived")]
+              "type": c.get("type") or "", "at": c.get("lastActivity") or "", "unread": int(c.get("unreadCount") or 0)}
+             for c in raw if c.get("id") and not c.get("isArchived")]
+    chats = await api.split_merged(chats, sort=False)   # Beeper-Sammelchats: die Chats dahinter vorschlagen, wie in der Liste
     grouped = {m["id"] for g in store.groups().values() for m in g}
     return {"items": suggest(chats, grouped, nopes())}
 
