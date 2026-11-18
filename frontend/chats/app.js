@@ -9,7 +9,7 @@ let AUTOREAD = new Map();   // automatisch gelesen: ID → "open" (beim Öffnen)
 let ARNET = {};             // dasselbe pro App (z. B. gmessages = SMS): Netzwerk → "open" oder "always"
 let PREFS = { snaps_quiet: false, snap_join: true, stt_local: false, stt_auto: false };   // Einstellungen für alle Geräte (im Dienst gespeichert)
 let MUTES = new Map();   // stummgeschaltete Chats: ID → bis (ms, 0 = bis du es aufhebst)
-const S = { chats: [], next: null, q: "", f: "all", id: null, only: "", pins: [], pinI: 0, pinNote: "", msgs: [], more: false, oldest: null, seq: 0, sending: false, reply: null, edit: null, voice: {}, vopen: {} };
+const S = { chats: [], next: null, q: "", f: "all", id: null, only: "", pins: [], pinI: 0, pinNote: "", msgs: [], more: false, oldest: null, seq: 0, sending: false, reply: null, edit: null, voice: {}, vopen: {}, vbusy: {} };
 
 const fmtDay = new Intl.DateTimeFormat("de-DE", { weekday: "long", day: "2-digit", month: "long" });
 const fmtDayY = new Intl.DateTimeFormat("de-DE", { weekday: "short", day: "2-digit", month: "long", year: "numeric" });
@@ -974,8 +974,9 @@ function toChip() {
   if (form) form.dataset.net = netKey((c?.merged ? c.merged.find((x) => x.id === target()) || c.merged[0] : c)?.network);
   if (!c?.merged) { if (ta) ta.placeholder = "Nachricht"; return closeTo(); }
   const t = c.merged.find((x) => x.id === target()) || c.merged[0];
-  b.innerHTML = netAv(t); b.title = `Senden über ${netName(t.network)} an ${clean(t.title)}`;
-  if (ta && !S.edit) ta.placeholder = `${netName(t.network)}-Nachricht`;
+  const app = netName(String(t.network || "").split("|")[0]);   // Beeper-Sammelchat: nur die App des Abzeichens, nicht alle aufgezählt
+  b.innerHTML = netAv(t); b.title = `Senden über ${app} an ${clean(t.title)}`;
+  if (ta && !S.edit) ta.placeholder = `${app}-Nachricht`;
   if ($("#topanel")) drawTo();
 }
 // "Senden an …": klappt über dem Eingabefeld auf, eine Karte pro Chat
@@ -1225,11 +1226,11 @@ function fileHtml(f, clips = null) {
     return `<img class="pic ${f.sticker ? "stk" : ""}" loading="lazy" data-a="zoom" data-src="${src}" alt="${esc(f.name || "Bild")}"${r} src="${mediaUrl(f)}">`;
   }
   if (f.kind === "audio") {
-    const t = f.transcript || S.voice[f.src], open = S.vopen[f.src] ?? (PREFS.stt_auto && !!t);   // bei „Automatisch umwandeln“ steht der Text gleich da, bis man ihn zuklappt
+    const t = f.transcript || S.voice[f.src], open = S.vopen[f.src] ?? (PREFS.stt_auto && !!t), busy = !t && S.vbusy[f.src];   // bei „Automatisch umwandeln“ steht der Text gleich da, bis man ihn zuklappt
     return `<div class="voice" data-src="${src}" data-mime="${esc(f.mime)}" data-dur="${f.duration || 0}"><button class="play" data-a="play" aria-label="Abspielen"><span class="ms">play_arrow</span></button>
       <div class="wave" role="slider" aria-label="Position in der Sprachnachricht" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">${bars(f.src).map((h) => `<i style="height:${h.toFixed(0)}%"></i>`).join("")}<b class="knob"></b></div>
       <span class="dur">${f.duration ? mmss(f.duration) : ""}</span><button class="spd" data-a="speed" aria-label="Tempo">1×</button>
-      <button class="vtbtn ${t ? "has" : ""}" data-a="vtext" data-src="${src}" aria-label="Als Text" title="Als Text anzeigen"><span class="ms">notes</span></button></div>${open && t ? `<div class="vtext">${esc(t)}</div>` : ""}`;
+      <button class="vtbtn ${t ? "has" : ""} ${busy ? "busy" : ""}" data-a="vtext" data-src="${src}" aria-label="Als Text" title="Als Text anzeigen"${busy ? " disabled" : ""}><span class="ms">${busy ? "progress_activity" : "notes"}</span></button></div>${open && t ? `<div class="vtext">${esc(t)}</div>` : busy ? `<div class="vtext vwait"><span class="ms" aria-hidden="true">progress_activity</span>${PREFS.stt_local ? "Wird lokal umgewandelt – kann etwa eine Minute dauern …" : "Wird umgewandelt …"}</div>` : ""}`;
   }
   if (f.kind === "video") {
     const r = f.w && f.h ? ` style="aspect-ratio:${f.w}/${f.h}"` : "";
@@ -1620,8 +1621,11 @@ async function voiceText(btn) {
   const src = btn.dataset.src, f = S.msgs.flatMap((m) => m.files).find((x) => x.src === src), have = f?.transcript || S.voice[src];
   S.vopen[src] = !(S.vopen[src] ?? (PREFS.stt_auto && !!have));
   if (S.vopen[src] && !have) {
-    btn.disabled = true;
+    if (S.vbusy[src]) return;   // läuft schon
+    S.vbusy[src] = true; buzz(10); drawMsgs();   // sofort zeigen, dass der Tipp angekommen ist und gerade umgewandelt wird
+    toast(PREFS.stt_local ? "Sprachnachricht wird lokal umgewandelt …" : "Sprachnachricht wird umgewandelt …");
     try { S.voice[src] = (await transcript(src, f?.mime || "")) || "(kein Text erkannt)"; } catch (e) { S.vopen[src] = false; toast(e.message); }
+    finally { delete S.vbusy[src]; }
   }
   drawMsgs();
 }
@@ -1897,7 +1901,7 @@ function smartCopy(m) {
   const text = (m.text || "").trim(); if (!text) return;
   const d = document.createElement("div"); d.className = "ctx"; d.id = "ctx";
   d.innerHTML = `<div class="ctx-back"></div><div class="sheet sc-sheet"><b class="sc-title">Smart Copy</b>
-    <button class="sc-row all" data-i="-1"><span class="sc-tx"><small>Ganze Nachricht</small><b>${esc(text)}</b></span><span class="ms">content_copy</span></button>
+    <button class="sc-row all" data-i="-1"><span class="ms sc-ic" aria-hidden="true">notes</span><span class="sc-tx"><small>Ganze Nachricht</small><b>${esc(text)}</b></span><span class="ms">content_copy</span></button>
     <div class="sc-list"></div><small class="sc-by"></small></div>`;
   let items = [], res = null, fail = false;
   const draw = () => {
