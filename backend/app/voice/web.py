@@ -12,6 +12,7 @@ import hashlib
 import hmac
 import json
 import logging
+import re
 import secrets
 import time
 from dataclasses import replace
@@ -56,6 +57,44 @@ def make_ticket(secret: str, now: float | None = None) -> str:
 def app_key(secret: str) -> str:
     """Key of the stand-alone live app (PWA on the voice host): IDA hands it out inside the install link, the app keeps it."""
     return hmac.new(secret.encode(), b"live-pwa", hashlib.sha256).hexdigest()[:40] if secret else ""
+
+
+def device_names(raw: str) -> list[str]:
+    """VOICE_DEVICES -> erlaubte Lautsprecher (ida-speaker). Nur Buchstaben, Ziffern, - und _."""
+    return [n for n in (x.strip().lower() for x in (raw or "").split(",")) if re.fullmatch(r"[a-z0-9_-]{1,32}", n)]
+
+
+def device_key(secret: str, name: str) -> str:
+    """Schlüssel eines Lautsprechers: hängt nur am Namen, Name aus VOICE_DEVICES streichen sperrt das Gerät."""
+    return hmac.new(secret.encode(), f"device:{name}".encode(), hashlib.sha256).hexdigest()[:40] if secret and name else ""
+
+
+_extras: dict[str, tuple[float, dict]] = {}  # ticket -> (Ablauf, Einstellungen des Lautsprechers)
+
+
+def speaker_extra(name: str, body: dict | None) -> dict:
+    """Was der Lautsprecher beim Ticket mitschickt: eigener Prompt (nur für ihn) und ob Smart Home ohne Nachfrage schalten darf."""
+    b = body if isinstance(body, dict) else {}
+    return {"device": name, "prompt": str(b.get("prompt") or "").strip()[:4000], "smart_home": b.get("smart_home") is True}
+
+
+def remember_extra(ticket: str, extra: dict, now: float | None = None) -> None:
+    now = now or time.time()
+    for t, (exp, _) in list(_extras.items()):
+        if exp < now:
+            _extras.pop(t, None)
+    _extras[ticket] = (now + TICKET_S + 5, extra)
+
+
+def take_extra(ticket: str) -> dict | None:
+    """Nur ein Ticket von /device/ticket hat Einstellungen; einmal abgeholt sind sie weg."""
+    got = _extras.pop(ticket or "", None)
+    return got[1] if got and got[0] >= time.time() else None
+
+
+def device_ok(secret: str, allowed: str, name: str | None, key: str | None) -> bool:
+    name = (name or "").strip().lower()
+    return bool(key and name in device_names(allowed) and hmac.compare_digest(key, device_key(secret, name)))
 
 
 class WebSink:
@@ -127,7 +166,8 @@ class BrowserMic:
                 await self.session.activity_end()
 
 
-async def run(ws, settings, ida: Ida | None = None, connect=None, active: set | None = None, resume: str = "", mode: str = "") -> None:
+async def run(ws, settings, ida: Ida | None = None, connect=None, active: set | None = None, resume: str = "", mode: str = "",
+              speaker: dict | None = None) -> None:
     """One live conversation, from the accepted WebSocket until it closes. mode="tasks": Aufgaben-Modus der Tasks-App."""
     ida = ida or Ida(settings)
     call_id = "w" + secrets.token_hex(6)
@@ -137,9 +177,9 @@ async def run(ws, settings, ida: Ida | None = None, connect=None, active: set | 
     session = None
     status, error = "done", ""
     try:
-        info = await ida.start(call_id, "web", "", True, "", resume, mode)
+        info = await ida.start(call_id, "web", "", True, "", resume, mode, speaker=speaker if mode == "speaker" else None)
         voice = info.get("voice") or "Aoede"
-        kind = "tasks" if info.get("mode") == "tasks" else "web"
+        kind = "tasks" if info.get("mode") == "tasks" else "speaker" if mode == "speaker" else "web"
         session = LiveSession(settings, instructions=prompt.instructions(info.get("context") or "", owner=True, kind=kind),
                               tools=info.get("tools") or [], run_tool=lambda n, a: ida.tool(call_id, n, a), sink=sink,
                               kickoff=prompt.kickoff(owner=True, kind=kind, resumed=bool(info.get("resumed"))), client_vad=settings.voice_web_vad, connect=connect, voice=voice)

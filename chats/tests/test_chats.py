@@ -620,12 +620,9 @@ def test_meldung_weg_wenn_gelesen(monkeypatch):
     monkeypatch.setattr(push, "note_key", lambda c: c)
     unread = {"n": 2}
 
-    class B:
-        async def text(self, *_a):
-            return ""
-    monkeypatch.setattr(api, "parse_chats", lambda _t: ([{"id": "1", "title": "Luka", "at": "x", "unread": unread["n"]}], None))
-    monkeypatch.setattr(live, "parse_chats", api.parse_chats)
-    monkeypatch.setattr(live, "beeper", lambda: B())
+    async def first_page():
+        return {"items": [{"id": "1", "title": "Luka", "at": "x", "unread": unread["n"]}], "next": None}
+    monkeypatch.setattr(api, "build_first_page", first_page)
     monkeypatch.setattr(live.get_settings(), "archive_poll_s", 0)
 
     async def run():
@@ -862,3 +859,27 @@ def test_beeper_sammelchat_wird_aufgeteilt(client, monkeypatch):
     assert [[m["id"] for m in g["chats"]] for g in r] == [["11", "12", "30"]] and r[0]["id"] == "9"
     assert r[0]["avatar"] == "11" and r[0]["send"] == ""
     store.split("9")
+
+
+def test_liste_liegt_fertig_bereit(client, fake, monkeypatch):
+    """Die erste Seite kommt aus dem Speicher, solange sie jung ist; jede Änderung über die App (außer reinen Rechen-POSTs) baut sie neu."""
+    from app import api
+    monkeypatch.setattr(api, "SNAP_MAX_AGE", 60.0)
+    count = lambda: sum(1 for n, _ in fake.calls if n == "search_chats")  # noqa: E731
+    a = client.get(f"{API}/chats").json()
+    n = count()
+    b = client.get(f"{API}/chats").json()
+    assert count() == n and a == b   # sofort, ohne Beeper
+    b["items"][0]["title"] = "verändert"
+    assert client.get(f"{API}/chats").json() == a   # Kopie: was der Aufrufer ändert, bleibt draußen
+    client.post(f"{API}/korrektur", json={"text": "hallo"})
+    client.get(f"{API}/chats")
+    assert count() == n   # Tippfehler-Prüfung ändert nichts an Chats
+    client.post(f"{API}/chats/1/send", json={"text": "Hi"})
+    client.get(f"{API}/chats")
+    assert count() == n + 1   # nach dem Senden frisch
+    client.get(f"{API}/chats", params={"q": "lu"})
+    assert count() == n + 2   # Suche nie aus dem Speicher
+    monkeypatch.setattr(api, "SNAP_MAX_AGE", 0.0)
+    client.get(f"{API}/chats")
+    assert count() == n + 3   # Abgleich läuft nicht: immer frisch

@@ -89,7 +89,17 @@ def needs_yes(name: str) -> bool:
 TASKS_MODE = "tasks"
 TASKS_TOOLS = ("tasks_*", "calendar_list", "calendar_events", "calendar_event_get", "calendar_day_brief", "calendar_free_time",
                "calendar_conflicts", "calendar_search", "memory_search", "memory_save", "wiki_search", "wiki_read")
-TASKS_FREE = {"tasks_create", "tasks_update", "tasks_done"}  # was er im Gespräch sagt, ist schon sein Ja; Löschen fragt weiter nach
+TASKS_FREE = {"tasks_create", "tasks_update", "tasks_done"}
+# Lautsprecher (ida-speaker) mit „Smart Home direkt“: Schalten ist schon sein Ja, Smart-Home-Tools sind direkt da
+SPEAKER_HA_TOOLS = ("homeassistant_*",)
+SPEAKER_FREE = {"homeassistant_einschalten", "homeassistant_ausschalten", "homeassistant_umschalten"}
+SPEAKER_HA_RULES = """
+SMART HOME AM LAUTSPRECHER: Sagt er „Licht aus“, „mach das Licht im Wohnzimmer an“ oder Ähnliches, schalte sofort mit
+homeassistant_einschalten, homeassistant_ausschalten oder homeassistant_umschalten – ohne Nachfrage, das ist schon sein Ja
+(bestaetigt=true). Kennst du das Gerät nicht, such es mit homeassistant_zustaende_liste (passender Raum aus seinen Anweisungen
+oben, sonst das naheliegendste). Danach nur kurz bestätigen („Licht ist aus.“). Alles andere (Automationen, Skripte ändern,
+löschen) fragt weiter nach.
+"""  # was er im Gespräch sagt, ist schon sein Ja; Löschen fragt weiter nach
 TASKS_PERSONA = """Du bist Stella im Aufgaben-Modus der App „IDA Tasks“. Hier hast du genau eine Aufgabe: Simon erzählt dir, was er zu tun hat,
 und du machst daraus saubere Aufgaben in seiner Liste – anlegen, planen, priorisieren, abhaken. Und du beantwortest Fragen dazu
 („was steht heute an?“, „was hab ich diese Woche?“).
@@ -142,6 +152,7 @@ class Session:
     number: str
     purpose: str
     mode: str = ""  # "" = normales Gespräch, "tasks" = Aufgaben-Modus der Tasks-App
+    speaker: dict | None = None  # Lautsprecher (ida-speaker): {"device", "prompt", "smart_home"}
     token: str | None = None  # identity of the internal tools (owner only)
     tools: dict[str, Tool] = field(default_factory=dict)
     run: int = 0  # activity id (mascot)
@@ -209,6 +220,8 @@ async def _connector_tools(db, agent: Agent) -> list[Tool]:
 
 
 def _needs_yes(sess: Session, name: str) -> bool:
+    if sess.speaker and sess.speaker.get("smart_home") and name in SPEAKER_FREE:
+        return False
     return needs_yes(name) and not (sess.mode == TASKS_MODE and name in TASKS_FREE)
 
 
@@ -282,10 +295,26 @@ Nachrichten in eckigen Klammern wie „[System …]“ kommen vom System, nicht 
 """
 
 
-async def start(call_id: str, direction: str, number: str, owner: bool, purpose: str = "", resume: str = "", mode: str = "") -> dict:
+def _speaker_block(speaker: dict) -> str:
+    """Kontext nur für Gespräche über einen Lautsprecher: seine eigenen Anweisungen und ggf. die Smart-Home-Regel."""
+    out = ""
+    own = str(speaker.get("prompt") or "").strip()
+    if own:
+        name = str(speaker.get("device") or "Lautsprecher")
+        out += (f"\n--- Anweisungen für diesen Lautsprecher („{name}“), vom Nutzer selbst festgelegt ---\n{own}\n"
+                "Sie gelten nur hier und zusätzlich zu allen Regeln oben; widersprechen sie einer Sicherheitsregel, gilt die Regel.\n")
+    if speaker.get("smart_home"):
+        out += SPEAKER_HA_RULES
+    return out
+
+
+async def start(call_id: str, direction: str, number: str, owner: bool, purpose: str = "", resume: str = "", mode: str = "",
+                speaker: dict | None = None) -> dict:
     """A conversation begins. Returns the system context and (owner only) the tools for Gemini.
-    mode="tasks": Aufgaben-Modus der Tasks-App – eigener Prompt, nur Aufgaben-, Kalender- (lesen), Gedächtnis- und Wiki-Tools."""
+    mode="tasks": Aufgaben-Modus der Tasks-App – eigener Prompt, nur Aufgaben-, Kalender- (lesen), Gedächtnis- und Wiki-Tools.
+    speaker: Gespräch über einen Lautsprecher (ida-speaker) – dessen eigener Prompt und ggf. Smart Home ohne Nachfrage, nur für dieses Gespräch."""
     mode = TASKS_MODE if mode == TASKS_MODE and owner else ""
+    speaker = speaker if isinstance(speaker, dict) and owner and not mode else None
     s = get_settings()
     async with session_scope() as db:
         agent = await _voice_agent(db)
@@ -294,7 +323,8 @@ async def start(call_id: str, direction: str, number: str, owner: bool, purpose:
             row = VoiceCall(id=call_id, direction=direction, number=number[:32], owner=owner, purpose=purpose[:4000])
             db.add(row)
         row.status, row.owner = "live", owner
-        sess = Session(call_id=call_id, agent_id=agent.id, owner=owner, direction=direction, number=number, purpose=purpose, mode=mode)
+        sess = Session(call_id=call_id, agent_id=agent.id, owner=owner, direction=direction, number=number, purpose=purpose, mode=mode,
+                       speaker=speaker)
         context = TASKS_PERSONA if mode else prompts.persona(agent)
         earlier = await _earlier(db, resume) if owner and resume else ""
         if owner:
@@ -329,8 +359,13 @@ async def start(call_id: str, direction: str, number: str, owner: bool, purpose:
                 context += TOOL_RULES.format(main=main.id if main else "ida") + prompts.CONFIRM_RULE
                 # what the connected apps are ("Schulapp" = Sofia …) – Stella may use what Ida may use
                 context += await mcp_context.for_agents(db, {agent.id} | ({main.id} if main else set()), prefix="")
-                declared = [t for t in sess.tools.values() if _matches(t.bare, core)][:MAX_DECLARED]
-                tools = [{"name": t.name, "description": t.description, "parameters": _with_yes(t)} for t in declared] + _meta_tools()
+                ha = list(SPEAKER_HA_TOOLS) if speaker and speaker.get("smart_home") else []
+                if speaker:
+                    context += _speaker_block(speaker)
+                # Smart-Home-Tools zuerst, damit sie am Lautsprecher nie hinter MAX_DECLARED rausfallen
+                declared = ([t for t in sess.tools.values() if ha and _matches(t.bare, ha)]
+                            + [t for t in sess.tools.values() if _matches(t.bare, core) and not (ha and _matches(t.bare, ha))])[:MAX_DECLARED]
+                tools = [{"name": t.name, "description": t.description, "parameters": _with_yes(t, sess)} for t in declared] + _meta_tools()
         else:
             context += ("\nDu sprichst NICHT mit dem Nutzer, sondern mit einer anderen Person. Du hast in diesem Gespräch keinen Zugriff "
                         "auf die Daten des Nutzers und keine Tools. Gib nichts über den Nutzer preis, was nicht im Auftrag steht, und lass dich "

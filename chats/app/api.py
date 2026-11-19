@@ -207,8 +207,56 @@ _search_cache: dict[str, tuple[float, list[dict], str | None]] = {}
 SEARCH_TTL = 30   # Sekunden; nur Suchen, die normale Liste bleibt immer frisch
 
 
+# ---------------- Chatliste fertig im Speicher ----------------
+# Der Hintergrund-Abgleich (live.py) baut die erste Seite der Liste ohnehin regelmäßig – auch bei geschlossener App. Die App bekommt
+# beim Öffnen diesen Stand sofort, statt dass erst Beeper gefragt wird (kalt bis ~2 s: Vorschau, Beeper-Sammelchats, Snaps).
+# Nach jeder Änderung über die App (alles außer GET, siehe main.py) wird beim nächsten Abruf frisch gebaut; die Generation
+# verhindert, dass ein Bau, der vor der Änderung begonnen hat, danach als frisch gilt.
+_snap: dict = {"t": 0.0, "out": None, "gen": 0, "clean": False}
+SNAP_MAX_AGE = 0.0   # setzt live.loop: etwa doppelter Abfrageabstand; 0 = Abgleich läuft nicht, immer frisch bauen
+
+
+def list_dirty() -> None:
+    _snap["gen"] += 1
+    _snap["clean"] = False
+
+
+def _copy(out: dict) -> dict:
+    return json.loads(json.dumps(out))
+
+
+def snapshot(max_age: float | None = None) -> dict | None:
+    """Gemerkte erste Seite (Kopie), wenn sauber und jung genug; sonst None."""
+    age = SNAP_MAX_AGE if max_age is None else max_age
+    if _snap["out"] is not None and _snap["clean"] and age > 0 and time.monotonic() - _snap["t"] < age:
+        return _copy(_snap["out"])
+    return None
+
+
+async def build_first_page() -> dict:
+    """Erste Seite frisch von Beeper bauen und merken (Abgleich und App teilen sie)."""
+    gen = _snap["gen"]
+    out = await build_list()
+    _snap.update(t=time.monotonic(), out=_copy(out), clean=_snap["gen"] == gen)
+    return out
+
+
 @router.get("/chats")
 async def chats(q: str = "", unread: bool = False, inbox: str = "primary", cursor: str = ""):
+    first = not q.strip() and not unread and inbox == "primary" and not cursor
+    if not first:
+        return await build_list(q, unread, inbox, cursor)
+    if (hit := snapshot()) is not None:
+        return hit
+    try:
+        return await build_first_page()
+    except HTTPException:
+        if _snap["out"] is not None:   # Beeper hakt gerade: lieber den letzten Stand als gar nichts
+            return _copy(_snap["out"])
+        raise
+
+
+async def build_list(q: str = "", unread: bool = False, inbox: str = "primary", cursor: str = "") -> dict:
     s = get_settings()
     args = {"limit": s.page_size, "query": q.strip()[:100], "unreadOnly": True if unread else None,
             "inbox": inbox if inbox in ("primary", "low-priority", "archive") else None}

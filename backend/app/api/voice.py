@@ -17,7 +17,7 @@ from ..services.errors import Invalid, NotFound
 from .deps import DB
 
 router = APIRouter(tags=["voice"])
-from ..voice.web import app_key, make_ticket  # noqa: E402,F401 – make_ticket stays importable from here
+from ..voice.web import app_key, device_key, device_names, make_ticket  # noqa: E402,F401 – make_ticket stays importable from here
 
 
 def _denied():
@@ -38,7 +38,8 @@ async def internal_start(request: Request, x_voice_secret: str | None = Header(N
         return _denied()
     b = await request.json()
     return await voice_bridge.start(str(b["call_id"]), str(b.get("direction") or "out"), str(b.get("number") or ""),
-                                    bool(b.get("owner")), str(b.get("purpose") or ""), str(b.get("resume") or ""), str(b.get("mode") or ""))
+                                    bool(b.get("owner")), str(b.get("purpose") or ""), str(b.get("resume") or ""), str(b.get("mode") or ""),
+                                    speaker=b.get("speaker") if isinstance(b.get("speaker"), dict) else None)
 
 
 @router.post("/api/v1/voice/internal/recent", include_in_schema=False)
@@ -86,6 +87,15 @@ async def ticket():
     base = s.voice_public_url.rstrip("/")
     ws = "wss://" + base[8:] if base.startswith("https://") else "ws://" + base[7:] if base.startswith("http://") else base
     return {"url": f"{ws}/live?ticket={make_ticket(s.voice_secret)}"}
+
+
+@router.get("/api/v1/voice/devices")
+async def devices():
+    """Lautsprecher (ida-speaker) aus VOICE_DEVICES mit ihren Schlüsseln – zum Eintragen auf der Einstellungsseite des Pi."""
+    s = get_settings()
+    if not s.voice_on:
+        raise Invalid("Live-Gespräch ist nicht eingerichtet (VOICE_URL, VOICE_SECRET)")
+    return {"devices": [{"name": n, "key": device_key(s.voice_secret, n)} for n in device_names(s.voice_devices)]}
 
 
 @router.get("/api/v1/voice/app-link")

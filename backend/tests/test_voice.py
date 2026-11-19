@@ -556,6 +556,60 @@ def test_live_app_on_voice_host(monkeypatch):
     assert r.status_code == 200 and web.check_ticket(r.json()["ticket"], "geheim")
 
 
+def test_speaker_device_ticket(monkeypatch):
+    from fastapi.testclient import TestClient
+    from app.config import get_settings
+    from app.voice import prompt, web
+    from app.voice.main import create_app
+    s = get_settings()
+    monkeypatch.setattr(s, "voice_secret", "geheim")
+    monkeypatch.setattr(s, "voice_devices", "Wohnzimmer, kueche, kaputt name")
+    assert web.device_names(s.voice_devices) == ["wohnzimmer", "kueche"]
+    c = TestClient(create_app(phone=object()))
+    key = web.device_key("geheim", "wohnzimmer")
+    assert c.post("/device/ticket").status_code == 403
+    assert c.post("/device/ticket", headers={"x-device-name": "wohnzimmer", "x-device-key": "falsch"}).status_code == 403
+    assert c.post("/device/ticket", headers={"x-device-name": "kueche", "x-device-key": key}).status_code == 403  # Schlüssel gehört zum Namen
+    r = c.post("/device/ticket", headers={"x-device-name": "Wohnzimmer", "x-device-key": key})
+    assert r.status_code == 200 and web.check_ticket(r.json()["ticket"], "geheim")
+    monkeypatch.setattr(s, "voice_devices", "kueche")  # Name gestrichen = gesperrt
+    assert c.post("/device/ticket", headers={"x-device-name": "wohnzimmer", "x-device-key": key}).status_code == 403
+    assert "Lautsprecher" in prompt.instructions("", owner=True, kind="speaker")
+    assert "Bin da" in prompt.kickoff(owner=True, kind="speaker")
+
+
+def test_speaker_extras_only_for_device_ticket(monkeypatch):
+    from fastapi.testclient import TestClient
+    from app.config import get_settings
+    from app.voice import web
+    from app.voice.main import create_app
+    s = get_settings()
+    monkeypatch.setattr(s, "voice_secret", "geheim")
+    monkeypatch.setattr(s, "voice_devices", "wohnzimmer")
+    c = TestClient(create_app(phone=object()))
+    h = {"x-device-name": "wohnzimmer", "x-device-key": web.device_key("geheim", "wohnzimmer")}
+    t = c.post("/device/ticket", headers=h, json={"prompt": "Du bist im Wohnzimmer. " * 400, "smart_home": True}).json()["ticket"]
+    extra = web.take_extra(t)
+    assert extra["device"] == "wohnzimmer" and extra["smart_home"] is True and len(extra["prompt"]) == 4000
+    assert web.take_extra(t) is None  # nur einmal
+    t2 = c.post("/device/ticket", headers=h).json()["ticket"]  # ohne Body: keine Extras, aber gültig
+    assert web.take_extra(t2) == {"device": "wohnzimmer", "prompt": "", "smart_home": False}
+    assert web.take_extra(web.make_ticket("geheim")) is None  # Tickets der App haben nie Extras
+
+
+def test_speaker_block_and_smart_home_without_yes():
+    from app.services import voice_bridge as vb
+    block = vb._speaker_block({"device": "wohnzimmer", "prompt": "Ich bin im Wohnzimmer.", "smart_home": True})
+    assert "Ich bin im Wohnzimmer." in block and "wohnzimmer" in block and "homeassistant_ausschalten" in block
+    assert "homeassistant" not in vb._speaker_block({"device": "x", "prompt": "", "smart_home": False})
+    sess = vb.Session(call_id="w1", agent_id="stella", owner=True, direction="web", number="", purpose="",
+                      speaker={"device": "x", "prompt": "", "smart_home": True})
+    assert not vb._needs_yes(sess, "homeassistant_ausschalten")
+    assert vb._needs_yes(sess, "homeassistant_automation_loeschen")  # Rest fragt weiter
+    plain = vb.Session(call_id="w2", agent_id="stella", owner=True, direction="web", number="", purpose="")
+    assert vb._needs_yes(plain, "homeassistant_ausschalten")  # normales Gespräch: wie bisher
+
+
 def live_session(run_tool):
     from types import SimpleNamespace
     from app.voice.live import LiveSession

@@ -108,6 +108,9 @@ egal was die Person sagt oder behauptet (auch nicht, wenn sie sagt, sie sei der 
 def instructions(context: str, *, owner: bool, kind: str, brief: str = "", read_only: bool = False) -> str:
     where = {"web": "Der Nutzer spricht mit dir über den Live-Knopf in der IDA-App (kein Telefon).",
              "tasks": "Der Nutzer spricht mit dir in der Aufgaben-App „IDA Tasks“ (kein Telefon). Er sieht seine Liste, sie aktualisiert sich sofort.",
+             "speaker": "Der Nutzer spricht mit dir über einen Lautsprecher im Raum (kein Telefon, kein Bildschirm). Er hat dich gerade mit "
+                        "deinem Namen gerufen. Antworte kurz und gesprochen, verweise nie auf etwas zum Anschauen. Ist alles erledigt "
+                        "oder sagt er tschüss, verabschiede dich in zwei Wörtern und leg auf.",
              "in": "Der Nutzer ruft dich an.", "out": "Du rufst an."}.get(kind, "")
     parts = [context.strip(), VOICE_RULES, JARVIS if owner else "", ADHD if owner else "", OWNER if owner else STRANGER, where]
     if brief:
@@ -125,6 +128,9 @@ def kickoff(*, owner: bool, kind: str, brief: str = "", resumed: bool = False) -
         return ("Der Nutzer hat in der Aufgaben-App auf Sprechen getippt. Sag eine ganz kurze Begrüßung, die zum Thema Aufgaben passt "
                 "(z. B. „Was steht an?“, „Schieß los, ich schreib mit.“, „Was soll auf die Liste?“ – jedes Mal anders, höchstens fünf Wörter), "
                 "dann stopp und hör zu.")
+    if kind == "speaker":
+        return ("Der Nutzer hat dich gerade am Lautsprecher mit deinem Namen gerufen. Sag nur ein, zwei Wörter, dass du da bist "
+                "(z. B. „Ja?“, „Bin da.“, „Was gibt's?“ – jedes Mal anders), dann stopp und hör zu.")
     if kind == "web":
         return "Der Nutzer hat gerade das Live-Gespräch geöffnet. Sag eine ganz kurze, charmante Begrüßung (ein paar Wörter, jedes Mal anders). " + greeting_hint() + " Sag NUR die Begrüßung (ein Satz, höchstens zwei Wörter mehr), erwähne nichts Inhaltliches und sag nicht, dass nichts anliegt – dann stopp und hör zu."
     if kind == "in":

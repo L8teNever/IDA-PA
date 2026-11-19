@@ -3,6 +3,7 @@ import asyncio
 import hashlib
 import html
 import logging
+import re
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -53,9 +54,26 @@ async def lifespan(app: FastAPI):
         await api._beeper.close()
 
 
+# POSTs, die nur etwas ausrechnen und nichts an Chats ändern – sie lassen die gemerkte Chatliste stehen (api.list_dirty)
+READ_ONLY = re.compile(r"^/api/v1/(korrektur|smartcopy|fcm/test)$")
+
+
 def create_app() -> FastAPI:
     s = get_settings()
     app = FastAPI(title="IDA Chats", version="1.0", lifespan=lifespan, docs_url="/api/docs", openapi_url="/api/openapi.json")
+
+    @app.middleware("http")
+    async def fresh_list(request, call_next):
+        """Jede Änderung über die App (Senden, Lesen, Archivieren, Anpinnen, Zusammenführen …): beim nächsten Abruf die Liste frisch bauen.
+        Vorher und nachher – ein Abruf, der währenddessen baut, gilt so nicht als frisch."""
+        change = request.method not in ("GET", "HEAD", "OPTIONS") and request.url.path.startswith("/api/") and not READ_ONLY.match(request.url.path)
+        if change:
+            api.list_dirty()
+        try:
+            return await call_next(request)
+        finally:
+            if change:
+                api.list_dirty()
     app.include_router(ida.router)   # vor api: /chats/ida/… ist der Chat mit Ida, nicht Beeper
     app.include_router(untis.router)   # vor api: /chats/untis:…/… sind WebUntis-Nachrichten
     app.include_router(api.router)

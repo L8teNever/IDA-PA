@@ -194,7 +194,7 @@ def whisper():
 
 @pytest.fixture(scope="session")
 def client(fake, whisper):
-    os.environ.update({"BEEPER_MCP_URL": fake.url, "BEEPER_MCP_TOKEN": "tok", "WHISPER_URL": whisper.url, "LIVE_POLL_S": "0.2", "ARCHIVE_POLL_S": "0", "IDA_URL": "", "DATA_DIR": __import__("tempfile").mkdtemp(),
+    os.environ.update({"BEEPER_MCP_URL": fake.url, "BEEPER_MCP_TOKEN": "tok", "WHISPER_URL": whisper.url, "LIVE_POLL_S": "0.2", "ARCHIVE_POLL_S": "0", "CACHE_POLL_S": "0", "IDA_URL": "", "DATA_DIR": __import__("tempfile").mkdtemp(),
                        "FRONTEND_DIR": os.path.join(os.path.dirname(__file__), "..", "..", "frontend")})
     from fastapi.testclient import TestClient
 
@@ -203,3 +203,12 @@ def client(fake, whisper):
     from app.main import create_app
     with TestClient(create_app()) as c:
         yield c
+
+
+@pytest.fixture(autouse=True)
+def fresh_list():
+    """Jeder Test fragt die Chatliste frisch ab – nicht den Stand, den der Hintergrund-Abgleich gemerkt hat."""
+    from app import api
+    api.list_dirty()
+    yield
+    api.list_dirty()

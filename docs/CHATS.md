@@ -10,7 +10,10 @@ Browser (chats.kulbarts.com, Cloudflare Access) ──> chats :8000 ──MCP─
 * **Fast kein eigener Speicher.** Chats und Nachrichten liegen in Beeper Desktop; der Dienst merkt sich nur gesehene Nachrichten (siehe „Löschen und gelöschte Nachrichten“) und die Texte umgewandelter Sprachnachrichten (siehe „Sprachnachrichten“). Der Dienst spricht dessen MCP-Adresse an (`BEEPER_MCP_URL`) mit dem Bearer-Token `BEEPER_MCP_TOKEN` an – dem Zugang, den IDA beim Beeper-Anbieter speichert.
   dieselbe wie beim Beeper-Anbieter in IDA).
 * **Live, aber sparsam:** Nur solange die App irgendwo offen (und sichtbar) ist, fragt der Dienst alle `LIVE_POLL_S` Sekunden (Standard 5)
-  die 30 zuletzt aktiven Chats ab und meldet geänderte per Server-Sent Events (`/api/v1/stream`). Ohne offene App fragt er nichts ab.
+  die erste Seite der Chatliste ab und meldet geänderte per Server-Sent Events (`/api/v1/stream`).
+* **Liste sofort da:** Auch bei geschlossener App baut der Dienst die erste Seite der Liste alle `CACHE_POLL_S` Sekunden (Standard 15, 0 = aus) neu
+  und hält sie im Speicher. Beim Öffnen bekommt die App diesen Stand sofort, ohne auf Beeper zu warten. Jede Änderung über die App (Senden, Lesen,
+  Archivieren …) lässt die Liste beim nächsten Abruf frisch bauen; Suche, Filter und weitere Seiten kommen immer direkt von Beeper.
 * **Medien:** Bilder, Sprachnachrichten und Videos holt der Dienst über `get_attachment_image` (liefert die Datei als Binärteil) und reicht
   sie unter `/api/v1/media` mit Range-Unterstützung (Spulen, iPhone) weiter; bis 60 MB je Datei, im Speicher zwischengehalten (120 MB).
   Nur Bild-, Audio- und Videotypen werden angezeigt, alles andere (HTML, SVG …) nur als Download.

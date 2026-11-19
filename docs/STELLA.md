@@ -79,6 +79,28 @@ Telnyx ──► voice:/telnyx/webhook + /media ──┼─► Gemini Live (Web
 5. **Altes Stella abschalten:** den alten Container stoppen und die `stella_*`-Tools im Connector `ida_1` ausschalten,
    damit Ida die neuen internen Tools nimmt. Danach das alte Stella-Repo archivieren.
 
+## Lautsprecher (ida-speaker)
+
+[ida-speaker](https://github.com/L8teNever/ida-speaker) ist ein Raspberry Pi mit Mikrofon und Lautsprecher, der auf ein
+Wort wie „Stella“ hört und dann ein Live-Gespräch öffnet (Modus `speaker`: kurze gesprochene Antworten, kein Bildschirm).
+
+1. In der `.env` von IDA und voice `VOICE_DEVICES=wohnzimmer` setzen (mehrere mit Komma), dann `docker compose up -d`.
+2. Schlüssel holen: angemeldet `GET /api/v1/voice/devices` öffnen. Der Schlüssel hängt nur am Namen.
+3. Auf der Einstellungsseite des Pi Adresse des voice-Dienstes (intern über Cloudflare WARP, z. B. `http://<server>:8086`),
+   Gerätename und Schlüssel eintragen.
+4. Gerät sperren: den Namen aus `VOICE_DEVICES` streichen.
+
+Der Pi holt sich mit `POST /device/ticket` (`x-device-name`, `x-device-key`) ein Ticket und verbindet sich mit
+`/live?ticket=…&mode=speaker`.
+
+Im Body des Tickets kann der Pi `{"prompt": …, "smart_home": true}` mitschicken. Beides gilt nur für das Gespräch zu genau
+diesem Ticket, zusätzlich zu den normalen Regeln:
+- Der Prompt kommt als eigener Block („Anweisungen für diesen Lautsprecher“) in den Kontext, höchstens 4000 Zeichen.
+- Mit `smart_home` stehen die `homeassistant_*`-Tools direkt bereit. An, aus und umschalten laufen ohne Nachfrage
+  (`SPEAKER_FREE` in `services/voice_bridge.py`).
+
+App, Tasks-App und Telefon bekommen davon nie etwas.
+
 ## Feineinstellungen (`.env` & App)
 
 - **Stimme auswählen:** Direkt in der App unter **Einstellungen → Stella-Stimme** (oder bei Agent Stella). Dort können alle 21 Gemini-Stimmen mit Audiobeispielen probegehört und ausgewählt werden. Änderungen greifen sofort ohne Neustart.

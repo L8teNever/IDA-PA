@@ -1,6 +1,7 @@
 """The voice container: `uvicorn app.voice.main:app` – same image as IDA, own container (docker-compose service „voice“).
 
-Public (VOICE_PUBLIC_URL):  /telnyx/webhook (Ed25519 signature), /telnyx/media/{call}?k=… (per-call secret), /live?ticket=…[&mode=tasks]
+Public (VOICE_PUBLIC_URL):  /telnyx/webhook (Ed25519 signature), /telnyx/media/{call}?k=… (per-call secret), /live?ticket=…[&mode=tasks|speaker]
+                            /device/ticket (x-device-name + x-device-key, Lautsprecher aus VOICE_DEVICES)
 Internal (x-voice-secret):  /internal/calls, /internal/busy – used by IDA's stella_* tools
 /health tells whether a conversation is running (the watchtower hook updates the container only when idle).
 """
@@ -159,6 +160,20 @@ def create_app(phone: Phone | None = None, connect=None) -> FastAPI:
             return JSONResponse({"detail": "Nicht erlaubt"}, status_code=403)
         return {"ticket": web.make_ticket(s.voice_secret), "name": "Stella"}
 
+    @app.post("/device/ticket", include_in_schema=False)
+    async def device_ticket(request: Request, x_device_name: str | None = Header(None), x_device_key: str | None = Header(None)):
+        """Lautsprecher (ida-speaker): Name + Schlüssel gegen ein Ticket für eine Minute. Erlaubt sind nur Namen aus VOICE_DEVICES.
+        Body (optional): {"prompt": eigene Anweisungen nur für diesen Lautsprecher, "smart_home": Licht & Co. ohne Nachfrage schalten}."""
+        if not web.device_ok(s.voice_secret, s.voice_devices, x_device_name, x_device_key):
+            return JSONResponse({"detail": "Nicht erlaubt"}, status_code=403)
+        try:
+            body = await request.json()
+        except Exception:  # noqa: BLE001 – kein oder kaputter Body = keine Extras
+            body = None
+        ticket = web.make_ticket(s.voice_secret)
+        web.remember_extra(ticket, web.speaker_extra((x_device_name or "").strip().lower(), body))
+        return {"ticket": ticket, "name": "Stella", "busy": len(live) >= 2}
+
     @app.post("/pwa/recent", include_in_schema=False)
     async def pwa_recent(x_live_key: str | None = Header(None)):
         """Button "Gespräch weiterführen": the last conversations to pick from."""
@@ -204,8 +219,11 @@ def create_app(phone: Phone | None = None, connect=None) -> FastAPI:
             return
         await ws.accept()
         resume = ws.query_params.get("resume", "")
-        mode = "tasks" if ws.query_params.get("mode") == "tasks" else ""   # Aufgaben-Modus (Sprechen in der Tasks-App)
-        await web.run(ws, s, ida=phone.ida, connect=connect, active=live, resume=resume if re.fullmatch(r"[\w-]{1,24}", resume) else "", mode=mode)
+        mode = ws.query_params.get("mode")  # "tasks" = Sprechen in der Tasks-App, "speaker" = Lautsprecher (ida-speaker)
+        mode = mode if mode in ("tasks", "speaker") else ""
+        speaker = web.take_extra(ws.query_params.get("ticket", "")) if mode == "speaker" else None
+        await web.run(ws, s, ida=phone.ida, connect=connect, active=live, resume=resume if re.fullmatch(r"[\w-]{1,24}", resume) else "", mode=mode,
+                      speaker=speaker)
 
     return app
 

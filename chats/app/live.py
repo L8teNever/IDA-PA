@@ -7,7 +7,7 @@ import logging
 import re
 
 from . import api, bus, push, store
-from .api import archive, beeper, parse_chats
+from .api import archive
 from .config import get_settings
 
 log = logging.getLogger("chats.live")
@@ -23,10 +23,8 @@ async def remember(ids: list[str]) -> None:
 
 
 async def check(state: dict) -> None:
-    items, _ = parse_chats(await beeper().text("search_chats", {"limit": 30, "inbox": "primary"}))
-    items = await api.split_merged(items)   # Beeper-Sammelchats: die Chats dahinter, wie in der Liste der App
-    if push.snaps_quiet():   # neue Snaps ändern nichts: keine Meldung, kein Hochrutschen
-        items = await api.quiet_snaps(items)
+    # Dieselbe erste Seite, die die App bekommt (Beeper-Sammelchats aufgeteilt, Snaps still) – gebaut und gleich für die App gemerkt
+    items = (await api.build_first_page())["items"]
     sig = {c["id"]: (c["at"], c["unread"]) for c in items}
     old = state.get("sig")
     state["sig"] = sig
@@ -46,6 +44,7 @@ async def check(state: dict) -> None:
             if more_unread and push.autoread_of(c["id"], ar, c.get("network", ""), ar_nets) == "always":   # sofort gelesen: keine Meldung, in Beeper gelesen
                 try:
                     await api.beeper_read(c['id'])
+                    api.list_dirty()
                     c["unread"] = 0
                     sig[c["id"]] = (c["at"], 0)
                     bus.publish({"type": "chat", "id": c["id"], "title": c["title"], "new": False, "unread": 0, "at": c["at"]})
@@ -125,14 +124,17 @@ async def loop() -> None:
     state: dict = {}
     while True:
         s = get_settings()
-        # App offen: oft; App zu, aber Handy für Benachrichtigungen angemeldet: etwas seltener; sonst nur zum Merken
-        wait = s.live_poll_s if bus.count() else s.push_poll_s if s.push_poll_s > 0 and push.has_subs() else s.archive_poll_s
+        # App offen: oft; App zu: so oft, dass die Liste beim Öffnen frisch bereitliegt (cache_poll_s), mit angemeldetem Handy
+        # für Benachrichtigungen ggf. öfter (push_poll_s); sonst nur zum Merken
+        wait = s.live_poll_s if bus.count() else min([w for w in (s.push_poll_s if push.has_subs() else 0, s.cache_poll_s, s.archive_poll_s) if w > 0], default=0)
+        api.SNAP_MAX_AGE = wait * 2 + 5 if wait > 0 else 0
         if wait > 0:
             try:
                 await check(state)
             except Exception as e:  # noqa: BLE001 – live darf nie sterben
                 log.warning("Live-Abgleich: %s", e)
                 wait = max(wait, 30)
+                api.SNAP_MAX_AGE = 0   # Abgleich hakt: die App baut selbst frisch (mit dem letzten Stand als Rückfall)
         else:
             state.pop("sig", None)
         # App geht auf, während selten abgefragt wird: nicht die ganze Pause abwarten
