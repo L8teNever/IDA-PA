@@ -197,6 +197,11 @@ beim Scrollen stehen. Ohne View Transitions im Browser oder bei „Bewegung redu
 
 ## Videos und Alben
 
+- **Snaps von anderen als Bild:** Beeper liefert einen Snap nur mit Datei (`SNAP-….jpg`), nachdem er in Beeper Desktop geöffnet wurde –
+  das macht der Dienst beim Lesen eines Snapchat-Chats über die App (siehe oben, `/v1/focus`). Wurde er vorher am Handy in Snapchat geöffnet,
+  bekommt Beeper ihn nicht mehr. Sobald der Dienst einen Snap mit Datei sieht (beim Laden, im Hintergrund und direkt nach dem Öffnen in Beeper,
+  sofort und noch einmal nach 20 s), sichert er die Datei in `chats.db` (Tabelle `files`, bis 25 MB). Löscht Beeper sie später, zeigt die App
+  weiter das gesicherte Bild.
 - **Snapchat-Videostücke:** Snapchat teilt lange Videos in ~10-Sekunden-Stücke. Aufeinanderfolgende reine Videos desselben Absenders
   (höchstens 90 s Abstand) zeigt die App als ein Video – nur bei Snapchat und nur, solange „Video-Stücke zusammenfügen“ in den
   Einstellungen an ist (`snap_join`, Standard an, gilt für alle Geräte). Bei anderen Netzwerken wird nie zusammengefügt.

@@ -476,12 +476,15 @@ body.kb .composer, body.kb .recbar { padding-bottom: 8px; }
 .attchips::-webkit-scrollbar { display: none; }
 .attchip { flex: none; min-width: 84px; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 12px 14px; border: 0; border-radius: 16px; background: var(--surface-high); color: var(--on-surface); font: inherit; font-size: 14px; cursor: pointer; }
 .attchip .ms { font-size: 26px; }
-.attgrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 3px; height: min(42vh, 380px); overflow-y: auto; border-radius: 14px; align-content: start; }
+/* Reihenhöhe fest = Kachelbreite: Nur mit aspect-ratio drückt das WebView die Reihen auf die Höhe des Felds zusammen,
+   und die Kacheln liegen als dünne Streifen übereinander. 100cqw = Breite des Menüs (container-type), 110px nur als Rückfall. */
+.dock .attpanel { container-type: inline-size; }
+.attgrid { flex: none; display: grid; grid-template-columns: repeat(3, 1fr); grid-auto-rows: 110px; grid-auto-rows: calc((100cqw - 6px) / 3); gap: 3px; height: min(42vh, 380px); overflow-y: auto; border-radius: 14px; align-content: start; }
 .attgrid.ask { display: flex; align-items: center; justify-content: center; }
 .attask { display: flex; flex-direction: column; align-items: center; gap: 6px; text-align: center; padding: 16px; color: var(--muted); }
 .attask .ms { font-size: 34px; color: var(--accent); }
 .attask b { color: var(--on-surface); font-weight: 500; }
-.atile { position: relative; aspect-ratio: 1; padding: 0; border: 0; border-radius: 4px; overflow: hidden; background: var(--surface-high); cursor: pointer; }
+.atile { position: relative; height: 100%; min-height: 0; padding: 0; border: 0; border-radius: 4px; overflow: hidden; background: var(--surface-high); cursor: pointer; }
 .atile img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .atile.cam { display: grid; place-items: center; color: var(--on-surface); }
 .atile.cam .ms { font-size: 34px; }

@@ -883,3 +883,36 @@ def test_liste_liegt_fertig_bereit(client, fake, monkeypatch):
     monkeypatch.setattr(api, "SNAP_MAX_AGE", 0.0)
     client.get(f"{API}/chats")
     assert count() == n + 3   # Abgleich läuft nicht: immer frisch
+
+
+def test_snap_wird_gesichert_und_bleibt(client, monkeypatch):
+    """Ein Snap von jemand anderem mit Datei (SNAP-…) wird gesichert; liefert Beeper ihn später ohne Datei, zeigt die App weiter das Bild."""
+    import asyncio
+
+    from app import api, store
+    page = {"items": [{"id": "s1", "timestamp": "2026-11-19T10:00:00Z", "senderID": "@k:x", "senderName": "Klara", "type": "IMAGE", "text": "", "isSender": False,
+                       "attachments": [{"srcURL": "file:///C:/Users/Docker/AppData/Roaming/BeeperTexts/media/local.beeper.com/snap1", "type": "img",
+                                        "mimeType": "image/jpeg", "fileName": "SNAP-123.jpg"}]}], "hasMore": False}
+    got = []
+
+    async def fake_fetch(chat_id, cursor, direction):
+        return page
+
+    async def fake_media(src, mime):
+        got.append(src)
+        return b"\xff\xd8jpeg", "image/jpeg"
+    monkeypatch.setattr(api, "fetch_messages", fake_fetch)
+    monkeypatch.setattr(api, "fetch_media", fake_media)
+
+    async def run():
+        api.shape_messages(await fake_fetch("77", "", "before"), "77")
+        for _ in range(20):
+            await asyncio.sleep(0.01)
+    asyncio.run(run())
+    assert got and store.load_file(got[0]) == (b"\xff\xd8jpeg", "image/jpeg")
+    page["items"][0]["attachments"] = []   # Beeper hat die Datei entfernt
+    m = client.get(f"{API}/chats/77/messages").json()["items"][0]
+    assert m["files"][0]["name"] == "SNAP-123.jpg"
+    monkeypatch.undo()
+    r = client.get(f"{API}/media", params={"src": m["files"][0]["src"], "mime": "image/jpeg"})
+    assert r.status_code == 200 and r.content == b"\xff\xd8jpeg"

@@ -575,6 +575,7 @@ def keep_deleted(chat_id: str, items: list[dict]) -> list[dict]:
         past = store.history(chat_id, [m["id"] for m in items if m.get("id") and m.get("edited")])
     except Exception:  # noqa: BLE001 – der Merkzettel darf das Laden nie verhindern
         return items
+    keep_snaps(items)
     out = []
     for m in items:
         k = known.get(str(m["id"]))
@@ -582,12 +583,56 @@ def keep_deleted(chat_id: str, items: list[dict]) -> list[dict]:
             continue
         if past.get(str(m["id"])) and not m["deleted"]:
             m["prev"] = past[str(m["id"])]   # frühere Fassungen einer bearbeiteten Nachricht, älteste zuerst
+        if not m["deleted"] and not m["files"] and not m["text"] and k and k["files"] and _all_saved(k["files"]):
+            m["files"] = k["files"]   # Snap: Beeper hat die Datei inzwischen entfernt – gesichert ist sie noch (keep_snaps)
         if m["deleted"]:
             was = k if k and (k["text"] or k["files"]) else m
             m["was"] = {"text": was["text"], "files": was["files"]} if was["text"] or was["files"] else None
             m["text"], m["files"] = "", []
         out.append(m)
     return out
+
+
+def _all_saved(files: list[dict]) -> bool:
+    try:
+        return all(f.get("src") and store.has_file(f["src"]) for f in files)
+    except Exception:  # noqa: BLE001
+        return False
+
+
+SNAP_FILE = re.compile(r"^SNAP-", re.I)
+_snap_saving: set[str] = set()
+
+
+def keep_snaps(items: list[dict]) -> None:
+    """Snaps von anderen mit Datei (SNAP-…, nur nach dem Öffnen in Beeper Desktop vorhanden): im Hintergrund sichern (store.save_file)."""
+    for m in items:
+        if m.get("mine") or m.get("deleted"):
+            continue
+        for f in m.get("files") or []:
+            src = f.get("src") or ""
+            if f.get("kind") in ("image", "video") and SNAP_FILE.match(f.get("name") or "") and src and src not in _snap_saving:
+                try:
+                    if store.has_file(src):
+                        continue
+                except Exception:  # noqa: BLE001
+                    continue
+                _snap_saving.add(src)
+                try:
+                    asyncio.get_running_loop().create_task(_save_snap(src, f.get("mime") or ""))
+                except RuntimeError:   # ohne laufende Schleife (Tests, Skripte): beim nächsten Laden
+                    _snap_saving.discard(src)
+
+
+async def _save_snap(src: str, mime: str) -> None:
+    try:
+        data, ct = await fetch_media(src, mime)
+        store.save_file(src, data, ct)
+        log.info("Snap gesichert (%d Bytes)", len(data))
+    except Exception as e:  # noqa: BLE001 – nächster Versuch beim nächsten Laden
+        log.info("Snap sichern ging nicht: %s", getattr(e, "detail", e))
+    finally:
+        _snap_saving.discard(src)
 
 
 # ---------------- Angepinnte Nachrichten (Leiste oben im Chat, wie in WhatsApp) ----------------
@@ -1034,6 +1079,8 @@ _media_gate = asyncio.Semaphore(6)   # mehrere Bilder gleichzeitig, aber Beeper 
 
 
 async def fetch_media(src: str, mime: str) -> tuple[bytes, str]:
+    if (saved := store.load_file(src)):   # gesicherter Snap: bleibt, auch wenn Beeper ihn gelöscht hat
+        return saved
     if src.startswith("untis:"):
         from . import untis
         data = await untis.file_bytes(src)
@@ -1445,6 +1492,22 @@ async def open_in_beeper(chat_id: str, msg_id: str) -> None:
                 await rest_call("POST", "/v1/focus", {"chatID": park})
         except HTTPException as e:
             log.warning("Chat %s gelesen markieren/parken fehlgeschlagen: %s", chat_id, e.detail)
+    # Erst jetzt hat Beeper die Snaps samt Bild (SNAP-…): Chat laden, damit sie gesichert werden – einmal sofort, einmal etwas später
+    task = asyncio.create_task(_grab_snaps(chat_id))
+    _open_tasks.add(task)
+    task.add_done_callback(_open_tasks.discard)
+
+
+async def _grab_snaps(chat_id: str) -> None:
+    for wait in (0, SNAP_GRAB_LATER_S):
+        await asyncio.sleep(wait)
+        try:
+            await archive(chat_id)
+        except HTTPException:
+            pass
+
+
+SNAP_GRAB_LATER_S = 20.0
 
 
 # ---------------- Angepinnte Chats (echte Beeper-Pins + lokale Pins für Ida & Untis) ----------------

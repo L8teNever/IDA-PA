@@ -126,6 +126,37 @@ def sync_transcripts(items: list[dict]) -> None:
             save_transcript(f["src"], f["transcript"], "beeper")
 
 
+# ---------------- Snaps von anderen als Datei ----------------
+# Beeper liefert einen Snap nur mit Bild, nachdem er in Beeper Desktop geöffnet wurde (SNAP-….jpg), und löscht die Datei später wieder.
+# Darum sichert der Dienst sie gleich beim ersten Sehen hier (Volume chats-data); danach bleibt der Snap in der App sichtbar.
+MAX_SNAP_FILE = 25 * 1024 * 1024
+
+
+def _files() -> sqlite3.Connection:
+    d = db()
+    d.execute("CREATE TABLE IF NOT EXISTS files (src TEXT PRIMARY KEY, data BLOB NOT NULL, ct TEXT DEFAULT '', at REAL)")
+    return d
+
+
+def has_file(src: str) -> bool:
+    with _lock:
+        return _files().execute("SELECT 1 FROM files WHERE src=?", (tkey(src),)).fetchone() is not None
+
+
+def load_file(src: str) -> tuple[bytes, str] | None:
+    with _lock:
+        r = _files().execute("SELECT data, ct FROM files WHERE src=?", (tkey(src),)).fetchone()
+    return (bytes(r[0]), r[1] or "application/octet-stream") if r else None
+
+
+def save_file(src: str, data: bytes, ct: str) -> None:
+    if not data or len(data) > MAX_SNAP_FILE:
+        return
+    with _lock:
+        _files().execute("INSERT OR IGNORE INTO files (src, data, ct, at) VALUES (?,?,?,?)", (tkey(src), data, ct, time.time()))
+        db().commit()
+
+
 # ---------------- Zusammengeführte Chats (nur in IDA Chats; Beeper bleibt unberührt) ----------------
 def _merges() -> sqlite3.Connection:
     d = db()
