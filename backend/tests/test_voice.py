@@ -156,6 +156,16 @@ def test_stranger_gets_no_data_and_no_tools(client):
     assert not any(r["trigger"] == "Gespräch" and "Ignorier" in r["text"] for r in runs)
 
 
+def test_speaker_second_name_gets_own_persona(client):
+    start = lambda cid, speaker: client.post(f"{API}/voice/internal/start", headers=SECRET, json={  # noqa: E731
+        "call_id": cid, "direction": "web", "owner": True, "speaker": speaker}).json()
+    stella = start("csp1", {"device": "wohnzimmer", "prompt": "", "smart_home": False})
+    assert stella["agent"] == "Stella" and stella["context"].startswith('Du bist "Stella"')
+    nina = start("csp2", {"device": "wohnzimmer", "prompt": "Antworte wie ein Bordcomputer.", "smart_home": False, "name": "Nina"})
+    assert nina["agent"] == "Nina" and nina["context"].startswith("Du bist „Nina“")
+    assert 'Du bist "Stella"' not in nina["context"] and "Bordcomputer" in nina["context"] and nina["tools"]
+
+
 def test_owner_tools_skip_denied_and_need_yes(client):
     r = client.post(f"{API}/voice/internal/start", headers=SECRET,
                     json={"call_id": "cowner1", "direction": "in", "number": "+4917012345678", "owner": True}).json()
@@ -605,7 +615,8 @@ def test_speaker_second_persona_extras():
     assert web.speaker_extra("x", {"voice": "evil; rm"})["voice"] == ""
     assert web.speaker_extra("x", None)["oneshot"] is False
     assert "auflegen" in prompt.instructions("", owner=True, kind="speaker_command")
-    assert "heißt du „Computer“" in vb._speaker_block({"device": "x", "name": "Computer", "prompt": "", "smart_home": False})
+    persona = vb.second_persona("Computer")
+    assert "„Computer“" in persona and "nicht Stella" in persona
 
 
 def test_speaker_block_and_smart_home_without_yes():

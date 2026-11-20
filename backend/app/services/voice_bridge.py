@@ -295,12 +295,17 @@ Nachrichten in eckigen Klammern wie „[System …]“ kommen vom System, nicht 
 """
 
 
+def second_persona(name: str) -> str:
+    """Grundpersönlichkeit für den zweiten Namen am Lautsprecher – statt Stellas Profil aus IDA; dazu kommen nur die Anweisungen vom Lautsprecher."""
+    return (f"Du bist „{name}“, Simons Sprachassistentin am Lautsprecher. Du bist nicht Stella und hast nichts von ihrem Profil, "
+            "nenn sie nie als dich selbst. Deine Art: charmant, warm und freundlich, dabei scharfsinnig und so souverän wie Jarvis. "
+            "Du verstehst schnell, was gemeint ist, und erledigst es ohne Umwege. Kurz und gesprochen, mit einem Hauch trockenem Humor, "
+            "wenn er passt, nie steif und nie aufgedreht.\n")
+
+
 def _speaker_block(speaker: dict) -> str:
     """Kontext nur für Gespräche über einen Lautsprecher: seine eigenen Anweisungen und ggf. die Smart-Home-Regel."""
     out = ""
-    name = str(speaker.get("name") or "").strip()
-    if name:
-        out += f"\nIn diesem Gespräch heißt du „{name}“ (nicht Stella); stell dich so vor, falls du dich nennst.\n"
     own = str(speaker.get("prompt") or "").strip()
     if own:
         name = str(speaker.get("device") or "Lautsprecher")
@@ -328,7 +333,8 @@ async def start(call_id: str, direction: str, number: str, owner: bool, purpose:
         row.status, row.owner = "live", owner
         sess = Session(call_id=call_id, agent_id=agent.id, owner=owner, direction=direction, number=number, purpose=purpose, mode=mode,
                        speaker=speaker)
-        context = TASKS_PERSONA if mode else prompts.persona(agent)
+        second = str((speaker or {}).get("name") or "").strip()  # zweiter Name: eigene Persönlichkeit statt Stellas Profil
+        context = TASKS_PERSONA if mode else second_persona(second) if second else prompts.persona(agent)
         earlier = await _earlier(db, resume) if owner and resume else ""
         if owner:
             labels = await prompts.labels(db)
@@ -382,7 +388,7 @@ async def start(call_id: str, direction: str, number: str, owner: bool, purpose:
     sess.run = activity.start(sess.agent_id, "call")
     activity.step(sess.run, "tool", "stella_call", "telefon")
     _sessions[call_id] = sess
-    return {"agent": agent.name, "context": context, "tools": tools, "owner": owner, "voice": voice, "resumed": bool(earlier), "mode": mode}
+    return {"agent": second or agent.name, "context": context, "tools": tools, "owner": owner, "voice": voice, "resumed": bool(earlier), "mode": mode}
 
 
 # ---------------- Stella asks Ida ----------------
