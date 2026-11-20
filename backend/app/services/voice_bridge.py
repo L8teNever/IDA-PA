@@ -298,6 +298,9 @@ Nachrichten in eckigen Klammern wie „[System …]“ kommen vom System, nicht 
 def _speaker_block(speaker: dict) -> str:
     """Kontext nur für Gespräche über einen Lautsprecher: seine eigenen Anweisungen und ggf. die Smart-Home-Regel."""
     out = ""
+    name = str(speaker.get("name") or "").strip()
+    if name:
+        out += f"\nIn diesem Gespräch heißt du „{name}“ (nicht Stella); stell dich so vor, falls du dich nennst.\n"
     own = str(speaker.get("prompt") or "").strip()
     if own:
         name = str(speaker.get("device") or "Lautsprecher")

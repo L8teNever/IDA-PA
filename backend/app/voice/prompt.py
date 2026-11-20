@@ -111,6 +111,11 @@ def instructions(context: str, *, owner: bool, kind: str, brief: str = "", read_
              "speaker": "Der Nutzer spricht mit dir über einen Lautsprecher im Raum (kein Telefon, kein Bildschirm). Er hat dich gerade mit "
                         "deinem Namen gerufen. Antworte kurz und gesprochen, verweise nie auf etwas zum Anschauen. Ist alles erledigt "
                         "oder sagt er tschüss, verabschiede dich in zwei Wörtern und leg auf.",
+             "speaker_command": "Der Nutzer hat dich gerade am Lautsprecher gerufen, um genau EINEN Befehl oder EINE Frage zu erledigen "
+                                "(kein Telefon, kein Bildschirm), z. B. „Licht an“ oder „wie warm ist es?“. Keine Begrüßung, keine Rückfrage, "
+                                "wenn es sich irgendwie vermeiden lässt. Erledige es sofort mit dem passenden Tool, antworte in höchstens einem "
+                                "kurzen Satz („Licht ist an.“) und ruf direkt danach auflegen auf – ohne Abschied. Hörst du gar keinen Befehl, "
+                                "leg wortlos auf.",
              "in": "Der Nutzer ruft dich an.", "out": "Du rufst an."}.get(kind, "")
     parts = [context.strip(), VOICE_RULES, JARVIS if owner else "", ADHD if owner else "", OWNER if owner else STRANGER, where]
     if brief:

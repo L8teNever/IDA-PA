@@ -593,8 +593,19 @@ def test_speaker_extras_only_for_device_ticket(monkeypatch):
     assert extra["device"] == "wohnzimmer" and extra["smart_home"] is True and len(extra["prompt"]) == 4000
     assert web.take_extra(t) is None  # nur einmal
     t2 = c.post("/device/ticket", headers=h).json()["ticket"]  # ohne Body: keine Extras, aber gültig
-    assert web.take_extra(t2) == {"device": "wohnzimmer", "prompt": "", "smart_home": False}
+    assert web.take_extra(t2) == {"device": "wohnzimmer", "prompt": "", "smart_home": False, "name": "", "voice": "", "oneshot": False}
     assert web.take_extra(web.make_ticket("geheim")) is None  # Tickets der App haben nie Extras
+
+
+def test_speaker_second_persona_extras():
+    from app.voice import prompt, web
+    from app.services import voice_bridge as vb
+    e = web.speaker_extra("wohnzimmer", {"name": "Computer<script>", "voice": "Puck", "oneshot": True})
+    assert e["name"] == "Computerscript" and e["voice"] == "Puck" and e["oneshot"] is True
+    assert web.speaker_extra("x", {"voice": "evil; rm"})["voice"] == ""
+    assert web.speaker_extra("x", None)["oneshot"] is False
+    assert "auflegen" in prompt.instructions("", owner=True, kind="speaker_command")
+    assert "heißt du „Computer“" in vb._speaker_block({"device": "x", "name": "Computer", "prompt": "", "smart_home": False})
 
 
 def test_speaker_block_and_smart_home_without_yes():

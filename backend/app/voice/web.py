@@ -75,7 +75,12 @@ _extras: dict[str, tuple[float, dict]] = {}  # ticket -> (Ablauf, Einstellungen 
 def speaker_extra(name: str, body: dict | None) -> dict:
     """Was der Lautsprecher beim Ticket mitschickt: eigener Prompt (nur für ihn) und ob Smart Home ohne Nachfrage schalten darf."""
     b = body if isinstance(body, dict) else {}
-    return {"device": name, "prompt": str(b.get("prompt") or "").strip()[:4000], "smart_home": b.get("smart_home") is True}
+    voice = str(b.get("voice") or "")
+    return {"device": name, "prompt": str(b.get("prompt") or "").strip()[:4000], "smart_home": b.get("smart_home") is True,
+            # zweite Persönlichkeit: eigener Name und Stimme; oneshot = ein Befehl, Antwort, auflegen
+            "name": re.sub(r"[^\w äöüÄÖÜß-]", "", str(b.get("name") or ""))[:32].strip(),
+            "voice": voice if re.fullmatch(r"[A-Z][a-z]{2,15}", voice) else "",
+            "oneshot": b.get("oneshot") is True}
 
 
 def remember_extra(ticket: str, extra: dict, now: float | None = None) -> None:
@@ -178,15 +183,17 @@ async def run(ws, settings, ida: Ida | None = None, connect=None, active: set | 
     status, error = "done", ""
     try:
         info = await ida.start(call_id, "web", "", True, "", resume, mode, speaker=speaker if mode == "speaker" else None)
-        voice = info.get("voice") or "Aoede"
-        kind = "tasks" if info.get("mode") == "tasks" else "speaker" if mode == "speaker" else "web"
+        voice = (speaker or {}).get("voice") or info.get("voice") or "Aoede"
+        oneshot = mode == "speaker" and bool((speaker or {}).get("oneshot"))
+        kind = "tasks" if info.get("mode") == "tasks" else ("speaker_command" if oneshot else "speaker") if mode == "speaker" else "web"
         session = LiveSession(settings, instructions=prompt.instructions(info.get("context") or "", owner=True, kind=kind),
                               tools=info.get("tools") or [], run_tool=lambda n, a: ida.tool(call_id, n, a), sink=sink,
                               kickoff=prompt.kickoff(owner=True, kind=kind, resumed=bool(info.get("resumed"))), client_vad=settings.voice_web_vad, connect=connect, voice=voice)
         mic = BrowserMic(session, sink, settings) if settings.voice_web_vad else None
         await session.open()
         await sink._json({"type": "ready", "rate": 24000, "agent": info.get("agent") or "Stella", "offline": bool(info.get("offline"))})
-        await session.kickoff()
+        if not oneshot:  # Befehls-Modus: keine Begrüßung, der Befehl ist schon unterwegs
+            await session.kickoff()
 
         async def browser():
             while not sink.done.is_set():
