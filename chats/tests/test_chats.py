@@ -89,6 +89,13 @@ def test_audio_mit_range_und_unsichere_dateien(client):
     r = client.get(f"{API}/media", params={"src": src}, headers={"range": "bytes=-5"})
     assert r.status_code == 206 and r.content == bytes(range(195, 200))
     assert client.get(f"{API}/media", params={"src": src}, headers={"range": "bytes=500-600"}).status_code == 416
+    from app import api
+    old, api.RANGE_CHUNK = api.RANGE_CHUNK, 50
+    try:   # „ab hier bis Ende“ bei großen Dateien: nur ein Stück
+        r = client.get(f"{API}/media", params={"src": src}, headers={"range": "bytes=100-"})
+        assert r.status_code == 206 and r.content == bytes(range(100, 150)) and r.headers["content-range"] == "bytes 100-149/200"
+    finally:
+        api.RANGE_CHUNK = old
     r = client.get(f"{API}/media", params={"src": "mxc://x/page"})   # HTML kommt nie als HTML an
     assert r.headers["content-type"] == "application/octet-stream" and r.headers["content-disposition"] == "attachment"
 
@@ -845,8 +852,13 @@ def test_beeper_sammelchat_wird_aufgeteilt(client, monkeypatch):
     out = asyncio.run(api.split_merged([dict(c) for c in items], with_last=True))
     assert [(c["id"], c["network"], c["unread"]) for c in out] == [("12", "whatsapp.49", 2), ("1", "snapchat", 0), ("11", "instagramgo.1", 0)]
     assert out[0]["last"]["text"] == "Ja" and out[2]["last"]["text"] == "Hey" and out[0]["title"] == "Nils Primel"
+    # einmalig auch in der App zusammengeführt, mit dem Namen aus Beeper
+    g = store.groups()
+    assert [sorted(m["id"] for m in ms) for ms in g.values()] == [["11", "12"]] and store.metas()[next(iter(g))]["name"] == "Nils"
+    store.split(next(iter(g)))   # aufgelöst: kommt nicht wieder
     n = len(asked)
     asyncio.run(api.split_merged([dict(c) for c in items]))   # unverändert: aus dem Gedächtnis, keine neuen Aufrufe
+    assert store.groups() == {}
     assert len(asked) == n
     # kein Sammelchat (404 / ohne merge): bleibt, wie er ist
     assert asyncio.run(api.split_merged([{"id": "5", "network": "", "at": "", "unread": 0}])) == [{"id": "5", "network": "", "at": "", "unread": 0}]
@@ -859,6 +871,12 @@ def test_beeper_sammelchat_wird_aufgeteilt(client, monkeypatch):
     assert [[m["id"] for m in g["chats"]] for g in r] == [["11", "12", "30"]] and r[0]["id"] == "9"
     assert r[0]["avatar"] == "11" and r[0]["send"] == ""
     store.split("9")
+    # Sammelchat (alter Eintrag am Handy) zu seinen eigenen Chats dazu zusammengeführt: er fällt raus, nichts kommt doppelt
+    gid = client.post(f"{API}/merges", json={"chats": [{"id": "12", "title": "Nils Primel", "network": "whatsapp.49"},
+                                                      {"id": "9", "title": "Nils", "network": "whatsapp.49"}, {"id": "30", "title": "Nils", "network": "snapchat"}]}).json()["id"]
+    r = client.get(f"{API}/merges").json()["items"]
+    assert [sorted(m["id"] for m in g["chats"]) for g in r] == [["11", "12", "30"]]
+    store.split(gid)
 
 
 def test_liste_liegt_fertig_bereit(client, fake, monkeypatch):

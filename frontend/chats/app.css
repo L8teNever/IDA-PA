@@ -1024,6 +1024,7 @@ body.setts .ldock { display: none; }
 .snapchip { display: inline-flex; align-items: center; gap: 2px; margin-left: 6px; padding: 1px 7px; border-radius: 10px; background: rgba(255, 252, 0, .16); color: #e8e200; font-size: 12px; font-weight: 600; }
 .snapchip .ms { font-size: 15px; }
 .snapph { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; color: #e8e200; }
+button.snapph { padding: 0; border: 0; background: none; font: inherit; font-weight: 600; text-align: left; cursor: pointer; }
 .b.me .snapph { color: inherit; opacity: .85; }
 .snapph .ms { font-size: 18px; }
 

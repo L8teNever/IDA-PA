@@ -480,6 +480,36 @@ async def beeper_subs(c: dict) -> list[dict] | None:
     return [dict(x) for x in out] if out else None
 
 
+def _adopted() -> set[str]:
+    try:
+        v = json.loads(push._kv("beeper_adopted") or "[]")
+        return {str(x) for x in v} if isinstance(v, list) else set()
+    except ValueError:
+        return set()
+
+
+def adopt_beeper_merges(found: dict[str, tuple[str, list[dict]]]) -> None:
+    """Was Beeper zusammengeführt hat, wird einmalig auch in der App zusammengeführt (eigene Gruppe, Name des Beeper-Chats) – danach
+    gehört es dir: Auflösen, Umbenennen, Chats herausnehmen; die App führt denselben Beeper-Sammelchat nie wieder zusammen.
+    Steckt einer der Chats schon in einer deiner Gruppen, kommen die anderen dort dazu."""
+    done = _adopted()
+    new = {k: v for k, v in found.items() if k not in done and len(v[1]) >= 2}
+    if not new:
+        return
+    for bid, (title, subs) in new.items():
+        try:
+            fresh = not any(store.group_of(x["id"]) for x in subs)
+            grp = store.merge([{"id": x["id"], "title": x.get("title") or "", "network": x.get("network") or ""} for x in subs])
+            if fresh and title:
+                store.set_meta(grp, name=title[:100])
+            done.add(bid)
+        except Exception as e:  # noqa: BLE001 – dann beim nächsten Mal
+            log.warning("Beeper-Sammelchat %s übernehmen: %s", bid, e)
+    push._kv_set("beeper_adopted", json.dumps(sorted(done)))
+    list_dirty()
+    bus.publish({"type": "merges"})
+
+
 async def split_merged(items: list[dict], with_last: bool = False, sort: bool = True, extra: dict | None = None) -> list[dict]:
     """Beeper-Sammelchats in der Liste durch die Chats dahinter ersetzen (doppelte raus, mit sort neu nach Aktivität sortiert).
     with_last: Vorschau („last“) der Unterchats mitliefern; extra: Felder, die jeder Unterchat zusätzlich bekommt (z. B. pinned)."""
@@ -489,6 +519,7 @@ async def split_merged(items: list[dict], with_last: bool = False, sort: bool = 
     got = dict(zip([c["id"] for c in todo], await asyncio.gather(*(beeper_subs(c) for c in todo))))
     if not any(got.values()):
         return items
+    adopt_beeper_merges({c["id"]: (c.get("title") or "", got[c["id"]]) for c in todo if got.get(c["id"])})
     out: list[dict] = []
     seen: set[str] = set()
     for c in items:
@@ -831,15 +862,10 @@ class Merge(BaseModel):
 @router.get("/merges")
 async def merges():
     groups = store.groups()
-    # Früher zusammengeführt, als Beeper-Sammelchats noch ein Eintrag waren: an ihrer Stelle jetzt die Chats dahinter (siehe split_merged)
-    old = [m for ms in groups.values() for m in ms if maybe_merged(m)]
-    if old:
-        cur = {c["id"]: c for c in await rest_chats_safe()}
-        swap = await asyncio.gather(*(beeper_subs({**m, "at": cur.get(m["id"], {}).get("lastActivity", ""),
-                                                   "unread": cur.get(m["id"], {}).get("unreadCount", 0)}) for m in old))
-        for m, subs in zip(old, swap):
-            if subs:
-                store.replace_member(m["id"], subs)
+    # Beeper-Sammelchats in einer Gruppe (von früher oder aus einem alten Eintrag am Handy): an ihrer Stelle die Chats dahinter,
+    # sonst käme ihr Verlauf doppelt (Sammelchat + Chat dahinter). Am gespeicherten Netzwerk erkennt man sie nicht sicher – darum
+    # jeden noch unbekannten Chat einmal bei Beeper nachsehen; was kein Sammelchat ist, wird gemerkt und nicht wieder gefragt.
+    if await expand_beeper_members([m["id"] for ms in groups.values() for m in ms]):
         groups = store.groups()
     meta = store.metas()
     await fill_nets([m for ms in groups.values() for m in ms])   # gespeichert ist ggf. noch „“ von einem Beeper-Sammelchat
@@ -868,7 +894,30 @@ async def merge_settings(grp: str, body: MergeMeta):
 @router.post("/merges")
 async def merge(body: Merge):
     check_ids(*[c.id for c in body.chats])
-    return {"ok": True, "id": store.merge([c.model_dump() for c in body.chats])}
+    grp = store.merge([c.model_dump() for c in body.chats])
+    await expand_beeper_members([c.id for c in body.chats])   # ein Beeper-Sammelchat kommt als die Chats dahinter in die Gruppe
+    return {"ok": True, "id": store.group_of(grp) or grp}
+
+
+_not_merged: set[str] = set()
+
+
+async def expand_beeper_members(ids: list[str]) -> bool:
+    """Beeper-Sammelchats unter diesen Gruppenmitgliedern durch die Chats dahinter ersetzen (store.replace_member). True = etwas geändert."""
+    todo = list(dict.fromkeys(i for i in ids if re.fullmatch(r"\d{1,12}", i) and i not in _not_merged))
+    if not todo:
+        return False
+    cur = {c["id"]: c for c in await rest_chats_safe()}
+    got = await asyncio.gather(*(beeper_subs({"id": i, "at": cur.get(i, {}).get("lastActivity", ""), "unread": cur.get(i, {}).get("unreadCount", 0)})
+                                 for i in todo))
+    changed = False
+    for i, subs in zip(todo, got):
+        if subs:
+            store.replace_member(i, subs)
+            changed = True
+        elif i in _subs_cache:   # sicher kein Sammelchat (bei einem Fehler steht nichts im Gedächtnis: nächstes Mal noch einmal)
+            _not_merged.add(i)
+    return changed
 
 
 @router.delete("/merges/{grp}")
@@ -1152,6 +1201,9 @@ async def media(request: Request, src: str, mime: str = ""):
     return bytes_response(request, data, ctype)
 
 
+RANGE_CHUNK = 2 * 1024 * 1024
+
+
 def bytes_response(request: Request, data: bytes, ctype: str, name: str = "") -> Response:
     """Datei ausliefern: Bilder/Audio/Video direkt (mit Range), alles andere nur als Download."""
     if not SAFE_MIME.match(ctype):   # alles andere (HTML, SVG …) nur als Download, nie im Browser ausführen
@@ -1164,6 +1216,8 @@ def bytes_response(request: Request, data: bytes, ctype: str, name: str = "") ->
     if rng and (rng[1] or rng[2]):
         n = len(data)
         start, end = (int(rng[1]), int(rng[2]) if rng[2] else n - 1) if rng[1] else (max(0, n - int(rng[2])), n - 1)
+        if rng[1] and not rng[2]:   # „ab hier bis Ende“: nur ein Stück. Sonst schickt jede Anfrage des Players den Rest eines großen
+            end = start + RANGE_CHUNK - 1   # Videos (58 MB) durch den Tunnel, er bricht ab, fragt neu – und das Video lädt nie
         end = min(end, n - 1)
         if start > end:
             return Response(status_code=416, headers={"content-range": f"bytes */{n}"})

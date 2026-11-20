@@ -171,6 +171,38 @@ function cacheMsgs() {
   clearTimeout(mcT);
   mcT = setTimeout(() => { try { localStorage.setItem(MC_KEY, JSON.stringify(Object.fromEntries(MC))); } catch { /* voll: dann nur im Speicher */ } }, 800);
 }
+// Neue Nachrichten schon vorher holen: Kommt etwas Neues (Live-Meldung, Liste zeigt eine neuere Vorschau als der Speicher), lädt die App
+// die neueste Seite dieses Chats im Hintergrund in den Speicher – tippt man dann auf die Meldung oder den Chat, ist alles schon da.
+const PF = new Map(); let pfRun = 0; const pfQ = [];
+function prefetchChat(id) {
+  if (!id || id === S.id || ownChat(id) || document.hidden) return;
+  if (PF.has(id)) { PF.set(id, "again"); return; }   // lädt schon: danach noch einmal, damit auch das Allerneueste drin ist
+  PF.set(id, true); pfQ.push(id); pfPump();
+}
+function pfPump() {
+  while (pfRun < 2 && pfQ.length) {
+    const id = pfQ.shift(); pfRun++;
+    api(`/chats/${encodeURIComponent(id)}/messages`).then((d) => {
+      if (id === S.id || !Array.isArray(d?.items)) return;   // inzwischen offen: loadMsgs kümmert sich
+      const old = MC.get(id), stale = staleTest(d.items, false), keep = new Map((old?.msgs || []).filter((m) => !m.pending && !stale(m)).map((m) => [m.id, m]));
+      for (const m of d.items) keep.set(m.id, m);
+      const all = [...keep.values()].sort((a, b) => (a.at || "").localeCompare(b.at || "")), msgs = all.slice(-MC_MSGS);
+      const deep = old && deeper(old.msgs, d.items);   // im Speicher liegt schon Älteres: dessen Stand für „Ältere laden“ behalten
+      MC.delete(id); MC.set(id, { msgs, more: deep ? old.more || msgs.length < all.length : d.more || msgs.length < all.length, oldest: msgs.length < all.length ? null : deep ? old.oldest : d.oldest });
+      while (MC.size > MC_CHATS) MC.delete(MC.keys().next().value);
+      clearTimeout(mcT);
+      mcT = setTimeout(() => { try { localStorage.setItem(MC_KEY, JSON.stringify(Object.fromEntries(MC))); } catch { /* voll */ } }, 800);
+    }).catch(() => {}).finally(() => { pfRun--; const again = PF.get(id) === "again"; PF.delete(id); if (again) prefetchChat(id); pfPump(); });
+  }
+}
+function prefetchFresh(items) {   // nach dem Laden der Liste: Chats, deren Vorschau neuer ist als der Speicher (oder ungelesen, noch nie offen)
+  let n = 0;
+  for (const c of items) {
+    if (n >= 8) break;
+    const id = grpOf(c.id)?.id || c.id, last = MC.get(id)?.msgs?.at(-1)?.at || "";
+    if ((last && (c.at || "") > last) || (!last && left(c))) { prefetchChat(id); n++; }
+  }
+}
 // Die nächste ältere Seite schon im Hintergrund holen, damit "Ältere laden" sofort geht
 const PRE = new Map();
 function prefetchOlder() {
@@ -210,7 +242,7 @@ async function loadChats({ more = false, quiet = false, keep = quiet } = {}) {
     else if (keep && S.paged) S.chats = d.items.concat(S.chats.filter((c) => !got.has(c.id)));   // ältere Seiten bleiben, S.next auch
     else { S.chats = d.items; S.next = d.next; S.paged = false; }
     drawList(); cacheList();
-    if (!more && !S.q) { loadIda(); loadUntis(); }
+    if (!more && !S.q) { loadIda(); loadUntis(); prefetchFresh(d.items); }
     if (more) {   // die neu dazugekommenen Zeilen tauchen nacheinander auf
       const els = [...document.querySelectorAll("#list .row")].filter((el) => !had.has(el.dataset.id) && !had.has(grpOf(el.dataset.id)?.id)).slice(0, 14);
       els.forEach((el, i) => { el.style.animationDelay = `${i * 28}ms`; el.classList.add("rin"); });
@@ -241,6 +273,19 @@ async function markRead(c) {
   } catch (e) {
     unSeen(c); refreshReadBar(); drawList(); toast(`Als gelesen markieren ging nicht: ${e.message}`);
   } finally { c.marking = false; }
+}
+// Snaps öffnen: „gelesen“ öffnet den Snapchat-Chat in Beeper Desktop (nur solange ungelesen). Danach hat Beeper die Bilder – nachladen,
+// sobald der Dienst sie gesichert hat (er holt sie sofort nach dem Öffnen und noch einmal nach 20 s).
+function openSnaps() {
+  const c = cur(); if (!c) return;
+  if (Date.now() - (c.snapAt || 0) < 40000) return toast("Snap wird schon geöffnet – einen Moment");
+  if (!left(c)) return toast("Beeper hat diesen Snap nicht – wurde er schon in Snapchat geöffnet?");
+  c.snapAt = Date.now();
+  navigator.vibrate?.(15);
+  toast("Snap wird geöffnet – das Bild kommt in ein paar Sekunden");
+  markRead(c);
+  const id = c.id;
+  for (const ms of [7000, 15000, 27000]) setTimeout(() => { if (S.id === id) loadMsgs({ quiet: true }); }, ms);
 }
 async function markUnread(c, msgId) {   // in Beeper wieder ungelesen – auf Wunsch ab einer bestimmten Nachricht
   if (!c) return;
@@ -371,12 +416,16 @@ const known = (id) => isIda(id) ? IDA : isUntis(id) ? untisChat(id) : S.chats.fi
 // Damit findet die Suche Leute sofort beim Tippen (Beepers Antwort kommt danach dazu), und Chats, die nicht mehr in der
 // geladenen Liste stehen (Listen, Ausgeblendet, aus einer Meldung geöffnet), haben trotzdem gleich Namen und Bild.
 const DIR_KEY = "chats-dir", DIR_MAX = 1500;
-const DIR = (() => { try { return new Map(JSON.parse(localStorage.getItem(DIR_KEY) || "[]").map((c) => [c.id, c])); } catch { return new Map(); } })();
+// Beeper-Sammelchats (Netzwerk „a|b“) zeigt die App nicht mehr – sie stehen als die Chats dahinter in der Liste. Alte Einträge fliegen raus,
+// sonst fände die Suche sie noch und man könnte sie (doppelt zu den Chats dahinter) zusammenführen.
+const beeperMerged = (c) => String(c?.network || "").includes("|");
+const DIR = (() => { try { return new Map(JSON.parse(localStorage.getItem(DIR_KEY) || "[]").filter((c) => !beeperMerged(c)).map((c) => [c.id, c])); } catch { return new Map(); } })();
 let dirT;
 function dirAdd(items) {
   let changed = false;
   for (const c of items) {
     if (!c?.id || isGrp(c.id)) continue;
+    if (beeperMerged(c)) { if (DIR.delete(c.id)) changed = true; continue; }
     const o = DIR.get(c.id), n = { id: c.id, title: c.title || o?.title || "", network: c.network || o?.network || "", type: c.type || o?.type || "single", at: c.at || o?.at || "" };
     if (!o || o.title !== n.title || o.at !== n.at || o.network !== n.network) { DIR.set(c.id, n); changed = true; }
   }
@@ -1402,7 +1451,9 @@ function bubble(m, tail = true, stack = null, head = true) {
   const was = m.deleted && m.was ? `<div class="was">${(m.was.files || []).map((f) => fileHtml(f)).join("")}${m.was.text ? `<span class="tx">${autolink(esc(m.was.text))}</span>` : ""}</div>` : "";
   // Ungeöffneter Snap: Beeper liefert ihn ohne Bild und Text – statt einer leeren Blase ein Hinweis
   const snapPh = !m.deleted && !m.text && !m.files.length && !m.pending && (m.type === "IMAGE" || m.type === "VIDEO") && msgNet(m) === "snapchat"
-    ? `<span class="snapph"><span class="ms">${m.type === "VIDEO" ? "videocam" : "photo_camera"}</span>${m.mine ? "Snap gesendet" : `Neuer Snap${m.type === "VIDEO" ? " (Video)" : ""} – öffnen in Snapchat`}</span>` : "";
+    ? m.mine ? `<span class="snapph"><span class="ms">${m.type === "VIDEO" ? "videocam" : "photo_camera"}</span>Snap gesendet</span>`
+      // fremder Snap: Antippen öffnet ihn in Beeper Desktop (über „gelesen“) – erst dann liefert Beeper das Bild, der Dienst sichert es
+      : `<button type="button" class="snapph" data-a="snapopen"><span class="ms">${m.type === "VIDEO" ? "videocam" : "photo_camera"}</span>Neuer Snap${m.type === "VIDEO" ? " (Video)" : ""} – antippen zum Öffnen</button>` : "";
   const body = snapPh ? snapPh : m.deleted ? `<span class="gone"><span class="ms">block</span>${m.mine ? "Du hast diese Nachricht gelöscht" : "Diese Nachricht wurde gelöscht"}</span>${was}` : m.text && !onlyLink ? `<span class="tx">${mentionHtml(autolink(esc(m.text)))}</span>${prevHtml}` : "";
   const links = m.deleted ? "" : igOn ? igHtml(m, ig, igFile) : share ? lpHtml(prev.find((l) => lk(l.url) === lk(sole)) || { url: sole }, share) : prev.map((l) => lpHtml(l)).join("");
   const ikind = isIda(S.id) ? (m.ida_kind || (m.notice ? "notice" : "chat")) : "";
@@ -1527,6 +1578,7 @@ $("#conv").addEventListener("click", (e) => {
   if (a.dataset.a === "code") return copyText(a.dataset.v);
   if (a.dataset.a === "sched") return schedMenu(a.dataset.id);
   if (a.dataset.a === "older") return loadMsgs({ older: true });
+  if (a.dataset.a === "snapopen") return openSnaps();
   if (a.dataset.a === "reply") return setReply(S.msgs.find((m) => m.id === a.dataset.id));
   if (a.dataset.a === "ida-opt") {
     const m = bubbleMsg(a); if (m) m.options = [];
@@ -2669,9 +2721,11 @@ function live(on) {
   es.onmessage = (e) => {
     let d = {};
     try { d = JSON.parse(e.data); } catch { return; }
+    if (d.type === "merges") { loadMerges(); return; }   // Beeper-Sammelchat wurde als Gruppe übernommen
     if (d.type === "sched") { loadSched(); setTimeout(() => { if (S.id) loadMsgs({ quiet: true }); }, 500); return; }   // Geplantes wurde gesendet/geändert
     const gid = d.id && (grpOf(d.id)?.id || d.id);
     if (d.type === "stt") { if (S.id && gid === S.id) loadMsgs({ quiet: true }); return; }   // eine Sprachnachricht wurde umgewandelt: Text laden
+    if (d.type === "chat" && gid !== S.id) prefetchChat(gid);   // Neues in einem anderen Chat: gleich in den Speicher, dann ist es beim Antippen da
     if (d.type === "chat" && d.new && gid !== S.id) toast(`Neue Nachricht von ${clean(d.title)}`, () => go(gid));
     clearTimeout(rT);
     rT = setTimeout(() => { loadChats({ quiet: true }); loadPins(); if (S.id && (!d.id || gid === S.id)) loadMsgs({ quiet: true }).then(autoRead); }, 250);

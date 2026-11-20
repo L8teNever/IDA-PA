@@ -11,6 +11,10 @@ Browser (chats.kulbarts.com, Cloudflare Access) ──> chats :8000 ──MCP─
   dieselbe wie beim Beeper-Anbieter in IDA).
 * **Live, aber sparsam:** Nur solange die App irgendwo offen (und sichtbar) ist, fragt der Dienst alle `LIVE_POLL_S` Sekunden (Standard 5)
   die erste Seite der Chatliste ab und meldet geänderte per Server-Sent Events (`/api/v1/stream`).
+* **Beeper-Sammelchats:** Hat Beeper Chats selbst zusammengeführt (z. B. WhatsApp + Instagram einer Person), zeigt die App die Chats dahinter
+  einzeln und führt sie einmalig als eigene Gruppe zusammen (Name aus Beeper; steckt einer schon in einer Gruppe, kommen die anderen dazu).
+  Danach ist es eine normale Gruppe der App – auflösen, umbenennen, Chats herausnehmen; derselbe Sammelchat wird nie wieder übernommen
+  (`kv.beeper_adopted`). Beeper selbst bleibt unverändert.
 * **Liste sofort da:** Auch bei geschlossener App baut der Dienst die erste Seite der Liste alle `CACHE_POLL_S` Sekunden (Standard 15, 0 = aus) neu
   und hält sie im Speicher. Beim Öffnen bekommt die App diesen Stand sofort, ohne auf Beeper zu warten. Jede Änderung über die App (Senden, Lesen,
   Archivieren …) lässt die Liste beim nächsten Abruf frisch bauen; Suche, Filter und weitere Seiten kommen immer direkt von Beeper.
@@ -198,7 +202,7 @@ beim Scrollen stehen. Ohne View Transitions im Browser oder bei „Bewegung redu
 ## Videos und Alben
 
 - **Snaps von anderen als Bild:** Beeper liefert einen Snap nur mit Datei (`SNAP-….jpg`), nachdem er in Beeper Desktop geöffnet wurde –
-  das macht der Dienst beim Lesen eines Snapchat-Chats über die App (siehe oben, `/v1/focus`). Wurde er vorher am Handy in Snapchat geöffnet,
+  das macht der Dienst beim Lesen eines Snapchat-Chats über die App (siehe oben, `/v1/focus`) – auch beim Antippen von „Neuer Snap – antippen zum Öffnen“ (die App lädt danach nach 7, 15 und 27 s nach). Wurde er vorher am Handy in Snapchat geöffnet,
   bekommt Beeper ihn nicht mehr. Sobald der Dienst einen Snap mit Datei sieht (beim Laden, im Hintergrund und direkt nach dem Öffnen in Beeper,
   sofort und noch einmal nach 20 s), sichert er die Datei in `chats.db` (Tabelle `files`, bis 25 MB). Löscht Beeper sie später, zeigt die App
   weiter das gesicherte Bild.
