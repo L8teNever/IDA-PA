@@ -380,6 +380,7 @@ def test_snap_oeffnen(monkeypatch):
     monkeypatch.setattr(api, "rest_get", rest_get)
     monkeypatch.setattr(api, "rest_call", rest_call)
     monkeypatch.setattr(api, "OPEN_HOLD_S", 0)
+    monkeypatch.setattr(api.get_settings(), "snap_open", True)   # vorerst standardmäßig aus (SNAP_OPEN)
     api._park.clear()
 
     async def run():
@@ -522,7 +523,7 @@ def test_snaps_still(client, monkeypatch):
         return msgs
     monkeypatch.setattr(api, "fetch_messages", fake_fetch)
     api._snap_cache.clear()
-    assert client.get(f"{API}/prefs").json() == {"snaps_quiet": False, "snap_join": True, "stt_local": False, "stt_auto": False}
+    assert client.get(f"{API}/prefs").json() == {"snaps_quiet": False, "snap_join": True, "stt_local": False, "stt_auto": False, "snap_open": False}
     assert [c["id"] for c in client.get(f"{API}/chats").json()["items"]] == ["1", "2"] and not calls   # aus: wie Beeper
     assert client.put(f"{API}/prefs", json={"snaps_quiet": True}).json() == {"snaps_quiet": True, "snap_join": True, "stt_local": False, "stt_auto": False}
     assert client.put(f"{API}/prefs", json={"snap_join": False}).json() == {"snaps_quiet": True, "snap_join": False, "stt_local": False, "stt_auto": False}

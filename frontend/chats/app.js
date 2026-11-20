@@ -7,7 +7,7 @@ const BASE = "/";
 const COLORS = ["rot", "orange", "gelb", "salbei", "gruen", "tuerkis", "blau", "lavendel", "lila", "koralle"];
 let AUTOREAD = new Map();   // automatisch gelesen: ID → "open" (beim Öffnen), "always" (sofort, ohne Öffnen) oder "off" (trotz App-Regel aus)
 let ARNET = {};             // dasselbe pro App (z. B. gmessages = SMS): Netzwerk → "open" oder "always"
-let PREFS = { snaps_quiet: false, snap_join: true, stt_local: false, stt_auto: false };   // Einstellungen für alle Geräte (im Dienst gespeichert)
+let PREFS = { snaps_quiet: false, snap_join: true, stt_local: false, stt_auto: false, snap_open: false };   // Einstellungen für alle Geräte (im Dienst gespeichert)
 let MUTES = new Map();   // stummgeschaltete Chats: ID → bis (ms, 0 = bis du es aufhebst)
 const S = { chats: [], next: null, q: "", f: "all", id: null, only: "", pins: [], pinI: 0, pinNote: "", msgs: [], more: false, oldest: null, seq: 0, sending: false, reply: null, edit: null, voice: {}, vopen: {}, vbusy: {} };
 
@@ -1451,7 +1451,7 @@ function bubble(m, tail = true, stack = null, head = true) {
   const was = m.deleted && m.was ? `<div class="was">${(m.was.files || []).map((f) => fileHtml(f)).join("")}${m.was.text ? `<span class="tx">${autolink(esc(m.was.text))}</span>` : ""}</div>` : "";
   // Ungeöffneter Snap: Beeper liefert ihn ohne Bild und Text – statt einer leeren Blase ein Hinweis
   const snapPh = !m.deleted && !m.text && !m.files.length && !m.pending && (m.type === "IMAGE" || m.type === "VIDEO") && msgNet(m) === "snapchat"
-    ? m.mine ? `<span class="snapph"><span class="ms">${m.type === "VIDEO" ? "videocam" : "photo_camera"}</span>Snap gesendet</span>`
+    ? m.mine || !PREFS.snap_open ? `<span class="snapph"><span class="ms">${m.type === "VIDEO" ? "videocam" : "photo_camera"}</span>${m.mine ? "Snap gesendet" : `Neuer Snap${m.type === "VIDEO" ? " (Video)" : ""} – öffnen in Snapchat`}</span>`
       // fremder Snap: Antippen öffnet ihn in Beeper Desktop (über „gelesen“) – erst dann liefert Beeper das Bild, der Dienst sichert es
       : `<button type="button" class="snapph" data-a="snapopen"><span class="ms">${m.type === "VIDEO" ? "videocam" : "photo_camera"}</span>Neuer Snap${m.type === "VIDEO" ? " (Video)" : ""} – antippen zum Öffnen</button>` : "";
   const body = snapPh ? snapPh : m.deleted ? `<span class="gone"><span class="ms">block</span>${m.mine ? "Du hast diese Nachricht gelöscht" : "Diese Nachricht wurde gelöscht"}</span>${was}` : m.text && !onlyLink ? `<span class="tx">${mentionHtml(autolink(esc(m.text)))}</span>${prevHtml}` : "";
@@ -2230,7 +2230,7 @@ function chatPick({ title, verb, tail = "", skip = new Set(), multi = false, fro
       chips.innerHTML = (from ? `<span class="fchip base">${pickAv(from)}<span>${esc(clean(from.title))}</span></span>` : "")
         + [...picks.values()].map((c) => `<button class="fchip" data-un="${esc(c.id)}">${pickAv(c)}<span>${esc(clean(c.title))}</span><span class="ms">close</span></button>`).join("");
       chips.hidden = !picks.size && !from;
-      goBtn.disabled = !picks.size; goBtn.textContent = picks.size ? `${verb} · ${picks.size + 1} Chats` : "Chats auswählen"; return;
+      goBtn.disabled = !picks.size; const n = picks.size + (from ? 1 : 0); goBtn.textContent = picks.size ? `${verb} · ${n} ${n === 1 ? "Chat" : "Chats"}` : "Chats auswählen"; return;
     }
     goBtn.disabled = !pick; goBtn.textContent = pick ? `${verb} ${clean(pick.title)}${tail}` : verb;
   };
@@ -2904,6 +2904,13 @@ function redrawSett() {
       ${nets().filter((n) => n !== "ida" && n !== "untis").map((n) => row(ARNET[n] ? "mark_chat_read" : "block", `${esc(netName(n))}-Chats`, esc(AR_TEXT[ARNET[n] || ""]), `data-s="netauto" data-net="${n}"`)).join("")}
       ${auto.map((c) => person(c, `${AR_TEXT[AUTOREAD.get(c.id)]}${AUTOREAD.get(c.id) === "off" && arNet(c.id) ? ` (trotz „${netName(c.network)}-Chats“)` : ""}`, `data-s="auto" data-id="${esc(c.id)}"`)).join("")}
       <p class="ihint">Pro App: alle Chats der App gelten beim Öffnen oder sofort als gelesen – in Beeper und beim Absender, soweit die App das kann. „Sofort“ meldet sich nicht aufs Handy. Einen einzelnen Chat nimmst du über Chat öffnen → oben auf den Namen → „Automatisch als gelesen“ aus oder stellst ihn anders. Zusammengeführte Chats folgen der App-Regel nicht. Gilt auf allen Geräten.</p></div>
+    <div class="icard"><small>Export</small>
+      ${row("ios_share", "Chats exportieren (anonym)", "Ganzer Verlauf als Datei – User 1, User 2 … statt Namen", 'data-s="export"', '<span class="ms" aria-hidden="true">chevron_right</span>')}
+      ${EXPORT?.state === "running" ? row("hourglass_top", "Export läuft …", `Chat ${EXPORT.chat || 1} von ${EXPORT.chats} · ${EXPORT.msgs.toLocaleString("de-DE")} Nachrichten geladen`, "disabled") : ""}
+      ${EXPORT?.state === "error" ? row("error", "Export ging nicht", esc(EXPORT.error || ""), 'data-s="export"') : ""}
+      ${EXPORT?.state === "done" ? row("download", "Herunterladen", `${esc(EXPORT.name)} · ${EXPORT.total.toLocaleString("de-DE")} Nachrichten · ${EXPORT.size > 1e6 ? (EXPORT.size / 1e6).toFixed(1) + " MB" : Math.max(1, Math.round(EXPORT.size / 1e3)) + " KB"}`, 'data-s="exdl"')
+        + row("content_copy", "Als Text kopieren", "Zum Einfügen, zum Beispiel in eine KI", 'data-s="excopy"') + row("open_in_new", "Öffnen", "Im Browser ansehen", 'data-s="exopen"') : ""}
+      <p class="ihint">Du wählst die Chats und den Zeitraum. Personen heißen User 1, User 2 … – dieselbe Person hat in allen Chats dieselbe Nummer; Namen im Text, Telefonnummern, E-Mail-Adressen und Links (bis auf die Domain) werden ersetzt. Antworten zeigen, auf welche Nachricht sie sich beziehen (↩ #12), dazu Reaktionen und Sprachnachrichten als Text, soweit umgewandelt. Ein langer Verlauf braucht ein paar Minuten; die Datei bleibt eine Stunde abrufbar.</p></div>
   </div>`;
 }
 document.addEventListener("click", (e) => {
@@ -2930,6 +2937,10 @@ document.addEventListener("click", (e) => {
   if (a === "label") return labelMenu(ORG.labels.find((l) => l.id === t.dataset.l));
   if (a === "labelnew") return labelNew();
   if (a === "sugg") { const sg = SUGG?.[+t.dataset.n]; if (sg) suggSheet(sg); }
+  if (a === "export") return EXPORT?.state === "running" ? toast("Der Export läuft noch") : chatPick({ title: "Welche Chats exportieren?", verb: "Weiter", multi: true }, exportSheet);
+  if (a === "exdl") return exportGet("dl");
+  if (a === "excopy") return exportGet("copy");
+  if (a === "exopen") return exportGet("open");
 });
 document.addEventListener("keydown", (e) => { if (e.key === "Escape" && $("#sett") && !$("#ctx")) closeSett(); });
 // Tipp auf eine Meldung bei offener App: den Chat öffnen
@@ -3127,6 +3138,58 @@ function sheetPick(items, now, done) {   // kleines Auswahl-Blatt: [[Wert, Symbo
     `<button data-v="${esc(k)}"${k === now ? ' class="on"' : ""}><span class="ms">${k === now ? "check" : ic}</span>${esc(t)}${sm ? `<small>${esc(sm)}</small>` : ""}</button>`).join("")}</div>`;
   d.addEventListener("click", (e) => { const v = e.target.closest("[data-v]")?.dataset.v; closeMenu(); if (v !== undefined && v !== now) done(v); });
   document.body.append(d);
+}
+// Chats anonym exportieren (chats/app/export.py): Chats gewählt → Zeitraum, Format, „Ich“ → Auftrag im Dienst, Fortschritt in den Einstellungen
+let EXPORT = null;
+function exportSheet(chats, opt = { days: 0, format: "txt", me: false }) {
+  closeMenu();
+  const d = document.createElement("div"); d.className = "ctx"; d.id = "ctx";
+  const opts = (key, list) => list.map(([v, ic, t, sm]) => `<button class="fwd-row ${opt[key] === v ? "on" : ""}" data-k="${key}" data-v="${v}"><span class="av"><span class="ms">${ic}</span></span><span class="fwd-t">${esc(t)}${sm ? `<small>${esc(sm)}</small>` : ""}</span>${tick(opt[key] === v)}</button>`).join("");
+  const draw = () => {
+    d.innerHTML = `<div class="ctx-back"></div><div class="sheet fwd gset"><div class="fwd-top"><b>Anonym exportieren · ${chats.length} ${chats.length === 1 ? "Chat" : "Chats"}</b><button class="icon-btn" data-x="close" aria-label="Schließen"><span class="ms">close</span></button></div>
+    <div class="fwd-list">
+      <div class="gset-h">Wie weit zurück?</div>
+      ${opts("days", [[0, "history", "Alles", "So weit Beeper den Verlauf hat"], [365, "calendar_month", "Letztes Jahr", ""], [90, "date_range", "Letzte 3 Monate", ""], [30, "today", "Letzte 30 Tage", ""]])}
+      <div class="gset-h">Format</div>
+      ${opts("format", [["txt", "description", "Text", "Gut lesbar, eine Zeile pro Nachricht"], ["json", "data_object", "JSON", "Zum Weiterverarbeiten"]])}
+      <div class="gset-h">Du selbst</div>
+      ${opts("me", [[false, "person", "Auch anonym", "Du bist „User 1“"], [true, "face", "Als „Ich“", "Alle anderen bleiben anonym"]])}
+    </div>
+    <div class="sugg-btns"><button class="btn fwd-go">Exportieren</button></div></div>`;
+  };
+  draw();
+  d.addEventListener("click", async (e) => {
+    if (e.target.closest("[data-x=close]") || e.target.classList.contains("ctx-back")) return closeMenu();
+    const o = e.target.closest("[data-k]");
+    if (o) { const k = o.dataset.k, v = o.dataset.v; opt = { ...opt, [k]: k === "days" ? +v : k === "me" ? v === "true" : v }; return draw(); }
+    if (!e.target.closest(".fwd-go")) return;
+    closeMenu();
+    const ids = [...new Set(chats.map((c) => c.id))];
+    try { EXPORT = await api("/export", { method: "POST", body: JSON.stringify({ chats: ids, ...opt }) }); }
+    catch (err) { return toast(`Export ging nicht: ${err.message}`); }
+    redrawSett(); toast("Export läuft – den Fortschritt siehst du in den Einstellungen"); exportPoll();
+  });
+  document.body.append(d);
+}
+async function exportPoll() {
+  if (!EXPORT || EXPORT.state !== "running") return;
+  await new Promise((r) => setTimeout(r, 1000));
+  try { EXPORT = await api(`/export/${EXPORT.id}`); } catch (e) { EXPORT = { ...EXPORT, state: "error", error: e.message }; }
+  redrawSett();
+  if (EXPORT.state === "done") toast(`Export fertig: ${EXPORT.total.toLocaleString("de-DE")} Nachrichten`, () => { if (!$("#sett")) openSett(); });
+  else if (EXPORT.state === "error") toast(`Export ging nicht: ${EXPORT.error}`);
+  else exportPoll();
+}
+async function exportGet(how) {
+  if (EXPORT?.state !== "done") return;
+  const url = `${API}/export/${EXPORT.id}/file`;
+  if (how === "open") return window.open(`${url}?inline=1`, "_blank");
+  if (how === "dl") { const a = document.createElement("a"); a.href = url; a.download = EXPORT.name; document.body.append(a); a.click(); a.remove(); return; }
+  try {
+    const r = await fetch(url, { credentials: "same-origin", cache: "no-store" });
+    if (!r.ok) throw new Error(r.status === 404 ? "abgelaufen – bitte neu exportieren" : `HTTP ${r.status}`);
+    await navigator.clipboard.writeText(await r.text()); toast("Export kopiert");
+  } catch (e) { toast(`Kopieren ging nicht: ${e.message}`); }
 }
 function visMenu(c) {
   const net = netVis(c), own = ownVis(c);

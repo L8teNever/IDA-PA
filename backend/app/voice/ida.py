@@ -44,6 +44,38 @@ class Ida:
             log.warning("IDA tool %s failed: %s", name, e)
             return {"error": "Das Tool ist gerade nicht erreichbar."}
 
+    async def brain_open(self, call_id: str, instructions: str) -> dict:
+        """Eigene Kette: startet Claude für dieses Gespräch. Fehler (kein Account …) als RuntimeError mit Grund."""
+        try:
+            return await self._post("brain/open", {"call_id": call_id, "instructions": instructions}, 60)
+        except httpx.HTTPStatusError as e:
+            try:
+                why = e.response.json().get("detail") or str(e)
+            except ValueError:
+                why = str(e)
+            raise RuntimeError(f"Claude startet nicht: {why}") from e
+
+    async def brain_turn(self, call_id: str, text: str, who: str = "user"):
+        """Eigene Kette: ein Satz an Claude; liefert die Stücke der Antwort, sobald sie da sind (dicts wie voice_brain.turn)."""
+        import json
+        url = self.s.voice_ida_url.rstrip("/") + "/api/v1/voice/internal/brain/turn"
+        async with httpx.AsyncClient(timeout=httpx.Timeout(10, read=300), transport=self._transport) as c:
+            async with c.stream("POST", url, json={"call_id": call_id, "text": text, "who": who},
+                                headers={"x-voice-secret": self.s.voice_secret}) as r:
+                r.raise_for_status()
+                async for line in r.aiter_lines():
+                    if line.strip():
+                        try:
+                            yield json.loads(line)
+                        except ValueError:
+                            continue
+
+    async def brain_close(self, call_id: str) -> None:
+        try:
+            await self._post("brain/close", {"call_id": call_id}, 10)
+        except Exception as e:  # noqa: BLE001
+            log.warning("IDA brain close failed: %s", e)
+
     async def event(self, call_id: str, direction: str, number: str, status: str, purpose: str = "", error: str = "", owner: bool = False) -> None:
         try:
             await self._post("event", {"call_id": call_id, "direction": direction, "number": number, "status": status,

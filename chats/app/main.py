@@ -11,7 +11,7 @@ from fastapi import FastAPI
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import api, ida, live, org, push, schedule, smartcopy, stt, untis
+from . import api, export, ida, live, org, push, schedule, smartcopy, stt, untis
 from .config import get_settings
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -55,7 +55,7 @@ async def lifespan(app: FastAPI):
 
 
 # POSTs, die nur etwas ausrechnen und nichts an Chats ändern – sie lassen die gemerkte Chatliste stehen (api.list_dirty)
-READ_ONLY = re.compile(r"^/api/v1/(korrektur|smartcopy|fcm/test)$")
+READ_ONLY = re.compile(r"^/api/v1/(korrektur|smartcopy|fcm/test|export)$")
 
 
 def create_app() -> FastAPI:
@@ -82,6 +82,7 @@ def create_app() -> FastAPI:
     app.include_router(smartcopy.router)
     app.include_router(push.router)
     app.include_router(org.router)
+    app.include_router(export.router)
 
     front = s.frontend_dir
     own, css, fonts, js = front / "chats", front / "css", front / "fonts", front / "js" / "ui"

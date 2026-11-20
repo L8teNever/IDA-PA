@@ -1,6 +1,7 @@
 # Stella – Live-Sprache in IDA
 
-Stella ist der Agent für Gespräche. Gesprochen wird mit **Gemini Live**, und zwar an zwei Stellen:
+Stella ist der Agent für Gespräche. Gesprochen wird mit **Gemini Live** oder mit der **eigenen Kette** (Cloudflare → Claude → Piper,
+siehe unten; umschalten unter Einstellungen → Stella), und zwar an zwei Stellen:
 
 - **Live-Knopf in der IDA-App** (im Eingabefeld, wo früher das Mikrofon war). Du redest direkt mit Stella, ohne Anruf.
 - **Telefon über Telnyx:** Stella ruft an (`stella_call`), oder du rufst sie an.
@@ -101,9 +102,38 @@ diesem Ticket, zusätzlich zu den normalen Regeln:
 
 App, Tasks-App und Telefon bekommen davon nie etwas.
 
+## Eigene Kette statt Gemini Live
+
+Unter **Einstellungen → Stella** wählst du den Modus. *Gemini Live* (Standard) macht alles in einem, ist am schnellsten, kostet aber
+Google-Guthaben – auch für jede Sekunde Stille, solange das Gespräch offen ist, und bei jedem Zug den ganzen Kontext samt Tools neu.
+Die **eigene Kette** zahlt nur für Gesagtes:
+
+```
+Mikro ─► VAD (wie bisher) ─► nach VOICE_PIPELINE_PAUSE_MS Stille: Cloudflare Workers AI (Sprache → Text)
+      ─► app:/api/v1/voice/internal/brain/turn ─► Claude (ein offener CLI-Prozess pro Gespräch, Tools über /mcp/voice/<token>)
+      ─► jeder fertige Satz ─► piper:/api/v1/tts ─► 24 kHz PCM an Browser/Telefon
+```
+
+- **Zuhören:** Cloudflare Workers AI, Modell wählbar: *Whisper large-v3-turbo* (Standard, ~47 Neurons/Min., also rund 210 Gratis-Minuten
+  am Tag bei 10.000 freien Neurons), *Deepgram Nova-3* (~473/Min.) oder das ältere *Whisper*. Nötig in der `.env`: `CLOUDFLARE_AI_ACCOUNT_ID`
+  und `CLOUDFLARE_AI_TOKEN` (API-Token mit dem Recht **Workers AI**; ohne diese gelten `CLOUDFLARE_ACCOUNT_ID`/`CLOUDFLARE_API_TOKEN`).
+  Typische Whisper-Erfindungen bei Rauschen („Untertitel der Amara.org-Community“) werden verworfen, Geräusche unter 0,3 s gar nicht geschickt.
+- **Antworten:** ein Claude-Modell der Accounts, Standard Haiku. Pro Gespräch startet IDA **einen** Claude-Prozess
+  (`runner.Conversation`, `--input-format stream-json`), der bis zum Ende offen bleibt – kein Neustart pro Satz. Er bekommt dieselben
+  Tools wie Gemini (inkl. `ida_fragen`, `wissen_suchen`, Bestätigungsregel) plus `auflegen`. Code: `services/voice_brain.py`,
+  MCP-Seite `voice_bridge.mcp_handle`. Ein Prozess, der `VOICE_BRAIN_IDLE_MIN` nichts tut, wird beendet.
+- **Sprechen:** Piper im Stack (Dienst `piper`, siehe [PIPER.md](PIPER.md)), Stimme und Tempo in den Einstellungen mit Hörprobe.
+  Standard `de_DE-thorsten-high` (männlich; deutsche Frauenstimmen gibt es bei Piper nur in einfacher Qualität, z. B. `kerstin`).
+- **Dazwischenreden:** Fängt der Nutzer an zu sprechen, verstummt Stella sofort, der Rest der Antwort wird verworfen, und Claude
+  erfährt beim nächsten Satz, bis wohin sie gekommen war.
+- **Grenzen:** Antworten kommen spürbar später als bei Gemini (Erkennung + erster Satz von Claude + Piper, grob 2–4 s). Fehlt der
+  Cloudflare-Zugang oder Piper, bricht das Gespräch mit einem klaren Hinweis ab; ist IDA nicht erreichbar, läuft es wie bisher über Gemini.
+  Nova-3 über die REST-Schnittstelle ist nicht gegen den echten Dienst getestet.
+
 ## Feineinstellungen (`.env` & App)
 
-- **Stimme auswählen:** Direkt in der App unter **Einstellungen → Stella-Stimme** (oder bei Agent Stella). Dort können alle 21 Gemini-Stimmen mit Audiobeispielen probegehört und ausgewählt werden. Änderungen greifen sofort ohne Neustart.
+- `VOICE_PIPELINE_PAUSE_MS` (700): so lange Stille, bis ein Satz in der eigenen Kette als fertig gilt. `VOICE_BRAIN_IDLE_MIN` (20).
+- **Stimme auswählen:** Direkt in der App unter **Einstellungen → Stella** (oder bei Agent Stella). Dort können alle 21 Gemini-Stimmen mit Audiobeispielen probegehört und ausgewählt werden. Änderungen greifen sofort ohne Neustart.
 - Die Stimme wird nur in den Einstellungen (Stella-Stimme) gewählt, nicht in der `.env`; ohne Auswahl gilt `Aoede`.
 - `GEMINI_LIVE_MODEL` und `GEMINI_LIVE_FALLBACKS`: Die Fallbacks werden nur beim Verbindungsaufbau versucht.
 - `VOICE_PHONE_VAD`, `VOICE_VAD_RMS`, `VOICE_VAD_SILENCE_MS`, `VOICE_VAD_MIN_SPEECH_MS`: die eigene Sprach-Erkennung am

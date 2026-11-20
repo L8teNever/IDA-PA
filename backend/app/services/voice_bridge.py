@@ -24,7 +24,7 @@ from sqlalchemy import select
 from ..config import get_settings
 from ..db import session_scope, utcnow
 from ..models import USER, Agent, AgentConnector, Chat, ChatMessage, Connector, VoiceCall
-from . import activity, autoroute, jobs, settings_store
+from . import activity, autoroute, jobs, settings_store, voice_engine
 from . import agents as agent_svc
 from .claude import prompts
 from .claude.runner import norm
@@ -161,6 +161,10 @@ class Session:
     ida_task: asyncio.Task | None = None  # newest job; jobs run one after the other
     ida_open: int = 0  # jobs whose answer the call has not picked up yet
     ida_answers: asyncio.Queue = field(default_factory=asyncio.Queue)  # (ok, text, picked up) for ida_warten
+    declared: list[dict] = field(default_factory=list)  # die Tools des Gesprächs, wie Gemini sie bekommt (auch fürs Claude-Gehirn der Kette)
+    talk: list[dict] = field(default_factory=list)  # eigene Kette: Mitschrift {who, text} für ida_fragen
+    brain_token: str | None = None  # eigene Kette: Schlüssel des MCP-Endpunkts /mcp/voice/<token>
+    hangup: str = ""  # eigene Kette: Claude hat auflegen aufgerufen (Ergebnis)
 
 
 _sessions: dict[str, Session] = {}
@@ -385,10 +389,13 @@ async def start(call_id: str, direction: str, number: str, owner: bool, purpose:
                         + "\nMach nahtlos dort weiter, wo ihr aufgehört habt; was darin erledigt wurde, ist erledigt.\n")
         context += "\n" + prompts.now_line()
         voice = await settings_store.get(db, "gemini_voice", "Aoede")
+        engine = await voice_engine.get(db)
+    sess.declared = tools
     sess.run = activity.start(sess.agent_id, "call")
     activity.step(sess.run, "tool", "stella_call", "telefon")
     _sessions[call_id] = sess
-    return {"agent": second or agent.name, "context": context, "tools": tools, "owner": owner, "voice": voice, "resumed": bool(earlier), "mode": mode}
+    return {"agent": second or agent.name, "context": context, "tools": tools, "owner": owner, "voice": voice, "resumed": bool(earlier), "mode": mode,
+            "engine": engine}
 
 
 # ---------------- Stella asks Ida ----------------
@@ -636,6 +643,50 @@ async def call_tool(call_id: str, name: str, args: dict) -> dict:
     return out
 
 
+# ---------------- eigene Kette: Tools fürs Claude-Gehirn (MCP) ----------------
+HANG_UP_TOOL = {"name": "auflegen", "description": "Beendet das Gespräch jetzt (nach deinem Tschüss im selben Zug aufrufen).",
+                "inputSchema": {"type": "object", "properties": {"ergebnis": {"type": "string", "description": "Ergebnis des Gesprächs in einem Satz"}},
+                                "required": ["ergebnis"]}}
+
+
+def brain_session(token: str) -> Session | None:
+    return next((x for x in _sessions.values() if token and x.brain_token == token), None)
+
+
+async def mcp_handle(token: str, msg: dict) -> dict | None | bool:
+    """JSON-RPC des MCP-Endpunkts /mcp/voice/<token>: dieselben Tools wie bei Gemini Live, ausgeführt über call_tool
+    (Bestätigungsregel, ida_fragen, wissen_suchen …), dazu auflegen. None = Benachrichtigung, False = unbekannter Schlüssel."""
+    sess = brain_session(token)
+    if not sess:
+        return False
+    if msg.get("id") is None:
+        return None
+    reply = lambda result: {"jsonrpc": "2.0", "id": msg["id"], "result": result}  # noqa: E731
+    method = msg.get("method")
+    if method == "initialize":
+        return reply({"protocolVersion": (msg.get("params") or {}).get("protocolVersion", "2025-03-26"),
+                      "capabilities": {"tools": {}}, "serverInfo": {"name": "stella", "version": "1"}})
+    if method == "ping":
+        return reply({})
+    if method == "tools/list":
+        tools = [{"name": t["name"], "description": t.get("description") or "", "inputSchema": t.get("parameters") or {"type": "object", "properties": {}}}
+                 for t in sess.declared if t.get("name") != "auflegen"]
+        return reply({"tools": [HANG_UP_TOOL, *tools]})
+    if method == "tools/call":
+        p = msg.get("params") or {}
+        name, args = str(p.get("name") or ""), p.get("arguments") if isinstance(p.get("arguments"), dict) else {}
+        if name == "auflegen":
+            sess.hangup = str(args.get("ergebnis") or "Gespräch beendet.")[:500]
+            out = {"result": "ok, wird nach deinem Satz aufgelegt"}
+        else:
+            if name == "ida_fragen":
+                args = {**args, "verlauf": sess.talk[-24:]}
+            out = await call_tool(sess.call_id, name, args)
+            out.pop("ida_pending", None)
+        return reply({"content": [{"type": "text", "text": json.dumps(out, ensure_ascii=False, default=str)}], "isError": "error" in out})
+    return {"jsonrpc": "2.0", "id": msg["id"], "error": {"code": -32601, "message": "Method not found"}}
+
+
 # ---------------- events / finish ----------------
 async def event(call_id: str, direction: str, number: str, status: str, purpose: str = "", error: str = "", owner: bool = False) -> None:
     """Status of a call before/without a conversation (dialing, not answered, rejected …)."""
@@ -664,6 +715,8 @@ def _title(direction: str, owner: bool, number: str, mode: str = "") -> str:
 async def finish(call_id: str, transcript: list[dict], outcome: str = "", status: str = "done", error: str = "",
                  direction: str = "out", number: str = "") -> dict:
     sess = _sessions.pop(call_id, None)
+    from . import voice_brain
+    await voice_brain.close(call_id)
     if sess:
         if sess.token:
             identity.revoke(sess.token)

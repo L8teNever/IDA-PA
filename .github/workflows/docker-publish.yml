@@ -1,5 +1,5 @@
 # Tests (IDA: SQLite + PostgreSQL, Kalender/Wiki: SQLite, Code), dann Images bauen und nach GHCR pushen
-# (ghcr.io/<owner>/<repo>:latest, ida-kalender:latest, ida-wiki:latest, ida-code:latest, ida-dashboard:latest, ida-tasks:latest, ida-html:latest, ida-docs:latest, ida-launcher:latest, ida-google-stack:latest, ida-mail:latest, ida-chats:latest, ida-korrektur:latest, ida-whisper:latest).
+# (ghcr.io/<owner>/<repo>:latest, ida-kalender:latest, ida-wiki:latest, ida-code:latest, ida-dashboard:latest, ida-tasks:latest, ida-html:latest, ida-docs:latest, ida-launcher:latest, ida-google-stack:latest, ida-mail:latest, ida-chats:latest, ida-korrektur:latest, ida-whisper:latest, ida-piper:latest).
 name: Test & Docker-Image
 
 on:
@@ -229,8 +229,21 @@ jobs:
       - name: pytest
         run: python -m pytest
 
+  piper-test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: piper
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12", cache: pip, cache-dependency-path: piper/requirements*.txt }
+      - run: pip install -r requirements-dev.txt
+      - name: pytest
+        run: python -m pytest
+
   image:
-    needs: [test, kalender-test, kalender-frontend-test, wiki-test, code-test, dashboard-test, tasks-test, docs-test, google-test, launcher-test, mail-test, chats-test, korrektur-test, whisper-test]
+    needs: [test, kalender-test, kalender-frontend-test, wiki-test, code-test, dashboard-test, tasks-test, docs-test, google-test, launcher-test, mail-test, chats-test, korrektur-test, whisper-test, piper-test]
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     strategy:
@@ -250,6 +263,7 @@ jobs:
           - { name: chats, dockerfile: chats/Dockerfile, image: "ghcr.io/${{ github.repository_owner }}/ida-chats" }
           - { name: korrektur, dockerfile: korrektur/Dockerfile, image: "ghcr.io/${{ github.repository_owner }}/ida-korrektur" }
           - { name: whisper, dockerfile: whisper/Dockerfile, image: "ghcr.io/${{ github.repository_owner }}/ida-whisper" }
+          - { name: piper, dockerfile: piper/Dockerfile, image: "ghcr.io/${{ github.repository_owner }}/ida-piper" }
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3

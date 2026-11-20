@@ -202,7 +202,7 @@ beim Scrollen stehen. Ohne View Transitions im Browser oder bei „Bewegung redu
 ## Videos und Alben
 
 - **Snaps von anderen als Bild:** Beeper liefert einen Snap nur mit Datei (`SNAP-….jpg`), nachdem er in Beeper Desktop geöffnet wurde –
-  das macht der Dienst beim Lesen eines Snapchat-Chats über die App (siehe oben, `/v1/focus`) – auch beim Antippen von „Neuer Snap – antippen zum Öffnen“ (die App lädt danach nach 7, 15 und 27 s nach). Wurde er vorher am Handy in Snapchat geöffnet,
+  das macht der Dienst beim Lesen eines Snapchat-Chats über die App, wenn `SNAP_OPEN=true` (Standard vorerst aus, Snapchat ist in Beeper nicht verbunden) (siehe oben, `/v1/focus`) – auch beim Antippen von „Neuer Snap – antippen zum Öffnen“ (die App lädt danach nach 7, 15 und 27 s nach). Wurde er vorher am Handy in Snapchat geöffnet,
   bekommt Beeper ihn nicht mehr. Sobald der Dienst einen Snap mit Datei sieht (beim Laden, im Hintergrund und direkt nach dem Öffnen in Beeper,
   sofort und noch einmal nach 20 s), sichert er die Datei in `chats.db` (Tabelle `files`, bis 25 MB). Löscht Beeper sie später, zeigt die App
   weiter das gesicherte Bild.
@@ -311,3 +311,16 @@ etwas Neues kommt).
 
 Oben im Chat steht statt „Ältere laden“ ein sich drehendes Zeichen; kommt man oben an, lädt die nächste Seite von selbst (meist
 schon vorab geholt). Während des Auftritts beim Öffnen eines Chats wartet es, damit nicht gleich beim Öffnen nachgeladen wird.
+
+## Chats anonym exportieren
+
+Einstellungen → „Export“ → „Chats exportieren (anonym)“: Chats wählen (auch zusammengeführte), dann Zeitraum (alles / 1 Jahr /
+3 Monate / 30 Tage), Format (Text oder JSON) und ob du „Ich“ oder „User 1“ heißt. Der Dienst (`chats/app/export.py`) holt den
+Verlauf Seite für Seite, so weit Beeper ihn hat, als Auftrag im Hintergrund (`POST /api/v1/export` → `GET /api/v1/export/{id}`
+für den Fortschritt → `GET /api/v1/export/{id}/file`, eine Stunde abrufbar, nur im Arbeitsspeicher).
+
+- Personen heißen User 1, User 2 … – dieselbe Person hat in allen Chats des Exports dieselbe Nummer; Chats heißen Chat 1, Chat 2 …
+- Ersetzt werden Namen im Text (ganzer Name und jeder Teil ab 3 Buchstaben, auch @Erwähnungen), Telefonnummern, E-Mail-Adressen
+  und Links (bleibt nur die Domain). Dateinamen, IDs, Pfade und Kontonummern kommen nicht mit; Systemhinweise („X left the chat“) fallen weg.
+- Jede Nachricht hat eine Nummer; Antworten zeigen `↩ #12 (User 2: „…“)` bzw. „auf eine ältere Nachricht“, darunter Reaktionen mit Deckname.
+  Sprachnachrichten stehen mit Text da, soweit umgewandelt. WebUntis- und Ida-Chats sind nicht dabei.

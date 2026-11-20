@@ -38,6 +38,39 @@ def arg(name):
     return args[args.index(name) + 1] if name in args else None
 
 
+def _conversation():
+    """Stellas eigene Kette: ein Prozess, viele Nachrichten (eine JSON-Zeile pro Nachricht auf stdin).
+    TOOLS -> nennt die Tools des stella-MCP · AUFLEGEN -> ruft auflegen auf · sonst „Verstanden: <Text>. Noch ein Satz.“"""
+    url = json.load(open(arg("--mcp-config"), encoding="utf8"))["mcpServers"]["stella"]["url"]
+
+    def out(ev):
+        print(json.dumps(ev), flush=True)
+
+    def rpc(method, params=None):
+        body = json.dumps({"jsonrpc": "2.0", "id": 1, "method": method, "params": params or {}}).encode()
+        return json.loads(urllib.request.urlopen(urllib.request.Request(url, data=body, headers={"content-type": "application/json"})).read())["result"]
+
+    for line in sys.stdin:
+        if not line.strip():
+            continue
+        text = "".join(b["text"] for b in json.loads(line)["message"]["content"] if b["type"] == "text")
+        if "TOOLS" in text:
+            answer = "Tools: " + ", ".join(t["name"] for t in rpc("tools/list")["tools"]) + "."
+        elif "AUFLEGEN" in text:
+            out({"type": "assistant", "message": {"content": [{"type": "tool_use", "id": "h1", "name": "mcp__stella__auflegen", "input": {"ergebnis": "Alles erledigt."}}]}})
+            res = rpc("tools/call", {"name": "auflegen", "arguments": {"ergebnis": "Alles erledigt."}})
+            out({"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "h1", "content": res["content"]}]}})
+            answer = "Tschüss, bis bald!"
+        else:
+            answer = f"Verstanden: {text.splitlines()[-1][:80]}. Noch ein Satz am 3. Mai."
+        for i in range(0, len(answer), 7):
+            out({"type": "stream_event", "event": {"delta": {"type": "text_delta", "text": answer[i:i + 7]}}})
+        out({"type": "result", "is_error": False, "result": answer, "session_id": "conv", "modelUsage": {arg("--model"): {}}})
+    sys.exit(0)
+
+
+if arg("--input-format") == "stream-json" and "stella" in open(arg("--mcp-config"), encoding="utf8").read():
+    _conversation()
 prompt = sys.stdin.read()
 if arg("--input-format") == "stream-json":  # message with pictures/PDFs: answer with what arrived
     blocks = json.loads(prompt.splitlines()[0])["message"]["content"]
@@ -54,6 +87,7 @@ if "--fork-session" in args:  # branched thread: a new session that knows the ol
 
 def out(ev):
     print(json.dumps(ev), flush=True)
+
 
 
 def hub(name, a):

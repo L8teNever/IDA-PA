@@ -440,7 +440,7 @@ class Prefs(BaseModel):
 
 @router.get("/prefs")
 async def get_prefs():
-    return prefs()
+    return {**prefs(), "snap_open": get_settings().snap_open}   # snap_open: nur lesen (SNAP_OPEN), steuert „Snap antippen zum Öffnen“
 
 
 @router.put("/prefs")

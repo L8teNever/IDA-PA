@@ -24,6 +24,7 @@ class Settings(BaseSettings):
     ida_url: str = "http://app:8000"  # IDA (intern): Tippfehler per Claude Haiku + Engine-Einstellung; leer = nur T5
     push_poll_s: float = 10.0       # so oft fragt er, wenn ein Handy für Benachrichtigungen angemeldet ist (App zu); 0 = keine Benachrichtigungen
     android_package: str = "com.kulbarts.chats"   # Paketname der Android-App (android/), passend zur App in Firebase
+    snap_open: bool = False         # Snapchat-Snaps beim Lesen in Beeper Desktop öffnen (/v1/focus) – vorerst aus, Snapchat ist in Beeper nicht verbunden
     cache_poll_s: float = 15.0      # so oft baut er die Chatliste auch bei geschlossener App neu, damit sie beim Öffnen sofort frisch da ist; 0 = aus
     archive_poll_s: float = 60.0    # so oft merkt sich der Dienst neue Nachrichten, auch wenn die App zu ist; 0 = aus
 

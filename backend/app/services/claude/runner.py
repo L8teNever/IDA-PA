@@ -153,7 +153,8 @@ async def stream(spec: RunSpec) -> AsyncIterator[dict]:
             activity.end(rid, ok)
 
 
-async def _stream(spec: RunSpec) -> AsyncIterator[dict]:
+def _setup(spec: RunSpec, stream_input: bool = False) -> tuple[list[str], Path, Path, dict[str, str]]:
+    """Arguments, run dir (system prompt, MCP and permission files), working dir and environment of one CLI process."""
     s = get_settings()
     run_dir = s.sandbox_dir / "runs" / new_id()
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -177,7 +178,7 @@ async def _stream(spec: RunSpec) -> AsyncIterator[dict]:
         args += ["--effort", spec.effort]
     if spec.advisor and re.fullmatch(r"[\w.\-\[\]]+", spec.advisor):
         args += ["--advisor", spec.advisor]
-    if spec.attachments:  # the message as JSON with picture/document blocks instead of plain text
+    if spec.attachments or stream_input:  # the message as JSON with picture/document blocks instead of plain text
         args += ["--input-format", "stream-json"]
     if not spec.persist:
         args.append("--no-session-persistence")
@@ -190,11 +191,54 @@ async def _stream(spec: RunSpec) -> AsyncIterator[dict]:
     if code:
         # a tool call may wait for the user's approval as long as it takes
         env.update({**code.env, "MCP_TOOL_TIMEOUT": str(2**31 - 1)})
-    proc = await asyncio.create_subprocess_exec(
+    return args, run_dir, work, env
+
+
+def _events(ev: dict, spec: RunSpec) -> list[dict]:
+    """One line of the CLI's stream-json -> our normalised events (see stream)."""
+    out: list[dict] = []
+    t = ev.get("type")
+    if t == "stream_event":
+        d = (ev.get("event") or {}).get("delta") or {}
+        if d.get("type") == "text_delta":
+            out.append({"type": "text", "text": d.get("text", "")})
+    elif t in ("assistant", "user"):
+        for b in (ev.get("message") or {}).get("content") or []:
+            if b.get("type") == "tool_use":
+                m = re.match(r"^mcp__(.+?)__(.+)$", b.get("name", ""))
+                out.append({"type": "tool", "id": b.get("id"), "server": m.group(1) if m else "",
+                            "name": m.group(2) if m else b.get("name"), "input": b.get("input")})
+            elif b.get("type") == "server_tool_use" and b.get("name") == "advisor":
+                out.append({"type": "tool", "id": b.get("id"), "server": "", "name": "advisor",
+                            "input": {"model": spec.advisor, **(b.get("input") or {})}})
+            elif b.get("type") == "advisor_tool_result":
+                c = b.get("content") or {}
+                text = c.get("text") if isinstance(c, dict) else None
+                out.append({"type": "tool_result", "id": b.get("tool_use_id"), "error": isinstance(c, dict) and "error" in str(c.get("type")),
+                            "content": (text or "Rat erhalten – der Inhalt geht verschlüsselt nur an Claude")[:4000]})
+            elif b.get("type") == "tool_result":
+                c = b.get("content")
+                text = "\n".join(x.get("text", "") for x in c) if isinstance(c, list) else str(c or "")
+                out.append({"type": "tool_result", "id": b.get("tool_use_id"), "error": bool(b.get("is_error")), "content": text[:4000]})
+    elif t == "result":
+        out.append({"type": "done", "ok": not ev.get("is_error"), "result": str(ev.get("result") or ""), "session_id": ev.get("session_id"),
+                    "models": [m for m in (ev.get("modelUsage") or {})]})
+    return out
+
+
+async def _spawn(args: list[str], work: Path, env: dict[str, str]) -> asyncio.subprocess.Process:
+    return await asyncio.create_subprocess_exec(
         *_command(args), cwd=work, env=env,
         stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
         limit=16 * 1024 * 1024,
     )
+
+
+async def _stream(spec: RunSpec) -> AsyncIterator[dict]:
+    s = get_settings()
+    code = spec.code
+    args, run_dir, work, env = _setup(spec)
+    proc = await _spawn(args, work, env)
     stderr_chunks: list[bytes] = []
 
     async def read_err():
@@ -219,33 +263,10 @@ async def _stream(spec: RunSpec) -> AsyncIterator[dict]:
                     ev = json.loads(line)
                 except json.JSONDecodeError:
                     continue
-                t = ev.get("type")
-                if t == "stream_event":
-                    d = (ev.get("event") or {}).get("delta") or {}
-                    if d.get("type") == "text_delta":
-                        yield {"type": "text", "text": d.get("text", "")}
-                elif t in ("assistant", "user"):
-                    for b in (ev.get("message") or {}).get("content") or []:
-                        if b.get("type") == "tool_use":
-                            m = re.match(r"^mcp__(.+?)__(.+)$", b.get("name", ""))
-                            yield {"type": "tool", "id": b.get("id"), "server": m.group(1) if m else "",
-                                   "name": m.group(2) if m else b.get("name"), "input": b.get("input")}
-                        elif b.get("type") == "server_tool_use" and b.get("name") == "advisor":
-                            yield {"type": "tool", "id": b.get("id"), "server": "", "name": "advisor",
-                                   "input": {"model": spec.advisor, **(b.get("input") or {})}}
-                        elif b.get("type") == "advisor_tool_result":
-                            c = b.get("content") or {}
-                            text = c.get("text") if isinstance(c, dict) else None
-                            yield {"type": "tool_result", "id": b.get("tool_use_id"), "error": isinstance(c, dict) and "error" in str(c.get("type")),
-                                   "content": (text or "Rat erhalten – der Inhalt geht verschlüsselt nur an Claude")[:4000]}
-                        elif b.get("type") == "tool_result":
-                            c = b.get("content")
-                            text = "\n".join(x.get("text", "") for x in c) if isinstance(c, list) else str(c or "")
-                            yield {"type": "tool_result", "id": b.get("tool_use_id"), "error": bool(b.get("is_error")), "content": text[:4000]}
-                elif t == "result":
-                    done = True
-                    yield {"type": "done", "ok": not ev.get("is_error"), "result": str(ev.get("result") or ""), "session_id": ev.get("session_id"),
-                           "models": [m for m in (ev.get("modelUsage") or {})]}
+                for out in _events(ev, spec):
+                    if out["type"] == "done":
+                        done = True
+                    yield out
     except TimeoutError:
         _kill(proc)
         yield {"type": "done", "ok": False, "result": f"Abgebrochen: länger als {s.run_timeout_s} s", "session_id": None}
@@ -263,6 +284,101 @@ async def _stream(spec: RunSpec) -> AsyncIterator[dict]:
     if not done:
         err = b"".join(stderr_chunks).decode(errors="replace").strip()
         yield {"type": "done", "ok": False, "result": err[:800] or f"Beendet ohne Ergebnis (Code {proc.returncode})", "session_id": None}
+
+
+class Conversation:
+    """A Claude CLI that stays open for a whole conversation (Stella's own chain): a message goes in, the answer streams out,
+    the next message goes to the same process. No start-up, no reloading of the MCP tools per turn – that is what makes it
+    fast enough for speaking. Turns run one after the other."""
+
+    def __init__(self, spec: RunSpec):
+        self.spec = spec
+        self.proc: asyncio.subprocess.Process | None = None
+        self.run_dir: Path | None = None
+        self._lock = asyncio.Lock()
+        self._open_turn = False  # a turn whose events nobody read to the end (the next send skips them)
+        self._err: list[bytes] = []
+        self._err_task: asyncio.Task | None = None
+
+    @property
+    def alive(self) -> bool:
+        return self.proc is not None and self.proc.returncode is None
+
+    async def start(self) -> None:
+        args, self.run_dir, work, env = _setup(self.spec, stream_input=True)
+        self.proc = await _spawn(args, work, env)
+
+        async def read_err():
+            while chunk := await self.proc.stderr.read(4096):
+                self._err = (self._err + [chunk])[-20:]
+        self._err_task = asyncio.create_task(read_err())
+
+    async def _line(self) -> dict | None:
+        """Next JSON line of the CLI, None when it has ended."""
+        while True:
+            raw = await self.proc.stdout.readline()
+            if not raw:
+                return None
+            try:
+                return json.loads(raw.decode(errors="replace").strip() or "null") or {}
+            except json.JSONDecodeError:
+                continue
+
+    async def send(self, text: str) -> AsyncIterator[dict]:
+        """Events of the answer (text, tool, tool_result) and at the end done – like stream()."""
+        async with self._lock:
+            if not self.alive:
+                yield {"type": "done", "ok": False, "result": self._error() or "Claude läuft nicht mehr"}
+                return
+            try:
+                async with asyncio.timeout(get_settings().run_timeout_s):
+                    while self._open_turn:  # skip what is left of an answer that was cut off
+                        ev = await self._line()
+                        if ev is None or ev.get("type") == "result":
+                            self._open_turn = False
+                    msg = {"type": "user", "message": {"role": "user", "content": [{"type": "text", "text": text}]}}
+                    self.proc.stdin.write((json.dumps(msg, ensure_ascii=False) + "\n").encode())
+                    await self.proc.stdin.drain()
+                    self._open_turn = True
+                    while True:
+                        ev = await self._line()
+                        if ev is None:
+                            self._open_turn = False
+                            yield {"type": "done", "ok": False, "result": self._error() or "Claude hat sich beendet"}
+                            return
+                        for out in _events(ev, self.spec):
+                            if out["type"] == "done":
+                                self._open_turn = False
+                            yield out
+                            if out["type"] == "done":
+                                return
+            except TimeoutError:
+                await self.close()
+                yield {"type": "done", "ok": False, "result": "Claude hat zu lange gebraucht"}
+            except (BrokenPipeError, ConnectionResetError, AttributeError):  # AttributeError: closed meanwhile
+                self._open_turn = False
+                yield {"type": "done", "ok": False, "result": self._error() or "Claude läuft nicht mehr"}
+
+    def _error(self) -> str:
+        return b"".join(self._err).decode(errors="replace").strip()[-800:]
+
+    async def close(self) -> None:
+        proc, self.proc = self.proc, None
+        if proc is not None and proc.returncode is None:
+            try:
+                proc.stdin.close()
+            except Exception:  # noqa: BLE001
+                pass
+            _kill(proc)
+            try:
+                await asyncio.wait_for(proc.wait(), 5)
+            except TimeoutError:
+                pass
+        if self._err_task:
+            self._err_task.cancel()
+        if self.run_dir:
+            shutil.rmtree(self.run_dir, ignore_errors=True)
+            self.run_dir = None
 
 
 def blocks(spec: RunSpec) -> list[dict]:

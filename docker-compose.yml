@@ -24,6 +24,7 @@ services:
       GOOGLE_API_URL: ${GOOGLE_API_URL:-http://google:4571}   # Google-Dienst (siehe unten): Einstellungen → Google; Token kommt aus .env (GOOGLE_API_TOKEN)
       CODE_PUBLIC_URL: ${CODE_PUBLIC_URL:-}         # Code-App (siehe unten); leer = Code-Bereich bleibt in IDA unter /code
       VOICE_URL: http://voice:8000                # Stella (siehe unten); ohne VOICE_SECRET bleibt Stella aus
+      PIPER_URL: ${PIPER_URL:-http://piper:8000}  # Piper (siehe unten): Stimmenliste und Hörproben in Einstellungen → Stella
       SANDBOX_URL: http://sandbox:8000            # Sandbox der Code-Threads; ohne SANDBOX_SECRET bleibt sie aus
       DASHBOARD_URL: ${DASHBOARD_URL:-http://dashboard:8000}  # Code-Threads: Logs, Befehle, Updates des Server-Stacks ihres Projekts; leer = aus
     ports:
@@ -188,6 +189,21 @@ services:
     labels:
       com.centurylinklabs.watchtower.enable: "true"
 
+  # IDA Piper – Sprachausgabe für Stella im Modus „Eigene Kette“ (Einstellungen → Stella: Cloudflare erkennt, Claude antwortet, Piper spricht).
+  # Lokal auf dem Prozessor, kein Port nach außen: nur voice (Sätze) und app (Stimmenliste, Hörproben) rufen ihn. Stimmen laden beim ersten
+  # Gebrauch von Hugging Face ins Volume piper-data (de_DE-thorsten-high ~114 MB). Siehe docs/PIPER.md
+  piper:
+    image: ${PIPER_IMAGE:-ghcr.io/l8tenever/ida-piper:latest}
+    pull_policy: always
+    restart: unless-stopped
+    environment:
+      PIPER_DEFAULT_VOICE: ${PIPER_DEFAULT_VOICE:-de_DE-thorsten-high}   # wird beim Start geladen
+    volumes:
+      - piper-data:/data       # voices/: die geladenen Stimmen
+    mem_limit: ${PIPER_MEM:-1500m}
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"
+
   # Tasks – eigene Aufgaben-App (eigener Port, eigene PWA, SQLite im Volume tasks-data). Ida und Stella bedienen sie über die
   # tasks_*-Tools; „Sprechen“ in der App startet Stella im Aufgaben-Modus (Ticket mit VOICE_SECRET, wie die Live-App). Siehe docs/TASKS.md
   # Davor gehört Cloudflare Access: ohne Token gilt jeder Aufruf als du selbst.
@@ -278,6 +294,7 @@ services:
     env_file: .env                                 # VOICE_SECRET, GEMINI_API_KEY, TELNYX_*, STELLA_OWNER_NUMBER, VOICE_PUBLIC_URL
     environment:
       VOICE_IDA_URL: http://app:8000
+      PIPER_URL: ${PIPER_URL:-http://piper:8000}   # Sprachausgabe im Modus „Eigene Kette“ (Einstellungen → Stella)
     command: ["uvicorn", "app.voice.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips", "*"]
     ports:
       - "${VOICE_PORT:-8086}:8000"                 # öffentlich (Tunnel) unter VOICE_PUBLIC_URL – Telnyx und der Browser müssen hin
@@ -501,6 +518,7 @@ volumes:
   chats-data:
   korrektur-data:
   whisper-data:
+  piper-data:
   docs-data:
   launcher-data:
   google-data:

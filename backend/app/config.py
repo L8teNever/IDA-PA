@@ -116,10 +116,26 @@ class Settings(BaseSettings):
     voice_web_vad_silence_ms: int = 500
     # Die Telefon-Schwelle (500) wäre hier zu hoch: normal laute Sprache käme nicht drüber. Gegen Geräusche hilft die mitlernende Grundlinie.
     voice_web_vad_rms: int = 120
+    # Stella im Modus „Eigene Kette“ (Einstellungen → Stella): Cloudflare Workers AI erkennt die Sprache, Claude antwortet, Piper spricht
+    piper_url: str = ""  # z. B. http://piper:8000; leer = Kette ohne Sprachausgabe nicht nutzbar
+    cloudflare_ai_account_id: str = ""  # leer = CLOUDFLARE_ACCOUNT_ID
+    cloudflare_ai_token: str = ""  # API-Token mit dem Recht „Workers AI“; leer = CLOUDFLARE_API_TOKEN
+    cloudflare_account_id: str = ""
+    cloudflare_api_token: str = ""
+    voice_pipeline_pause_ms: int = 700  # so lange Stille nach dem Sprechen, dann gilt der Satz als fertig (die Erkennung beginnt)
+    voice_brain_idle_min: int = 20  # Claude-Prozess eines Gesprächs, das nichts mehr tut, wird danach beendet
 
     @property
     def model_list(self) -> list[str]:
         return [m.strip() for m in self.models.split(",") if m.strip()]
+
+    @property
+    def cf_ai_account(self) -> str:
+        return (self.cloudflare_ai_account_id or self.cloudflare_account_id).strip()
+
+    @property
+    def cf_ai_token(self) -> str:
+        return (self.cloudflare_ai_token or self.cloudflare_api_token).strip()
 
     @property
     def voice_on(self) -> bool:

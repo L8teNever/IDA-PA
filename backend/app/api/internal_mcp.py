@@ -32,6 +32,18 @@ async def script_tool(token: str, request: Request):
             return JSONResponse({"error": str(e)[:500] or e.__class__.__name__})
 
 
+@router.post("/mcp/voice/{token}")
+async def voice_mcp(token: str, request: Request):
+    """Tools fürs Claude-Gehirn eines Gesprächs in Stellas eigener Kette (Schlüssel gilt nur, solange das Gespräch läuft)."""
+    from ..services import voice_bridge
+    reply = await voice_bridge.mcp_handle(token, await request.json())
+    if reply is False:
+        return Response(status_code=404)
+    if reply is None:
+        return Response(status_code=202)
+    return JSONResponse(reply)
+
+
 @router.post("/mcp/{token}")
 async def mcp(token: str, request: Request):
     reply = await handle(token, await request.json())

@@ -27,7 +27,7 @@ const SECTIONS = [
   ]],
   ["App", [
     ["startseite", "today", "Startseite", () => "Kalender im Tagesplan", "pink", homeSec],
-    ["stella", "record_voice_over", "Stella-Stimme", () => state.boot.voice_name || "Aoede", "pink", stellaSec],
+    ["stella", "record_voice_over", "Stella", () => (state.boot.voice_engine === "pipeline" ? "Eigene Kette · Cloudflare, Claude, Piper" : `Gemini Live · ${state.boot.voice_name || "Aoede"}`), "pink", stellaSec],
     ["korrektur", "spellcheck", "Tippfehler", () => ({ t5: "Lokal (T5)", aus: "Aus" }[state.boot.korrektur] || "Claude Haiku 5.5"), "mint", korrekturSec],
     ["google", "cloud_sync", "Google", () => "Anmelden und alles erlauben (Kalender, Mail, Drive, …)", "blau", googleSec],
     ["accounts", "person", "Accounts", () => `${state.boot.accounts.length} verbunden · Claude & Antigravity`, "orange", accounts],

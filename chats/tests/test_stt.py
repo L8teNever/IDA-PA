@@ -213,4 +213,4 @@ def test_automatisch_fehler_wird_nicht_gesichert_und_nicht_gehaemmert(client, fa
 
 
 def test_stt_prefs_standard(client):
-    assert client.get(f"{API}/prefs").json() == {"snaps_quiet": False, "snap_join": True, "stt_local": False, "stt_auto": False}
+    assert client.get(f"{API}/prefs").json() == {"snaps_quiet": False, "snap_join": True, "stt_local": False, "stt_auto": False, "snap_open": False}

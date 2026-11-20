@@ -2,17 +2,19 @@
 a short-lived ticket for the live conversation in the browser and the list of recent calls."""
 import hashlib
 import hmac
+import json
 import secrets
 import time
 
 from pathlib import Path
 
+import httpx
 from fastapi import APIRouter, Header, Request
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel
 
 from ..config import get_settings
-from ..services import settings_store, voice_bridge
+from ..services import settings_store, voice_brain, voice_bridge, voice_engine
 from ..services.errors import Invalid, NotFound
 from .deps import DB
 
@@ -78,6 +80,40 @@ async def internal_finish(request: Request, x_voice_secret: str | None = Header(
                                      str(b.get("error") or ""), str(b.get("direction") or "out"), str(b.get("number") or ""))
 
 
+@router.post("/api/v1/voice/internal/brain/open", include_in_schema=False)
+async def internal_brain_open(request: Request, x_voice_secret: str | None = Header(None)):
+    """Eigene Kette: startet Claude für dieses Gespräch (Anweisungen kommen vom voice-Container)."""
+    if not _ok(x_voice_secret):
+        return _denied()
+    b = await request.json()
+    try:
+        return await voice_brain.open(str(b.get("call_id") or ""), str(b.get("instructions") or ""))
+    except (Invalid, NotFound) as e:
+        return JSONResponse({"detail": str(e)}, status_code=400)
+
+
+@router.post("/api/v1/voice/internal/brain/turn", include_in_schema=False)
+async def internal_brain_turn(request: Request, x_voice_secret: str | None = Header(None)):
+    """Eigene Kette: ein Satz rein, Claudes Antwort als NDJSON-Strom (eine JSON-Zeile pro Stück) zurück."""
+    if not _ok(x_voice_secret):
+        return _denied()
+    b = await request.json()
+    who = "system" if b.get("who") == "system" else "user"
+
+    async def lines():
+        async for ev in voice_brain.turn(str(b.get("call_id") or ""), str(b.get("text") or "")[:8000], who):
+            yield json.dumps(ev, ensure_ascii=False) + "\n"
+    return StreamingResponse(lines(), media_type="application/x-ndjson")
+
+
+@router.post("/api/v1/voice/internal/brain/close", include_in_schema=False)
+async def internal_brain_close(request: Request, x_voice_secret: str | None = Header(None)):
+    if not _ok(x_voice_secret):
+        return _denied()
+    await voice_brain.close(str((await request.json()).get("call_id") or ""))
+    return {"ok": True}
+
+
 @router.post("/api/v1/voice/ticket")
 async def ticket():
     """Start of a live conversation in the browser: where to connect, with a ticket valid for one minute."""
@@ -139,12 +175,25 @@ VOICE_CATALOG = [
 
 
 class VoiceUpdate(BaseModel):
-    voice: str
+    voice: str | None = None  # Gemini-Stimme
+    engine: str | None = None  # gemini | pipeline
+    stt: str | None = None
+    llm: str | None = None
+    tts: str | None = None
+    piper_voice: str | None = None
+    piper_speed: float | None = None
+
+
+async def _engine_view(db) -> dict:
+    from ..services import providers
+    names = await providers.model_names(db)
+    return {**await voice_engine.get(db), "engines": voice_engine.ENGINES, "stt_models": voice_engine.STT_MODELS,
+            "tts_engines": voice_engine.TTS_ENGINES, "llm_models": [{"id": m, "name": names.get(m, m)} for m in providers.claude_models()],
+            "status": voice_engine.status()}
 
 
 @router.get("/api/v1/voice/settings")
 async def get_voice_settings(db: DB):
-    s = get_settings()
     current = await settings_store.get(db, "gemini_voice", "Aoede")
     return {
         "voice": current,
@@ -152,17 +201,61 @@ async def get_voice_settings(db: DB):
             {**v, "sample_url": f"/api/v1/voice/samples/{v['id']}"}
             for v in VOICE_CATALOG
         ],
+        "engine": await _engine_view(db),
     }
 
 
 @router.patch("/api/v1/voice/settings")
 async def update_voice_settings(body: VoiceUpdate, db: DB):
-    target = body.voice.strip()
-    match = next((v for v in VOICE_CATALOG if v["id"].lower() == target.lower()), None)
-    if not match:
-        raise Invalid(f"Unbekannte Stimme: {target}")
-    await settings_store.put(db, "gemini_voice", match["id"])
-    return {"ok": True, "voice": match["id"]}
+    out: dict = {"ok": True}
+    if body.voice is not None:
+        target = body.voice.strip()
+        match = next((v for v in VOICE_CATALOG if v["id"].lower() == target.lower()), None)
+        if not match:
+            raise Invalid(f"Unbekannte Stimme: {target}")
+        await settings_store.put(db, "gemini_voice", match["id"])
+        out["voice"] = match["id"]
+    patch = body.model_dump(exclude={"voice"}, exclude_none=True)
+    if patch:
+        await voice_engine.update(db, patch)
+        out["engine"] = await _engine_view(db)
+    return out
+
+
+@router.get("/api/v1/voice/piper/voices")
+async def piper_voices(lang: str = "de"):
+    """Stimmen des Piper-Dienstes (Standard: nur Deutsch)."""
+    s = get_settings()
+    if not s.piper_url:
+        raise Invalid("Piper ist nicht eingerichtet (PIPER_URL)")
+    try:
+        async with httpx.AsyncClient(timeout=30) as c:
+            r = await c.get(s.piper_url.rstrip("/") + "/api/v1/voices", params={"lang": lang[:8]})
+        r.raise_for_status()
+    except httpx.HTTPError as e:
+        raise Invalid(f"Piper ist gerade nicht erreichbar ({e.__class__.__name__})") from e
+    return r.json()
+
+
+PIPER_SAMPLE = "Hallo Simon, so klinge ich. Dein nächster Termin ist morgen um acht Uhr dreißig."
+
+
+@router.get("/api/v1/voice/piper/sample/{voice}")
+async def piper_sample(voice: str, speed: float = 1.0):
+    """Hörprobe einer Piper-Stimme (lädt sie beim ersten Mal herunter – das kann dauern)."""
+    s = get_settings()
+    if not s.piper_url:
+        raise Invalid("Piper ist nicht eingerichtet (PIPER_URL)")
+    if not voice_engine.PIPER_KEY.match(voice):
+        raise Invalid(f"Ungültige Piper-Stimme: {voice}")
+    try:
+        async with httpx.AsyncClient(timeout=180) as c:
+            r = await c.post(s.piper_url.rstrip("/") + "/api/v1/tts", json={"text": PIPER_SAMPLE, "voice": voice, "speed": speed})
+    except httpx.HTTPError as e:
+        raise Invalid(f"Piper ist gerade nicht erreichbar ({e.__class__.__name__})") from e
+    if r.status_code != 200:
+        raise Invalid(f"Piper: {r.text[:200]}")
+    return Response(r.content, media_type="audio/wav", headers={"cache-control": "private, max-age=86400"})
 
 
 @router.get("/api/v1/voice/samples/{voice_name}")

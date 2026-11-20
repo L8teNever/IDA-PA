@@ -20,6 +20,8 @@ from dataclasses import replace
 from . import prompt
 from .ida import Ida
 from .live import LiveSession
+from .pipeline import make_session
+from .speech import SpeechError
 from .vad import EnergyVad, config_from_settings, pcm_rms
 
 log = logging.getLogger("ida.voice.web")
@@ -186,9 +188,9 @@ async def run(ws, settings, ida: Ida | None = None, connect=None, active: set | 
         voice = (speaker or {}).get("voice") or info.get("voice") or "Aoede"
         oneshot = mode == "speaker" and bool((speaker or {}).get("oneshot"))
         kind = "tasks" if info.get("mode") == "tasks" else ("speaker_command" if oneshot else "speaker") if mode == "speaker" else "web"
-        session = LiveSession(settings, instructions=prompt.instructions(info.get("context") or "", owner=True, kind=kind),
-                              tools=info.get("tools") or [], run_tool=lambda n, a: ida.tool(call_id, n, a), sink=sink,
-                              kickoff=prompt.kickoff(owner=True, kind=kind, resumed=bool(info.get("resumed"))), client_vad=settings.voice_web_vad, connect=connect, voice=voice)
+        session = make_session(settings, info, ida=ida, call_id=call_id, instructions=prompt.instructions(info.get("context") or "", owner=True, kind=kind),
+                               tools=info.get("tools") or [], sink=sink, kickoff=prompt.kickoff(owner=True, kind=kind, resumed=bool(info.get("resumed"))),
+                               client_vad=settings.voice_web_vad, connect=connect, voice=voice)
         mic = BrowserMic(session, sink, settings) if settings.voice_web_vad else None
         await session.open()
         await sink._json({"type": "ready", "rate": 24000, "agent": info.get("agent") or "Stella", "offline": bool(info.get("offline"))})
@@ -225,7 +227,9 @@ async def run(ws, settings, ida: Ida | None = None, connect=None, active: set | 
     except Exception as e:  # noqa: BLE001
         log.warning("Live-Gespräch %s: %s", call_id, e)
         status, error = "failed", str(e)[:300]
-        await sink._json({"type": "error", "message": "Gemini Live ist gerade nicht erreichbar." if "Gemini" in str(e) else "Das Gespräch ist abgebrochen."})
+        await sink._json({"type": "error", "message": "Gemini Live ist gerade nicht erreichbar." if "Gemini" in str(e)
+                          else str(e)[:200] if isinstance(e, (SpeechError, RuntimeError)) and session is not None and not isinstance(session, LiveSession)
+                          else "Das Gespräch ist abgebrochen."})
     finally:
         if session:
             await session.close()

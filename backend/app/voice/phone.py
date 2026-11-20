@@ -20,6 +20,7 @@ from . import prompt
 from .audio import GEMINI_OUT_RATE, PcmToPcmu8k, Pcmu8kToPcm16k, codec_from_telnyx_payload, normalize_g711_codec
 from .ida import Ida
 from .live import LiveSession
+from .pipeline import make_session
 from .telnyx import Telnyx, TelnyxError, client_state, e164, read_client_state, same_number
 from .vad import EnergyVad, config_from_settings, pcm_rms
 
@@ -241,10 +242,11 @@ class Bridge:
         tools = (info.get("tools") or []) if owner else []
         kind = c.direction
         voice = info.get("voice") or "Aoede"
-        self.session = LiveSession(
-            self.s, instructions=prompt.instructions(info.get("context") or "", owner=owner, kind=kind, brief=c.brief, read_only=c.read_only),
-            tools=tools, run_tool=lambda n, a: self.phone.ida.tool(c.id, n, a), sink=self,
-            kickoff=prompt.kickoff(owner=owner, kind=kind, brief=c.brief), client_vad=self.vad is not None, connect=self.phone.connect, voice=voice)
+        self.session = make_session(
+            self.s, info, ida=self.phone.ida, call_id=c.id,
+            instructions=prompt.instructions(info.get("context") or "", owner=owner, kind=kind, brief=c.brief, read_only=c.read_only),
+            tools=tools, sink=self, kickoff=prompt.kickoff(owner=owner, kind=kind, brief=c.brief), client_vad=self.vad is not None,
+            connect=self.phone.connect, voice=voice)
         await self.session.open()
 
         async def gemini():

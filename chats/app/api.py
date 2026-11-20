@@ -1489,7 +1489,7 @@ async def read_chat(chat_id: str) -> None:
     erst als geöffnet, wenn der Chat in Beeper Desktop wirklich aufgeht, und zwar solange er noch ungelesen ist. Deshalb
     öffnet open_in_beeper den Chat ZUERST und markiert erst danach als gelesen."""
     mid, net = await newest_incoming(chat_id)
-    if mid and any(n in net for n in OPEN_NETS):
+    if mid and get_settings().snap_open and any(n in net for n in OPEN_NETS):   # SNAP_OPEN, vorerst aus
         t = asyncio.create_task(open_in_beeper(chat_id, mid))
         _open_tasks.add(t)
         t.add_done_callback(_open_tasks.discard)
