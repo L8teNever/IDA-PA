@@ -87,7 +87,7 @@ async def internal_brain_open(request: Request, x_voice_secret: str | None = Hea
         return _denied()
     b = await request.json()
     try:
-        return await voice_brain.open(str(b.get("call_id") or ""), str(b.get("instructions") or ""))
+        return await voice_brain.open(str(b.get("call_id") or ""), str(b.get("instructions") or ""), bool(b.get("warm")))
     except (Invalid, NotFound) as e:
         return JSONResponse({"detail": str(e)}, status_code=400)
 

@@ -24,7 +24,7 @@ from sqlalchemy import select
 from ..config import get_settings
 from ..db import session_scope, utcnow
 from ..models import USER, Agent, AgentConnector, Chat, ChatMessage, Connector, VoiceCall
-from . import activity, autoroute, jobs, settings_store, voice_engine
+from . import activity, autoroute, jobs, settings_store, spotify, voice_engine
 from . import agents as agent_svc
 from .claude import prompts
 from .claude.runner import norm
@@ -62,7 +62,7 @@ IDA_RULE_YES = "Der Nutzer hat im Gespräch ausdrücklich zugestimmt, du darfst 
 WHO = {"user": "Nutzer", "stella": "Stella", "ida": "Ida (deine frühere Antwort)"}
 LINE_PREFIX = {"ida_frage": "Stella hat Ida gefragt: ", "ida": "Ida: "}  # Rückfragen an Ida in der Mitschrift
 # Never need a yes: saving what the user just said, ticking off a tracker he reports done
-NO_CONFIRM = {"memory_save", "tracker_check"}
+NO_CONFIRM = {"memory_save", "tracker_check", "musik_spielen", "musik_steuern"}
 # A tool only reads when one of these words is part of its name
 _READ = re.compile(r"(^|_)(list|liste|lesen|read|get|search|suchen|status|info|details|verlauf|history|brief|events|free_time|conflicts|"
                    r"stats|zustand|zustaende|logbuch|stundenplan|vertretungen|ausfaelle|aenderungen|faecher|ferien|raeume|lehrer|"
@@ -92,6 +92,11 @@ TASKS_TOOLS = ("tasks_*", "calendar_list", "calendar_events", "calendar_event_ge
 TASKS_FREE = {"tasks_create", "tasks_update", "tasks_done"}
 # Lautsprecher (ida-speaker) mit „Smart Home direkt“: Schalten ist schon sein Ja, Smart-Home-Tools sind direkt da
 SPEAKER_HA_TOOLS = ("homeassistant_*",)
+# Musik am Lautsprecher: ohne Gerät gehen sie an genau diesen Lautsprecher (über seine Verbindung, Spotify Connect im Gerät)
+SPEAKER_MUSIC_TOOLS = ("musik_spielen", "musik_steuern", "musik_status")
+SPEAKER_KEY = "lautsprecher"  # im Tool-Ergebnis: Befehl, den der Voice-Dienst an den Lautsprecher weiterreicht
+_SPEAKER_ACTIONS = {"pause": "pause", "stopp": "pause", "weiter": "play", "play": "play", "naechstes": "next", "vorheriges": "prev",
+                    "lauter": "louder", "leiser": "quieter", "lautstaerke": "volume"}
 SPEAKER_FREE = {"homeassistant_einschalten", "homeassistant_ausschalten", "homeassistant_umschalten"}
 SPEAKER_HA_RULES = """
 SMART HOME AM LAUTSPRECHER: Sagt er „Licht aus“, „mach das Licht im Wohnzimmer an“ oder Ähnliches, schalte sofort mit
@@ -165,6 +170,7 @@ class Session:
     talk: list[dict] = field(default_factory=list)  # eigene Kette: Mitschrift {who, text} für ida_fragen
     brain_token: str | None = None  # eigene Kette: Schlüssel des MCP-Endpunkts /mcp/voice/<token>
     hangup: str = ""  # eigene Kette: Claude hat auflegen aufgerufen (Ergebnis)
+    outbox: list[dict] = field(default_factory=list)  # eigene Kette: Befehle an den Lautsprecher (Musik), gehen mit dem nächsten Stück raus
 
 
 _sessions: dict[str, Session] = {}
@@ -376,8 +382,10 @@ async def start(call_id: str, direction: str, number: str, owner: bool, purpose:
                 if speaker:
                     context += _speaker_block(speaker)
                 # Smart-Home-Tools zuerst, damit sie am Lautsprecher nie hinter MAX_DECLARED rausfallen
-                declared = ([t for t in sess.tools.values() if ha and _matches(t.bare, ha)]
-                            + [t for t in sess.tools.values() if _matches(t.bare, core) and not (ha and _matches(t.bare, ha))])[:MAX_DECLARED]
+                # am Lautsprecher auch die Musik-Tools vorne, damit „Pause“ nie erst über tool_suchen geht
+                first = ha + (list(SPEAKER_MUSIC_TOOLS) if speaker else [])
+                declared = ([t for t in sess.tools.values() if first and _matches(t.bare, first)]
+                            + [t for t in sess.tools.values() if _matches(t.bare, core) and not (first and _matches(t.bare, first))])[:MAX_DECLARED]
                 tools = [{"name": t.name, "description": t.description, "parameters": _with_yes(t, sess)} for t in declared] + _meta_tools()
         else:
             context += ("\nDu sprichst NICHT mit dem Nutzer, sondern mit einer anderen Person. Du hast in diesem Gespräch keinen Zugriff "
@@ -629,6 +637,8 @@ async def call_tool(call_id: str, name: str, args: dict) -> dict:
                 return _out("argumente_json ist kein gültiges JSON", True)
         args = raw if isinstance(raw, dict) else {}
         args.pop("bestaetigt", None)
+    if sess.speaker and name in ("musik_spielen", "musik_steuern") and name in sess.tools and _this_speaker(sess, args):
+        return await _speaker_music(sess, name, args)
     t = sess.tools.get(name)
     if not t:
         return _out(f"Tool {name} gibt es hier nicht (oder es ist im Gespräch gesperrt). Mit tool_suchen findest du die verfügbaren.", True)
@@ -641,6 +651,37 @@ async def call_tool(call_id: str, name: str, args: dict) -> dict:
     sess.used.append(f"{t.name} {'Fehler' if 'error' in out else 'ok'}")
     activity.step(sess.run, "thinking")
     return out
+
+
+def _this_speaker(sess: Session, args: dict) -> bool:
+    """Kein Gerät genannt oder der Name dieses Lautsprechers -> Befehl an ihn selbst statt über die Spotify-Web-API."""
+    want = spotify.norm(str(args.get("geraet") or ""))
+    here = spotify.norm(str((sess.speaker or {}).get("device") or ""))
+    return not want or bool(here and (want in here or here in want))
+
+
+async def _speaker_music(sess: Session, name: str, args: dict) -> dict:
+    """Musik an genau diesem Lautsprecher: Pause & Co. gehen ohne Spotify-Anmeldung, zum Suchen braucht IDA sie."""
+    activity.step(sess.run, "tool", name, "ida")
+    if name == "musik_steuern":
+        action = _SPEAKER_ACTIONS.get(str(args.get("aktion") or ""))
+        if not action:
+            return _out("Unbekannte aktion", True)
+        value = args.get("wert")
+        cmd = {"action": action, "value": int(value) if isinstance(value, (int, float)) else None}
+        if action == "volume" and cmd["value"] is None:
+            return _out("wert (0–100) fehlt", True)
+        text = "ok"
+    else:
+        try:
+            hit = await spotify.search(str(args.get("suche") or "").strip() or "?", str(args.get("art") or ""))
+        except Invalid as e:
+            sess.used.append(f"{name} Fehler")
+            return _out(str(e), True)
+        cmd, text = {"action": "load", "uri": hit["uri"]}, f"Spielt: {hit['titel']}"
+    sess.used.append(f"{name} ok")
+    activity.step(sess.run, "thinking")
+    return {"result": text, SPEAKER_KEY: cmd}
 
 
 # ---------------- eigene Kette: Tools fürs Claude-Gehirn (MCP) ----------------
@@ -683,6 +724,8 @@ async def mcp_handle(token: str, msg: dict) -> dict | None | bool:
                 args = {**args, "verlauf": sess.talk[-24:]}
             out = await call_tool(sess.call_id, name, args)
             out.pop("ida_pending", None)
+            if isinstance(out.get(SPEAKER_KEY), dict):  # geht mit dem nächsten Stück der Antwort an den Lautsprecher
+                sess.outbox.append(out.pop(SPEAKER_KEY))
         return reply({"content": [{"type": "text", "text": json.dumps(out, ensure_ascii=False, default=str)}], "isError": "error" in out})
     return {"jsonrpc": "2.0", "id": msg["id"], "error": {"code": -32601, "message": "Method not found"}}
 

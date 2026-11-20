@@ -44,10 +44,11 @@ class Ida:
             log.warning("IDA tool %s failed: %s", name, e)
             return {"error": "Das Tool ist gerade nicht erreichbar."}
 
-    async def brain_open(self, call_id: str, instructions: str) -> dict:
-        """Eigene Kette: startet Claude für dieses Gespräch. Fehler (kein Account …) als RuntimeError mit Grund."""
+    async def brain_open(self, call_id: str, instructions: str, warm: bool = False) -> dict:
+        """Eigene Kette: startet Claude für dieses Gespräch (warm: gleich einen Probe-Zug, damit der erste echte schnell ist).
+        Fehler (kein Account …) als RuntimeError mit Grund."""
         try:
-            return await self._post("brain/open", {"call_id": call_id, "instructions": instructions}, 60)
+            return await self._post("brain/open", {"call_id": call_id, "instructions": instructions, "warm": warm}, 60)
         except httpx.HTTPStatusError as e:
             try:
                 why = e.response.json().get("detail") or str(e)

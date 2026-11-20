@@ -134,6 +134,13 @@ class WebSink:
     async def tool(self, name: str, running: bool) -> None:
         await self._json({"type": "tool", "name": name, "running": running})
 
+    async def music(self, cmd: dict) -> None:
+        """Spotify am Lautsprecher: {"action": play|pause|next|prev|volume|louder|quieter|load, "value", "uri"}."""
+        await self._json({"type": "music", **cmd})
+
+    async def timing(self, data: dict) -> None:
+        await self._json({"type": "timing", **data})
+
     def hang_up(self, outcome: str) -> None:
         self.outcome = outcome
         asyncio.create_task(self._json({"type": "end", "reason": outcome}))  # the browser plays what is queued, then closes
@@ -190,7 +197,7 @@ async def run(ws, settings, ida: Ida | None = None, connect=None, active: set | 
         kind = "tasks" if info.get("mode") == "tasks" else ("speaker_command" if oneshot else "speaker") if mode == "speaker" else "web"
         session = make_session(settings, info, ida=ida, call_id=call_id, instructions=prompt.instructions(info.get("context") or "", owner=True, kind=kind),
                                tools=info.get("tools") or [], sink=sink, kickoff=prompt.kickoff(owner=True, kind=kind, resumed=bool(info.get("resumed"))),
-                               client_vad=settings.voice_web_vad, connect=connect, voice=voice)
+                               client_vad=settings.voice_web_vad, connect=connect, voice=voice, oneshot=oneshot)
         mic = BrowserMic(session, sink, settings) if settings.voice_web_vad else None
         await session.open()
         await sink._json({"type": "ready", "rate": 24000, "agent": info.get("agent") or "Stella", "offline": bool(info.get("offline"))})

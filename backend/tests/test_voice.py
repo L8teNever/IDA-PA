@@ -651,6 +651,23 @@ def live_session(run_tool):
     return s, sent, said
 
 
+def test_live_oneshot_hangs_up_after_the_answer():
+    """Zweiter Name am Lautsprecher: nach der ersten Antwort auflegen, auch wenn Gemini auflegen nicht aufruft."""
+    async def go():
+        s, sent, said = live_session(None)
+        s.oneshot = True
+        await s._event({"serverContent": {"inputTranscription": {"text": "Mach das Licht aus."}}})
+        await s._event({"serverContent": {"outputTranscription": {"text": "Das Licht ist aus."}}})
+        await s._event({"serverContent": {"turnComplete": True}})
+        assert ("hangup", "Befehl erledigt.") in said
+        n, sent2, said2 = live_session(None)  # normales Gespräch: bleibt offen
+        await n._event({"serverContent": {"inputTranscription": {"text": "Mach das Licht aus."}}})
+        await n._event({"serverContent": {"outputTranscription": {"text": "Das Licht ist aus."}}})
+        await n._event({"serverContent": {"turnComplete": True}})
+        assert not [x for x in said2 if x[0] == "hangup"]
+    asyncio.run(go())
+
+
 def test_live_session_says_answer_of_ida():
     """ida_fragen kommt mit ida_pending zurück: das Gespräch holt Idas Antwort ab und gibt sie Gemini, kein Auflegen dazwischen."""
     async def go():
@@ -871,3 +888,49 @@ def test_thinking_rejected_retries_same_model_without_thinking():
         assert cfg["speechConfig"]["voiceConfig"]["prebuiltVoiceConfig"]["voiceName"] == "Aoede"
     finally:
         live._NO_THINKING.discard("gemini-3.8-live")
+
+
+def test_speaker_music_goes_to_this_speaker():
+    """Am Lautsprecher: Pause & Co. ohne Gerät gehen als Befehl an genau ihn (ohne Spotify-Anmeldung), mit fremdem Gerät über die Web-API."""
+    from app.services import spotify
+    from app.services import voice_bridge as vb
+    from app.services.mcp import hub
+    from app.services.mcp.identity import Identity
+    sess = vb.Session(call_id="wm", agent_id="stella", owner=True, direction="web", number="", purpose="", token="t",
+                      speaker={"device": "kueche", "prompt": "", "smart_home": False})
+    sess.tools["musik_steuern"] = vb.Tool(name="musik_steuern", bare="musik_steuern", description="", schema={})
+    vb._sessions["wm"] = sess
+    try:
+        out = asyncio.run(vb.call_tool("wm", "musik_steuern", {"aktion": "naechstes"}))
+        assert out[vb.SPEAKER_KEY] == {"action": "next", "value": None}
+        out = asyncio.run(vb.call_tool("wm", "musik_steuern", {"aktion": "lautstaerke", "wert": 30, "geraet": "Nina Küche"}))
+        assert out[vb.SPEAKER_KEY] == {"action": "volume", "value": 30}
+        assert "error" in asyncio.run(vb.call_tool("wm", "musik_steuern", {"aktion": "lautstaerke"}))
+        assert not vb._this_speaker(sess, {"geraet": "Wohnzimmer"})
+        sess.brain_token = "bt"
+        msg = {"id": 1, "method": "tools/call", "params": {"name": "musik_steuern", "arguments": {"aktion": "pause"}}}
+        asyncio.run(vb.mcp_handle("bt", msg))
+        assert sess.outbox == [{"action": "pause", "value": None}]  # eigene Kette: geht mit dem nächsten Stück raus
+    finally:
+        vb._sessions.pop("wm", None)
+    assert not vb.needs_yes("musik_spielen") and not vb.needs_yes("musik_steuern")
+    devs = [{"id": "1", "name": "Nina Küche", "aktiv": False}, {"id": "2", "name": "Simons Handy", "aktiv": True}]
+    assert spotify.pick_device(devs, "nina kueche")["id"] == "1"
+    assert spotify.pick_device(devs, "handy")["id"] == "2"
+    assert spotify.pick_device(devs, "")["id"] == "2"
+    assert spotify.pick_device(devs, "Bad") is None
+    names = [n for who, n, _, _ in hub._spec(["ida"]) if n.startswith("musik_")]
+    assert names == ["musik_spielen", "musik_steuern", "musik_status"]
+    assert hub._allowed(hub.VOICE, "musik_spielen", Identity(agent_id="stella", is_main=False, memory=True))
+
+
+def test_music_reaches_the_speaker_socket():
+    from app.voice import live
+    from app.voice.web import WebSink
+    sent = []
+
+    class Ws:
+        async def send_text(self, raw): sent.append(json.loads(raw))
+    asyncio.run(live.send_music(WebSink(Ws()), {"action": "load", "uri": "spotify:track:x", "value": None}))
+    assert sent == [{"type": "music", "action": "load", "uri": "spotify:track:x"}]
+    asyncio.run(live.send_music(object(), {"action": "pause"}))  # Telefon: kein Lautsprecher, nichts passiert

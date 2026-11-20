@@ -53,6 +53,11 @@ class Settings(BaseSettings):
     google_api_url: str = ""
     google_api_token: str = ""
 
+    # Spotify (eigene Entwickler-App auf developer.spotify.com, Besitzer braucht Premium): leer = musik_spielen nur über den Lautsprecher
+    # Rücksprung-Adresse in der App eintragen: <IDA_PUBLIC_URL>/api/v1/spotify/callback; einmal anmelden: <IDA_PUBLIC_URL>/api/v1/spotify/login
+    spotify_client_id: str = ""
+    spotify_client_secret: str = ""
+
     # Tasks (eigener Dienst, siehe docs/TASKS.md): Adresse und gemeinsames Geheimnis; leer = tasks_*-Tools aus
     tasks_url: str = ""
     tasks_ida_token: str = ""
@@ -82,7 +87,7 @@ class Settings(BaseSettings):
     voice_core_tools: str = ("calendar_day_brief,calendar_events,calendar_free_time,calendar_search,calendar_event_create,calendar_event_move,"
                              "reminder_create,reminder_list,tracker_list,tracker_check,memory_save,memory_search,wiki_search,wiki_read,"
                              "web_suchen,web_lesen,agent_delegate,stundenplan,vertretungen,ausfaelle,sofia_list_homework,google_termine_liste,google_mails_suchen,"
-                             "homeassistant_zustand_lesen,homeassistant_einschalten,homeassistant_ausschalten")
+                             "homeassistant_zustand_lesen,homeassistant_einschalten,homeassistant_ausschalten,musik_spielen,musik_steuern,musik_status")
     # Im Gespräch nie erlaubt (Muster gegen den Tool-Namen)
     voice_deny_tools: str = ("ssh_*,cloudflare_*,code_*,stella_*,agent_create,agent_update,agent_delete,skill_create,skill_update,"
                              "skill_delete,routine_delete,tracker_delete,memory_delete")

@@ -117,7 +117,7 @@ class FakeIda:
         self.answers = answers  # Text -> Liste von Ereignissen
         self.turns, self.closed, self.tools = [], False, []
 
-    async def brain_open(self, call_id, instructions):
+    async def brain_open(self, call_id, instructions, warm=False):
         assert "SPRACHAUSGABE" in instructions
         return {"ok": True, "model": "claude-haiku-5-5"}
 
@@ -161,8 +161,11 @@ class Sink:
     def hang_up(self, outcome):
         self.hung = outcome
 
+    async def timing(self, data):
+        self.timings = [*getattr(self, "timings", []), data]
 
-def _session(ida, sink, heard):
+
+def _session(ida, sink, heard, **kw):
     from app.voice.pipeline import PipelineSession
 
     def stt(req):
@@ -170,7 +173,7 @@ def _session(ida, sink, heard):
     return PipelineSession(S, instructions="Du bist Stella.", ida=ida, call_id="p1", sink=sink, kickoff="Begrüß ihn.", client_vad=True,
                            engine={"engine": "pipeline", "stt": "@cf/openai/whisper-large-v3-turbo", "llm": "claude-haiku-5-5",
                                    "piper_voice": "de_DE-thorsten-high", "piper_speed": 1.0},
-                           stt_transport=httpx.MockTransport(stt), tts_transport=piper_transport())
+                           stt_transport=httpx.MockTransport(stt), tts_transport=piper_transport(), **kw)
 
 
 async def _until(cond, timeout=5):
@@ -221,6 +224,27 @@ def test_pipeline_hears_thinks_and_speaks():
         assert [x["who"] for x in s.transcript] == ["stella", "user", "stella", "user", "stella"]
         await s.close()
         assert ida.closed
+    asyncio.run(go())
+
+
+def test_pipeline_oneshot_hangs_up_after_the_answer():
+    """Zweiter Name am Lautsprecher: nach der Antwort auflegen, auch wenn das Modell auflegen vergisst."""
+    async def go():
+        ida = FakeIda({"Licht": [{"t": "tool", "name": "homeassistant_ausschalten", "running": True},
+                                 {"t": "tool", "name": "homeassistant_ausschalten", "running": False},
+                                 {"t": "text", "text": "Das Licht ist aus."}, {"t": "done", "ok": True}]})
+        sink = Sink()
+        s = _session(ida, sink, ["Mach das Licht wieder aus."], oneshot=True)
+        await s.open()
+        await s.activity_start()
+        await s.send_audio(b"\x00\x01" * 8000)
+        await s.activity_end()
+        await _until(lambda: sink.hung)
+        assert sink.hung == "Befehl erledigt." and ("stella", "Das Licht ist aus. ") in sink.texts
+        t = sink.timings[0]  # Zeiten für die Website des Lautsprechers, ab dem Ende des Satzes
+        assert set(t) == {"pause_ms", "stt_ms", "wait_ms", "think_ms", "tts_ms", "first_ms", "total_ms"}
+        assert t["first_ms"] >= t["think_ms"] > 0 and t["total_ms"] >= t["first_ms"]
+        await s.close()
     asyncio.run(go())
 
 
@@ -335,6 +359,24 @@ def test_brain_with_tools_and_hang_up(client):
         assert "pbrain1" not in voice_brain._brains
         evs = turn("Noch da?")
         assert evs[-1]["t"] == "done" and evs[-1]["ok"] is False
+    finally:
+        client.patch(f"{API}/voice/settings", json={"engine": "gemini"})
+
+
+def test_brain_warm_up_stays_hidden(client):
+    """Zweiter Name: gleich nach dem Start ein Probe-Zug – der echte Satz kommt danach, ohne Reste der Probe."""
+    client.patch(f"{API}/voice/settings", json={"engine": "pipeline"})
+    try:
+        client.post(f"{API}/voice/internal/start", headers=SECRET, json={"call_id": "pwarm1", "direction": "web", "owner": True})
+        assert client.post(f"{API}/voice/internal/brain/open", headers=SECRET, json={"call_id": "pwarm1", "instructions": "Du bist Nina.", "warm": True}).json()["ok"]
+        from app.services import voice_brain, voice_bridge
+        assert voice_brain._brains["pwarm1"].warm is not None
+        with client.stream("POST", f"{API}/voice/internal/brain/turn", headers=SECRET, json={"call_id": "pwarm1", "text": "Hallo Stella"}) as r:
+            evs = [json.loads(line) for line in r.iter_lines() if line]
+        assert "".join(e["text"] for e in evs if e["t"] == "text") == "Verstanden: Hallo Stella. Noch ein Satz am 3. Mai." and evs[-1] == {"t": "done", "ok": True}
+        assert voice_brain._brains["pwarm1"].warm.done()
+        assert [x["who"] for x in voice_bridge._sessions["pwarm1"].talk] == ["user", "stella"]
+        client.post(f"{API}/voice/internal/finish", headers=SECRET, json={"call_id": "pwarm1", "transcript": []})
     finally:
         client.patch(f"{API}/voice/settings", json={"engine": "gemini"})
 

@@ -32,7 +32,7 @@ from ..claude import prompts
 from ..errors import Invalid, NotFound
 from ..code import approvals, commit_msg, git, github, projects as code_projects, sandbox
 from ..memory import store as memory
-from . import kalender_tools, server_tools, tasks_tools, voice_tools, web_tools, wiki_tools
+from . import kalender_tools, music_tools, server_tools, tasks_tools, voice_tools, web_tools, wiki_tools
 from .identity import Identity, get
 
 E = {"type": "string"}
@@ -144,6 +144,8 @@ def _spec(ids: list[str]) -> list[tuple[str, str, str, dict]]:
         tools += server_tools.spec()
     if voice_tools.enabled():  # Voice-Dienst eingerichtet (VOICE_URL): Stella telefoniert
         tools += [(VOICE, n, d, schema) for n, d, schema in voice_tools.spec()]
+    # Spotify: Ida und Stella; am Lautsprecher gehen Pause/Weiter/Lautstärke auch ohne Spotify-Anmeldung
+    tools += [(VOICE, n, d, schema) for n, d, schema in music_tools.spec()]
     return tools
 
 
@@ -327,6 +329,8 @@ async def _call(db: AsyncSession, me: Identity, name: str, a: dict) -> dict:
         return await web_tools.call(db, me, name, a)
     if name.startswith("stella_"):
         return await voice_tools.call(db, me, name, a)
+    if name.startswith("musik_"):
+        return await music_tools.call(db, me, name, a)
 
     async def own_routine(rid: str) -> Routine:
         r = await db.get(Routine, rid)

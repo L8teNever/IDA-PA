@@ -37,8 +37,9 @@ Spracherkennung (kann Hörfehler enthalten – deute sie sinnvoll, frag nur bei 
 
 class PipelineSession:
     def __init__(self, settings, *, instructions: str, ida: Ida, call_id: str, engine: dict, sink: live.Sink, kickoff: str,
-                 client_vad: bool, farewell_hangup: bool = True, stt_transport: Any = None, tts_transport: Any = None):
+                 client_vad: bool, farewell_hangup: bool = True, oneshot: bool = False, stt_transport: Any = None, tts_transport: Any = None):
         self.s = settings
+        self.oneshot = oneshot  # zweiter Name am Lautsprecher: nach der ersten Antwort auflegen, auch ohne „auflegen“ vom Modell
         self.instructions = instructions + "\n\n" + TTS_RULES
         self.ida = ida
         self.call_id = call_id
@@ -63,7 +64,7 @@ class PipelineSession:
         self._pre_bytes = 0
         self._rec: bytearray | None = None  # Aufnahme des aktuellen Satzes
         self._finalize: asyncio.Task | None = None
-        self._audio_q: asyncio.Queue[bytes] = asyncio.Queue()  # fertige Aufnahmen -> Erkennung
+        self._audio_q: asyncio.Queue[tuple[bytes, float, float]] = asyncio.Queue()  # fertige Aufnahmen (+ Sprechende, Satzende) -> Erkennung
         self._inbox: asyncio.Queue[tuple[str, str]] = asyncio.Queue()  # (who, text) -> Claude
         self._gen = 0  # zählt Unterbrechungen: Sätze einer älteren Antwort werden nicht mehr gesprochen
         self._in_turn = False
@@ -74,6 +75,11 @@ class PipelineSession:
         self._ida_waiting: asyncio.Task | None = None
         self._ida_again = False
         self._stt_errors = 0
+        # Zeiten des laufenden Befehls (für die Anzeige am Lautsprecher)
+        self._speech_end = 0.0  # Nutzer hat aufgehört zu reden
+        self._heard: dict = {}  # Satz abgeschlossen, Erkennung fertig
+        self._first_audio = 0.0
+        self._tts_ms = 0
 
     # ---------- setup ----------
     async def open(self) -> None:
@@ -84,7 +90,7 @@ class PipelineSession:
             raise speech.SpeechError("Für die eigene Kette fehlt der Cloudflare-Zugang (CLOUDFLARE_AI_ACCOUNT_ID und CLOUDFLARE_AI_TOKEN in .env)")
         if not self.s.piper_url:
             raise speech.SpeechError("Für die eigene Kette fehlt Piper (PIPER_URL)")
-        info = await self.ida.brain_open(self.call_id, self.instructions)
+        info = await self.ida.brain_open(self.call_id, self.instructions, warm=self.oneshot)
         self.model = f"{self.engine.get('stt')} → {info.get('model')} → piper:{self.voice}"
         log.info("Eigene Kette %s: %s", self.call_id, self.model)
         self._spawn(self._stt_worker())
@@ -125,7 +131,7 @@ class PipelineSession:
         await self._interrupt()
 
     async def activity_end(self) -> None:
-        self._last_user = time.monotonic()
+        self._last_user = self._speech_end = time.monotonic()
         if self._rec is None:
             return
         if self._finalize and not self._finalize.done():
@@ -149,7 +155,7 @@ class PipelineSession:
         rec, self._rec = self._rec, None
         if rec is None or len(rec) < MIN_UTTERANCE_MS * IN_RATE * 2 // 1000:
             return
-        await self._audio_q.put(bytes(rec))
+        await self._audio_q.put((bytes(rec), self._speech_end or time.monotonic(), time.monotonic()))
 
     async def _interrupt(self) -> None:
         """Der Nutzer redet: Stella hört sofort auf (nur wenn sie gerade spricht oder antwortet)."""
@@ -169,8 +175,7 @@ class PipelineSession:
     # ---------- Erkennung ----------
     async def _stt_worker(self) -> None:
         while not self.closed:
-            pcm = await self._audio_q.get()
-            t0 = time.monotonic()
+            pcm, spoke_end, t0 = await self._audio_q.get()
             try:
                 text = await speech.transcribe(self.s, str(self.engine.get("stt")), pcm, transport=self._stt_transport)
                 self._stt_errors = 0
@@ -184,6 +189,7 @@ class PipelineSession:
             log.info("voice stt ms=%d chars=%d", (time.monotonic() - t0) * 1000, len(text))
             if not text:
                 continue
+            self._heard = {"spoke_end": spoke_end, "closed": t0, "text_at": time.monotonic()}
             self._note("user", text)
             await self.sink.text("user", text)
             await self._inbox.put(("user", text))
@@ -215,6 +221,8 @@ class PipelineSession:
         self._turn_said = ""
         buf, hangup, ok, error = "", "", True, ""
         t0, first = time.monotonic(), None
+        heard, self._heard = (self._heard if who == "user" else {}), {}
+        self._first_audio, self._tts_ms = 0.0, 0
         async for ev in self.ida.brain_turn(self.call_id, text, "system" if who == "system" else "user"):
             t = ev.get("t")
             if t == "text":
@@ -228,6 +236,8 @@ class PipelineSession:
                 await self.sink.tool(name, bool(ev.get("running")))
                 if ev.get("running") and name == "ida_fragen":
                     self._ida_pending()
+            elif t == "music":
+                await live.send_music(self.sink, ev)
             elif t == "done":
                 ok, error, hangup = bool(ev.get("ok")), str(ev.get("error") or ""), str(ev.get("hangup") or "")
         if buf.strip():
@@ -235,12 +245,16 @@ class PipelineSession:
         log.info("voice turn first_text_ms=%s total_ms=%d ok=%s", int(first * 1000) if first else "-", (time.monotonic() - t0) * 1000, ok)
         said, self._turn_said = self._turn_said, ""
         self._in_turn = False
+        if heard:
+            await self._send_timing(heard, t0, first)
         self.first_turn_done.set()
         if not ok and not said.strip() and gen == self._gen:
             log.warning("Claude: %s", error)
             await self._speak("Ich komme gerade nicht an mein Gehirn. Versuch es gleich nochmal.", gen)
         if hangup:
             self._hang_up(hangup)
+        elif self.oneshot and who == "user" and said.strip() and gen == self._gen and not (self._ida_waiting and not self._ida_waiting.done()):
+            self._hang_up("Befehl erledigt.")
         elif self.farewell_hangup and gen == self._gen and live.FAREWELL.search(said):
             self._spawn(self._farewell(time.monotonic()))
 
@@ -248,6 +262,7 @@ class PipelineSession:
         text = speech.speakable(text)
         if not text or gen != self._gen or self.closed:
             return
+        t_tts = time.monotonic()
         try:
             pcm = await speech.synthesize(self.s, text, self.voice, self.speed, transport=self._tts_transport)
         except Exception as e:  # noqa: BLE001 – dann wenigstens als Text
@@ -257,10 +272,28 @@ class PipelineSession:
             return
         if pcm:
             self.heard_audio = True
+            if not self._first_audio:
+                self._first_audio, self._tts_ms = time.monotonic(), int((time.monotonic() - t_tts) * 1000)
             await self.sink.audio(pcm, speech.OUT_RATE)
         self._turn_said += text + " "
         self._note("stella", text + " ")
         await self.sink.text("stella", text + " ")
+
+    async def _send_timing(self, heard: dict, t0: float, first: float | None) -> None:
+        """Wie lange jeder Schritt gedauert hat, gemessen ab dem Ende deines Satzes (für die Website des Lautsprechers)."""
+        def ms(a: float, b: float) -> int:
+            return max(0, int((b - a) * 1000))
+        end = time.monotonic()
+        data = {"pause_ms": ms(heard["spoke_end"], heard["closed"]), "stt_ms": ms(heard["closed"], heard["text_at"]),
+                "wait_ms": ms(heard["text_at"], t0), "think_ms": int(first * 1000) if first else ms(t0, end), "tts_ms": self._tts_ms,
+                "first_ms": ms(heard["spoke_end"], self._first_audio) if self._first_audio else 0, "total_ms": ms(heard["spoke_end"], end)}
+        log.info("voice timing %s", data)
+        send = getattr(self.sink, "timing", None)
+        if send:
+            try:
+                await send(data)
+            except Exception:  # noqa: BLE001
+                pass
 
     # ---------- Ida im Hintergrund ----------
     def _ida_pending(self) -> None:
@@ -350,11 +383,12 @@ class PipelineSession:
 
 
 def make_session(settings, info: dict, *, ida: Ida, call_id: str, instructions: str, tools: list[dict], sink, kickoff: str,
-                 client_vad: bool, connect=None, voice: str | None = None, farewell_hangup: bool = True):
+                 client_vad: bool, connect=None, voice: str | None = None, farewell_hangup: bool = True, oneshot: bool = False):
     """Gemini Live oder die eigene Kette – je nach Einstellungen → Stella (info["engine"] von IDA)."""
     engine = info.get("engine") or {}
     if engine.get("engine") == "pipeline" and not info.get("offline"):
         return PipelineSession(settings, instructions=instructions, ida=ida, call_id=call_id, engine=engine, sink=sink, kickoff=kickoff,
-                               client_vad=client_vad, farewell_hangup=farewell_hangup)
+                               client_vad=client_vad, farewell_hangup=farewell_hangup, oneshot=oneshot)
     return live.LiveSession(settings, instructions=instructions, tools=tools, run_tool=lambda n, a: ida.tool(call_id, n, a), sink=sink,
-                            kickoff=kickoff, client_vad=client_vad, farewell_hangup=farewell_hangup, connect=connect, voice=voice)
+                            kickoff=kickoff, client_vad=client_vad, farewell_hangup=farewell_hangup, connect=connect, voice=voice,
+                            oneshot=oneshot)

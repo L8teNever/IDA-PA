@@ -88,6 +88,13 @@ def to_gemini_schema(schema: Any, depth: int = 0) -> dict:
     return out
 
 
+async def send_music(sink, cmd: dict) -> None:
+    """Musik-Befehl an den Lautsprecher (nur WebSink am ida-speaker kann das; Telefon und Browser ignorieren ihn)."""
+    music = getattr(sink, "music", None)
+    if music:
+        await music({k: cmd.get(k) for k in ("action", "value", "uri") if cmd.get(k) is not None})
+
+
 def declarations(tools: list[dict]) -> list[dict]:
     decl = [prompt.hang_up_tool()]
     seen = {"auflegen"}
@@ -146,8 +153,9 @@ ToolRunner = Callable[[str, dict], Awaitable[dict]]
 class LiveSession:
     def __init__(self, settings, *, instructions: str, tools: list[dict], run_tool: ToolRunner, sink: Sink, kickoff: str,
                  client_vad: bool, farewell_hangup: bool = True, connect: Callable[[str], Awaitable[Any]] | None = None,
-                 voice: str | None = None):
+                 voice: str | None = None, oneshot: bool = False):
         self.s = settings
+        self.oneshot = oneshot  # zweiter Name am Lautsprecher: nach der ersten Antwort auflegen, auch ohne „auflegen“ vom Modell
         self.voice = voice or "Aoede"
         self.instructions = instructions
         self.decl = declarations(tools)
@@ -334,6 +342,9 @@ class LiveSession:
             said_turn, self._turn_said = self._turn_said, ""
             if said_turn:
                 self._answered_user = self._user_seq
+            if (self.oneshot and said_turn and self._user_seq and not self._tools_open
+                    and not (self._ida_waiting and not self._ida_waiting.done())):
+                self._hang_up("Befehl erledigt.")
             if said_turn and self.has_tools and self._tool_seq == self._turn_tools and self.nudges < MAX_NUDGES and unkept_promise(said_turn):
                 self._spawn(self._check_promise(said_turn, self._tool_seq, self._user_seq))
         for fc in (ev.get("toolCall") or {}).get("functionCalls") or []:
@@ -408,6 +419,8 @@ class LiveSession:
             out = {"error": f"Das Tool ist gerade nicht erreichbar ({e.__class__.__name__})."}
         log.info("voice tool=%s ms=%d ok=%s", name, (time.monotonic() - t0) * 1000, "error" not in out)
         await self.sink.tool(name, False)
+        if isinstance(out, dict) and isinstance(out.get("lautsprecher"), dict):
+            await send_music(self.sink, out.pop("lautsprecher"))
         pending = bool(out.pop("ida_pending", False)) if isinstance(out, dict) else False
         await self._respond(fc, name, out)
         self._tools_open -= 1

@@ -23,6 +23,10 @@ from .errors import Invalid, NotFound
 
 log = logging.getLogger("ida.voice.brain")
 SERVER = "stella"
+# Der erste Zug eines frischen Claude-Prozesses dauert Sekunden länger (CLI startet, Tools laden, Prompt-Cache kalt).
+# Beim zweiten Namen am Lautsprecher kommt der Befehl sofort: also gleich nach dem Start einen Probe-Zug schicken,
+# während du noch redest bzw. Google erkennt. Der echte Satz wartet, bis die Probe durch ist, und läuft dann warm.
+WARMUP = "[System: Verbindungstest vor dem Gespräch. Antworte nur mit „ok“, ohne Tools. Der Nutzer hört das nicht.]"
 
 
 @dataclass
@@ -32,6 +36,7 @@ class Brain:
     model: str
     account: str
     last: float
+    warm: asyncio.Task | None = None
 
 
 _brains: dict[str, Brain] = {}
@@ -58,7 +63,16 @@ async def reap() -> None:
             await close(cid)
 
 
-async def open(call_id: str, instructions: str) -> dict:
+async def _warm_up(b: Brain) -> None:
+    t0 = time.monotonic()
+    ok = False
+    async for ev in b.conv.send(WARMUP):
+        if ev["type"] == "done":
+            ok = bool(ev.get("ok"))
+    log.info("voice brain %s: vorgewärmt in %d ms ok=%s", b.call_id, (time.monotonic() - t0) * 1000, ok)
+
+
+async def open(call_id: str, instructions: str, warm: bool = False) -> dict:
     await reap()
     sess = voice_bridge._sessions.get(call_id)
     if not sess:
@@ -75,7 +89,9 @@ async def open(call_id: str, instructions: str) -> dict:
                           allow=[f"mcp__{SERVER}"], kind="call")
     conv = runner.Conversation(spec)
     await conv.start()
-    _brains[call_id] = Brain(call_id=call_id, conv=conv, model=model, account=acc.name, last=time.monotonic())
+    b = _brains[call_id] = Brain(call_id=call_id, conv=conv, model=model, account=acc.name, last=time.monotonic())
+    if warm:
+        b.warm = asyncio.create_task(_warm_up(b))
     log.info("voice brain %s: %s über %s", call_id, model, acc.name)
     return {"ok": True, "model": model, "account": acc.name}
 
@@ -110,9 +126,13 @@ async def turn(call_id: str, text: str, who: str = "user") -> AsyncIterator[dict
             yield {"t": "tool", "name": ev["name"], "running": True}
         elif ev["type"] == "tool_result":
             yield {"t": "tool", "name": names.get(ev["id"], ""), "running": False}
+            while sess is not None and sess.outbox:  # Musik-Befehl an den Lautsprecher (Pause, Lied laden …)
+                yield {"t": "music", **sess.outbox.pop(0)}
         elif ev["type"] == "done":
             result = ev
     _note(sess, "stella", "".join(said))
+    while sess is not None and sess.outbox:  # falls kein tool_result kam
+        yield {"t": "music", **sess.outbox.pop(0)}
     out: dict = {"t": "done", "ok": bool(result.get("ok"))}
     if not result.get("ok"):
         out["error"] = str(result.get("result") or "Fehler")[:300]
@@ -125,4 +145,6 @@ async def turn(call_id: str, text: str, who: str = "user") -> AsyncIterator[dict
 async def close(call_id: str) -> None:
     b = _brains.pop(call_id, None)
     if b:
+        if b.warm and not b.warm.done():
+            b.warm.cancel()
         await b.conv.close()
