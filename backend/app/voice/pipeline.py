@@ -77,7 +77,10 @@ class PipelineSession:
 
     # ---------- setup ----------
     async def open(self) -> None:
-        if not (self.s.cf_ai_account and self.s.cf_ai_token):
+        if self.engine.get("stt") == speech.GOOGLE_STT:
+            if not self.s.google_stt_key:
+                raise speech.SpeechError("Für die Erkennung über Google fehlt GOOGLE_STT_API_KEY in .env")
+        elif not (self.s.cf_ai_account and self.s.cf_ai_token):
             raise speech.SpeechError("Für die eigene Kette fehlt der Cloudflare-Zugang (CLOUDFLARE_AI_ACCOUNT_ID und CLOUDFLARE_AI_TOKEN in .env)")
         if not self.s.piper_url:
             raise speech.SpeechError("Für die eigene Kette fehlt Piper (PIPER_URL)")

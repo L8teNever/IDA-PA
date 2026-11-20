@@ -15,16 +15,18 @@ from .errors import Invalid
 KEY = "voice_engine"
 ENGINES = [
     {"id": "gemini", "name": "Gemini Live", "description": "Alles in einem: hört, denkt und spricht selbst. Am schnellsten, kostet aber Google-Guthaben – auch für Stille."},
-    {"id": "pipeline", "name": "Eigene Kette", "description": "Cloudflare erkennt die Sprache, Claude antwortet, Piper spricht. Kostet nur das Gesagte, dafür etwas langsamer."},
+    {"id": "pipeline", "name": "Eigene Kette", "description": "Cloudflare oder Google erkennt die Sprache, Claude antwortet, Piper spricht. Kostet nur das Gesagte, dafür etwas langsamer."},
 ]
-# Neurons pro Audiominute laut Cloudflare (10.000 Neurons am Tag sind frei)
+# Neurons pro Audiominute laut Cloudflare (10.000 Neurons am Tag sind frei); „provider“ sagt, welcher Zugang nötig ist
 STT_MODELS = [
-    {"id": "@cf/openai/whisper-large-v3-turbo", "name": "Whisper large-v3-turbo", "neurons": 47,
+    {"id": "@cf/openai/whisper-large-v3-turbo", "name": "Whisper large-v3-turbo", "neurons": 47, "provider": "cloudflare", "cost": "47 Neurons/Min.",
      "description": "Genau, versteht Deutsch gut. Rund 210 Gratis-Minuten am Tag."},
-    {"id": "@cf/deepgram/nova-3", "name": "Deepgram Nova-3", "neurons": 473,
+    {"id": "@cf/deepgram/nova-3", "name": "Deepgram Nova-3", "neurons": 473, "provider": "cloudflare", "cost": "473 Neurons/Min.",
      "description": "Sehr schnell, rund 21 Gratis-Minuten am Tag."},
-    {"id": "@cf/openai/whisper", "name": "Whisper (älter)", "neurons": 41,
+    {"id": "@cf/openai/whisper", "name": "Whisper (älter)", "neurons": 41, "provider": "cloudflare", "cost": "41 Neurons/Min.",
      "description": "Das ältere Whisper-Modell ohne Sprachvorgabe – nur als Ausweichmöglichkeit."},
+    {"id": "google", "name": "Google Speech-to-Text", "neurons": 0, "provider": "google", "cost": "60 Min./Monat frei, dann ~1,6 ct/Min.",
+     "description": "Schnell und gut auf Deutsch. Braucht ein Google-Cloud-Projekt mit Zahlungsmethode (GOOGLE_STT_API_KEY)."},
 ]
 TTS_ENGINES = [
     {"id": "piper", "name": "Piper (lokal)", "description": "Läuft im Stack auf dem Prozessor, kostet nichts. Stimme frei wählbar."},
@@ -86,4 +88,4 @@ async def update(db: AsyncSession, patch: dict) -> dict:
 def status() -> dict:
     """Was für die Kette eingerichtet ist (ohne Geheimnisse)."""
     s = get_settings()
-    return {"cloudflare": bool(s.cf_ai_account and s.cf_ai_token), "piper": bool(s.piper_url)}
+    return {"cloudflare": bool(s.cf_ai_account and s.cf_ai_token), "google": bool(s.google_stt_key), "piper": bool(s.piper_url)}

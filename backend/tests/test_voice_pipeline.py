@@ -64,6 +64,34 @@ def test_transcribe_with_cloudflare():
         asyncio.run(speech.transcribe(NoCf, "@cf/openai/whisper", pcm))
 
 
+def test_transcribe_with_google():
+    from app.voice import speech
+    seen = []
+
+    class G(S):
+        google_stt_key, google_stt_model = "gkey", "latest_short"
+
+    def handler(req: httpx.Request):
+        seen.append(req)
+        body = json.loads(req.content)
+        assert req.headers["x-goog-api-key"] == "gkey"
+        assert body["config"]["languageCode"] == "de-DE" and body["config"]["sampleRateHertz"] == 16000
+        assert base64.b64decode(body["audio"]["content"]) == pcm
+        return httpx.Response(200, json={"results": [{"alternatives": [{"transcript": "Mach das Licht"}]}, {"alternatives": [{"transcript": " an."}]}]})
+    pcm = b"\x00\x01" * 8000
+    assert asyncio.run(speech.transcribe(G, "google", pcm, transport=httpx.MockTransport(handler))) == "Mach das Licht an."
+    assert seen[0].url.host == "speech.googleapis.com"
+    assert asyncio.run(speech.transcribe(G, "google", pcm, transport=httpx.MockTransport(lambda r: httpx.Response(200, json={})))) == ""
+    bad = httpx.MockTransport(lambda r: httpx.Response(403, json={"error": {"message": "API not enabled"}}))
+    with pytest.raises(speech.SpeechError, match="API not enabled"):
+        asyncio.run(speech.transcribe(G, "google", pcm, transport=bad))
+
+    class NoKey(S):
+        google_stt_key = ""
+    with pytest.raises(speech.SpeechError, match="GOOGLE_STT_API_KEY"):
+        asyncio.run(speech.transcribe(NoKey, "google", pcm))
+
+
 def piper_transport(log=None):
     from app.voice.speech import wav_bytes
 
@@ -242,6 +270,12 @@ def test_pipeline_needs_cloudflare_and_piper():
     with pytest.raises(speech.SpeechError, match="Cloudflare"):
         asyncio.run(s.open())
 
+    class NoGoogle(S):
+        google_stt_key = ""
+    s = PipelineSession(NoGoogle, instructions="", ida=FakeIda({}), call_id="x", engine={"stt": "google"}, sink=Sink(), kickoff="", client_vad=True)
+    with pytest.raises(speech.SpeechError, match="GOOGLE_STT_API_KEY"):
+        asyncio.run(s.open())
+
 
 def test_make_session_picks_the_engine():
     from app.voice.live import LiveSession
@@ -258,7 +292,7 @@ def test_engine_settings(client):
     e = d["engine"]
     assert e["engine"] == "gemini" and e["llm"] == "claude-haiku-5-5" and e["stt"] == "@cf/openai/whisper-large-v3-turbo"
     assert e["piper_voice"] == "de_DE-thorsten-high" and {m["id"] for m in e["engines"]} == {"gemini", "pipeline"}
-    assert any(m["id"] == "claude-sonnet-5-5" for m in e["llm_models"]) and e["status"] == {"cloudflare": False, "piper": False}
+    assert any(m["id"] == "claude-sonnet-5-5" for m in e["llm_models"]) and e["status"]["cloudflare"] is False and e["status"]["piper"] is False and "google" in e["status"]
     r = client.patch(f"{API}/voice/settings", json={"engine": "pipeline", "llm": "claude-sonnet-5-5", "stt": "@cf/deepgram/nova-3",
                                                     "piper_voice": "de_DE-kerstin-low", "piper_speed": 1.2}).json()
     assert r["engine"]["engine"] == "pipeline" and r["engine"]["llm"] == "claude-sonnet-5-5" and r["engine"]["piper_speed"] == 1.2

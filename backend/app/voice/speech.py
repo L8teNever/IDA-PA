@@ -1,4 +1,4 @@
-"""Bausteine der eigenen Kette: Sprache -> Text (Cloudflare Workers AI) und Text -> Sprache (Piper im Stack)."""
+"""Bausteine der eigenen Kette: Sprache -> Text (Cloudflare Workers AI oder Google) und Text -> Sprache (Piper im Stack)."""
 from __future__ import annotations
 
 import base64
@@ -15,6 +15,8 @@ import httpx
 
 OUT_RATE = 24000  # was der Browser und das Telefon von Stella erwarten (wie Gemini)
 CF_API = "https://api.cloudflare.com/client/v4/accounts/{account}/ai/run/{model}"
+GOOGLE_STT = "google"
+GOOGLE_API = "https://speech.googleapis.com/v1/speech:recognize"
 # Whisper erfindet bei Rauschen gern Abspann-Sätze aus dem Fernsehen
 HALLUCINATION = re.compile(r"(untertitel|amara\.org|vielen dank f[üu]r(?:s| das) zu(?:schauen|sehen|hören)|copyright|swr \d{4}|zdf|"
                            r"thanks for watching|bis zum nächsten mal\.?$)", re.IGNORECASE)
@@ -66,7 +68,9 @@ def clean_heard(text: str) -> str:
 
 
 async def transcribe(settings, model: str, pcm16k: bytes, language: str = "de", transport: httpx.AsyncBaseTransport | None = None) -> str:
-    """PCM 16 kHz mono -> Text über Cloudflare Workers AI. Leer, wenn nichts (Sinnvolles) gesagt wurde."""
+    """PCM 16 kHz mono -> Text über Cloudflare Workers AI oder Google. Leer, wenn nichts (Sinnvolles) gesagt wurde."""
+    if model == GOOGLE_STT:
+        return await _transcribe_google(settings, pcm16k, language, transport)
     account, token = settings.cf_ai_account, settings.cf_ai_token
     if not (account and token):
         raise SpeechError("Cloudflare-Zugang fehlt (CLOUDFLARE_AI_ACCOUNT_ID und CLOUDFLARE_AI_TOKEN in .env)")
@@ -90,6 +94,28 @@ async def transcribe(settings, model: str, pcm16k: bytes, language: str = "de", 
         why = "; ".join(str(e.get("message") or e) for e in errs) if isinstance(errs, list) and errs else r.text[:200]
         raise SpeechError(f"Cloudflare {r.status_code}: {why}")
     return clean_heard(_cf_text(body))
+
+
+async def _transcribe_google(settings, pcm16k: bytes, language: str, transport) -> str:
+    key = settings.google_stt_key
+    if not key:
+        raise SpeechError("Google-Zugang fehlt (GOOGLE_STT_API_KEY in .env)")
+    lang = language if "-" in language else f"{language}-{language.upper()}"
+    body = {"config": {"encoding": "LINEAR16", "sampleRateHertz": 16000, "languageCode": lang,
+                       "model": settings.google_stt_model or "latest_short", "enableAutomaticPunctuation": True},
+            "audio": {"content": base64.b64encode(pcm16k).decode()}}
+    async with httpx.AsyncClient(timeout=30, transport=transport) as c:
+        r = await c.post(GOOGLE_API, headers={"x-goog-api-key": key}, json=body)
+    try:
+        data = r.json()
+    except ValueError:
+        data = {}
+    if r.status_code != 200:
+        err = data.get("error") if isinstance(data, dict) else None
+        why = err.get("message") if isinstance(err, dict) else r.text[:200]
+        raise SpeechError(f"Google {r.status_code}: {why}")
+    parts = [(res.get("alternatives") or [{}])[0].get("transcript", "") for res in data.get("results") or []]
+    return clean_heard(" ".join(p.strip() for p in parts if p))
 
 
 SPEAK_CLEAN = [(re.compile(r"\[(.*?)\]\(.*?\)"), r"\1"), (re.compile(r"https?://\S+"), ""), (re.compile(r"[*_`#>|~]+"), ""),

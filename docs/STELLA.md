@@ -117,6 +117,9 @@ Mikro ─► VAD (wie bisher) ─► nach VOICE_PIPELINE_PAUSE_MS Stille: Cloudf
 - **Zuhören:** Cloudflare Workers AI, Modell wählbar: *Whisper large-v3-turbo* (Standard, ~47 Neurons/Min., also rund 210 Gratis-Minuten
   am Tag bei 10.000 freien Neurons), *Deepgram Nova-3* (~473/Min.) oder das ältere *Whisper*. Nötig in der `.env`: `CLOUDFLARE_AI_ACCOUNT_ID`
   und `CLOUDFLARE_AI_TOKEN` (API-Token mit dem Recht **Workers AI**; ohne diese gelten `CLOUDFLARE_ACCOUNT_ID`/`CLOUDFLARE_API_TOKEN`).
+  Alternativ **Google Speech-to-Text** (Modell `GOOGLE_STT_MODEL`, Standard `latest_short`; 60 Min./Monat frei, dann ~1,6 ct/Min.):
+  `GOOGLE_STT_API_KEY` = API-Schlüssel eines Google-Cloud-Projekts mit Zahlungsmethode und aktivierter „Cloud Speech-to-Text API“
+  (leer = `GEMINI_API_KEY`, klappt nur, wenn dort die Speech-API freigeschaltet ist). Eine Anfrage pro Satz, kein Streaming.
   Typische Whisper-Erfindungen bei Rauschen („Untertitel der Amara.org-Community“) werden verworfen, Geräusche unter 0,3 s gar nicht geschickt.
 - **Antworten:** ein Claude-Modell der Accounts, Standard Haiku. Pro Gespräch startet IDA **einen** Claude-Prozess
   (`runner.Conversation`, `--input-format stream-json`), der bis zum Ende offen bleibt – kein Neustart pro Satz. Er bekommt dieselben

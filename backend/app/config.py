@@ -122,6 +122,9 @@ class Settings(BaseSettings):
     cloudflare_ai_token: str = ""  # API-Token mit dem Recht „Workers AI“; leer = CLOUDFLARE_API_TOKEN
     cloudflare_account_id: str = ""
     cloudflare_api_token: str = ""
+    # Zuhören über Google Cloud Speech-to-Text: API-Schlüssel eines Projekts mit aktivierter „Cloud Speech-to-Text API“
+    google_stt_api_key: str = ""  # leer = GEMINI_API_KEY (klappt, wenn dort die Speech-API freigeschaltet ist)
+    google_stt_model: str = "latest_short"
     voice_pipeline_pause_ms: int = 700  # so lange Stille nach dem Sprechen, dann gilt der Satz als fertig (die Erkennung beginnt)
     voice_brain_idle_min: int = 20  # Claude-Prozess eines Gesprächs, das nichts mehr tut, wird danach beendet
 
@@ -136,6 +139,10 @@ class Settings(BaseSettings):
     @property
     def cf_ai_token(self) -> str:
         return (self.cloudflare_ai_token or self.cloudflare_api_token).strip()
+
+    @property
+    def google_stt_key(self) -> str:
+        return (self.google_stt_api_key or self.gemini_api_key).strip()
 
     @property
     def voice_on(self) -> bool:

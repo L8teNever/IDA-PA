@@ -1,4 +1,4 @@
-// Einstellungen → Stella: Gemini Live (eine Stimme von 21) oder die eigene Kette (Cloudflare erkennt, Claude antwortet, Piper spricht)
+// Einstellungen → Stella: Gemini Live (eine Stimme von 21) oder die eigene Kette (Cloudflare oder Google erkennt, Claude antwortet, Piper spricht)
 import { api } from "../../api.js";
 import { state } from "../../store.js";
 import { $, esc, toast } from "../../ui/dom.js";
@@ -51,7 +51,9 @@ export async function render(el) {
     const box = $("stellaEngine");
     if (!box) return;
     const pipe = eng.engine === "pipeline";
-    const missing = [!eng.status.cloudflare && "Cloudflare-Zugang: <code>CLOUDFLARE_AI_ACCOUNT_ID</code> und <code>CLOUDFLARE_AI_TOKEN</code> (API-Token mit dem Recht „Workers AI“) in der .env",
+    const sttProv = eng.stt_models.find((m) => m.id === eng.stt)?.provider || "cloudflare";
+    const missing = [sttProv === "google" && !eng.status.google && "Google-Zugang: <code>GOOGLE_STT_API_KEY</code> (API-Schlüssel eines Google-Cloud-Projekts mit aktivierter „Cloud Speech-to-Text API“) in der .env",
+      sttProv === "cloudflare" && !eng.status.cloudflare && "Cloudflare-Zugang: <code>CLOUDFLARE_AI_ACCOUNT_ID</code> und <code>CLOUDFLARE_AI_TOKEN</code> (API-Token mit dem Recht „Workers AI“) in der .env",
       !eng.status.piper && "Piper-Dienst: <code>PIPER_URL</code> (im Stack <code>http://piper:8000</code>)"].filter(Boolean);
     box.innerHTML = `
       <p class="sub-intro">Wie Stella zuhört, denkt und spricht – im Live-Gespräch, am Lautsprecher und am Telefon.</p>
@@ -59,10 +61,10 @@ export async function render(el) {
       <div class="rf-sum"><span class="ms">info</span><span>${esc(eng.engines.find((e) => e.id === eng.engine)?.description || "")}</span></div>
       ${pipe && missing.length ? `<div class="rf-sum" style="margin-top:8px"><span class="ms">warning</span><span>Für die eigene Kette fehlt noch: ${missing.join("; ")}. Bis dahin kann Stella so nicht sprechen.</span></div>` : ""}
       ${pipe ? `
-      <div class="sgrp" style="margin-top:18px">1 · Zuhören (Cloudflare Workers AI)</div>
+      <div class="sgrp" style="margin-top:18px">1 · Zuhören (Cloudflare Workers AI oder Google)</div>
       <div class="voice-grid">${eng.stt_models.map((m) => `
         <div class="voice-card ${m.id === eng.stt ? "active" : ""}" data-stt="${esc(m.id)}" style="cursor:pointer">
-          <div class="voice-info"><div class="voice-head"><span class="voice-name">${esc(m.name)}</span><span class="voice-gender">${m.neurons} Neurons/Min.</span></div>
+          <div class="voice-info"><div class="voice-head"><span class="voice-name">${esc(m.name)}</span><span class="voice-gender">${esc(m.cost || `${m.neurons} Neurons/Min.`)}</span></div>
           <span class="voice-desc">${esc(m.description)}</span></div>
           <span class="ms">${m.id === eng.stt ? "check_circle" : "radio_button_unchecked"}</span>
         </div>`).join("")}</div>
