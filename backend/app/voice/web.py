@@ -82,7 +82,9 @@ def speaker_extra(name: str, body: dict | None) -> dict:
             # zweite Persönlichkeit: eigener Name und Stimme; oneshot = ein Befehl, Antwort, auflegen
             "name": re.sub(r"[^\w äöüÄÖÜß-]", "", str(b.get("name") or ""))[:32].strip(),
             "voice": voice if re.fullmatch(r"[A-Z][a-z]{2,15}", voice) else "",
-            "oneshot": b.get("oneshot") is True}
+            "oneshot": b.get("oneshot") is True,
+            # so heißt er in der Spotify-App (Soloist), leer = Spotify aus
+            "spotify": re.sub(r"[\x00-\x1f]", "", str(b.get("spotify") or ""))[:64].strip()}
 
 
 def remember_extra(ticket: str, extra: dict, now: float | None = None) -> None:

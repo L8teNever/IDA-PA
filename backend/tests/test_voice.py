@@ -907,6 +907,10 @@ def test_speaker_music_goes_to_this_speaker():
         assert out[vb.SPEAKER_KEY] == {"action": "volume", "value": 30}
         assert "error" in asyncio.run(vb.call_tool("wm", "musik_steuern", {"aktion": "lautstaerke"}))
         assert not vb._this_speaker(sess, {"geraet": "Wohnzimmer"})
+        sess.speaker["spotify"] = "Speaker"
+        assert vb._this_speaker(sess, {"geraet": "speaker"}) and vb._speaker_spotify(sess) == "Speaker"
+        assert "aktion=pause" in vb._speaker_block(sess.speaker)
+        sess.speaker.pop("spotify")
         sess.brain_token = "bt"
         msg = {"id": 1, "method": "tools/call", "params": {"name": "musik_steuern", "arguments": {"aktion": "pause"}}}
         asyncio.run(vb.mcp_handle("bt", msg))

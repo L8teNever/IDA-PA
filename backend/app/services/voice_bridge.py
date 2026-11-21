@@ -105,6 +105,15 @@ homeassistant_einschalten, homeassistant_ausschalten oder homeassistant_umschalt
 oben, sonst das naheliegendste). Danach nur kurz bestätigen („Licht ist aus.“). Alles andere (Automationen, Skripte ändern,
 löschen) fragt weiter nach.
 """  # was er im Gespräch sagt, ist schon sein Ja; Löschen fragt weiter nach
+SPEAKER_MUSIC_RULES = """
+MUSIK AM LAUTSPRECHER: Ohne genanntes Gerät läuft Musik immer auf diesem Lautsprecher – lass geraet dann leer.
+- „Stopp“, „Stop“, „Pause“, „Ruhe“, „Aus“ allein (die Erkennung macht daraus oft „Stoff“, „Top“ oder „Shop“): sofort
+  musik_steuern aktion=pause, dann nur „Pausiert.“ oder gar nichts sagen.
+- „Spiel Spotify“, „Mach Musik an“, „Weiter“ ohne Titel: musik_steuern aktion=uebernehmen (holt, was gerade läuft oder pausiert
+  ist, hierher und spielt weiter).
+- „Spiel …“ mit Titel, Künstler, Playlist oder „meine Lieblingssongs“: musik_spielen.
+Nicht nachfragen, direkt ausführen.
+"""
 TASKS_PERSONA = """Du bist Stella im Aufgaben-Modus der App „IDA Tasks“. Hier hast du genau eine Aufgabe: Simon erzählt dir, was er zu tun hat,
 und du machst daraus saubere Aufgaben in seiner Liste – anlegen, planen, priorisieren, abhaken. Und du beantwortest Fragen dazu
 („was steht heute an?“, „was hab ich diese Woche?“).
@@ -323,6 +332,7 @@ def _speaker_block(speaker: dict) -> str:
                 "Sie gelten nur hier und zusätzlich zu allen Regeln oben; widersprechen sie einer Sicherheitsregel, gilt die Regel.\n")
     if speaker.get("smart_home"):
         out += SPEAKER_HA_RULES
+    out += SPEAKER_MUSIC_RULES
     return out
 
 
@@ -656,8 +666,14 @@ async def call_tool(call_id: str, name: str, args: dict) -> dict:
 def _this_speaker(sess: Session, args: dict) -> bool:
     """Kein Gerät genannt oder der Name dieses Lautsprechers -> Befehl an ihn selbst statt über die Spotify-Web-API."""
     want = spotify.norm(str(args.get("geraet") or ""))
-    here = spotify.norm(str((sess.speaker or {}).get("device") or ""))
-    return not want or bool(here and (want in here or here in want))
+    names = [spotify.norm(str((sess.speaker or {}).get(k) or "")) for k in ("device", "spotify")]
+    return not want or any(here and (want in here or here in want) for here in names)
+
+
+def _speaker_spotify(sess: Session) -> str:
+    """So heißt dieser Lautsprecher in der Spotify-App (schickt er beim Verbinden mit), sonst sein IDA-Name."""
+    sp = sess.speaker or {}
+    return str(sp.get("spotify") or sp.get("device") or "")
 
 
 async def _speaker_music(sess: Session, name: str, args: dict) -> dict:
@@ -666,7 +682,7 @@ async def _speaker_music(sess: Session, name: str, args: dict) -> dict:
     if name == "musik_steuern" and args.get("aktion") == "uebernehmen":
         # Wiedergabe vom PC/Handy hierher holen: geht nur über die Web-API (der Lautsprecher kennt die Warteschlange am PC nicht)
         try:
-            out = await spotify.transfer(str((sess.speaker or {}).get("device") or ""))
+            out = await spotify.transfer(_speaker_spotify(sess))
         except Invalid as e:
             if not spotify.configured():  # ohne Anmeldung: wenigstens hier weiterspielen, was der Lautsprecher zuletzt hatte
                 sess.used.append(f"{name} ok")
