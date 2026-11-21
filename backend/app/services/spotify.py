@@ -16,9 +16,10 @@ from . import settings_store
 from .errors import Invalid
 
 KEY = "spotify_auth"
-SCOPES = "user-read-playback-state user-modify-playback-state user-read-currently-playing"
+SCOPES = "user-read-private user-read-playback-state user-modify-playback-state user-read-currently-playing"  # Suche braucht seit 2026 user-read-private
 API = "https://api.spotify.com/v1"
 TOKEN_URL = "https://accounts.spotify.com/api/token"
+
 KINDS = {"lied": "track", "album": "album", "playlist": "playlist", "kuenstler": "artist", "podcast": "show"}
 
 _states: dict[str, float] = {}  # Anmeldung läuft: state -> Ablauf
@@ -120,6 +121,8 @@ async def _api(method: str, path: str, **kw) -> dict:
             msg = r.text
         if r.status_code == 404 and "device" in str(msg).lower():
             msg = "Kein aktives Gerät – nenne einen Lautsprecher oder starte Spotify irgendwo einmal."
+        elif r.status_code == 403 and "scope" in str(msg).lower():
+            msg = f"Der Anmeldung fehlt eine Berechtigung – einmal neu anmelden: {(get_settings().ida_public_url or '<IDA>').rstrip('/')}/api/v1/spotify/login"
         elif r.status_code == 403:
             msg = f"Spotify erlaubt das nicht (Premium nötig?): {msg}"
         raise Invalid(f"Spotify: {str(msg)[:200]}")
@@ -187,7 +190,18 @@ async def play(query: str, kind: str = "", device: str = "") -> dict:
     return {"result": f"Spielt: {hit['titel']}" + (f" auf {device}" if device else "")}
 
 
+async def transfer(device: str) -> dict:
+    """Holt die Wiedergabe (was gerade läuft oder pausiert ist, z. B. am PC) auf das Gerät und spielt dort an derselben Stelle weiter."""
+    if not device.strip():
+        raise Invalid("Auf welches Gerät? geraet fehlt.")
+    dev = await _device_id(device)
+    await _api("PUT", "/me/player", json={"device_ids": [dev], "play": True})
+    return {"result": f"Spielt jetzt auf {device} weiter"}
+
+
 async def control(action: str, value: int | None = None, device: str = "") -> dict:
+    if action == "uebernehmen":
+        return await transfer(device)
     dev = await _device_id(device)
     p = {"device_id": dev} if dev else {}
     if action in ("weiter", "play"):

@@ -919,6 +919,7 @@ def test_speaker_music_goes_to_this_speaker():
     assert spotify.pick_device(devs, "handy")["id"] == "2"
     assert spotify.pick_device(devs, "")["id"] == "2"
     assert spotify.pick_device(devs, "Bad") is None
+    assert spotify.pick_device([{"id": "3", "name": "Simon-zimmer", "aktiv": False}], "simon-zimmer")["id"] == "3"
     names = [n for who, n, _, _ in hub._spec(["ida"]) if n.startswith("musik_")]
     assert names == ["musik_spielen", "musik_steuern", "musik_status"]
     assert hub._allowed(hub.VOICE, "musik_spielen", Identity(agent_id="stella", is_main=False, memory=True))

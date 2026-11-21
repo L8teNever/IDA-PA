@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from .. import spotify
 
 E = {"type": "string"}
-ACTIONS = ["pause", "weiter", "naechstes", "vorheriges", "lauter", "leiser", "lautstaerke"]
+ACTIONS = ["uebernehmen", "pause", "weiter", "naechstes", "vorheriges", "lauter", "leiser", "lautstaerke"]
 GERAET = {**E, "description": "Spotify-Gerät, z. B. ein Lautsprecher („Nina Küche“) oder „Handy“; leer = wo gerade Musik läuft "
           "(im Gespräch am Lautsprecher: dieser Lautsprecher)"}
 
@@ -20,7 +20,9 @@ def spec() -> list[tuple[str, str, dict]]:
          obj({"suche": {**E, "description": "Wonach gesucht wird, z. B. „Blinding Lights The Weeknd“ oder „Chill Playlist“"},
               "art": {"type": "string", "enum": list(spotify.KINDS), "description": "Standard lied"},
               "geraet": GERAET}, ("suche",))),
-        ("musik_steuern", "Pause, weiter, nächstes/vorheriges Lied, lauter, leiser oder Lautstärke setzen (Spotify).",
+        ("musik_steuern", "Pause, weiter, nächstes/vorheriges Lied, lauter, leiser oder Lautstärke setzen (Spotify). "
+                          "uebernehmen = das, was gerade läuft oder pausiert ist (z. B. am PC), auf das Gerät holen und dort weiterspielen – "
+                          "für „Spiel Spotify“, „Mach die Musik hier an“ ohne bestimmten Titel.",
          obj({"aktion": {"type": "string", "enum": ACTIONS},
               "wert": {"type": "integer", "minimum": 0, "maximum": 100, "description": "lautstaerke: Prozent; lauter/leiser: um wie viel (Standard 10)"},
               "geraet": GERAET}, ("aktion",))),

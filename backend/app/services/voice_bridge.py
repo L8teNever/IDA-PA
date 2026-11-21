@@ -663,6 +663,19 @@ def _this_speaker(sess: Session, args: dict) -> bool:
 async def _speaker_music(sess: Session, name: str, args: dict) -> dict:
     """Musik an genau diesem Lautsprecher: Pause & Co. gehen ohne Spotify-Anmeldung, zum Suchen braucht IDA sie."""
     activity.step(sess.run, "tool", name, "ida")
+    if name == "musik_steuern" and args.get("aktion") == "uebernehmen":
+        # Wiedergabe vom PC/Handy hierher holen: geht nur über die Web-API (der Lautsprecher kennt die Warteschlange am PC nicht)
+        try:
+            out = await spotify.transfer(str((sess.speaker or {}).get("device") or ""))
+        except Invalid as e:
+            if not spotify.configured():  # ohne Anmeldung: wenigstens hier weiterspielen, was der Lautsprecher zuletzt hatte
+                sess.used.append(f"{name} ok")
+                return {"result": "ok", SPEAKER_KEY: {"action": "play"}}
+            sess.used.append(f"{name} Fehler")
+            return _out(f"{e} Ist der Lautsprecher in der Spotify-App schon einmal ausgewählt worden?", True)
+        sess.used.append(f"{name} ok")
+        activity.step(sess.run, "thinking")
+        return out
     if name == "musik_steuern":
         action = _SPEAKER_ACTIONS.get(str(args.get("aktion") or ""))
         if not action:
