@@ -113,12 +113,13 @@ async def _agent_err(_r, e):
 
 @app.exception_handler(mesh.MeshError)
 async def _mesh_err(_r, e):
-    return JSONResponse({"detail": str(e)}, status_code=502)
+    # 422 statt 502: Cloudflare ersetzt 502-Antworten durch eine eigene Seite, dann käme nur „Fehler 502“ an
+    return JSONResponse({"detail": str(e)}, status_code=422)
 
 
 @app.exception_handler(httpx.HTTPError)
 async def _http_err(_r, e):
-    return JSONResponse({"detail": f"Cloudflare nicht erreichbar: {e}"}, status_code=502)
+    return JSONResponse({"detail": f"Cloudflare nicht erreichbar: {e}"}, status_code=422)
 
 
 @app.get("/api/v1/health")

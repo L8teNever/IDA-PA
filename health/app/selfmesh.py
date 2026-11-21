@@ -44,8 +44,8 @@ async def _run(*argv: str, timeout: float = 30) -> tuple[int, str]:
     return p.returncode or 0, out.decode(errors="replace").strip()
 
 
-def _warp(*args: str):
-    return _run("warp-cli", "--accept-tos", *args)
+def _warp(*args: str, timeout: float = 30):
+    return _run("warp-cli", "--accept-tos", *args, timeout=timeout)
 
 
 async def _ip() -> str:

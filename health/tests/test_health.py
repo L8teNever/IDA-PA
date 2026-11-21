@@ -381,3 +381,25 @@ def test_mesh_address_kept_while_warp_down(client):
     selfmesh.STATE["addrs"] = {"fd01::5"}
     assert selfmesh.in_mesh("fd01::5") and not selfmesh.in_mesh("fd01::6")
     selfmesh.STATE["addrs"] = set()
+
+
+def test_mesh_node_reuses_existing_name(monkeypatch):
+    """409 „gibt es schon“ → vorhandenen Knoten mit dem Namen nehmen statt Fehler."""
+    import asyncio
+    import httpx
+    from app import mesh
+
+    def handler(req: httpx.Request):
+        if req.method == "POST":
+            return httpx.Response(409, json={"success": False, "errors": [{"code": 1013, "message": "exists"}]})
+        if req.url.path.endswith("/token"):
+            return httpx.Response(200, json={"success": True, "result": "tok"})
+        return httpx.Response(200, json={"success": True, "result": [{"id": "n1", "name": "ida-health"}]})
+
+    monkeypatch.setattr(mesh, "enabled", lambda: True)
+    monkeypatch.setattr(mesh, "_client", lambda: httpx.AsyncClient(base_url="https://cf.test", transport=httpx.MockTransport(handler)))
+
+    async def acc(_c):
+        return "acc"
+    monkeypatch.setattr(mesh, "_account", acc)
+    assert asyncio.run(mesh.create_node("ida-health")) == ("n1", "tok")

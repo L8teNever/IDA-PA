@@ -48,13 +48,28 @@ async def create_node(name: str) -> tuple[str, str]:
         raise MeshError("CLOUDFLARE_API_TOKEN fehlt – Mesh-Knoten kann Health nicht anlegen")
     async with _client() as c:
         acc = await _account(c)
-        j = _ok(await c.post(f"/accounts/{acc}/warp_connector", json={"name": name[:60]}))
-        node = j["result"]["id"]
+        name = name[:60]
+        r = await c.post(f"/accounts/{acc}/warp_connector", json={"name": name})
+        if r.status_code == 409:
+            # Knoten mit dem Namen gibt es schon (z. B. halber Versuch vorher) – den nehmen statt Fehler
+            node = await _find(c, acc, name)
+            if not node:
+                _ok(r)
+        else:
+            node = _ok(r)["result"]["id"]
         t = _ok(await c.get(f"/accounts/{acc}/warp_connector/{node}/token"))
         token = t["result"] if isinstance(t["result"], str) else (t["result"] or {}).get("token", "")
         if not token:
             raise MeshError("Cloudflare hat keinen Token geliefert")
         return node, token
+
+
+async def _find(c: httpx.AsyncClient, acc: str, name: str) -> str:
+    r = await c.get(f"/accounts/{acc}/warp_connector", params={"name": name, "is_deleted": "false", "per_page": 50})
+    for x in _ok(r).get("result") or []:
+        if x.get("name") == name and not x.get("deleted_at"):
+            return x["id"]
+    return ""
 
 
 async def delete_node(node: str) -> None:
