@@ -31,6 +31,10 @@ class Ida:
             log.warning("IDA start failed: %s", e)
             return {"context": FALLBACK_CONTEXT, "tools": [], "owner": owner, "offline": True}
 
+    async def engine(self) -> dict:
+        """Einstellungen der eigenen Kette (u. a. piper_voice, piper_speed)."""
+        return await self._post("engine", {}, 10)
+
     async def recent(self) -> list[dict]:
         """The user's last conversations for "Gespräch weiterführen"."""
         return (await self._post("recent", {}, 10)).get("calls") or []

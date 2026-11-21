@@ -603,7 +603,7 @@ def test_speaker_extras_only_for_device_ticket(monkeypatch):
     assert extra["device"] == "wohnzimmer" and extra["smart_home"] is True and len(extra["prompt"]) == 4000
     assert web.take_extra(t) is None  # nur einmal
     t2 = c.post("/device/ticket", headers=h).json()["ticket"]  # ohne Body: keine Extras, aber gültig
-    assert web.take_extra(t2) == {"device": "wohnzimmer", "prompt": "", "smart_home": False, "name": "", "voice": "", "oneshot": False}
+    assert web.take_extra(t2) == {"device": "wohnzimmer", "prompt": "", "smart_home": False, "name": "", "voice": "", "oneshot": False, "spotify": ""}
     assert web.take_extra(web.make_ticket("geheim")) is None  # Tickets der App haben nie Extras
 
 
@@ -958,3 +958,26 @@ def test_spotify_liked_and_own_playlists():
         assert asyncio.run(spotify.own_playlist("Playlist Jazz")) is None
     finally:
         spotify._api = old
+
+
+def test_speaker_phrases_and_fillers(monkeypatch):
+    """Ansagen für den Lautsprecher (offline abspielbar) und Floskeln der eigenen Kette."""
+    from fastapi.testclient import TestClient
+    from app.config import get_settings
+    from app.voice import pipeline, speech, web
+    from app.voice.main import create_app
+    s = get_settings()
+    monkeypatch.setattr(s, "voice_secret", "geheim")
+    monkeypatch.setattr(s, "voice_devices", "wohnzimmer")
+
+    async def fake_tts(settings, text, voice, speed=1.0, transport=None):
+        return b"\x01\x00" * 10
+    monkeypatch.setattr(speech, "synthesize", fake_tts)
+    c = TestClient(create_app(phone=object()))
+    h = {"x-device-name": "wohnzimmer", "x-device-key": web.device_key("geheim", "wohnzimmer")}
+    meta = c.post("/device/phrases", headers=h).json()
+    assert "offline" in meta["ids"] and meta["rate"] == 24000
+    assert c.post("/device/phrase/offline", headers=h).content == b"\x01\x00" * 10
+    assert c.post("/device/phrase/nix", headers=h).status_code == 404
+    assert c.post("/device/phrases", headers={"x-device-name": "wohnzimmer", "x-device-key": "falsch"}).status_code == 403
+    assert pipeline.filler_kind("homeassistant_einschalten") == "do" and pipeline.filler_kind("web_suchen") == "wait"

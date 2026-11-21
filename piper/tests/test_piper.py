@@ -50,9 +50,11 @@ def test_stimmenliste_aus_dem_volume(client, tmp_path):
     (tmp_path / "voices.json").write_text(json.dumps(cat))
     (tmp_path / "de_DE-thorsten-high.onnx").write_bytes(b"x")
     d = client.get("/api/v1/voices", params={"lang": "de"}).json()
-    assert d["voices"] == [{"key": "de_DE-thorsten-high", "name": "thorsten", "language": "de_DE", "quality": "high", "speakers": 1,
-                            "mb": 114, "downloaded": True}]
-    assert len(client.get("/api/v1/voices").json()["voices"]) == 2
+    assert {"key": "de_DE-thorsten-high", "name": "thorsten", "language": "de_DE", "quality": "high", "speakers": 1,
+            "mb": 114, "downloaded": True} in d["voices"]
+    keys = [v["key"] for v in d["voices"]]
+    assert "de_DE-dii-high" in keys and "de_DE-lila_hokuspokus-high" in keys and "en_US-amy-low" not in keys  # Zusatzstimmen
+    assert len(client.get("/api/v1/voices").json()["voices"]) == 2 + len(voices.EXTRA)
 
 
 def test_health(client):

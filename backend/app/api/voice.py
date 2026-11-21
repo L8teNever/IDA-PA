@@ -44,6 +44,14 @@ async def internal_start(request: Request, x_voice_secret: str | None = Header(N
                                     speaker=b.get("speaker") if isinstance(b.get("speaker"), dict) else None)
 
 
+@router.post("/api/v1/voice/internal/engine", include_in_schema=False)
+async def internal_engine(db: DB, x_voice_secret: str | None = Header(None)):
+    """Stimme der eigenen Kette (Piper) – für die Ansagen, die der Lautsprecher offline abspielt."""
+    if not _ok(x_voice_secret):
+        return _denied()
+    return await voice_engine.get(db)
+
+
 @router.post("/api/v1/voice/internal/recent", include_in_schema=False)
 async def internal_recent(x_voice_secret: str | None = Header(None)):
     """The live app's list "Gespräch weiterführen"."""

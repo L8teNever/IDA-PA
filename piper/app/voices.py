@@ -21,6 +21,21 @@ log = logging.getLogger("piper.voices")
 KEY = re.compile(r"^[a-z]{2,3}_[A-Z]{2}-[\w]+-(x_low|low|medium|high)$")
 CATALOG_MAX_AGE = 7 * 24 * 3600
 
+# Zusätzliche Stimmen außerhalb von rhasspy/piper-voices (volle Adressen; Lizenz: nur privat, siehe jeweilige Seite)
+HF = "https://huggingface.co"
+EXTRA = {
+    "de_DE-dii-high": {
+        "name": "Dii", "language": {"code": "de_DE"}, "quality": "high", "num_speakers": 1,
+        "files": {f"{HF}/Phoonnx/pipertts_de-DE_dii/resolve/main/dii_de-DE.onnx": {"size_bytes": 63511038},
+                  f"{HF}/Phoonnx/pipertts_de-DE_dii/resolve/main/dii_de-DE.onnx.json": {}},
+    },
+    "de_DE-lila_hokuspokus-high": {
+        "name": "Lila", "language": {"code": "de_DE"}, "quality": "high", "num_speakers": 1,
+        "files": {f"{HF}/mahihossain/lila-piper-voices-de/resolve/main/de_DE-lila_hokuspokus-high.onnx": {"size_bytes": 114204024},
+                  f"{HF}/mahihossain/lila-piper-voices-de/resolve/main/de_DE-lila_hokuspokus-high.onnx.json": {}},
+    },
+}
+
 _loaded: "OrderedDict[str, object]" = OrderedDict()
 _lock = threading.Lock()  # Laden und Sprechen nacheinander (eine Stimme rechnet ohnehin mit allen Kernen)
 _catalog: dict = {}
@@ -54,6 +69,7 @@ def catalog() -> dict:
         _catalog = json.loads(f.read_text(encoding="utf8"))
     except (OSError, ValueError):
         _catalog = {}
+    _catalog = {**_catalog, **EXTRA}
     return _catalog
 
 
@@ -80,10 +96,12 @@ def _download(key: str) -> Path:
     for path in entry.get("files") or {}:
         if not path.endswith((".onnx", ".onnx.json")):
             continue
-        target = _dir() / Path(path).name
+        # immer unter dem Schlüssel ablegen (Zusatzstimmen heißen bei Hugging Face anders)
+        target = _dir() / (f"{key}.onnx.json" if path.endswith(".json") else f"{key}.onnx")
         part = target.with_suffix(target.suffix + ".part")
-        log.info("lade %s", path)
-        with httpx.stream("GET", f"{base}/{path}", follow_redirects=True, timeout=120) as r:
+        url = path if path.startswith("https://") else f"{base}/{path}"
+        log.info("lade %s", url)
+        with httpx.stream("GET", url, follow_redirects=True, timeout=120) as r:
             r.raise_for_status()
             with part.open("wb") as fh:
                 for chunk in r.iter_bytes(1 << 20):

@@ -13,15 +13,24 @@ import logging
 import re
 
 from fastapi import FastAPI, Header, Request, WebSocket
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from ..config import get_settings
-from . import web
+from . import speech, web
 from .phone import CallError, Phone
 from .telnyx import TelnyxError, verify_signature
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+
+# Ansagen, die der Lautsprecher bei sich speichert und selbst abspielt, wenn IDA nicht hilft (kein Internet, Fehler)
+PHRASES = {
+    "offline": "Ich erreiche den Server gerade nicht. Prüf bitte das Internet.",
+    "error": "Da ist gerade etwas schiefgelaufen. Versuch es gleich noch mal.",
+    "busy": "Ich bin gerade schon in einem anderen Gespräch.",
+    "setup": "Ich bin noch nicht fertig eingerichtet. Schau bitte auf meiner Website nach.",
+}
+_phrase_pcm: dict[tuple[str, float, str], bytes] = {}
 log = logging.getLogger("ida.voice")
 
 
@@ -173,6 +182,38 @@ def create_app(phone: Phone | None = None, connect=None) -> FastAPI:
         ticket = web.make_ticket(s.voice_secret)
         web.remember_extra(ticket, web.speaker_extra((x_device_name or "").strip().lower(), body))
         return {"ticket": ticket, "name": "Stella", "busy": len(live) >= 2}
+
+    @app.post("/device/phrases", include_in_schema=False)
+    async def device_phrases(x_device_name: str | None = Header(None), x_device_key: str | None = Header(None)):
+        """Lautsprecher: welche Ansagen es gibt (für Fehler, wenn er IDA nicht erreicht) und mit welcher Stimme.
+        Der Lautsprecher holt sie einzeln über /device/phrase/<id> und spielt sie danach selbst ab, auch ohne Internet."""
+        if not web.device_ok(s.voice_secret, s.voice_devices, x_device_name, x_device_key):
+            return JSONResponse({"detail": "Nicht erlaubt"}, status_code=403)
+        voice, speed = await _phrase_voice()
+        return {"rate": speech.OUT_RATE, "voice": f"{voice}@{speed}", "ids": list(PHRASES)}
+
+    @app.post("/device/phrase/{pid}", include_in_schema=False)
+    async def device_phrase(pid: str, x_device_name: str | None = Header(None), x_device_key: str | None = Header(None)):
+        """Eine Ansage als rohes PCM (16 bit, mono, 24 kHz)."""
+        if not web.device_ok(s.voice_secret, s.voice_devices, x_device_name, x_device_key):
+            return JSONResponse({"detail": "Nicht erlaubt"}, status_code=403)
+        if pid not in PHRASES:
+            return JSONResponse({"detail": "Unbekannt"}, status_code=404)
+        voice, speed = await _phrase_voice()
+        key = (voice, speed, pid)
+        if key not in _phrase_pcm:
+            try:
+                _phrase_pcm[key] = await speech.synthesize(s, PHRASES[pid], voice, speed)
+            except Exception as e:  # noqa: BLE001
+                return JSONResponse({"detail": f"Piper: {e}"[:200]}, status_code=502)
+        return Response(_phrase_pcm[key], media_type="application/octet-stream")
+
+    async def _phrase_voice() -> tuple[str, float]:
+        try:
+            eng = await phone.ida.engine()
+        except Exception:  # noqa: BLE001 – IDA gerade weg: Standardstimme
+            eng = {}
+        return str(eng.get("piper_voice") or "de_DE-thorsten-high"), float(eng.get("piper_speed") or 1.0)
 
     @app.post("/pwa/recent", include_in_schema=False)
     async def pwa_recent(x_live_key: str | None = Header(None)):

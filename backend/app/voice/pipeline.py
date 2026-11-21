@@ -10,6 +10,7 @@ der Antwort wird verworfen) und Claude erfährt beim nächsten Satz, wo sie unte
 import asyncio
 import collections
 import logging
+import random
 import time
 from typing import Any
 
@@ -49,6 +50,7 @@ class PipelineSession:
         self.client_vad = client_vad
         self.farewell_hangup = farewell_hangup
         self._stt_transport, self._tts_transport = stt_transport, tts_transport
+        self._filler_said = False
         self.vad = None if client_vad else EnergyVad(config_from_settings(settings))
         self.model = f"{engine.get('stt')} → {engine.get('llm')} → piper:{engine.get('piper_voice')}"
         self.voice = str(engine.get("piper_voice") or "de_DE-thorsten-high")
@@ -95,6 +97,31 @@ class PipelineSession:
         log.info("Eigene Kette %s: %s", self.call_id, self.model)
         self._spawn(self._stt_worker())
         self._spawn(self._turn_worker())
+        self._spawn(self._warm_fillers())
+
+    async def _warm_fillers(self) -> None:
+        """Floskeln vorab erzeugen, damit die erste sofort da ist."""
+        for text in (t for group in FILLERS.values() for t in group):
+            try:
+                await filler_audio(self.s, self.voice, self.speed, text, self._tts_transport)
+            except Exception as e:  # noqa: BLE001 – dann eben ohne Floskel
+                log.debug("Floskel %r: %s", text, e)
+                return
+
+    async def _filler(self, tool: str, gen: int) -> None:
+        """„Mach ich.“ / „Moment.“, solange Claude noch nichts gesagt hat – höchstens einmal pro Zug."""
+        if self._filler_said or self._first_audio or gen != self._gen or self.closed:
+            return
+        self._filler_said = True
+        text = random.choice(FILLERS[filler_kind(tool)])
+        try:
+            pcm = await filler_audio(self.s, self.voice, self.speed, text, self._tts_transport)
+        except Exception:  # noqa: BLE001
+            return
+        if pcm and not self._first_audio and gen == self._gen and not self.closed:
+            self.heard_audio = True
+            self._first_audio, self._tts_ms = time.monotonic(), 0
+            await self.sink.audio(pcm, speech.OUT_RATE)
 
     async def kickoff(self) -> None:
         await self._inbox.put(("system", self.kickoff_text))
@@ -223,6 +250,7 @@ class PipelineSession:
         t0, first = time.monotonic(), None
         heard, self._heard = (self._heard if who == "user" else {}), {}
         self._first_audio, self._tts_ms = 0.0, 0
+        self._filler_said = False
         async for ev in self.ida.brain_turn(self.call_id, text, "system" if who == "system" else "user"):
             t = ev.get("t")
             if t == "text":
@@ -234,6 +262,8 @@ class PipelineSession:
             elif t == "tool":
                 name = str(ev.get("name") or "")
                 await self.sink.tool(name, bool(ev.get("running")))
+                if ev.get("running") and not buf.strip():
+                    await self._filler(name, gen)
                 if ev.get("running") and name == "ida_fragen":
                     self._ida_pending()
             elif t == "music":
@@ -380,6 +410,22 @@ class PipelineSession:
             t.cancel()
         self._done.set()
         await self.ida.brain_close(self.call_id)
+
+
+# Floskeln: kommen sofort, wenn Claude ein Werkzeug startet und noch nichts gesagt hat (Feedback, während im Hintergrund geschaltet wird)
+FILLERS = {"do": ("Mach ich.", "Okay, mach ich.", "Sofort."), "wait": ("Moment.", "Einen Moment.", "Ich schau mal.")}
+_filler_pcm: dict[tuple[str, float, str], bytes] = {}  # (Stimme, Tempo, Text) -> PCM, einmal erzeugt
+
+
+def filler_kind(tool: str) -> str:
+    return "do" if tool.startswith(("homeassistant_", "musik_")) else "wait"
+
+
+async def filler_audio(settings, voice: str, speed: float, text: str, transport=None) -> bytes:
+    key = (voice, speed, text)
+    if key not in _filler_pcm:
+        _filler_pcm[key] = await speech.synthesize(settings, text, voice, speed, transport=transport)
+    return _filler_pcm[key]
 
 
 def make_session(settings, info: dict, *, ida: Ida, call_id: str, instructions: str, tools: list[dict], sink, kickoff: str,
