@@ -2,6 +2,7 @@
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter
+from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 
 from ..config import get_settings
@@ -25,6 +26,40 @@ router = APIRouter(tags=["system"])
 @router.get("/api/v1/health")
 async def health():
     return {"ok": True, "antworten": chat_service.running_count()}  # Updates warten, bis keine Antwort mehr läuft
+
+
+class HealthLink(BaseModel):
+    url: str = Field(..., max_length=300)
+    token: str = Field(..., min_length=16, max_length=200)
+
+
+@router.put("/api/v1/health-link")
+async def put_health_link(body: HealthLink, db: DB):
+    """IDA Health („Mit IDA verbinden“): Adresse und Token für die geraet_*-Tools. Danach gilt das vor der .env."""
+    from ..services import health_api
+    u = body.url.strip().rstrip("/")
+    if not u.startswith(("http://", "https://")):
+        raise Invalid("url muss mit http:// oder https:// beginnen")
+    await settings_store.put(db, health_api.KEY, {"url": u, "token": body.token.strip()})
+    await db.commit()
+    await health_api.load(force=True)
+    return {"ok": True, "url": u}
+
+
+@router.delete("/api/v1/health-link")
+async def delete_health_link(db: DB):
+    from ..services import health_api
+    await settings_store.delete(db, health_api.KEY)
+    await db.commit()
+    await health_api.load(force=True)
+    return {"ok": True}
+
+
+@router.get("/api/v1/health-link")
+async def get_health_link():
+    from ..services import health_api
+    await health_api.load(force=True)
+    return {"enabled": health_api.enabled(), "url": health_api.url(), "token": bool(health_api.token())}
 
 
 @router.get("/api/v1/activity")

@@ -84,7 +84,12 @@ def speaker_extra(name: str, body: dict | None) -> dict:
             "voice": voice if re.fullmatch(r"[A-Z][a-z]{2,15}", voice) else "",
             "oneshot": b.get("oneshot") is True,
             # so heißt er in der Spotify-App (Soloist), leer = Spotify aus
-            "spotify": re.sub(r"[\x00-\x1f]", "", str(b.get("spotify") or ""))[:64].strip()}
+            "spotify": re.sub(r"[\x00-\x1f]", "", str(b.get("spotify") or ""))[:64].strip(),
+            # laufende Timer/Wecker des Lautsprechers (für „wie lange noch?“)
+            "timers": [{"label": re.sub(r"[\x00-\x1f]", "", str(t.get("label") or ""))[:40], "due": int(t.get("due") or 0),
+                        "alarm": t.get("alarm") is True}
+                       for t in (b.get("timers") if isinstance(b.get("timers"), list) else [])[:20]
+                       if isinstance(t, dict) and isinstance(t.get("due"), (int, float))]}
 
 
 def remember_extra(ticket: str, extra: dict, now: float | None = None) -> None:

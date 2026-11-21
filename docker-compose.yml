@@ -27,6 +27,8 @@ services:
       PIPER_URL: ${PIPER_URL:-http://piper:8000}  # Piper (siehe unten): Stimmenliste und Hörproben in Einstellungen → Stella
       SANDBOX_URL: http://sandbox:8000            # Sandbox der Code-Threads; ohne SANDBOX_SECRET bleibt sie aus
       DASHBOARD_URL: ${DASHBOARD_URL:-http://dashboard:8000}  # Code-Threads: Logs, Befehle, Updates des Server-Stacks ihres Projekts; leer = aus
+      HEALTH_URL: ${HEALTH_URL:-http://health:8000}           # Geräte mit ida-connect (geraet_*-Tools für Ida und Code-Threads); leer = aus
+      HEALTH_IDA_TOKEN: ${HEALTH_IDA_TOKEN:-}
     ports:
       - "${IDA_PORT:-8080}:8000"
     volumes:
@@ -264,6 +266,38 @@ services:
       - "${DOCS_PORT:-8092}:8000"
     volumes:
       - docs-data:/data
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"
+
+  # IDA Health – Geräte mit ida-connect (github.com/L8teNever/Ida-connect, Rust-Agent, z. B. Raspberry Pi): CPU, RAM, Platte, Temperaturen,
+  # Lüfter, Netz im Verlauf (SQLite im Volume health-data), dazu Shell, Dateien, Docker-Stacks und Updates der Geräte; optional Cloudflare Mesh.
+  # Die Geräte verbinden sich selbst (ausgehend) mit <HEALTH_PUBLIC_URL>/api/v1/agent/ws – dieser Pfad braucht in Cloudflare Access einen Bypass,
+  # alles andere gehört hinter Access (Shell als root auf den Geräten!). Siehe docs/HEALTH.md
+  health:
+    image: ${HEALTH_IMAGE:-ghcr.io/l8tenever/ida-health:latest}
+    pull_policy: always
+    restart: unless-stopped
+    environment:
+      TIMEZONE: ${TIMEZONE:-Europe/Berlin}
+      PUBLIC_URL: ${HEALTH_PUBLIC_URL:-https://health.kulbarts.com}
+      IDA_TOKEN: ${HEALTH_IDA_TOKEN:-}                 # IDA (geraet_*-Tools) spricht intern mit diesem Token
+      ACCESS_TEAM: ${HEALTH_ACCESS_TEAM:-}             # mit ACCESS_AUD: Health prüft das Cloudflare-Access-JWT selbst (empfohlen)
+      ACCESS_AUD: ${HEALTH_ACCESS_AUD:-}
+      CLOUDFLARE_API_TOKEN: ${HEALTH_CLOUDFLARE_API_TOKEN:-}   # nur für Mesh: „Cloudflare One Connectors Write“; leer = Mesh nur mit eigenem Token
+      CLOUDFLARE_ACCOUNT_ID: ${CLOUDFLARE_ACCOUNT_ID:-}
+      HEALTH_WARP: ${HEALTH_WARP:-1}                  # 0 = WARP im Container nicht starten (Health dann nicht selbst im Mesh)
+    # Damit Health selbst dem Cloudflare Mesh beitreten kann (WARP im Container, Einstellungen → Cloudflare Mesh).
+    # Über die Mesh-IP ist nur der Agent-Pfad erreichbar, Oberfläche und API nicht.
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    sysctls:
+      net.ipv4.conf.all.src_valid_mark: "1"
+    ports:
+      - "${HEALTH_PORT:-8096}:8000"
+    volumes:
+      - health-data:/data      # health.db: Geräte, Messwerte (Einzelwerte 48 h, 5-Minuten-Mittel 400 Tage), Protokoll
     labels:
       com.centurylinklabs.watchtower.enable: "true"
 
@@ -522,3 +556,4 @@ volumes:
   docs-data:
   launcher-data:
   google-data:
+  health-data:

@@ -203,7 +203,7 @@ def create_app(phone: Phone | None = None, connect=None) -> FastAPI:
         key = (voice, speed, pid)
         if key not in _phrase_pcm:
             try:
-                _phrase_pcm[key] = await speech.synthesize(s, PHRASES[pid], voice, speed)
+                _phrase_pcm[key] = await speech.synthesize(s, PHRASES[pid], voice, speed, hq=True)
             except Exception as e:  # noqa: BLE001
                 return JSONResponse({"detail": f"Piper: {e}"[:200]}, status_code=502)
         return Response(_phrase_pcm[key], media_type="application/octet-stream")

@@ -14,7 +14,7 @@ from ..services import chat as chat_service
 from ..services import chat_queue
 from ..services import files as file_svc
 from ..services import code as code_area
-from ..services import server_stack, settings_store
+from ..services import health_api, server_stack, settings_store
 from ..services.code import approvals, commit_msg, git, github, projects, sandbox
 from ..services.errors import Invalid, NotFound
 from . import serializers as ser
@@ -55,6 +55,8 @@ async def create_project(body: ProjectCreate, db: DB):
         url, name = repo["clone_url"], name or repo["name"]
     p = await projects.create(db, name or (stacks[0] if len(stacks) == 1 else ""), url)
     p.context = body.context.strip()
+    if body.devices:
+        p.devices = await _check_devices(body.devices)
     if stacks:
         projects.set_stacks(p, stacks)
         await projects.write_stack_readme(p)
@@ -94,6 +96,8 @@ async def rename_project(pid: str, body: ProjectUpdate, db: DB):
     elif body.server_stack is not None:
         name = body.server_stack.strip()
         projects.set_stacks(p, await _check_stacks([name]) if name else [])
+    if body.devices is not None:
+        p.devices = await _check_devices(body.devices) if body.devices else []
     if body.context is not None:
         p.context = body.context.strip()
     if body.name is None:
@@ -120,6 +124,34 @@ async def _check_stacks(names: list[str]) -> list[str]:
     if missing:
         raise Invalid(f"Stack „{', '.join(missing)}“ gibt es auf dem Server nicht")
     return names
+
+
+async def _check_devices(ids: list[str]) -> list[str]:
+    ids = list(dict.fromkeys(i.strip() for i in ids if i and i.strip()))
+    if not ids:
+        return []
+    await health_api.load()
+    if not health_api.enabled():
+        raise Invalid("IDA Health ist nicht eingerichtet (in Health: Einstellungen → „Mit IDA verbinden“)")
+    known = {d["id"]: d for d in await health_api.devices()}
+    by_name = {d["name"].lower(): i for i, d in known.items()}
+    out = []
+    for i in ids:
+        dev = i if i in known else by_name.get(i.lower())
+        if not dev:
+            raise Invalid(f"Gerät „{i}“ gibt es in IDA Health nicht")
+        out.append(dev)
+    return list(dict.fromkeys(out))
+
+
+@router.get("/devices")
+async def health_devices(db: DB):
+    """Geräte aus IDA Health (ida-connect) zum Auswählen pro Projekt."""
+    await code_area.require(db)
+    await health_api.load()
+    if not health_api.enabled():
+        return {"enabled": False, "devices": []}
+    return {"enabled": True, "devices": [health_api.summary(d) for d in await health_api.devices()]}
 
 
 @router.get("/server-stacks")

@@ -458,6 +458,7 @@ function drawProjectInfo() {
   box.innerHTML = `${statusLine(p) ? `<div class="info-status">${statusLine(p)}</div>` : ""}
     <div class="kv"><span>Repo</span><b>${p.repo_url ? `<span class="mono">${esc(repoName(p.repo_url))}</span>` : stacksOf(p).length ? "kein Repo – Dateien liegen auf dem Server" : "nur lokal – noch nicht auf GitHub"}</b></div>
     ${stacksOf(p).length ? `<div class="kv"><span>Server</span><b><span class="ms">dns</span>${esc(stacksOf(p).join(", "))}</b></div>` : ""}
+    ${(p.devices || []).length ? `<div class="kv"><span>Geräte</span><b><span class="ms">devices</span>${p.devices.length} aus IDA Health</b></div>` : ""}
     <div class="kv"><span>Kontext</span><b><button type="button" class="link-btn" data-act="project-context">${p.context ? esc(p.context.split("\n")[0].slice(0, 80)) + (p.context.length > 80 || p.context.includes("\n") ? " …" : "") : "keiner – hinzufügen"}</button></b></div>
     ${ready ? `<div class="kv"><span>Branch</span><b><span class="ms">alt_route</span>${esc(g.branch || p.default_branch)}${g.ahead ? ` · ${g.ahead} nicht gepusht` : ""}${g.behind ? ` · ${g.behind} neuer auf GitHub` : ""}</b></div>
     <div class="kv"><span>Änderungen</span><b>${files ? `${files} Datei${files === 1 ? "" : "en"} geändert` : "keine"}</b></div>` : ""}
@@ -493,6 +494,7 @@ function projectMenu(anchor) {
     { value: "rename", icon: "edit", label: "Umbenennen" },
     { value: "context", icon: "sticky_note_2", label: "Kontext für alle Threads", sub: p.context ? p.context.split("\n")[0].slice(0, 60) : "steht in jedem Thread des Projekts" },
     { value: "stack", icon: "dns", label: "Server-Stacks wählen", sub: stacksOf(p).length ? `Jetzt: ${stacksOf(p).join(", ")}` : "Logs, Dateien, Befehle und Updates auf dem Server für die KI" },
+    { value: "devices", icon: "devices", label: "Geräte wählen", sub: (p.devices || []).length ? `Jetzt: ${p.devices.length} Gerät(e)` : "Geräte mit ida-connect: Shell, Dateien, Docker, Updates für die KI" },
     ...(!p.repo_url && p.status === "ready" ? [{ value: "publish", icon: "publish", label: "Auf GitHub veröffentlichen" }] : []),
     "-",
     { value: "delete", icon: "delete", label: "Projekt löschen", sub: "Ordner und alle Threads – das Repo auf GitHub bleibt", danger: true },
@@ -502,6 +504,7 @@ function projectMenu(anchor) {
       if (r && await attempt(() => api.patch(`/code/projects/${p.id}`, { name: r.name }), "Umbenannt")) { await loadTree().catch(() => {}); show(route); }
     }
     if (v === "stack") chooseStacks(p);
+    if (v === "devices") chooseDevices(p);
     if (v === "context") editContext(p);
     if (v === "publish") publish();
     if (v === "delete" && await confirmDialog("Projekt löschen?", `„${p.name}“ mit allen Threads löschen? Nicht gepushte Änderungen gehen verloren. Das Repo auf GitHub bleibt.`, { ok: "Löschen", danger: true })) {
@@ -543,6 +546,37 @@ function chooseStacks(p) {
       await loadTree().catch(() => {});
       show(route);
     } catch (x) { m.el.querySelector("#csErr").textContent = x.message; }
+  };
+}
+
+// Geräte des Projekts (IDA Health, ida-connect): die KI im Thread darf genau diese bedienen – Shell, Dateien, Docker, Updates
+function chooseDevices(p) {
+  const sel = new Set(p.devices || []);
+  const m = openModal(`${sheetHead("Geräte", "devices")}<div class="sheet-scroll"><p class="sheet-hint">Geräte mit ida-connect aus IDA Health. Was hier gewählt ist,
+    kann die KI in jedem Thread des Projekts bedienen (Befehle als root, Dateien, Docker, Updates) – je nach Rechte-Modus mit deiner Freigabe.</p>
+    <div id="cdvList" class="repo-list"><div class="side-empty">Lade …</div></div></div><div class="ferr" id="cdvErr"></div>
+    <div class="sheet-actions"><button type="button" class="btn-tonal" data-close>Abbrechen</button><button type="button" class="btn-primary" id="cdvOk"><span class="ms">check</span>Speichern</button></div>`, { wide: true });
+  const box = m.el.querySelector("#cdvList");
+  api.get("/code/devices").then((d) => {
+    if (!d.enabled) { box.innerHTML = `<div class="side-empty">IDA Health ist nicht eingerichtet (HEALTH_URL fehlt).</div>`; return; }
+    const draw = () => {
+      box.innerHTML = d.devices.length ? d.devices.map((x, i) => `<button type="button" class="set-li ${sel.has(x.id) ? "on" : ""}" data-di="${i}">
+          <span class="ms">${sel.has(x.id) ? "check_box" : "check_box_outline_blank"}</span>
+          <span class="ct"><span>${esc(x.name)}</span><small>${esc(x.system || "")}${x.mesh_ip ? ` · Mesh ${esc(x.mesh_ip)}` : ""}</small></span>
+          <span class="ms ${x.online ? "c-ok" : "muted"}">${x.online ? "check_circle" : "cloud_off"}</span></button>`).join("")
+        : `<div class="side-empty">Noch keine Geräte in IDA Health.</div>`;
+      box.querySelectorAll("[data-di]").forEach((b) => (b.onclick = () => { const id = d.devices[+b.dataset.di].id; if (sel.has(id)) sel.delete(id); else sel.add(id); draw(); }));
+    };
+    draw();
+  }).catch((x) => { m.el.querySelector("#cdvErr").textContent = x.message; });
+  m.el.querySelector("#cdvOk").onclick = async () => {
+    try {
+      await api.patch(`/code/projects/${p.id}`, { devices: [...sel] });
+      m.close();
+      toast(sel.size ? `${sel.size} Gerät(e) für das Projekt` : "Keine Geräte mehr");
+      await loadTree().catch(() => {});
+      show(route);
+    } catch (x) { m.el.querySelector("#cdvErr").textContent = x.message; }
   };
 }
 

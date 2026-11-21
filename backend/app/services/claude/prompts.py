@@ -125,6 +125,7 @@ def code_section(code: dict) -> str:
         "oder bleibt im Thread. Mit chat_search/chat_read findest du fruehere Chats und Threads, wenn dir Zusammenhang fehlt.\n"
         + context_section(code)
         + server_section(code)
+        + devices_section(code)
     )
 
 
@@ -154,6 +155,21 @@ def server_section(code: dict) -> str:
         "Nutze sie statt ssh_* oder SSH in der Shell. "
         "Das ist der echte Server: lies erst (Status, Logs), bevor du etwas aenderst. Ein update erst, wenn das neue Image gebaut ist "
         "(z. B. GitHub Actions nach dem Push fertig) und der Nutzer es moechte.\n"
+    )
+
+
+def devices_section(code: dict) -> str:
+    """Geräte aus IDA Health (ida-connect), die beim Projekt gewählt sind."""
+    from .. import health_api
+
+    devs = code.get("devices") or []
+    if not devs or not health_api.enabled():
+        return ""
+    return (
+        f"Geraete: Zum Projekt gehoeren {len(devs)} Geraet(e) mit ida-connect (IDA Health, ids: {', '.join(devs)}). Dafuer hast du die Tools "
+        "geraete_liste (Name, online, Werte), geraet_status, geraet_befehl (Shell als root, wie SSH), geraet_dateien / geraet_datei_lesen / "
+        "geraet_datei_schreiben, geraet_docker / geraet_docker_aktion / geraet_docker_logs und geraet_update (system oder agent). "
+        "Nutze sie statt ssh_*. Das sind echte Geraete: erst lesen, dann aendern.\n"
     )
 
 

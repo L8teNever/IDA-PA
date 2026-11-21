@@ -424,7 +424,7 @@ def filler_kind(tool: str) -> str:
 async def filler_audio(settings, voice: str, speed: float, text: str, transport=None) -> bytes:
     key = (voice, speed, text)
     if key not in _filler_pcm:
-        _filler_pcm[key] = await speech.synthesize(settings, text, voice, speed, transport=transport)
+        _filler_pcm[key] = await speech.synthesize(settings, text, voice, speed, transport=transport, hq=True)
     return _filler_pcm[key]
 
 

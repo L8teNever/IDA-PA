@@ -32,7 +32,7 @@ from ..claude import prompts
 from ..errors import Invalid, NotFound
 from ..code import approvals, commit_msg, git, github, projects as code_projects, sandbox
 from ..memory import store as memory
-from . import kalender_tools, music_tools, server_tools, tasks_tools, voice_tools, web_tools, wiki_tools
+from . import device_tools, kalender_tools, music_tools, server_tools, tasks_tools, voice_tools, web_tools, wiki_tools
 from .identity import Identity, get
 
 E = {"type": "string"}
@@ -142,6 +142,8 @@ def _spec(ids: list[str]) -> list[tuple[str, str, str, dict]]:
         tools += wiki_tools.spec()
     if server_tools.enabled():  # Dashboard eingerichtet (DASHBOARD_URL): Code-Threads bedienen den Server-Stack ihres Projekts
         tools += server_tools.spec()
+    if device_tools.enabled():  # IDA Health eingerichtet (HEALTH_URL): Geräte mit ida-connect – Ida und Code-Threads (nur Geräte des Projekts)
+        tools += device_tools.spec()
     if voice_tools.enabled():  # Voice-Dienst eingerichtet (VOICE_URL): Stella telefoniert
         tools += [(VOICE, n, d, schema) for n, d, schema in voice_tools.spec()]
     # Spotify: Ida und Stella; am Lautsprecher gehen Pause/Weiter/Lautstärke auch ohne Spotify-Anmeldung
@@ -156,6 +158,8 @@ def _allowed(who: str, name: str, me: Identity) -> bool:
         return bool(me.chat_id)  # nur dort gibt es einen Chat zum Zeigen, nicht im Telefonat oder in Hintergrundläufen
     if who == CODE:
         return me.code and bool(me.chat_id)
+    if who == device_tools.DEVICES:
+        return (me.code and bool(me.chat_id)) or (me.is_main and not me.code)
     if who == VOICE:
         return me.is_main or me.agent_id == get_settings().voice_agent
     if who == ALL:
@@ -510,6 +514,7 @@ async def handle(token: str, msg: dict) -> dict | None | bool:
     if method == "ping":
         return reply({})
     if method == "tools/list":
+        await device_tools.load()
         async with session_scope() as db:
             ids = await _ids(db)
         return reply({"tools": [{"name": n, "description": d, "inputSchema": schema} for who, n, d, schema in _spec(ids) if _allowed(who, n, me)]})
@@ -523,6 +528,15 @@ async def handle(token: str, msg: dict) -> dict | None | bool:
                 if not server_tools.enabled() or not _allowed(CODE, pname, me):
                     raise Invalid("server_* gibt es nur in Code-Threads mit eingerichtetem Dashboard")
                 out = await server_tools.call(me, pname, p.get("arguments") or {})
+            except (Invalid, NotFound) as e:
+                out = {"error": str(e)}
+            return reply({"content": [{"type": "text", "text": json.dumps(out, ensure_ascii=False, default=str)}], "isError": bool(out.get("error"))})
+        if str(p.get("name") or "").startswith("geraet"):  # Geräte über IDA Health: wartet ggf. auf Freigabe/Update – ohne Datenbank-Sitzung
+            pname = str(p.get("name"))
+            try:
+                if not device_tools.enabled() or not _allowed(device_tools.DEVICES, pname, me):
+                    raise Invalid("geraet_* gibt es nur für Ida und in Code-Threads (IDA Health eingerichtet)")
+                out = await device_tools.call(me, pname, p.get("arguments") or {})
             except (Invalid, NotFound) as e:
                 out = {"error": str(e)}
             return reply({"content": [{"type": "text", "text": json.dumps(out, ensure_ascii=False, default=str)}], "isError": bool(out.get("error"))})

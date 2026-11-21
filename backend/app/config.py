@@ -74,6 +74,10 @@ class Settings(BaseSettings):
     dashboard_public_url: str = ""
     dashboard_url: str = ""  # intern, z. B. http://dashboard:8000 – Code-Threads bedienen damit den Server-Stack ihres Projekts; leer = aus
 
+    # IDA Health (eigener Dienst, siehe docs/HEALTH.md): Geräte mit ida-connect – geraet_*-Tools für Ida und Code-Threads; leer = aus
+    health_url: str = ""  # intern, z. B. http://health:8000
+    health_ida_token: str = ""
+
     # Stella / Live-Sprache (eigener Container „voice“ aus demselben Image, siehe docs/STELLA.md).
     # In IDA: wo der Voice-Dienst intern läuft, das gemeinsame Geheimnis und die öffentliche Adresse (Browser + Telnyx).
     voice_url: str = ""  # z. B. http://voice:8000; leer = Live-Gespräch und Anrufe aus
@@ -89,7 +93,7 @@ class Settings(BaseSettings):
                              "web_suchen,web_lesen,agent_delegate,stundenplan,vertretungen,ausfaelle,sofia_list_homework,google_termine_liste,google_mails_suchen,"
                              "homeassistant_zustand_lesen,homeassistant_einschalten,homeassistant_ausschalten,musik_spielen,musik_steuern,musik_status")
     # Im Gespräch nie erlaubt (Muster gegen den Tool-Namen)
-    voice_deny_tools: str = ("ssh_*,cloudflare_*,code_*,stella_*,agent_create,agent_update,agent_delete,skill_create,skill_update,"
+    voice_deny_tools: str = ("ssh_*,cloudflare_*,code_*,stella_*,geraet*,agent_create,agent_update,agent_delete,skill_create,skill_update,"
                              "skill_delete,routine_delete,tracker_delete,memory_delete")
     # Im Voice-Container: wie er IDA erreicht, Gemini Live und Telnyx
     voice_ida_url: str = "http://app:8000"

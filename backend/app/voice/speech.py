@@ -128,8 +128,35 @@ def speakable(text: str) -> str:
     return text.strip()
 
 
-async def synthesize(settings, text: str, voice: str, speed: float = 1.0, transport: httpx.AsyncBaseTransport | None = None) -> bytes:
-    """Text -> PCM 24 kHz mono über den Piper-Dienst."""
+def hq_resample(pcm: bytes, rate: int, to: int = OUT_RATE) -> bytes:
+    """Saubere Umrechnung (FFT, ohne Aliasing) für kurze, gespeicherte Ansagen; Stille vorn/hinten weg, weiche Ränder."""
+    import numpy as np
+    x = np.frombuffer(pcm, dtype="<i2").astype(np.float64)
+    if x.size == 0:
+        return pcm
+    loud = np.nonzero(np.abs(x) > 300)[0]  # Piper setzt Stille davor und danach: kostet bei Floskeln Zeit
+    if loud.size:
+        pad = int(rate * 0.03)
+        x = x[max(0, loud[0] - pad): loud[-1] + pad]
+    if rate != to:
+        n = int(round(x.size * to / rate))
+        spec = np.fft.rfft(x)
+        spec_to = np.zeros(n // 2 + 1, dtype=complex)
+        k = min(spec.size, spec_to.size)
+        spec_to[:k] = spec[:k]
+        out = np.fft.irfft(spec_to, n) * (n / x.size)
+        x = out
+    fade = min(int(to * 0.008), x.size // 2)
+    if fade:
+        ramp = np.linspace(0.0, 1.0, fade)
+        x[:fade] *= ramp
+        x[-fade:] *= ramp[::-1]
+    return np.clip(np.round(x), -32768, 32767).astype("<i2").tobytes()
+
+
+async def synthesize(settings, text: str, voice: str, speed: float = 1.0, transport: httpx.AsyncBaseTransport | None = None,
+                     hq: bool = False) -> bytes:
+    """Text -> PCM 24 kHz mono über den Piper-Dienst. hq: saubere Umrechnung und ohne Stille (für gespeicherte Ansagen)."""
     if not settings.piper_url:
         raise SpeechError("Piper ist nicht eingerichtet (PIPER_URL)")
     async with httpx.AsyncClient(timeout=120, transport=transport) as c:
@@ -137,7 +164,7 @@ async def synthesize(settings, text: str, voice: str, speed: float = 1.0, transp
     if r.status_code != 200:
         raise SpeechError(f"Piper {r.status_code}: {r.text[:200]}")
     pcm, rate = read_wav(r.content)
-    return resample(pcm, rate)
+    return hq_resample(pcm, rate) if hq else resample(pcm, rate)
 
 
 # Satzende: Satzzeichen + Leerraum. Nicht nach Zahlen („am 3. Mai“) und gängigen Abkürzungen.

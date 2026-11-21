@@ -92,7 +92,7 @@ async def send_music(sink, cmd: dict) -> None:
     """Musik-Befehl an den Lautsprecher (nur WebSink am ida-speaker kann das; Telefon und Browser ignorieren ihn)."""
     music = getattr(sink, "music", None)
     if music:
-        await music({k: cmd.get(k) for k in ("action", "value", "uri") if cmd.get(k) is not None})
+        await music({k: cmd.get(k) for k in ("type", "action", "value", "uri", "due", "label", "alarm") if cmd.get(k) is not None})
 
 
 def declarations(tools: list[dict]) -> list[dict]:

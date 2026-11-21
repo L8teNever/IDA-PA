@@ -1,0 +1,123 @@
+/* IDA Health – baut auf dashboard.css auf (Kacheln, Karten, Diagramme, Dialoge); hier nur das Eigene. */
+#app.hp-app { display: block; overflow-y: auto; height: 100dvh; padding: 12px 12px 48px; }
+.hp-top { position: sticky; top: 0; z-index: 10; display: flex; align-items: center; gap: 10px; min-height: 56px; padding: 6px 8px 6px 16px; border-radius: 28px;
+  background: rgba(18, 19, 22, .86); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); margin: 0 auto 12px; max-width: 1280px; }
+.hp-top h1 { margin: 0; font-size: 19px; font-weight: 500; display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
+.hp-top h1 .ms { color: var(--accent); }
+.hp-top h1 small { color: var(--muted); font-size: 13px; font-weight: 400; }
+.hp-top .hp-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.hp-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; }
+.hp-dev { background: var(--surface); border-radius: 28px; padding: 16px 18px 14px; display: flex; flex-direction: column; gap: 10px; cursor: pointer; text-decoration: none; color: inherit;
+  transition: background .2s var(--emph), transform .2s var(--spring); position: relative; overflow: hidden; }
+.hp-dev:hover { background: var(--surface-high); }
+.hp-dev:active { transform: scale(.985); }
+.hp-dev.off { opacity: .62; }
+.hp-dev-head { display: flex; align-items: center; gap: 10px; }
+.hp-dev-ic { width: 42px; height: 42px; border-radius: 14px; display: grid; place-items: center; background: var(--container); color: var(--on-container); flex: none; }
+.hp-dev-name { font-size: 16px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hp-dev-sub { font-size: 12.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hp-dot { width: 9px; height: 9px; border-radius: 50%; background: #5f6368; flex: none; display: inline-block; }
+.hp-dot.ok { background: var(--ok); box-shadow: 0 0 8px var(--ok); }
+.hp-kv { display: grid; grid-template-columns: auto 1fr auto; gap: 6px 10px; align-items: center; font-size: 13px; }
+.hp-kv span:first-child { color: var(--muted); display: inline-flex; align-items: center; gap: 6px; }
+.hp-kv span:first-child .ms { font-size: 17px; color: var(--accent); }
+.hp-kv b { font-weight: 500; text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.hp-dev .spark { width: 100%; height: 34px; display: block; margin-top: 2px; }
+.hp-empty { text-align: center; padding: 60px 20px; color: var(--muted); display: flex; flex-direction: column; align-items: center; gap: 14px; }
+.hp-empty .ms { font-size: 54px; color: var(--accent); }
+
+.hp-tabs { margin: 0 auto 12px; max-width: 1280px; display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; }
+.hp-tabs::-webkit-scrollbar { display: none; }
+.hp-tabs button { border: 0; background: var(--surface); color: var(--muted); font: inherit; font-size: 14px; font-weight: 500; padding: 10px 16px; border-radius: 999px; display: inline-flex; gap: 6px;
+  align-items: center; cursor: pointer; white-space: nowrap; transition: background .2s, color .2s; }
+.hp-tabs button .ms { font-size: 19px; }
+.hp-tabs button.on { background: var(--container); color: var(--on-container); }
+.hp-tabs button:disabled { opacity: .4; cursor: default; }
+
+.hp-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 12px; }
+.hp-list { display: flex; flex-direction: column; gap: 2px; }
+.hp-row { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 14px; font-size: 13.5px; min-width: 0; }
+.hp-row:hover { background: var(--surface-high); }
+.hp-row .grow { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hp-row .num { font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--muted); }
+.hp-row .bar { width: 90px; }
+.hp-row .ms { font-size: 20px; color: var(--muted); }
+.hp-cores { display: grid; grid-template-columns: repeat(auto-fill, minmax(70px, 1fr)); gap: 8px; }
+.hp-core { background: var(--surface-high); border-radius: 12px; padding: 6px 8px; font-size: 11.5px; color: var(--muted); display: flex; flex-direction: column; gap: 4px; }
+.hp-core b { color: var(--on-surface); font-weight: 500; font-size: 13px; font-variant-numeric: tabular-nums; }
+
+/* Terminal */
+.hp-term { background: #08090c; border-radius: 24px; padding: 10px; height: calc(100dvh - 210px); min-height: 320px; overflow: hidden; }
+.hp-term .xterm { height: 100%; }
+.hp-term-bar { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+
+/* Dateien */
+.hp-crumbs { display: flex; flex-wrap: wrap; gap: 2px; align-items: center; font-size: 14px; }
+.hp-crumbs button { border: 0; background: none; color: var(--on-surface); font: inherit; padding: 4px 8px; border-radius: 10px; cursor: pointer; }
+.hp-crumbs button:hover { background: var(--surface-high); }
+.hp-crumbs span { color: var(--muted); }
+.hp-files .hp-row { cursor: pointer; }
+.hp-files .hp-row .ms.d { color: var(--accent); }
+.hp-files .acts { display: flex; gap: 2px; opacity: 0; transition: opacity .15s; }
+.hp-files .hp-row:hover .acts, .hp-files .hp-row:focus-within .acts { opacity: 1; }
+@media (hover: none) { .hp-files .acts { opacity: 1; } }
+.hp-editor { width: 100%; min-height: 55vh; background: #08090c; color: var(--on-surface); border: 1px solid var(--border-subtle); border-radius: 14px; padding: 12px; font-family: var(--mono);
+  font-size: 12.5px; line-height: 1.5; resize: vertical; outline: none; tab-size: 4; white-space: pre; }
+.hp-editor:focus { border-color: var(--accent); }
+
+/* Docker */
+.hp-stack { background: var(--surface-high); border-radius: 20px; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; }
+.hp-stack-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.hp-stack-head b { font-weight: 500; font-size: 15px; }
+.hp-ctr { display: flex; align-items: center; gap: 8px; font-size: 13px; padding: 4px 0; flex-wrap: wrap; }
+.hp-ctr .grow { flex: 1; min-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.hp-cmd { display: flex; gap: 8px; align-items: center; background: #08090c; border-radius: 14px; padding: 10px 12px; font-family: var(--mono); font-size: 12.5px; word-break: break-all; }
+.hp-cmd code { background: none; padding: 0; flex: 1; }
+.hp-check { display: flex; gap: 10px; align-items: center; font-size: 14px; cursor: pointer; }
+.hp-check input { width: 18px; height: 18px; accent-color: var(--accent); }
+.hp-form { display: flex; flex-direction: column; gap: 12px; }
+.hp-form label { display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: var(--muted); }
+
+/* Bestätigungsseite beim Koppeln (server-seitig) */
+body.hp-page { overflow: auto; display: block; height: auto; min-height: 100dvh; }
+.hp-pair { max-width: 520px; margin: 8vh auto; background: var(--surface); border-radius: 28px; padding: 24px; display: flex; flex-direction: column; gap: 14px; }
+.hp-pair h1 { margin: 0; font-size: 22px; font-weight: 500; display: flex; gap: 10px; align-items: center; }
+.hp-pair h1 .ms { color: var(--accent); }
+.hp-pair p { margin: 0; color: var(--muted); line-height: 1.55; }
+.hp-pair dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 16px; margin: 0; }
+.hp-pair dt { color: var(--muted); }
+.hp-pair dd { margin: 0; }
+.hp-pair form { display: flex; flex-direction: column; gap: 14px; }
+.hp-pair label { display: flex; flex-direction: column; gap: 6px; color: var(--muted); font-size: 13px; }
+.hp-pair label.hp-check { flex-direction: row; color: var(--on-surface); font-size: 14px; }
+.hp-pair label.hp-check small { color: var(--muted); }
+.hp-pair input:not([type=checkbox]) { background: var(--surface-highest); border: 0; border-radius: 14px; padding: 12px 14px; color: var(--on-surface); font: inherit; outline: none; }
+.hp-row-btns, .hp-pair .hp-row { display: flex; gap: 8px; justify-content: flex-end; }
+.hp-btn { border: 0; border-radius: 999px; padding: 0 20px; height: 42px; display: inline-flex; align-items: center; font: inherit; font-weight: 500; cursor: pointer; text-decoration: none;
+  background: var(--surface-highest); color: var(--on-surface); }
+.hp-btn.primary { background: var(--accent); color: var(--on-accent); }
+.hp-pair .hp-warn { color: var(--warn, #fbbc6e); background: #53422f; border-radius: 14px; padding: 10px 12px; display: flex; gap: 8px; align-items: flex-start; }
+
+/* Einstellungen */
+.hp-stats { display: flex; flex-direction: column; gap: 6px; }
+.hp-stat { display: flex; gap: 10px; align-items: center; font-size: 14px; padding: 8px 12px; border-radius: 14px; background: var(--surface-high); }
+.hp-stat.ok .ms { color: var(--ok); } .hp-stat.warn .ms { color: var(--warn); }
+.hp-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px 18px; }
+.hp-field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.hp-field-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 14px; }
+.hp-field-head b { font-weight: 500; }
+.hp-field small { color: var(--muted); font-size: 12px; line-height: 1.45; }
+.hp-reset { border: 0; background: none; color: var(--accent); font: inherit; font-size: 12px; cursor: pointer; padding: 0; }
+.btn-primary.sm { height: 32px; padding: 0 12px; font-size: 12.5px; }
+.btn-primary.sm .ms { font-size: 17px; }
+.hp-login { min-height: 100dvh; display: grid; place-items: center; padding: 16px; }
+.hp-login-card { width: min(480px, 100%); background: var(--surface); border-radius: 28px; padding: 24px; display: flex; flex-direction: column; gap: 14px; }
+.hp-login-card h1 { margin: 0; font-size: 22px; font-weight: 500; display: flex; gap: 10px; align-items: center; }
+.hp-login-card h1 .ms { color: var(--accent); }
+.hp-login-card p { margin: 0; color: var(--muted); line-height: 1.55; }
+.hp-help summary { color: var(--muted); cursor: pointer; font-size: 13px; }
+.hp-help p { font-size: 13px; margin-top: 8px; }
+.ferr { color: var(--err); font-size: 13px; min-height: 1em; }
+.hp-sub-head { display: flex; gap: 8px; align-items: baseline; margin: 18px 0 6px; padding-top: 14px; border-top: 1px solid var(--outline-variant, #2a2c31); }

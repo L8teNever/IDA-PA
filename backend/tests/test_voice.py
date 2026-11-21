@@ -603,7 +603,7 @@ def test_speaker_extras_only_for_device_ticket(monkeypatch):
     assert extra["device"] == "wohnzimmer" and extra["smart_home"] is True and len(extra["prompt"]) == 4000
     assert web.take_extra(t) is None  # nur einmal
     t2 = c.post("/device/ticket", headers=h).json()["ticket"]  # ohne Body: keine Extras, aber gültig
-    assert web.take_extra(t2) == {"device": "wohnzimmer", "prompt": "", "smart_home": False, "name": "", "voice": "", "oneshot": False, "spotify": ""}
+    assert web.take_extra(t2) == {"device": "wohnzimmer", "prompt": "", "smart_home": False, "name": "", "voice": "", "oneshot": False, "spotify": "", "timers": []}
     assert web.take_extra(web.make_ticket("geheim")) is None  # Tickets der App haben nie Extras
 
 
@@ -970,7 +970,7 @@ def test_speaker_phrases_and_fillers(monkeypatch):
     monkeypatch.setattr(s, "voice_secret", "geheim")
     monkeypatch.setattr(s, "voice_devices", "wohnzimmer")
 
-    async def fake_tts(settings, text, voice, speed=1.0, transport=None):
+    async def fake_tts(settings, text, voice, speed=1.0, transport=None, hq=False):
         return b"\x01\x00" * 10
     monkeypatch.setattr(speech, "synthesize", fake_tts)
     c = TestClient(create_app(phone=object()))
@@ -981,3 +981,21 @@ def test_speaker_phrases_and_fillers(monkeypatch):
     assert c.post("/device/phrase/nix", headers=h).status_code == 404
     assert c.post("/device/phrases", headers={"x-device-name": "wohnzimmer", "x-device-key": "falsch"}).status_code == 403
     assert pipeline.filler_kind("homeassistant_einschalten") == "do" and pipeline.filler_kind("web_suchen") == "wait"
+
+
+def test_speaker_timers():
+    from datetime import datetime
+    from app.services import voice_bridge as vb
+    from app.services.schedule import tz
+    sess = vb.Session(call_id="wt", agent_id="stella", owner=True, direction="web", number="", purpose="",
+                      speaker={"device": "kueche", "timers": []})
+    out = vb.speaker_timer(sess, "timer_stellen", {"minuten": 10, "name": "Nudeln"})
+    cmd = out[vb.SPEAKER_KEY]
+    assert cmd["type"] == "timer" and cmd["action"] == "set" and cmd["label"] == "Nudeln" and not cmd["alarm"]
+    assert abs(cmd["due"] - datetime.now(tz()).timestamp() - 600) < 5
+    wake = vb.speaker_timer(sess, "timer_stellen", {"uhrzeit": "7:30"})[vb.SPEAKER_KEY]
+    assert wake["alarm"] and datetime.fromtimestamp(wake["due"], tz()).strftime("%H:%M") == "07:30"
+    assert [t["name"] for t in vb.speaker_timer(sess, "timer_liste", {})["timer"]] == ["Nudeln", "Wecker"]
+    assert vb.speaker_timer(sess, "timer_loeschen", {"name": "nudeln"})[vb.SPEAKER_KEY] == {"type": "timer", "action": "cancel", "label": "Nudeln"}
+    assert "error" in vb.speaker_timer(sess, "timer_stellen", {})
+    assert "timer_stellen" in {t["name"] for t in vb.TIMER_TOOLS} and "timer_stellen" in vb._speaker_block({"device": "x"})

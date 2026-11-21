@@ -86,7 +86,7 @@ GitHub Actions testet bei jedem Push gegen SQLite **und** PostgreSQL und baut da
 Details zum Umbau und zu den Entscheidungen: [docs/PLAN.md](docs/PLAN.md).
 
 Eigene Apps im Stack (eigener Port, eigene PWA): Kalender ([docs/KALENDER.md](docs/KALENDER.md)), Wiki ([docs/WIKI.md](docs/WIKI.md)),
-Code ([docs/CODE.md](docs/CODE.md)), Dashboard für den Server – Docker-Stacks, Leistung, Speicher ([docs/DASHBOARD.md](docs/DASHBOARD.md)) – und IDA Server zum Einrichten: Websites, Veröffentlichen über den Tunnel, Stacks, Dateien ([docs/SERVER.md](docs/SERVER.md)).
+Code ([docs/CODE.md](docs/CODE.md)), Dashboard für den Server – Docker-Stacks, Leistung, Speicher ([docs/DASHBOARD.md](docs/DASHBOARD.md)) – und IDA Server zum Einrichten: Websites, Veröffentlichen über den Tunnel, Stacks, Dateien ([docs/SERVER.md](docs/SERVER.md)). IDA Health zeigt und bedient deine Geräte mit dem Agenten ida-connect – Messwerte im Verlauf, Shell, Dateien, Docker, Updates, Cloudflare Mesh ([docs/HEALTH.md](docs/HEALTH.md)).
 Tasks – Aufgaben-App mit Wischen (heute, geplant, erledigt) und Stella im Aufgaben-Modus ([docs/TASKS.md](docs/TASKS.md)).
 IDA Mail – Gmail im IDA-Stil: lesen, schreiben, antworten, live ([docs/MAIL.md](docs/MAIL.md)).
 IDA HTML – Code-Editor mit Live-Vorschau im Browser ([docs/HTML.md](docs/HTML.md)).

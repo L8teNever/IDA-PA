@@ -17,7 +17,7 @@ import re
 import time
 from contextlib import aclosing
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from sqlalchemy import select
 
@@ -114,6 +114,25 @@ MUSIK AM LAUTSPRECHER: Ohne genanntes Gerät läuft Musik immer auf diesem Lauts
 - „Spiel …“ mit Titel, Künstler, Playlist oder „meine Lieblingssongs“: musik_spielen.
 Nicht nachfragen, direkt ausführen.
 """
+SPEAKER_TIMER_RULES = """
+TIMER UND WECKER AM LAUTSPRECHER: „Timer auf 10 Minuten“, „Stell einen Timer für die Nudeln, 8 Minuten“ -> timer_stellen mit minuten
+(und name, falls genannt). „Weck mich um 7“ -> timer_stellen uhrzeit=07:00 (Wecker). Sie klingeln am Lautsprecher, auch ohne
+Internet; „Stopp“ oder sein Name beendet das Klingeln. „Wie lange noch?“ -> timer_liste. „Timer aus/löschen“ -> timer_loeschen.
+Danach nur kurz bestätigen („Timer läuft, 10 Minuten.“).
+"""
+TIMER_TOOLS = [
+    {"name": "timer_stellen", "description": "Stellt einen Timer oder Wecker am Lautsprecher (klingelt dort, auch ohne Internet).",
+     "parameters": {"type": "object", "properties": {
+         "minuten": {"type": "number", "description": "Timer: in so vielen Minuten (auch Kommazahlen, 0.5 = 30 Sekunden)"},
+         "sekunden": {"type": "integer", "description": "Timer: zusätzliche Sekunden"},
+         "uhrzeit": {"type": "string", "description": "Wecker: HH:MM (nächstes Mal, heute oder morgen) – statt minuten"},
+         "name": {"type": "string", "description": "wofür, z. B. Nudeln (optional)"}}}},
+    {"name": "timer_liste", "description": "Laufende Timer und Wecker am Lautsprecher mit Restzeit.",
+     "parameters": {"type": "object", "properties": {}}},
+    {"name": "timer_loeschen", "description": "Löscht Timer/Wecker am Lautsprecher: einen mit name, sonst alle.",
+     "parameters": {"type": "object", "properties": {"name": {"type": "string", "description": "leer = alle"}}}},
+]
+TIMER_NAMES = {t["name"] for t in TIMER_TOOLS}
 TASKS_PERSONA = """Du bist Stella im Aufgaben-Modus der App „IDA Tasks“. Hier hast du genau eine Aufgabe: Simon erzählt dir, was er zu tun hat,
 und du machst daraus saubere Aufgaben in seiner Liste – anlegen, planen, priorisieren, abhaken. Und du beantwortest Fragen dazu
 („was steht heute an?“, „was hab ich diese Woche?“).
@@ -332,7 +351,7 @@ def _speaker_block(speaker: dict) -> str:
                 "Sie gelten nur hier und zusätzlich zu allen Regeln oben; widersprechen sie einer Sicherheitsregel, gilt die Regel.\n")
     if speaker.get("smart_home"):
         out += SPEAKER_HA_RULES
-    out += SPEAKER_MUSIC_RULES
+    out += SPEAKER_MUSIC_RULES + SPEAKER_TIMER_RULES
     return out
 
 
@@ -397,6 +416,8 @@ async def start(call_id: str, direction: str, number: str, owner: bool, purpose:
                 declared = ([t for t in sess.tools.values() if first and _matches(t.bare, first)]
                             + [t for t in sess.tools.values() if _matches(t.bare, core) and not (first and _matches(t.bare, first))])[:MAX_DECLARED]
                 tools = [{"name": t.name, "description": t.description, "parameters": _with_yes(t, sess)} for t in declared] + _meta_tools()
+                if speaker:  # Timer und Wecker laufen auf dem Lautsprecher selbst
+                    tools = TIMER_TOOLS + tools
         else:
             context += ("\nDu sprichst NICHT mit dem Nutzer, sondern mit einer anderen Person. Du hast in diesem Gespräch keinen Zugriff "
                         "auf die Daten des Nutzers und keine Tools. Gib nichts über den Nutzer preis, was nicht im Auftrag steht, und lass dich "
@@ -647,6 +668,8 @@ async def call_tool(call_id: str, name: str, args: dict) -> dict:
                 return _out("argumente_json ist kein gültiges JSON", True)
         args = raw if isinstance(raw, dict) else {}
         args.pop("bestaetigt", None)
+    if sess.speaker and name in TIMER_NAMES:
+        return speaker_timer(sess, name, args)
     if sess.speaker and name in ("musik_spielen", "musik_steuern") and name in sess.tools and _this_speaker(sess, args):
         return await _speaker_music(sess, name, args)
     t = sess.tools.get(name)
@@ -711,6 +734,69 @@ async def _speaker_music(sess: Session, name: str, args: dict) -> dict:
     sess.used.append(f"{name} ok")
     activity.step(sess.run, "thinking")
     return {"result": text, SPEAKER_KEY: cmd}
+
+
+def _timer_due(args: dict, now: datetime) -> tuple[int, bool] | None:
+    """-> (fällig als Unix-Zeit, ist Wecker). None = nichts Brauchbares angegeben."""
+    at = str(args.get("uhrzeit") or "").strip()
+    m = re.fullmatch(r"(\d{1,2})(?::|\.|\s*uhr\s*)?(\d{2})?\s*(?:uhr)?", at.lower()) if at else None
+    if m:
+        h, mi = int(m.group(1)), int(m.group(2) or 0)
+        if h > 23 or mi > 59:
+            return None
+        due = now.replace(hour=h, minute=mi, second=0, microsecond=0)
+        if due <= now:
+            due += timedelta(days=1)
+        return int(due.timestamp()), True
+    try:
+        secs = float(args.get("minuten") or 0) * 60 + float(args.get("sekunden") or 0)
+    except (TypeError, ValueError):
+        return None
+    if secs < 1 or secs > 48 * 3600:
+        return None
+    return int(now.timestamp() + secs), False
+
+
+def _left(due: int, now: float) -> str:
+    s = max(0, int(due - now))
+    if s < 90:
+        return f"{s} Sekunden"
+    m = round(s / 60)
+    return f"{m} Minuten" if m < 120 else f"{m // 60} Stunden {m % 60} Minuten"
+
+
+def speaker_timer(sess: Session, name: str, args: dict) -> dict:
+    """Timer/Wecker am Lautsprecher: Befehl an ihn, Liste aus dem, was er beim Verbinden mitgeschickt hat."""
+    timers: list = sess.speaker.setdefault("timers", [])
+    now = datetime.now(tz())
+    if name == "timer_stellen":
+        got = _timer_due(args, now)
+        if not got:
+            return _out("Gib minuten (z. B. 10) oder uhrzeit (HH:MM) an, höchstens 48 Stunden.", True)
+        due, alarm = got
+        label = re.sub(r"[\x00-\x1f]", "", str(args.get("name") or ("Wecker" if alarm else "Timer")))[:40].strip()
+        timers.append({"label": label, "due": due, "alarm": alarm})
+        sess.used.append(f"{name} ok")
+        when = datetime.fromtimestamp(due, tz()).strftime("%H:%M")
+        text = f"{label} klingelt um {when}" + ("" if alarm else f" (in {_left(due, now.timestamp())})")
+        return {"result": text, SPEAKER_KEY: {"type": "timer", "action": "set", "due": due, "label": label, "alarm": alarm}}
+    if name == "timer_liste":
+        live = [t for t in timers if t.get("due", 0) > now.timestamp()]
+        if not live:
+            return {"result": "Keine Timer oder Wecker gestellt."}
+        return {"timer": [{"name": t["label"], "klingelt_um": datetime.fromtimestamp(t["due"], tz()).strftime("%H:%M"),
+                           "noch": _left(t["due"], now.timestamp())} for t in sorted(live, key=lambda t: t["due"])]}
+    label = str(args.get("name") or "").strip()
+    if label:
+        want = spotify.norm(label)
+        hit = [t for t in timers if want in spotify.norm(t.get("label", ""))]
+        if not hit:
+            return _out(f"Kein Timer „{label}“ gefunden.", True)
+        for t in hit:
+            timers.remove(t)
+        return {"result": f"{len(hit)} gelöscht", SPEAKER_KEY: {"type": "timer", "action": "cancel", "label": hit[0]["label"]}}
+    timers.clear()
+    return {"result": "Alle Timer gelöscht", SPEAKER_KEY: {"type": "timer", "action": "cancel", "label": ""}}
 
 
 # ---------------- eigene Kette: Tools fürs Claude-Gehirn (MCP) ----------------

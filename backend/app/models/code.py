@@ -19,5 +19,6 @@ class CodeProject(Timestamps, Base):
     status_text: Mapped[str] = mapped_column(Text, default="")
     server_stack: Mapped[str | None] = mapped_column(String(120), default=None)  # erster der server_stacks (ältere Stände kannten nur einen)
     server_stacks: Mapped[list] = mapped_column(Json, default=list)  # Docker-Stacks auf dem Server (Dashboard), die zum Projekt gehören
+    devices: Mapped[list] = mapped_column(Json, default=list)  # Geräte aus IDA Health (ida-connect), auf die die Threads zugreifen dürfen (ids)
     # Kontext vom Nutzer: steht in jedem Thread des Projekts im Prompt (z. B. worum es geht, Zugänge, Regeln)
     context: Mapped[str] = mapped_column(Text, default="", server_default="")

@@ -21,3 +21,5 @@ tasks/tests
 tasks/.pytest_cache
 google/tests
 google/.pytest_cache
+health/tests
+health/.pytest_cache
