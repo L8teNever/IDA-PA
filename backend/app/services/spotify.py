@@ -16,11 +16,13 @@ from . import settings_store
 from .errors import Invalid
 
 KEY = "spotify_auth"
-SCOPES = "user-read-private user-read-playback-state user-modify-playback-state user-read-currently-playing"  # Suche braucht seit 2026 user-read-private
+# Suche braucht seit 2026 user-read-private; eigene Playlists und Lieblingssongs: playlist-read-*, user-library-read
+SCOPES = ("user-read-private user-read-playback-state user-modify-playback-state user-read-currently-playing "
+          "playlist-read-private playlist-read-collaborative user-library-read")
 API = "https://api.spotify.com/v1"
 TOKEN_URL = "https://accounts.spotify.com/api/token"
 
-KINDS = {"lied": "track", "album": "album", "playlist": "playlist", "kuenstler": "artist", "podcast": "show"}
+KINDS = {"lieblingssongs": "collection", "lied": "track", "album": "album", "playlist": "playlist", "kuenstler": "artist", "podcast": "show"}
 
 _states: dict[str, float] = {}  # Anmeldung läuft: state -> Ablauf
 _access: dict = {}  # {"token", "until"} im Speicher
@@ -164,8 +166,50 @@ async def _device_id(name: str) -> str | None:
     return d["id"]
 
 
+LIKED_WORDS = ("lieblingssong", "lieblingslied", "lieblingsmusik", "likedsongs", "gelikt", "gelike", "favoriten", "meinesongs", "meinemusik")
+
+
+def wants_liked(query: str, kind: str = "") -> bool:
+    q = norm(query)
+    return kind == "lieblingssongs" or any(w in q for w in LIKED_WORDS)
+
+
+def _playlist_name(query: str) -> str:
+    """„die Playlist Chill“ / „meine Chill-Playlist“ -> „Chill“."""
+    words = [w for w in query.replace("-", " ").split() if norm(w) not in ("die", "meine", "mein", "playlist", "liste", "von", "mir")]
+    return " ".join(words) or query
+
+
+async def own_playlist(query: str) -> dict | None:
+    """Eigene (und gefolgte) Playlists: genauer Name, sonst enthalten. None = keine passende."""
+    want = norm(_playlist_name(query))
+    if not want:
+        return None
+    found: list[dict] = []
+    for offset in range(0, 300, 50):
+        data = await _api("GET", "/me/playlists", params={"limit": 50, "offset": offset})
+        items = [i for i in data.get("items") or [] if i]
+        found += items
+        if len(items) < 50:
+            break
+    exact = next((p for p in found if norm(p.get("name", "")) == want), None)
+    hit = exact or next((p for p in found if want in norm(p.get("name", "")) or norm(p.get("name", "")) in want and norm(p.get("name", ""))), None)
+    return {"uri": hit["uri"], "titel": f"deine Playlist {hit.get('name')}"} if hit and hit.get("uri") else None
+
+
 async def search(query: str, kind: str = "") -> dict:
-    """Bestes Ergebnis zu einer Suche -> {"uri", "titel"}. kind: lied, album, playlist, kuenstler, podcast (leer = Lied)."""
+    """Bestes Ergebnis -> {"uri", "titel"}. kind: lieblingssongs, lied, album, playlist, kuenstler, podcast (leer = Lied).
+    Lieblingssongs -> gelikte Songs; Playlist -> zuerst die eigenen Playlists, dann die Spotify-Suche."""
+    if wants_liked(query, kind):
+        me = await _api("GET", "/me")
+        if not me.get("id"):
+            raise Invalid("Spotify: Konto nicht gefunden")
+        return {"uri": f"spotify:user:{me['id']}:collection", "titel": "deine Lieblingssongs"}
+    if kind == "playlist" or "playlist" in query.lower():
+        mine = await own_playlist(query)
+        if mine:
+            return mine
+        kind, query = "playlist", _playlist_name(query)
     t = KINDS.get(kind, "track")
     data = await _api("GET", "/search", params={"q": query[:200], "type": t, "limit": 1, "market": "from_token"})
     items = ((data.get(t + "s") or {}).get("items") or [])

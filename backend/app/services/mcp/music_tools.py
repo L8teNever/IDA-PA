@@ -16,9 +16,12 @@ def spec() -> list[tuple[str, str, dict]]:
     obj = lambda props, req=(): {"type": "object", "properties": props, **({"required": list(req)} if req else {})}  # noqa: E731
     return [
         ("musik_spielen", "Spielt Musik von Spotify: sucht Lied, Album, Playlist, Künstler oder Podcast und startet es. "
-                          "Direkt ausführen, wenn der Nutzer etwas hören will, ohne nachzufragen.",
+                          "Direkt ausführen, wenn der Nutzer etwas hören will, ohne nachzufragen. "
+                          "„Meine Lieblingssongs“ = art lieblingssongs, „Playlist XY“ = art playlist (eigene zuerst).",
          obj({"suche": {**E, "description": "Wonach gesucht wird, z. B. „Blinding Lights The Weeknd“ oder „Chill Playlist“"},
-              "art": {"type": "string", "enum": list(spotify.KINDS), "description": "Standard lied"},
+              "art": {"type": "string", "enum": list(spotify.KINDS),
+                      "description": "Standard lied. lieblingssongs = die gelikten Songs des Nutzers („spiel meine Lieblingssongs“); "
+                                     "playlist = sucht zuerst in seinen eigenen Playlists („spiel die Playlist Chill“)"},
               "geraet": GERAET}, ("suche",))),
         ("musik_steuern", "Pause, weiter, nächstes/vorheriges Lied, lauter, leiser oder Lautstärke setzen (Spotify). "
                           "uebernehmen = das, was gerade läuft oder pausiert ist (z. B. am PC), auf das Gerät holen und dort weiterspielen – "

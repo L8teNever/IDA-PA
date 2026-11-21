@@ -935,3 +935,22 @@ def test_music_reaches_the_speaker_socket():
     asyncio.run(live.send_music(WebSink(Ws()), {"action": "load", "uri": "spotify:track:x", "value": None}))
     assert sent == [{"type": "music", "action": "load", "uri": "spotify:track:x"}]
     asyncio.run(live.send_music(object(), {"action": "pause"}))  # Telefon: kein Lautsprecher, nichts passiert
+
+
+def test_spotify_liked_and_own_playlists():
+    from app.services import spotify
+    assert spotify.wants_liked("meine Lieblingssongs") and spotify.wants_liked("Liked Songs") and spotify.wants_liked("x", "lieblingssongs")
+    assert not spotify.wants_liked("Blinding Lights")
+    assert spotify._playlist_name("die Playlist Chill Abend") == "Chill Abend"
+    assert spotify._playlist_name("meine Gym-Playlist") == "Gym"
+
+    async def fake_api(method, path, **kw):
+        assert path == "/me/playlists"
+        return {"items": [{"name": "Für Siiimon.07", "uri": "spotify:playlist:a"}, {"name": "Gym Hits", "uri": "spotify:playlist:b"}]}
+    old, spotify._api = spotify._api, fake_api
+    try:
+        assert asyncio.run(spotify.own_playlist("Playlist für siiimon"))["uri"] == "spotify:playlist:a"
+        assert asyncio.run(spotify.own_playlist("meine Gym-Playlist"))["uri"] == "spotify:playlist:b"
+        assert asyncio.run(spotify.own_playlist("Playlist Jazz")) is None
+    finally:
+        spotify._api = old
